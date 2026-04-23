@@ -102,7 +102,7 @@ Preserves the hidden-gene-model pillar without the full disagreement mechanic.
 1. **Archetype count for feel test** — 3 is minimum to show disagreement; 5-8 is MVP target. Lock 3 for prototype.
 2. **Report format** — structured data → prose template, or prose-first? Recommend structured → prose templates (see `event-sourced-memory.md` bake-time template approach).
 3. **Feel-gate observer set** — user's own judgment + 2-3 trusted testers, or broader itch cohort? Recommend user + 3 testers for Month-4 speed; no broad cohort yet.
-4. **Interesting vs obscuring — how do we measure?** Proposal: after 2-week play, testers asked "did you develop preferences for specific scouts?" + "did you make transfer decisions based on which scout you trusted?" Both yes = pass.
+4. **Interesting vs obscuring — how do we measure?** Proposal: after the feel test, testers must identify at least one scout-specific trust pattern and make at least one different recruitment decision than they would have made from a neutral aggregate report. Preference without decision impact is not enough.
 
 ## Prototype gate
 
@@ -111,12 +111,13 @@ Preserves the hidden-gene-model pillar without the full disagreement mechanic.
 - 3 scout archetypes implemented
 - 10 test players generated with identity packets
 - Reports generated for each player from each scout
-- User + 3 testers play 2-week management session with these players + scouts
+- User + 3 testers play a bounded feel test with these players + scouts
+- Each tester picks 3 players to sign/avoid after seeing disagreeing reports, then repeats with a neutral aggregate report for comparison
 - Post-test interview:
   - "Which scouts did you come to trust? Why?"
   - "Did you make decisions you wouldn't have made with one neutral report?"
   - "Was the disagreement engaging or annoying?"
-- Pass criterion: ≥3 of 4 testers answer "engaging" + cite scout-specific decisions
+- Pass criterion: ≥3 of 4 testers answer "engaging", cite scout-specific decisions, and change at least one sign/avoid decision versus the neutral aggregate report
 - Fail criterion: majority "annoying" or "felt like RNG"
 
 **Pass → Phase 5 expansion of system to 5-8 archetypes + scouting UI work.**

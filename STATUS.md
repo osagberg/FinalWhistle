@@ -1,12 +1,12 @@
 # Status
 
-**Last updated**: 2026-04-22 (Phase 0 🟡 ACTIVE — Kickoff. Bootstrap complete. Design bible authoring next.)
+**Last updated**: 2026-04-23 (Phase 0 🟡 ACTIVE — Kickoff. Bootstrap complete. Design bible authoring next.)
 
 ## Currently working on
 
 **Phase 0 — Kickoff** 🟡 ACTIVE.
 
-Bootstrap executed: intake complete (5 rounds incl. GPT-5.5 collaboration), template files customized, design docs scaffolded with real content per each system's purpose/locked-decisions/MVP-boundary/deferred/open-questions/prototype-gate structure, 19 decisions logged to `SPEC.md`. MCPs inventoried; `context7` / `github` / `blender-mcp` already present. Plugins queued for user to install via `/plugin install` in next session. Ready for design-bible authoring: the design docs in `design/` are scaffolds with explicit open questions to resolve before Phase 1 kickoff.
+Bootstrap executed: intake complete (5 rounds incl. GPT-5.5 collaboration), template files customized, design docs scaffolded with real content per each system's purpose/locked-decisions/MVP-boundary/deferred/open-questions/prototype-gate structure, 19 bootstrap decisions plus 1 Codex review decision logged to `SPEC.md`. MCPs inventoried; `context7` / `github` / `blender-mcp` already present. Plugins queued for user to install via `/plugin install` in next session. Ready for design-bible authoring: the design docs in `design/` are scaffolds with explicit open questions to resolve before Phase 1 kickoff.
 
 ## Blockers
 
@@ -20,7 +20,7 @@ Bootstrap executed: intake complete (5 rounds incl. GPT-5.5 collaboration), temp
 
 ## Open questions for user
 
-- Confirm the Month-3 brutal vertical slice scope (1 match / 2 teams / 22 players / deterministic sim / 7 shot types / 3 signatures / 1 memory callback / 1 post-match development event) matches intent. See `design/month-3-vertical-slice.md`.
+- Confirm the Month-3 brutal vertical slice scope (1 match / 2 teams / 22 players / deterministic sim / 3 of 7 shot types / 3 active signatures / 1 memory callback / 1 post-match development event) matches intent. See `design/month-3-vertical-slice.md`.
 - Review design docs under `design/` — each has "Open questions" section requiring user resolution before Phase 1 / Phase 2 start.
 
 ## Next action
@@ -31,6 +31,7 @@ Close this session. Open fresh Claude Code inside `/Users/vibelogic/dev/football
 
 - 2026-04-22: Project bootstrapped from blueprint v2; composed profile (sim-management + action-character + narrative trimmings); research scope active
 - 2026-04-22: 19 initial decisions logged to `SPEC.md` decisions log (append-only)
+- 2026-04-23: Codex review appended Q32.32 fixed-point decision and tightened Month-3 slice scope
 - 2026-04-22: All 11 design docs scaffolded with real content under `design/`
 
 ---

@@ -1,3 +1,8 @@
+---
+description: Historical research report on cutting-edge mechanics and production systems. Non-binding; locked specs supersede this document.
+status: historical-brainstorm; not authoritative
+---
+
 # Cutting-Edge Systems — Final Whistle Technical Opportunities
 
 **Author:** Technical Director (Vibelogic)

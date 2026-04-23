@@ -59,7 +59,7 @@ Read in this order at session start:
 See `TECH_APPROACH.md` for full blueprint. One-line summary:
 
 - **Engine:** Unity 6 LTS (pin at Phase 3 bootstrap) + URP, Windows + Mac + Linux
-- **Canonical sim:** `MatchSim.csproj` — pure C#, zero UnityEngine references, fixed-point arithmetic for cross-platform deterministic replay
+- **Canonical sim:** `MatchSim.csproj` — pure C#, zero UnityEngine references, Q32.32 fixed-point arithmetic for cross-platform deterministic replay
 - **Ball physics:** custom deterministic sim (Rocket League lesson), not Unity PhysX
 - **UI layer:** UI Toolkit (UXML/USS) — data-bindable, hot-reload, modern
 - **Async:** UniTask

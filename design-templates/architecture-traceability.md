@@ -47,7 +47,7 @@ persistence.
 
 | Req ID | GDD | System | Requirement Summary | ADR(s) | Script(s) | SO(s) | Test File | Status |
 |---|---|---|---|---|---|---|---|---|
-| TR-<fill-in: 001> | [combat.md](../design/combat.md) | Combat | <fill-in: "hitbox resolves within 1 frame"> | ADR-0003 | `Scripts/Combat/HitResolver.cs` | `CombatRulesSO.cs` | `Tests/PlayMode/CombatTest.cs` | Covered |
+| TR-<fill-in: 001> | [match-engine.md](../design/match-engine.md) | MatchSim | <fill-in: "same seed produces same canonical hash"> | ADR-0003 | `MatchSim/Sim/Tick.cs` | `MatchConfigSO.cs` | `MatchSim.Tests/DeterminismTest.cs` | Covered |
 | TR-<fill-in: 002> | <fill-in> | <fill-in> | <fill-in> | — | — | — | — | Gap |
 
 ---

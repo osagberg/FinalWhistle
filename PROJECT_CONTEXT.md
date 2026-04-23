@@ -92,7 +92,7 @@ The memory ledger + signature system together. Every save accumulates a specific
 **Content volume:**
 - 1 fictional six-tier football pyramid (~96 clubs total, squad size 20-25 → ~2000-2400 players in active universe + youth reserves)
 - 24 pre-authored signatures (3 per role family × 8 role families)
-- 20-40 manager archetypes (behavior-tree authored; rival-manager ecosystem)
+- 20-30 manager archetypes (behavior-tree authored; rival-manager ecosystem)
 - 5-8 salience-gated narrative events per season
 - 7-shot-type semantic cinema vocabulary with stakes/memory modulation
 - Full season calendar (league + cup + promotion/relegation)

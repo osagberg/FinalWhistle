@@ -11,7 +11,7 @@ Foundation asmdef. Everything depends UP into Core; Core depends on NOTHING.
 
 ## MUST
 
-- No dependencies on Stats, Characters, Outfits, Combat, Dialog, UI, AI, Debug, Editor.
+- No dependencies on Stats, Players, Memory, MatchSim, Viewer, UI, AI, Debug, or Editor.
 - No `using UnityEngine.UI`, `UnityEngine.AI`, `Addressables` imports in pure-data types. MonoBehaviour bridges are allowed but must live in dedicated `*Behaviour.cs` files.
 - Zero-allocation in hot paths — pre-allocate buffers, reuse via `Clear()` not `new`.
 - Thread-safe utilities must document their thread contract (top-of-class XML doc).
@@ -37,6 +37,5 @@ Core is the bedrock. Every other asmdef transitively references it, so a bad dep
 
 ## References
 
-- [TECH_APPROACH.md](../../../../../TECH_APPROACH.md) §5 Assembly graph
-- [unity/assembly-definitions-skeleton.md](../../../../../unity/assembly-definitions-skeleton.md)
+- [TECH_APPROACH.md](../../../../../TECH_APPROACH.md) §7 Assembly graph
 - [CSharp/RULES.md](../../CSharp/RULES.md) for struct/class guidance

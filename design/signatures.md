@@ -72,7 +72,7 @@ See SPEC.md 2026-04-22. Summary:
 ### Winger (3)
 
 19. **Cuts inside on weaker foot** — drives from outside to inside to shoot / pass; sim bias: +cut-inside trigger freq; trigger: minutes in inverted-winger role; counterplay: show him down the line
-20. **Early whipped cross** (winger variant) — crosses early from deep width; sim bias: +early-cross freq; trigger: minutes as traditional winger; counterplay: block crosses, overload far post
+20. **Low cutback from the byline** — drives outside and cuts the ball back low from the byline; sim bias: +cutback chance after successful wide carry; trigger: byline entries as winger; counterplay: double up wide and protect penalty spot
 21. **Takes the fullback on 1v1** — isolation dribble; sim bias: +1v1-duel win rate; trigger: 1v1 duel history; counterplay: double-team
 
 ### Striker / centre-forward (3)
@@ -125,7 +125,7 @@ Signature {
 
 ## MVP boundary
 
-At Month 3 slice: 3 signatures authored end-to-end, representing 3 role families. Full lifecycle (latent → earning → breakthrough → active) demonstrable.
+At Month 3 slice: 3 signatures authored as active behaviors, representing 3 role families. The slice proves signatures alter MatchSim choices and 2D presentation. Full lifecycle (latent → earning → breakthrough → active) begins in Phase 4.
 
 At Month 5 vertical slice: 12 signatures authored (1-2 per role family, broad coverage).
 
@@ -148,7 +148,7 @@ At Month 12 EA: all 24 signatures authored, balance-harness-tuned, UI copy revie
 
 ## Prototype gate
 
-**Phase 3 Week 4 (Month-3 slice):** 3 signatures fully playable in the slice. Each has visible sim bias + stylized presentation via the 3 shot types. At least one triggers a breakthrough in the single-match slice.
+**Phase 3 Week 4 (Month-3 slice):** 3 signatures fully playable in the slice. Each has visible sim bias + stylized presentation via the 3 shot types. No breakthrough lifecycle required yet.
 
 **Phase 5 gate:** 12 signatures playable. Balance harness confirms no signature dominates or bricks player's game.
 

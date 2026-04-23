@@ -39,4 +39,4 @@ The Editor / Runtime split is enforced by asmdef platform filters; getting it wr
 ## References
 
 - [Assemblies/RULES.md](../../Assemblies/RULES.md) asmdef rules
-- [commands/audit.md](../../../../commands/audit.md)
+- [commands/audit.md](../../../commands/audit.md)

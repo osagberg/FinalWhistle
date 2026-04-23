@@ -114,7 +114,7 @@ See `.claude/commands/` for full manifest.
 
 ## 5. Hooks
 
-At `.claude/hooks/` (11 installed):
+At `.claude/hooks/` (14 installed):
 
 | Hook | Event | Purpose |
 |---|---|---|
@@ -122,8 +122,8 @@ At `.claude/hooks/` (11 installed):
 | `update-status-timestamp.sh` | Stop | Rewrite STATUS.md "Last updated" |
 | Plus 9 more shipped with blueprint v2 (session, validation, cross-platform) | | |
 
-Phase 3 to add:
-- `refresh-unity-on-script.sh` — PostToolUse on unity-mcp `manage_script` (Unity Editor refresh trigger)
+Phase 3 activation note:
+- `refresh-unity-on-script.sh` already exists, but only becomes useful after Unity MCP is installed and the Unity project exists.
 
 ---
 

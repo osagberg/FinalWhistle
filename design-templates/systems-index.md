@@ -39,7 +39,7 @@ implements it.
 
 | # | System | Category | Priority | Status | GDD | ScriptableObjects | Scripts | ADRs | Depends On |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | <fill-in: e.g., PlayerController> | Core | MVP | <fill-in: Designed/In-Impl/Shipped> | [combat.md](../design/combat.md) | `PlayerStatsSO.cs` | `Assets/_Project/Scripts/Player/` | ADR-0003 | Input, Physics |
+| 1 | <fill-in: e.g., MatchSim> | Core | MVP | <fill-in: Designed/In-Impl/Shipped> | [match-engine.md](../design/match-engine.md) | `MatchConfigSO.cs` | `MatchSim/` | ADR-0003 | Fixed, Seed |
 | 2 | <fill-in> | <fill-in> | <fill-in> | <fill-in> | <fill-in> | <fill-in> | <fill-in> | <fill-in> | <fill-in> |
 
 Mark inferred systems (not in original concept) with `(inferred)` in the name.

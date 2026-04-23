@@ -12,7 +12,7 @@ Dev-only tooling. Must compile out of Release builds cleanly.
 ## MUST
 
 - Every file guarded: `#if UNITY_EDITOR || DEVELOPMENT_BUILD` around the type declaration, OR the asmdef lists `defineConstraints: ["UNITY_EDITOR"]` / `["DEVELOPMENT_BUILD"]`.
-- No runtime references from `Core`, `Stats`, `Characters`, `Outfits`, `Combat`, `Dialog`, `UI`, `AI` back into `Debug`.
+- No runtime references from `Core`, `Stats`, `Players`, `Memory`, `MatchSim`, `Viewer`, `UI`, or `AI` back into `Debug`.
 - Subscribers consume the `IDumpable` interface defined in Core; Debug never depends on concrete types outside its asmdef.
 - Cheat commands are opt-in via a dev console, never hotkey-triggered in builds.
 - Debug output routes through a single `DevLog` facade — easy to silence in one place.
@@ -27,7 +27,7 @@ Dev-only tooling. Must compile out of Release builds cleanly.
 ## AVOID
 
 - Calling Debug APIs from non-Debug asmdefs. That's what interfaces in Core are for.
-- `Debug.Log` strings that contain dialogue or player-visible text — prefer structured fields.
+- `Debug.Log` strings that contain player-visible text templates — prefer structured fields.
 - `Debug.Break()` in shipped code paths — makes the Player build hang on dev assertions.
 - Leaving `#if UNITY_EDITOR` off a Debug type — it'll drag `UnityEditor` references into the Player build and fail the final build.
 

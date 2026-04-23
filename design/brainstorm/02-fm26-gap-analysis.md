@@ -1,3 +1,8 @@
+---
+description: Historical research report on FM26 gaps and positioning opportunities. Non-binding; locked specs supersede this document.
+status: historical-brainstorm; not authoritative
+---
+
 # FM26 Gap Analysis — Final Whistle Strategic Positioning
 
 **Author:** Game Designer (Vibelogic)

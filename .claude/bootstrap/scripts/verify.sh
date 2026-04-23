@@ -35,7 +35,7 @@ echo ""
 echo "[1/7] Checking for unreplaced placeholders..."
 PLACEHOLDER_HITS=$(grep -rn "{{PROJECT_NAME}}\|{{STUDIO}}\|{{GENRE}}" \
     --include='*.md' --include='*.yml' --include='*.yaml' --include='*.json' \
-    --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=Library \
+    --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=Library --exclude-dir=design-templates \
     . 2>/dev/null | grep -v ".claude/bootstrap/" || true)
 if [ -n "$PLACEHOLDER_HITS" ]; then
     log_fail "Unreplaced {{PLACEHOLDER}} markers found:"
@@ -47,7 +47,7 @@ fi
 
 FILLIN_HITS=$(grep -rn "<fill-in>\|<TBD>" \
     --include='*.md' --include='*.yml' --include='*.yaml' \
-    --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=Library \
+    --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=Library --exclude-dir=design-templates \
     . 2>/dev/null | grep -v ".claude/bootstrap/" | grep -v "blueprint" || true)
 if [ -n "$FILLIN_HITS" ]; then
     FILLIN_COUNT=$(echo "$FILLIN_HITS" | wc -l | tr -d ' ')

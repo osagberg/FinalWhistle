@@ -1,3 +1,8 @@
+---
+description: Historical research report on world/framing pitches. Non-binding; locked specs supersede this document.
+status: historical-brainstorm; not authoritative
+---
+
 # Original IP Pivot — World-Setting Proposals
 
 **Author:** Creative Director (Vibelogic)

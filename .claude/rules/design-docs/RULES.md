@@ -14,10 +14,10 @@ Design docs are the contract. Code implements them. If a doc is wrong, the game 
 ## MUST
 
 - Every design doc opens with YAML frontmatter containing at least `description`. No frontmatter = no doc.
-- Every cross-reference (`[name](path.md)` or `design/foo.md`) resolves to an existing file. Broken links are a hard fail — fix on sight.
+- Every cross-reference resolves to an existing file. Broken links are a hard fail — fix on sight.
 - Before adding a new system to any design doc, confirm an ADR exists or is being written in the same turn. Systems without ADRs accumulate architectural debt.
-- Use one of the 14 templates in [`templates/design-templates/`](../../../design-templates/) as the skeleton. Start from `{{PROJECT_NAME}}`-substituted copy, never an empty file.
-- Formulas stay formulas. `damage = base * (1 + str/100)` not "damage scales with strength". Every variable typed, ranged, sourced.
+- Use one of the templates in [`design-templates/`](../../../design-templates/) as the skeleton. Start from a FinalWhistle-substituted copy, never an empty file.
+- Formulas stay formulas. `salience = 0.4 * stakes + 0.2 * prominence + ...` not "big events surface more often". Every variable typed, ranged, sourced.
 - Content safety floor (age gate, consent, no real people) respected in every content-generating doc — cite `design/content_philosophy.md` if it exists in the project.
 
 ## SHOULD
@@ -32,7 +32,7 @@ Design docs are the contract. Code implements them. If a doc is wrong, the game 
 
 - Prose descriptions of math. "The multiplier gets bigger as you level up" is a bug breeding ground. Write the formula.
 - Editing an ADR after it's marked Accepted. Create a superseding ADR instead (append-only, per blueprint doctrine).
-- Duplicating content between docs. If inventory rules appear in both combat.md and inventory.md, one copy is wrong and you don't know which.
+- Duplicating content between docs. If signature readiness rules appear in both `signatures.md` and `player-generation.md`, one copy is wrong and you don't know which.
 - Inferring design details at implementation time. If the GDD doesn't specify edge-case behavior, update the GDD before writing code.
 - Uncited comparables. "Like Hades" is not a design spec; "Like Hades' boon-rerolling where each floor offers 3 options at 60% / 30% / 10% rarity" is.
 

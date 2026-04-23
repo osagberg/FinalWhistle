@@ -5,16 +5,16 @@ paths:
 
 <!-- Rules auto-read by Claude when editing files in this path scope. -->
 
-# Stats — resources, attributes, progression
+# Stats — football attributes, form, and progression
 
 All tunable values live in ScriptableObjects. Code describes behavior; SOs describe numbers.
 
 ## MUST
 
-- Zero hardcoded balance numbers in `.cs` files. HP, damage, regen, thresholds — all SO fields.
+- Zero hardcoded balance numbers in `.cs` files. Attribute ranges, development rates, form curves, confidence effects, and thresholds are data fields.
 - Every stat type backed by a `StatDefSO` (name, clamp range, default, display).
 - Runtime stat instances are `struct` — no per-entity GC churn.
-- Depends only on `Core`. No references to `Characters`, `Combat`, or UI.
+- Depends only on Core-style primitives. No UI references.
 - MonoBehaviour usage confined to explicit bridge types (`StatComponent : MonoBehaviour`) — pure stat math stays plain C#.
 
 ## SHOULD
@@ -26,14 +26,14 @@ All tunable values live in ScriptableObjects. Code describes behavior; SOs descr
 
 ## AVOID
 
-- `StatsManager.Instance.HP` — singletons couple the whole game to one stats table.
-- Magic numbers in formulas. `damage * 1.5f` → `damage * critMultiplierSO.Value`.
+- `StatsManager.Instance` — singletons couple the whole game to one stats table.
+- Magic numbers in formulas. `pace * 1.1f` → `pace * transitionBoost.Value`.
 - Deriving display strings inside stat logic — UI formats, Stats compute.
-- `[SerializeField] float maxHP = 100f;` on a MonoBehaviour — put it on the SO.
+- `[SerializeField] float maxPace = 100f;` on a MonoBehaviour — put it on data.
 
 ## RATIONALE
 
-Balance changes should be asset-only (no recompile, no code review). Keeping numbers in SOs lets the designer-you tune without the engineer-you rebuilding. Struct instances keep thousands of stat-bearing agents cheap.
+Balance changes should be data-only where possible. Keeping numbers in content data lets the designer-you tune without the engineer-you rebuilding, while struct instances keep thousands of player projections cheap.
 
 ## References
 

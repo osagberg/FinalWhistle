@@ -24,11 +24,11 @@ See SPEC.md 2026-04-22. Summary:
 
 ```
 MemoryEvent {
-    event_id: stable UUID (content-pack-qualified)
+    event_id: deterministic runtime id (career_id + sequence or match_id + tick + event_seq)
     match_id: nullable (only for in-match events)
     season: u16
     tick: u32 nullable
-    timestamp: ISO8601
+    career_date: { season: u16, week: u8, day: u8 }  // save-world time, not wall-clock
     emitter: { kind: "match" | "contract" | "press" | "board" | ..., source_id: string }
     participants: [
         { role: "scorer" | "assist" | "opponent" | "fan_base" | ..., entity_id: string }
@@ -63,10 +63,10 @@ salience = clamp(
 ```
 
 Thresholds (draft):
-- `< 0.3`: logged only; never surfaced
-- `0.3–0.6`: readers may surface in routine contexts
+- `< 0.3`: stays in match telemetry or debug logs only; not written to the career ledger by default
+- `0.3–0.6`: written to hot career ledger; readers may surface in routine contexts
 - `0.6–0.85`: eligible for press / fan callback
-- `>= 0.85`: eligible for season-ending narrative beat / cutscene-adjacent cinematic moment
+- `>= 0.85`: eligible for season-ending narrative beat / cinematic emphasis
 
 ## Five readers
 
@@ -91,13 +91,13 @@ Query: "for this press-conference / fan-sentiment surface, relevant ledger event
 
 Default boundary: 5 seasons.
 
-**Hot log (last 5 seasons):** full fidelity, tick-level, all events. Lives in JSON array in save file. Fast to query; grows O(events × seasons).
+**Hot log (last 5 seasons):** full fidelity for career-relevant events only, with optional tick references into match replay data. Routine passes, touches, position samples, and low-salience match telemetry never enter the career ledger. Lives as structured save data; JSON is acceptable during development, with a compact binary form evaluated at Phase 6 if save size requires it.
 
-**Compacted state (older than 5 seasons):** summary records per entity, preserving callback-eligible facts but dropping sub-event granularity:
+**Compacted state (older than 5 seasons):** summary records per entity-pair / fixture / competition context, preserving callback-eligible facts but dropping sub-event granularity:
 
 ```
 CompactedMemory {
-    entity_id: string
+    scope_id: string  // player, club-pair, player-club, competition, promise-chain
     career_span: [u16, u16]  // first/last season
     salience_events: [MemoryEvent]  // only salience >= 0.6 preserved intact
     aggregates: { goals, finals_lost, promises_broken, derby_wins, ... }
@@ -106,11 +106,12 @@ CompactedMemory {
 
 Queries against compacted state use aggregates + the preserved-salience-events subset. Readers gracefully degrade: some callback types (tick-level specifics) drop out for ancient events; salience-preserved callbacks remain forever.
 
-Storage estimate: 50K players × 10 seasons × ~20 salience-preserved events = 10M records in compacted storage per save. ~1-2KB per record → ~10-20GB per save. **Too much.** Compaction must be tighter:
+Storage target: active EA universe is ~2,000-2,400 players, not 50K. Even so, long saves can explode if routine match actions are logged. The ledger therefore stores only career-relevant facts:
 
-- Only STORE events with salience >= 0.3 in hot log (drops the noise from the start)
-- Compacted state: keep only salience >= 0.75 events + aggregates
-- Realistic save size: ~50MB per 20-year save (feasible)
+- Only write events with salience >= 0.3 to the hot career ledger
+- Keep low-level match telemetry in replay/debug files, not the career save
+- Compact older seasons by scope, preserving only salience >= 0.75 events intact plus aggregates
+- Hard target: <100MB per 20-year save before compression; warn in harness if synthetic saves exceed 50MB
 
 ## MVP boundary
 
@@ -136,7 +137,7 @@ At Month 12 EA: all 5 readers. Salience tuning via balance harness. Compaction i
 
 ## Prototype gate
 
-**Phase 3 Week 4:** ledger operational in Month-3 slice. 1 event emitted per meaningful MatchSim action; alumni-DB reader surfaces 1 callback in post-match screen.
+**Phase 3 Week 4:** ledger operational in Month-3 slice. A small whitelist of career-relevant MatchSim actions emits MemoryEvents; alumni-DB reader surfaces 1 callback in post-match screen.
 
 **Phase 5 gate:** 3 readers + salience thresholds operational; balance harness sweeps confirm "right 5-8 events surface per season" holds across 10K simulated seasons.
 

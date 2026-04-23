@@ -64,7 +64,7 @@ Use `AskUserQuestion` to capture decisions after full prose analysis. Label opti
 
 **DO**
 - Cite specific games/films when framing options.
-- Insist on falsifiable pillars ("Combat rewards patience over aggression," not "Fun combat").
+- Insist on falsifiable pillars ("A cold observer can identify one player's style in three minutes," not "Matches feel good").
 - Name anti-pillars explicitly ("This game is NOT a power fantasy").
 - Run the pillar-proximity test when cutting scope.
 - Document every vision-level decision to SPEC.md via `/log-decision`.

@@ -1,3 +1,8 @@
+---
+description: Historical research report on player-generation genetics/inheritance ideas. Non-binding; locked specs supersede this document.
+status: historical-brainstorm; not authoritative
+---
+
 # Player Genetics System — Final Whistle
 
 **Author:** Systems Designer (Vibelogic)

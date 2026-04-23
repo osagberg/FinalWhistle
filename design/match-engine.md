@@ -15,7 +15,7 @@ Answer "how is a football match simulated deterministically, testably, cross-pla
 See SPEC.md 2026-04-22 entries. Summary:
 
 - **MatchSim.csproj is pure C#, zero UnityEngine references.** Enables xUnit tests + headless balance harness + future mobile port.
-- **Fixed-point canonical state.** Floats FORBIDDEN inside MatchSim except for non-canonical viewer interpolation. Format (Q16.16 vs Q24.8) to be locked at Phase 3 Week 1 based on test sweep.
+- **Fixed-point canonical state.** Floats FORBIDDEN inside MatchSim except for non-canonical viewer interpolation. Q32.32 is the default canonical format unless Phase 3 profiling proves it is the bottleneck.
 - **Custom deterministic ball physics.** NOT Unity PhysX. Lockstep with MatchSim. Magnus force + air drag in fixed-point.
 - **Fixed timestep.** 60Hz logical tick. Viewer interpolates at framerate; never drives sim.
 - **Replay seeds.** Every match carries `match_seed: u64`; every in-match stochastic event derives from `(match_seed, tick, event_id)`.
@@ -54,7 +54,7 @@ At Month 12 EA:
 
 **Q32.32** (64-bit): both wide range + fine precision. Cost: 64-bit math perf on all platforms (fine on 64-bit ARM + x86).
 
-**Recommend Q32.32** as default; revisit only if balance harness perf shows it's the bottleneck. Cross-platform determinism > tiny perf wins.
+**Locked default: Q32.32** for canonical sim state. Football coordinates, velocities, curve forces, and trajectory math need range and precision more than they need 32-bit compactness. Revisit only if Phase 3 profiling proves fixed-point math is the bottleneck after algorithmic cleanup.
 
 ### Q2: Ball physics model complexity
 

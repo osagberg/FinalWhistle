@@ -18,7 +18,7 @@ Validates whether the project is ready to advance to the next phase. Checks for 
 3. **Run gate checks for the target phase.** Gate definitions live in `SPEC.md` under each phase heading. Generic gates to always check:
    - All tasks in prior phase marked `[x]`
    - `CHANGELOG.md` entries exist for each `[x]` (drift check)
-   - No `{{placeholder}}` / `<fill-in>` / TODO markers in any doc touched by this phase
+   - No template placeholder or TODO markers in any doc touched by this phase
    - Decisions-log entries for major phase decisions
 4. **Phase-specific gates** (examples — adapt to SPEC.md):
    - **Concept → Systems Design:** `design/game-concept.md` exists + reviewed; pillars ranked

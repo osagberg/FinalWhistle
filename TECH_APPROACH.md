@@ -14,7 +14,7 @@
 | Render pipeline | **URP 17.x** | Lightweight, customizable, 2D-friendly, Apple Silicon + Steam Deck friendly for post-EA |
 | Render mode | **ForwardPlus** | Tile-based clustering; optimal for Apple Silicon TBDR and desktop |
 | Color space | **Linear** | Required for stylized post-processing passes + colour-grading cinema |
-| **Canonical match sim** | **`MatchSim.csproj` — pure C#, zero-Unity, fixed-point arithmetic** | Headless 10,000× speed balance harness; cross-platform deterministic replay; xUnit-testable |
+| **Canonical match sim** | **`MatchSim.csproj` — pure C#, zero-Unity, Q32.32 fixed-point arithmetic** | Headless balance harness; cross-platform deterministic replay; xUnit-testable |
 | **Ball physics** | **Custom deterministic sim** (not Unity PhysX) | Rocket League lesson; lockstep with MatchSim; controlled Magnus force / air drag |
 | Async | **UniTask** | Zero-allocation, editor-playmode safe |
 | UI layer | **UI Toolkit (UXML/USS)** | Modern, data-bindable, hot-reload, type-safe bindings; avoids uGUI nested-prefab hell |
@@ -102,7 +102,7 @@ football/
 
 ### 3.2 Determinism discipline
 
-- **Fixed-point canonical state.** All sim-relevant quantities (positions, velocities, forces, RNG streams) use a `Fixed` struct (Q16.16 or Q24.8 — pick at Phase 3). Floats are FORBIDDEN inside MatchSim except for non-canonical viewer interpolation.
+- **Fixed-point canonical state.** All sim-relevant quantities (positions, velocities, forces, RNG streams) use a `Fixed` struct with Q32.32 canonical format. Floats are FORBIDDEN inside MatchSim except for non-canonical viewer interpolation.
 - **Fixed timestep.** 60Hz logical tick. Viewer interpolates at framerate; never drives sim.
 - **Replay seeds.** Every match carries a `match_seed: u64`; every in-match stochastic event carries an event seed derived from `(match_seed, tick, event_id)`. Replay re-runs the sim with identical outputs.
 - **No Unity physics.** Unity's PhysX is NOT in the canonical path. Viewer may use Unity for decorative only.
@@ -126,7 +126,7 @@ schema_version: 3
 entity: "player:fwh.core.v1:player_00042"
 ```
 
-**Stable IDs** persist across regeneration. Regenerating content pack v1 with new prompt engineering MUST NOT change existing IDs; deltas ship as `finalwhistle.core.v1.patch.2` content packs loaded alongside.
+**Stable IDs** persist across regeneration. Regenerating content pack v1 with new prompt engineering MUST NOT change existing IDs; deltas ship as `finalwhistle.core.v1.patch.2` content packs loaded alongside. Checked-in structured JSON/content packs are canonical; LLM output itself is not assumed bit-deterministic.
 
 **Schema versions** gate save migrations. Loader knows to run `migrate_v2_to_v3` before instantiating game state.
 
@@ -137,7 +137,7 @@ Pipeline (see `design/player-generation.md` + `design/worldbuilding.md`):
 ```
 spec + prompt + seed
     ↓
-structured JSON draft (deterministic via prompt caching + stable seeds)
+structured JSON draft (prompt + seed + frozen model version recorded)
     ↓
 validation (schema check — required fields, type correctness)
     ↓
@@ -186,7 +186,7 @@ Ledger is **append-only** at runtime. Memory readers query the ledger for surfac
 4. **Big-match scars reader** — "this is a cup final → recall the last cup final scar"
 5. **Press/fan callback reader** — "journalist queries require state-referenced context"
 
-**Compaction strategy** (50K players × 10yr × ~100 events/year ≈ 50M events): hot event log for recent seasons (full fidelity), compacted summary state for older careers (preserves callback eligibility but drops tick-level granularity). Compaction boundary configurable; default at 5 seasons.
+**Compaction strategy**: hot event log for recent seasons stores only career-relevant events, not routine match telemetry. Compacted summary state for older careers preserves callback eligibility and high-salience facts while dropping tick-level granularity. Compaction boundary configurable; default at 5 seasons.
 
 ---
 
@@ -247,7 +247,7 @@ Author each when the corresponding Phase triggers.
 PHASE 0 — KICKOFF (ACTIVE)
 ├─ pitch doc filled (done at bootstrap)
 ├─ 4-bucket scope split locked (done at bootstrap)
-├─ 19 decisions logged (done at bootstrap)
+├─ 19 bootstrap decisions logged + Q32.32 review decision appended
 ├─ design docs scaffolded with open questions (done at bootstrap)
 └─ gate: all design-doc open questions resolved; Month-3 slice spec reviewed
 
@@ -324,7 +324,7 @@ See `SPEC.md` for task-level detail.
 
 ## 10. Open engineering questions
 
-- Fixed-point format: Q16.16 vs Q24.8 — lock at Phase 3 Week 1
+- Fixed-point profiling: Q32.32 is the canonical default; downgrade only if Phase 3 profiling proves it is the bottleneck
 - Behavior-tree runtime: authored from scratch vs lightweight open-source (BehaviorDesigner / NPBehave)
 - UI Toolkit vs uGUI fallback: UI Toolkit first; fall back to uGUI only for any screen where UIT documented bugs block progress
 - Content pack loader: JSON + schema lint first; evaluate msgpack for production size at Phase 6

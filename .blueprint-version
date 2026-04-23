@@ -7,7 +7,7 @@ profile: composed (60% sim-management, 30% action-character, 10% narrative trimm
 intake_complete: true
 customize_complete: true
 default_scope: research
-context_window_declared: 1M
+context_window_declared: capability_target_for_claude_max_or_api_not_observed_local_limit
 bootstrap_rounds: 5 (intake -> brainstorm 1/2 -> GPT-5.5 rounds 3/4)
 key_decisions:
   - 2D-first MVP; 3D deferred post-EA audience-signal gate

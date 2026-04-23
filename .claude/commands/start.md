@@ -18,7 +18,7 @@ Use this when:
 2. Detect project state:
    - Is there an active phase? Which one?
    - How many tasks are `[x]` done vs `[ ]` pending in the active phase?
-   - Are there unfilled `{{PLACEHOLDER}}` or `<fill-in>` markers? (flag + suggest `/refresh-docs`)
+   - Are there unfilled template markers? (flag + suggest `/refresh-docs`)
 3. Present a short **Where you are** summary (≤6 lines)
 4. Present the **workflow map** grouped by phase. Do not list all 32 commands — pick 6-10 most relevant to current phase:
    - Phase 0-1 (concept): `/brainstorm`, `/map-systems`, `/art-bible`, `/design-system`

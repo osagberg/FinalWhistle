@@ -12,8 +12,8 @@ Content = SOs. Code executes SOs; code does not embed SO values.
 
 ## MUST
 
-- Every SO class carries `[CreateAssetMenu(menuName = "{{PROJECT_NAME}}/<Category>/<TypeName>", fileName = "<Category>_<Name>")]`.
-- Asset naming: `<Category>_<Name>.asset` (e.g., `Character_Wren.asset`, `Outfit_Overalls_Default.asset`).
+- Every SO class carries `[CreateAssetMenu(menuName = "FinalWhistle/<Category>/<TypeName>", fileName = "<Category>_<Name>")]`.
+- Asset naming: `<Category>_<Name>.asset` (e.g., `Club_HartfieldTown.asset`, `Signature_EarlyCross.asset`, `ViewerShot_TacticalWide.asset`).
 - One SO field = one purpose. No `float multiUseValue` that means different things in different contexts.
 - No serialized references to scene GameObjects. SOs are asset-scoped; scene refs don't survive reload.
 - Addressable prefab references as `AssetReferenceGameObject`, not `GameObject`.
@@ -22,14 +22,14 @@ Content = SOs. Code executes SOs; code does not embed SO values.
 
 - Group asset files under `ScriptableObjects/<Category>/` mirroring the `Scripts/<System>/` folder name.
 - Use `ReadOnly` attribute on fields computed at author time (so the inspector doesn't tempt hand-editing).
-- Provide an `OnValidate()` that enforces invariants (age ≥ 18, required fields non-null, ranges clamped).
+- Provide an `OnValidate()` that enforces invariants (required fields non-null, ranges clamped, stable IDs valid). Do not add a blanket age >= 18 rule; academy/youth players are part of football.
 - Document the schema version as a constant (`const int SchemaVersion = 2;`) when migrating.
 
 ## AVOID
 
 - Singleton SOs with global access. Inject via a bootstrap `RegistrySO` instead.
 - `[System.Serializable] class Nested { }` fields that grow unbounded — factor into their own SO.
-- SOs referencing other SOs by string name — use typed refs (`CharacterSO` field, not `string characterId`).
+- SOs referencing other SOs by display name — use typed refs or stable IDs (`PlayerId`, `ClubId`, `SignatureId`).
 - Per-save-slot data on a shared SO. Save data lives in runtime state, not on the asset.
 
 ## RATIONALE
@@ -38,6 +38,6 @@ SOs are the editable layer. If a value is on an SO, it survives code refactors a
 
 ## References
 
-- [unity/scripts-folder-structure.md](../../../unity/scripts-folder-structure.md) §`ScriptableObjects/` mirror
 - [Scripts/Stats/RULES.md](../Scripts/Stats/RULES.md)
-- [Scripts/Characters/RULES.md](../Scripts/Characters/RULES.md)
+- [Scripts/Players/RULES.md](../Scripts/Players/RULES.md)
+- [Scripts/Signatures/RULES.md](../Scripts/Signatures/RULES.md)

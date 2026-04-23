@@ -42,9 +42,9 @@ Read in order:
 - For each entry in CHANGELOG, confirm the matching SPEC task is `[x]`
 - For each `🟡 ACTIVE` phase, confirm STATUS.md "Currently working on" reflects a task from that phase
 
-**D. Placeholder check** — scan for unfilled markers:
-- `{{PROJECT_NAME}}`, `{{STUDIO}}`, `{{GENRE}}` — template fill-ins left over
-- `<fill-in>`, `<TBD>`, `TODO`, `<...>`, `FIXME`, `XXX`
+**D. Placeholder check** — scan for unfilled template markers:
+- Double-brace project/studio/genre markers left over from templates
+- Fill-in, TBD, TODO, FIXME, or XXX markers outside intentional template files
 
 **E. Orphan check** (from Phase 3 onward):
 - `ScriptableObject` files not referenced from any scene or other SO

@@ -1,6 +1,6 @@
 # .claude/agents/ — project-authored subagents
 
-This folder ships with the blueprint's **14-agent studio roster** pre-installed. Every blueprint project boots with these available for invocation. The roster is tuned for solo Unity dev targeting Steam; in a solo context, each agent is YOU wearing a specific hat for a specific decision.
+This folder ships with the blueprint's **14-agent studio roster**, now partially retuned for Final Whistle. In a solo context, each agent is YOU wearing a specific hat for a specific decision.
 
 ## Roster
 
@@ -12,15 +12,15 @@ This folder ships with the blueprint's **14-agent studio roster** pre-installed.
 **Tier 2 — Leads (5, sonnet default):**
 - `game-designer` — mechanics, systems, GDD authoring (MDA / SDT / Flow / Bartle)
 - `lead-programmer` — team-level code architecture + review (SOLID)
-- `art-director` — visual identity, art bible, asset standards
-- `narrative-director` — story architecture, world-rules, voice bibles
+- `art-director` — 2D manga-broadcast visual identity, art bible, asset standards
+- `narrative-director` — event-sourced memory surfacing, world flavor, template strategy
 - `qa-lead` — test strategy, acceptance criteria, phase-gate quality
 
 **Tier 3 — Specialists (6, sonnet, tactical invocation):**
-- `gameplay-programmer` — moment-to-moment feel, combat, movement
+- `gameplay-programmer` — MatchSim behavior, signatures, deterministic player systems
 - `engine-programmer` — performance, memory, hot-path, Addressables
 - `systems-designer` — formulas, curves, economy, interaction matrices
-- `ui-programmer` — UGUI/UI Toolkit implementation + accessibility
+- `ui-programmer` — UI Toolkit management screens, match overlays, accessibility
 - `unity-specialist` — deep Unity API knowledge + engine quirks
 - `unity-ui-specialist` — UI Toolkit (UXML/USS) + UGUI mastery
 

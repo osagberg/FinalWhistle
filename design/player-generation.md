@@ -61,7 +61,7 @@ Four categories, ~22 fields total. NEVER surfaced as "genes." Internally used by
 | Field | Rarity | Unlock condition |
 |---|---|---|
 | `flow_access` | ~1.5% carriers | Sustained-readiness states in high-stakes matches, unlocked by specific qualifying match |
-| `peak_ceiling_high` | ~0.5% | Cap on peak-state expression; raised by first Kismet-equivalent qualifying event |
+| `peak_ceiling_high` | ~0.5% | Cap on peak-state expression; raised by first qualifying high-stakes career event |
 | `late_bloomer` | ~variable per cohort | Dormant until specific career event (relegation 6-pointer decisive goal, cup-run moment, etc.) |
 | `awakening_dormant` | ~0.2% | Very-late-career explosive trait activation (post-25 specifically) |
 
@@ -126,12 +126,12 @@ IdentityPacket {
 
 ## AI Content Compiler pipeline (for bake-time generation)
 
-Generation is DETERMINISTIC. Same prompt + seed → same output. Pipeline:
+Generation is reproducible by artifact, not by assuming the LLM is bit-deterministic. Prompt + seed + frozen model version produce the draft; the checked-in structured JSON/content pack is the source of truth. If regeneration differs, the compiler treats it as a new delta pack, not an in-place mutation. Pipeline:
 
 ```
 1. Specify cohort (e.g., "96 clubs in East-Midlands-analog region, squad size 22-26, 60% native, 30% cross-region, 10% foreign")
 2. Generate gene distributions from regional / cultural priors (seeded RNG)
-3. Generate names via LLM with deterministic seeding (Claude Opus 4.7 + prompt caching + seed prefix)
+3. Generate names via LLM with seed prefix + frozen model version recorded
 4. Compile Identity Packets from gene snapshots
 5. Validate:
    - schema correctness
@@ -183,7 +183,7 @@ At Month 12 EA: full content pack v1 compiled (~2000-2400 players across 96 club
 1. **Internal gene model size** — 22 fields sufficient? Overkill? Recommend lock at 22 for MVP.
 2. **Phenotype label catalog** — how many distinct labels? Recommend 30-50 for variety without becoming dense.
 3. **Advanced tooltip numeric exposure** — default off, power-user toggle on. Confirm.
-4. **Compiler determinism across model versions** — Claude Opus 4.7 is current; if 4.8 ships, same prompt+seed may produce different text. Strategy: freeze model version per content pack version; don't regenerate on model updates unless pack_version bumps.
+4. **Compiler reproducibility across model versions** — Claude Opus 4.7 is current; if 4.8 ships, same prompt+seed may produce different text. Strategy: freeze model version per content pack version; checked-in JSON is canonical; don't regenerate on model updates unless pack_version bumps.
 5. **Content pack delta strategy** — how do we add 500 new players in content pack v1.1 without breaking v1 save compat? Strategy: new IDs in delta pack; v1 IDs never mutate; savefile references by ID, resolver falls back to base pack for unresolved IDs.
 
 ## Prototype gate

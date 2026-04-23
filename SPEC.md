@@ -86,10 +86,10 @@
 
 - [ ] Create `MatchSim.csproj` as pure-C# class library
 - [ ] Create `MatchSim.Tests.csproj` with xUnit
-- [ ] Implement `Fixed` struct (Q16.16 or Q24.8 — lock Week 1)
+- [ ] Implement `Fixed` struct (Q32.32 canonical format)
 - [ ] Implement `Tick` deterministic timestep loop
 - [ ] Implement `Seed` (match + event seed derivation)
-- [ ] Implement `Ball` custom deterministic physics (Magnus + drag)
+- [ ] Implement `Ball` custom deterministic physics (ground roll, air kick, bounce, friction; spin/Magnus stub acceptable for Month-3)
 - [ ] Implement `Player` state machine (22 agents, basic movement + kick-ball)
 - [ ] Author 2 behavior-tree manager archetypes in YAML (e.g., "Direct Pressing" + "Low-Block Counter")
 - [ ] xUnit tests for determinism (hash canonical state after N ticks; compare Win/Mac/Linux via CI matrix)
@@ -252,6 +252,7 @@
 - **2026-04-22** — **Behavior-tree manager archetypes (YAML), not ML-Agents.** Deterministic, debuggable, balance-harness reproducible. 20-30 hand-authored archetypes in MVP; Manager Archetype Forge (Claude-generates BTs from English) is post-EA content-scaling tool.
 - **2026-04-22** — **EA scope: one fictional six-tier pyramid (~96 clubs, ~2000-2400 players).** Multi-nation deferred post-1.0. Depth over breadth.
 - **2026-04-22** — **Price: $20 EA -> $30 1.0.** Solo indie RPG-management pricing. Not FM-institutional-tier. Steam Direct $100 at Phase 8.
+- **2026-04-23** — **Q32.32 fixed-point is the canonical MatchSim format.** Reasoning: Q16.16 risks multiplication overflow and Q24.8 is too coarse for ball/player trajectory work. Q32.32 keeps deterministic math simple and precise; downgrade only if Phase 3 profiling proves fixed-point arithmetic is the bottleneck.
 
 ---
 

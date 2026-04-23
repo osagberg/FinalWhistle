@@ -33,7 +33,7 @@ Player has latent signature affinity with `signature_readiness ∈ [0, 1]` accum
 
 ### Kind 2 — Latent potential trigger
 
-Identity Packet may contain latent-potential flags (internal names: narrative-triggers, NEVER surfaced as "Soul genes" or "Kismet" or capitalized mystical terms):
+Identity Packet may contain latent-potential flags. These are internal narrative triggers, never player-facing mystical terms:
 
 - `late_bloomer` — ceiling raises after specific event (e.g., scoring decisive goal in relegation-6-pointer)
 - `dormant_pressure_composure` — pressure-response curve raises after surviving chosen high-pressure match
@@ -65,7 +65,7 @@ No mid-match pop-up ever lets the player "choose" a breakthrough. The manager ea
 
 ## MVP boundary
 
-At Month 3 slice: signature awakening Kind 1 demonstrated end-to-end with one of 3 authored signatures. Cinema beat authored. Post-match report renders the change.
+At Month 3 slice: no full breakthrough lifecycle. The slice may include one simple persistent post-match development event, but breakthrough triggering, cinematic emphasis, and latent unlock rules start in Phase 4.
 
 At Month 12 EA:
 - All three trigger kinds operational
@@ -88,7 +88,7 @@ At Month 12 EA:
 
 ## Prototype gate
 
-**Phase 3 Week 4 (Month-3 slice gate):** one signature awakening triggers during the single-match slice and the cinema beat works. External-observer gate: cold observer describes the awakening moment as meaningful without being told it's a feature.
+**Phase 4 first-signatures gate:** one signature breakthrough triggers during a controlled match and the cinema beat works. External-observer gate: cold observer describes the moment as meaningful without being told it's a feature.
 
 **Phase 5 vertical slice:** all 3 trigger kinds playable across a full season. Salience tuning in progress; awakenings feel "earned" per 5-tester judgment.
 

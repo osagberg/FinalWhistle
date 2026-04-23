@@ -46,8 +46,8 @@ This command orchestrates that.
 Do these in parallel where safe; sequential where ordering matters:
 
 1. **Customize every template file** per CUSTOMIZATION.md rules:
-   - Replace `{{PROJECT_NAME}}`, `{{STUDIO}}`, `{{GENRE}}` with real values — grep across root docs AND `templates/design-templates/`, `asset-pipelines/`, `patterns/`, `unity/`, `steam-release/` subtrees
-   - Fill `<fill-in>` fields with intake-derived content
+   - Replace double-brace project/studio/genre markers with real values — grep across root docs AND template/pattern/release subtrees
+   - Fill template fill-in fields with intake-derived content
    - Delete sections that don't apply (e.g., narrative sections for non-narrative games, character-pipeline sections for non-character games)
    - Add project-specific sections where profile suggests
    - Ensure CLAUDE.md + PROJECT_CONTEXT.md + TECH_APPROACH.md reflect real choices, not placeholder stubs

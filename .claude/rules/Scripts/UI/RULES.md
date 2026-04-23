@@ -5,37 +5,38 @@ paths:
 
 <!-- Rules auto-read by Claude when editing files in this path scope. -->
 
-# UI — UGUI / UIToolkit / presentation
+# UI — UI Toolkit management screens and overlays
 
 UI renders state; UI does not OWN state. Gameplay systems emit events; UI listens.
 
 ## MUST
 
-- No direct references to gameplay systems from UI scripts. UI `using` lists `Core` and event types only.
-- State changes reach UI via events/signals — `PlayerStatsChangedEvent`, `DialogLineEvent`, etc.
-- Auto-scale for accessibility: text has a `MinReadableSize`, canvases use `CanvasScaler.UIScaleMode.ScaleWithScreenSize`.
+- No direct references to gameplay systems from UI scripts. UI binds to viewmodels and dispatches commands.
+- State changes reach UI via events/signals or observable viewmodels — `PlayerReportChangedEvent`, `FixtureStateChangedEvent`, etc.
+- Auto-scale for accessibility: text has a `MinReadableSize`, large-text mode, and tested responsive breakpoints.
 - Interaction feedback fires within 150 ms of input — animate acknowledgement even if the action is async.
 - Localization via a `LocalizedText` component backed by locale keys, not hardcoded strings.
+- Dense management screens must support keyboard and gamepad focus paths, not mouse-only operation.
 
 ## SHOULD
 
-- One UI screen = one scene or one prefab under `UI/Screens/` — composable, testable in isolation.
-- Use `UIDocument` (UIToolkit) for non-diegetic UI (menus, HUD); `UGUI` for diegetic (in-world signs, books).
-- Pool frequent-spawn UI elements (damage numbers, notifications) — don't `Instantiate` per-tick.
-- Cache `TMP_Text.text` sets behind a dirty flag — `TextMeshPro` setter is non-trivial.
+- One UI screen = one UXML/USS surface under `UI/Screens/` with a matching viewmodel.
+- Use UI Toolkit for management screens and match overlays. uGUI is fallback only for documented UI Toolkit blockers.
+- Virtualize roster, transfer, fixture, and event-ledger lists from day one.
+- Keep common workflows within two interactions where practical: squad, tactics, next fixture, player report, inbox.
 
 ## AVOID
 
-- `PlayerStats.Instance.HP` in UI — subscribe to the event, cache locally.
+- `PlayerStats.Instance` or direct roster/sim singletons in UI — subscribe/bind to viewmodels.
 - `Update()` that polls gameplay state — listen to the event instead.
 - Raw `new Color(1,0,0)` literals — use a `UIThemeSO` palette.
-- Coupling UI show/hide to `SetActive(false)` trees — prefer CanvasGroup alpha + interactable toggles.
+- Mixing UI Toolkit and uGUI in the same screen unless a documented fallback requires it.
 
 ## RATIONALE
 
-UI is the first thing to break when underlying systems change. Event-driven UI survives refactors — polling UI breaks. The 150 ms feedback rule is a perceived-responsiveness invariant; async operations that skip the acknowledgement feel laggy even when they're fast.
+UI is a load-bearing product differentiator because the project is explicitly anti-FM26-regression. Event-driven UI survives refactors, virtualized lists keep dense screens fast, and the 150 ms feedback rule protects perceived responsiveness.
 
 ## References
 
-- [Dialog/RULES.md](../Dialog/RULES.md) (UI subscribes to Dialog events)
-- [Stats/RULES.md](../Stats/RULES.md) (UI subscribes to Stats events)
+- [Stats/RULES.md](../Stats/RULES.md) (UI subscribes to stat/progression events)
+- [design/ui-vocabulary.md](../../../../../design/ui-vocabulary.md)

@@ -1,3 +1,8 @@
+---
+description: Historical research report on anime-sports conventions and naming ideas. Non-binding; locked specs supersede this document.
+status: historical-brainstorm; not authoritative
+---
+
 # 03 — Anime Sports Conventions: A Genre Survey for Final Whistle
 
 > **Purpose.** Strip the working concept of its IP-adjacent skin (Blue Lock, Kuroko, Galactic Football) and reforge it with a genuine signature. To do that, we need to understand what the anime-sports genre actually *is* — its load-bearing tropes, its exhausted ones, and the emotional territory nobody has touched yet. This doc is a long walk through the genre, a catalog of what can be mined, a shortlist of what's been left on the table, five mechanic prototypes, and an original naming language.

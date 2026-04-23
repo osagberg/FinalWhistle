@@ -59,14 +59,14 @@ Six tiers:
 |---|---|---|---|
 | 1 | Top flight | 20 clubs | Full professional |
 | 2 | Championship (or equivalent football-native name) | 24 clubs | Full professional |
-| 3 | Tier 3 (name TBD — e.g., "Premier League South / North" split) | 24 clubs each × 2 | Semi-professional split |
-| 4 | Tier 4 | 24 clubs × 2 | Semi-pro / amateur mixed |
-| 5 | Regional leagues | varies | Amateur-ish |
-| 6 | Sub-regional leagues | varies | Non-league |
+| 3 | Tier 3 (name TBD) | Phase 2 lock | Semi-professional split or single league |
+| 4 | Tier 4 | Phase 2 lock | Semi-pro / amateur mixed |
+| 5 | Regional leagues | Phase 2 lock | Amateur-ish |
+| 6 | Sub-regional leagues | Phase 2 lock | Non-league |
 
 Promotion / relegation between tiers per typical English-football patterns. Cup competitions: one national cup, one league cup, one smaller-tier-club cup.
 
-**Total clubs in EA content pack v1:** ~96 (20 + 24 + 48 + 48 - some adjustment; final ~96 with some regional variation).
+**Total clubs in EA content pack v1:** target ~96 fully simulated clubs. Exact tier distribution is not locked here because the earlier 20 + 24 + split-tier arithmetic overshoots the content target. Phase 2 must choose either smaller fictional tiers or lightweight lower-tier feeder pools, then update this table.
 
 ## Cultural priors (AI Content Compiler seeding)
 

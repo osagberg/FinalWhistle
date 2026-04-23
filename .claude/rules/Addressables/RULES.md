@@ -14,9 +14,9 @@ All runtime-loaded content routes through Addressables. No exceptions in Player 
 ## MUST
 
 - Zero `Resources.Load` / `Resources.LoadAsync` calls in runtime code. The `Resources/` folder is reserved for Unity-required edge cases (none, in practice, for this project).
-- Seven canonical groups: `Characters`, `Outfits`, `Scenes`, `Audio`, `CGs`, `UI`, `Ink`. Create others only with a decision log entry.
-- Addresses: `lowercase-kebab-case` (`character-player`, `scene-library-main`).
-- Labels: `lowercase_underscore` (`character_npc`, `outfit_uniform_b`).
+- Canonical groups: `Content/Clubs`, `Content/Players`, `Content/Signatures`, `UI/Screens`, `Viewer/SemanticCinema`, `Audio/Crowd`, `Audio/Music`, `Fonts`. Create others only with a decision log entry.
+- Addresses: `lowercase-kebab-case` (`club-hartfield-town`, `ui-squad-screen`).
+- Labels: `lowercase_underscore` (`club_content`, `player_portrait`, `semantic_cinema`).
 - Every `AssetReference*` field has a null-check at load site before use.
 
 ## SHOULD
@@ -31,13 +31,13 @@ All runtime-loaded content routes through Addressables. No exceptions in Player 
 - Hardcoded address strings scattered across code. Centralize in `AddressableKeys` static class or per-system `KeysSO`.
 - Mixing editor-time direct refs and runtime Addressables refs on the same SO — pick one per field.
 - `Addressables.LoadAssetAsync<T>(key).WaitForCompletion()` in gameplay code — blocks; use async/await.
-- Content updating groups outside the 7 canonical without explicit decision. Group sprawl makes builds fragile.
+- Content updating groups outside the canonical list without explicit decision. Group sprawl makes builds fragile.
 
 ## RATIONALE
 
-Resources folder bloats the Player build (all content loaded eagerly at startup). Addressables streams, supports content updates, and respects platform size limits. The 7-group canon exists because group count correlates with build-pipeline fragility; we pick the split that maps to content types and stop there.
+Resources folder bloats the Player build. Addressables streams, supports content packs, and keeps UI/viewer/audio assets explicit. The group canon exists because group count correlates with build-pipeline fragility; we pick the split that maps to Final Whistle content types and stop there.
 
 ## References
 
-- [unity/addressables-groups-pattern.md](../../../unity/addressables-groups-pattern.md)
-- [Scripts/Characters/RULES.md](../Scripts/Characters/RULES.md)
+- [TECH_APPROACH.md](../../../TECH_APPROACH.md) §7 Addressables group ontology
+- [Scripts/Pipeline/RULES.md](../Scripts/Pipeline/RULES.md)

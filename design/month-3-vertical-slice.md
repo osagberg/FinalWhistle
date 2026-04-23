@@ -22,17 +22,19 @@ GPT-5.5's Phase-C correction: the seven-item Product MVP is only legitimate if w
 
 **Two teams.** One is the player's club. One is a fictional opponent. Neither has deep history; both have enough identity to render a match meaningfully.
 
-**22 players.** 11 vs 11. Each player is a full Identity Packet (see `player-generation.md`) with:
+**22 players.** 11 vs 11. Each player uses a **slice Identity Packet subset** (see `player-generation.md`) with only:
 - Role (GK / CB / FB / CM / AM / W / ST)
 - Playing instincts
 - Pressure response curve
-- 0-1 signature slots filled (at Month 3, only 3 of 24 signatures are authored)
-- Scout labels (phenotype-only; numbers hidden)
+- 0-1 pre-active signature slots filled (at Month 3, only 3 of 24 signatures are authored)
+- 1-2 scout labels (phenotype-only; numbers hidden)
+
+The full Identity Packet compiler is not required for the Month-3 gate. Hand-authored JSON for 22 players is acceptable if it follows the future schema shape and stable-ID rules.
 
 **Deterministic MatchSim** running in `MatchSim.csproj`:
-- Fixed-point canonical state (format locked in Phase 3 Week 1)
+- Q32.32 fixed-point canonical state
 - 60Hz logical tick
-- Custom ball physics (Magnus + drag)
+- Custom ball physics minimum: ground rolling, air kick, bounce, friction. Spin/Magnus can be stubbed if early test output is legible without it.
 - 2 behavior-tree archetypes authored (one for player's team, one for opponent — contrast in style)
 - Match seed → deterministic replay verified via xUnit test
 
@@ -42,9 +44,10 @@ GPT-5.5's Phase-C correction: the seven-item Product MVP is only legitimate if w
 - UI Toolkit overlay: scoreline, time, pre-match squad view
 - Font stack: Anton / JetBrains Mono / Rajdhani
 
-**3 signatures authored end-to-end** (one per role family, demonstrating breadth):
+**3 signatures authored as active behaviors** (one per role family, demonstrating breadth):
 - e.g., "Looks for early crosses" (winger), "Blind-side near-post run" (striker), "First-time diagonal switch" (central midfielder)
 - Each with: trigger conditions + sim bias + presentation recipe (which shot type, what overlay text)
+- No latent-to-active lifecycle is required at Month 3. The slice proves signatures change play and presentation; Phase 4 proves breakthrough unlocking.
 
 **1 memory callback** demonstrating the ledger works:
 - Match emits events to ledger
@@ -53,7 +56,7 @@ GPT-5.5's Phase-C correction: the seven-item Product MVP is only legitimate if w
 - Ledger is real (append-only, salience-scored, persistent), not fake post-match text
 
 **1 post-match development event:**
-- One player's development hook triggers after the match (e.g., "first signature usage awakens scout-label change")
+- One player's development hook triggers after the match (e.g., "first signature usage changes a scout label or readiness note")
 - The change is persistent if we ran the same slice again with a save/load cycle
 
 ## What is NOT in the Month-3 slice
@@ -67,7 +70,7 @@ GPT-5.5's Phase-C correction: the seven-item Product MVP is only legitimate if w
 - Contract management
 - Youth intake
 - Scout disagreement (Month-4)
-- Breakthrough moments cinema (Month-4)
+- Full breakthrough moments cinema and latent unlock lifecycle (Month-4)
 - All 24 signatures (Month-6)
 - All 7 shot types (Month-5)
 - Content pack generator (Phase 4+)
@@ -86,7 +89,7 @@ Everything outside the slice list above is deferred to its proper Phase.
 
 1. **Which match type anchors the slice?** Cup final (high stakes; gate-testing aesthetic at its strongest) vs opening-day league fixture (more honest baseline; less cinematic)? Recommend opening-day fixture — gate is about *baseline legibility*, not peak drama.
 2. **Which 3 signatures author first?** Proposal: one from each of `winger`, `striker`, `central-midfielder` role families — most-visible positions in a broadcast-style viewer. See `signatures.md` for full catalog proposal.
-3. **Does the slice ship to trusted testers?** Proposal: no. Gate is internal. Month-4 closed itch distribution is the first external gate.
+3. **Does the slice ship to trusted testers?** Proposal: no public build. Gate can use private observers watching a recording or local build. Month-4 closed itch distribution is the first external distribution gate.
 4. **What determines "gate passed"?** Proposal: 5 cold observers (not the user) watch; ≥4 of 5 correctly describe drama / momentum / identify one specific player's style without being prompted. Confirm criterion or revise.
 
 ## Prototype gate
