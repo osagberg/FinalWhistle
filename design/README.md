@@ -1,0 +1,70 @@
+---
+description: Index of authoritative design docs for Final Whistle. Each doc follows the purpose / locked-decisions / MVP-boundary / deferred / open-questions / prototype-gate structure.
+last_verified: 2026-04-22
+---
+
+# design/ — authoritative for intent
+
+Per-system design docs. The rule is `design > content > code` — if code disagrees with a design doc, fix the code. If a design doc disagrees with another, raise it in Phase 0 open-questions resolution.
+
+Every doc follows this structure:
+
+1. **Purpose** — what question does this doc answer
+2. **Locked decisions** — what we committed to (reference the SPEC.md decision entry)
+3. **MVP boundary** — what's in vs out for Month-12 EA
+4. **Deferred** — what's seeded but surfaces post-MVP, or what's explicitly post-EA
+5. **Open questions** — what still needs user resolution before Phase 1/2 gate
+6. **Prototype gate** — how we verify the system's feel or architecture works
+
+## Index (this project)
+
+| File | System | Phase when locked |
+|---|---|---|
+| [`overview.md`](overview.md) | Game pillars, top-level experience, 4-bucket scope split | Phase 0 |
+| [`month-3-vertical-slice.md`](month-3-vertical-slice.md) | Brutal-minimum first-proof spec | Phase 0 |
+| [`match-engine.md`](match-engine.md) | MatchSim architecture, determinism, ball physics | Phase 2 |
+| [`semantic-cinema.md`](semantic-cinema.md) | 2D viewer 7-shot-type grammar | Phase 2 |
+| [`event-sourced-memory.md`](event-sourced-memory.md) | Career memory ledger, readers, compaction | Phase 2 |
+| [`signatures.md`](signatures.md) | 24-signature catalog, 3 per role family | Phase 2 |
+| [`scout-disagreement.md`](scout-disagreement.md) | Scout-bias system spec; Month-4 feel-gate spec | Phase 2 |
+| [`breakthrough-moments.md`](breakthrough-moments.md) | Match-flow cinematic development-change triggers | Phase 2 |
+| [`player-generation.md`](player-generation.md) | Internal gene model + Identity Packet compiler | Phase 2 |
+| [`worldbuilding.md`](worldbuilding.md) | Fictional nation, pyramid structure, cultural priors | Phase 2 |
+| [`ui-vocabulary.md`](ui-vocabulary.md) | Banned-terms lint + approved football-native phrasing | Phase 2 |
+
+## Future docs (added when trigger hits)
+
+- `modding.md` — Phase 2 ADR for data-architecture constraints
+- `accessibility.md` — Phase 2 target feature set
+- `content_policy.md` — Phase 2 PEGI 12 boundaries
+- `balance-harness.md` — Phase 6 tuning methodology
+- Per-signature specs under `signatures/*.md` — Phase 3+
+- ADRs under `design/adr/NNN-title.md` — one per load-bearing system decision
+
+## Relationship to code
+
+1. `design/` → intent (what we want)
+2. content packs + ScriptableObjects → authoritative runtime data (what the game uses)
+3. C# → behavior only
+4. MatchSim → canonical simulation state
+
+Conflicts resolve: **design > content > code**. If code hardcodes a number, it was SO data that got inlined — fix by moving back.
+
+## Authoring discipline
+
+See [`.claude/rules/design-docs/RULES.md`](../.claude/rules/design-docs/RULES.md) for the full author-contract. Summary:
+
+- YAML frontmatter with at least `description` required
+- Cross-references MUST resolve
+- Formulas stay formulas
+- Template-derived skeleton, never empty
+- Single source of truth per fact
+- `last_verified` date updated when re-confirmed
+
+## Archive
+
+When iterations get retired, move to `design/archive/<iteration-name>/`. SPEC.md decisions log references retirement. Never delete — retired design docs are historical record.
+
+## Brainstorm history
+
+`design/brainstorm/` contains the 5 research docs produced during Phase 0 kickoff (FM26 gap analysis, anime-sports conventions, genetics system exploration, cutting-edge systems, IP pivot). These are HISTORICAL records of design thinking, not binding specs. Where brainstorm docs disagree with the locked design docs above, the locked docs win.

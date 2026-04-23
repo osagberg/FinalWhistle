@@ -1,0 +1,104 @@
+# ==========================================
+# Unity project
+# ==========================================
+unity-project/Library/
+unity-project/Temp/
+unity-project/Obj/
+unity-project/Build/
+unity-project/Builds/
+unity-project/Logs/
+unity-project/MemoryCaptures/
+unity-project/UserSettings/
+
+# Unity-generated metadata that shouldn't be committed
+unity-project/*.csproj
+unity-project/*.sln
+unity-project/*.suo
+unity-project/*.tmp
+unity-project/*.user
+unity-project/*.userprefs
+unity-project/*.pidb
+unity-project/*.booproj
+unity-project/*.svd
+unity-project/*.pdb
+unity-project/*.mdb
+unity-project/*.opendb
+unity-project/*.VC.db
+
+# Unity crash reports
+unity-project/sysinfo.txt
+unity-project/crashlytics-build.properties
+
+# Rider / VS artifacts
+.idea/
+.vs/
+.vscode/
+*.DotSettings.user
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ==========================================
+# Vendor — explicitly NOT ignored
+# ==========================================
+# Vendor-pinned installers stay in git
+!unity-project/Vendor/
+!unity-project/Vendor/**/*
+
+# ==========================================
+# Generated content — ignored
+# ==========================================
+content/probe/
+content/screenshots/cache/
+content/voice_cache/
+
+# ==========================================
+# Secrets
+# ==========================================
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.p12
+credentials.json
+secrets.json
+
+# Steamworks / platform builds — tracked separately
+steamworks/sdk/
+!steamworks/config/
+
+# ==========================================
+# Build outputs
+# ==========================================
+*.zip
+*.tar.gz
+*.dmg
+*.pkg
+*.msi
+*.exe.bak
+
+# ==========================================
+# Temp / logs
+# ==========================================
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+/tmp/
+
+# ==========================================
+# Claude Code project state (opt-in: most of these stay)
+# ==========================================
+# Session-local transcripts — usually want these
+# .claude/sessions/
+# (uncomment if you want to exclude)

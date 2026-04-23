@@ -1,0 +1,209 @@
+# CLAUDE.md — Final Whistle project contract
+
+> **Read this first in every new session.** Authoritative onboarding contract. What the project is, how it's decided, what Claude must respect, where canonical info lives.
+>
+> This file is SHORT by design. It does not duplicate other docs — it points at them.
+>
+> Authored 2026-04-22. Fork of `~/dev/blueprint/templates/CLAUDE.md`.
+
+---
+
+## 1. What this project is
+
+**Final Whistle is a football management RPG where careers remember.** Build a club, develop signature players, survive season-defining moments, and watch old decisions return years later as rivals, legends, regrets, and revenge. PC / Steam only. PEGI 12.
+
+**Working title:** Final Whistle
+**Studio:** Vibelogic
+**Genre:** sports / management / sim / RPG-progression
+**Target platforms:** Windows + Mac + Linux
+**Commercial target:** Steam EA → 1.0 ($20 EA → $30 1.0)
+**Target audience:** FM-disillusioned players + anime-sports-curious 18-35, primary vector via management-sim depth + emotional memory, not licensed realism.
+
+The game is simultaneously a shippable product and a proof-point for a solo AI-native production. Every asset goes through bake-time AI pipelines; the thesis is "one human + Claude + modern tools can ship something genuinely good end-to-end." Tone anchor: Giant Killing + Aoashi + occasional anime exaggeration. Grounded football first; heightened moments second.
+
+**Core loop (what the player does):** Sign/develop players → set tactics → play matches (2D stylized viewer with manga-broadcast cinema grammar) → respond to events that remember past choices → deal with consequences seasons later.
+
+**Unique selling points (Phase 0 refinement candidates):**
+- **Careers that remember** — event-sourced memory ledger surfaces old decisions as NPC callbacks, rival recall, press/fan sentiment, years after the fact
+- **Signature actions** — every meaningful player has 1-3 football-readable moves that express identity; earned, not stat-assigned
+- **Stylized 2D match cinema** — manga-broadcast 7-shot-type camera grammar modulated by stakes + memory; aims to be the visual identity, not a waypoint to 3D
+- **Unbounded RPG progression** — no 1-20 attribute ceiling; soft-gated by internal gene model, narrative moments redraw ranges
+
+**Full pitch:** `PROJECT_CONTEXT.md`.
+
+---
+
+## 2. Source-of-truth map
+
+Read in this order at session start:
+
+| Doc | Role |
+|---|---|
+| `CLAUDE.md` (this file) | Onboarding contract. Read first. |
+| `PROJECT_CONTEXT.md` | Project pitch, tone, audience, 4-bucket scope split. |
+| `SPEC.md` | Living work plan + phase list + **decisions log (append-only)**. |
+| `STATUS.md` | Current state — active phase, next action, blockers, recent milestones. Updated every task. |
+| `CHANGELOG.md` | Append-only human-readable ship log. |
+| `SETUP.md` | Authoritative setup procedure. Trigger table for deferred purchases. |
+| `TOOLING.md` | Canonical catalog of MCPs, plugins, subagents, CLIs, hooks. Adopt/skip decisions. |
+| `TECH_APPROACH.md` | Engineering blueprint (MatchSim architecture, determinism discipline, AI content compiler). |
+| `design/**` | Per-project design docs. Authoritative for intent (not implementation). |
+| `.claude/agents/*.md` | Per-subagent voice / behavior specs. |
+
+**Archived — do NOT import content from:** none at bootstrap.
+
+---
+
+## 3. Tech stack — LOCKED
+
+See `TECH_APPROACH.md` for full blueprint. One-line summary:
+
+- **Engine:** Unity 6 LTS (pin at Phase 3 bootstrap) + URP, Windows + Mac + Linux
+- **Canonical sim:** `MatchSim.csproj` — pure C#, zero UnityEngine references, fixed-point arithmetic for cross-platform deterministic replay
+- **Ball physics:** custom deterministic sim (Rocket League lesson), not Unity PhysX
+- **UI layer:** UI Toolkit (UXML/USS) — data-bindable, hot-reload, modern
+- **Async:** UniTask
+- **Data:** ScriptableObjects for content; YAML for behavior-tree archetypes; content packs with stable IDs + schema versions
+- **Loading:** Addressables
+- **Audio:** FMOD Studio integration (free for indies)
+- **Steam:** Steamworks.NET
+- **Rendering:** 2D stylized match viewer (7-shot semantic cinema); 3D deferred post-EA audience-signal gate
+- **AI:** bake-time only (content compiler). No runtime LLMs. No ML-Agents (behavior trees + hand-authored manager archetypes).
+
+**Budget model:** Tier 1 bootstrap (buy-on-pain). Magica Cloth 2 already owned ($50 sunk); GPT Image 2 in use for concepts. All 3D-asset subscriptions (Tripo / Rodin / Cascadeur / Hunyuan3D) deferred to post-EA 3D push. Steam Direct $100 at Phase 8.
+
+**Ruled out:**
+- Unreal / Godot: Unity's Mac Editor + URP + Mono-derived build pipeline fits solo workflow
+- HDRP: fights cel-shading, kills mobile port, overkill for 2D viewer MVP
+- Ink / Yarn Spinner: narrative is event-sourced systemic, not scripted
+- VRoid / UniVRM: no bespoke anime-3D characters (no 3D at MVP at all)
+- Runtime local LLMs: inference cost breaks match-day flow; bake-time delivers same variety at zero runtime cost
+- ML-Agents RL tactical AI: training cost + opacity + non-determinism; behavior trees win here
+- Mobile port: deferred indefinitely (revisit post-1.0 if ever)
+- Steam Deck Verified at launch: deferred post-launch (Linux build exists; cert work later)
+
+---
+
+## 4. Tooling (MCP, plugins, subagents, CLIs, hooks)
+
+**Canonical catalog:** `TOOLING.md`. Read that for adopt/skip decisions and install procedures.
+
+Installed at bootstrap (user-scope, already present):
+- `context7` (library docs)
+- `github` (repo / PR / issue workflow)
+- `blender-mcp` (Hunyuan3D + Hyper3D access — deferred 3D pipeline)
+
+Intentionally skipped:
+- `chrome` — WebSearch/WebFetch cover web needs
+- `desktop-commander` — Read/Write/Edit/Bash cover filesystem + process
+
+Queued plugins (user pastes into fresh session):
+- `/plugin install feature-dev`
+- `/plugin install pr-review-toolkit`
+- `/plugin install hookify`
+
+Phase-3-day-1 adoption:
+- CoplayDev `unity-mcp` (project-scoped, post-Unity-project-creation)
+
+---
+
+## 5. Workflow contract
+
+### 5.1 Phase structure
+
+Phases declared in `SPEC.md`. Exactly one 🟡 ACTIVE at a time. Each phase has a gate. `/next` picks the first `[ ]` task in the active phase. `/done` marks complete + updates STATUS + CHANGELOG.
+
+### 5.2 Decisions log
+
+`SPEC.md` decisions log is **append-only**. Enforced by `.claude/hooks/protect-decisions-log.sh`. To supersede an earlier decision, append a NEW entry citing the prior one.
+
+Use `/log-decision` to append.
+
+### 5.3 STATUS + CHANGELOG
+
+- `STATUS.md` — updated every completed task. Timestamp auto-maintained by `.claude/hooks/update-status-timestamp.sh` (Stop hook).
+- `CHANGELOG.md` — append-only human-readable. Every `[x]` in SPEC should have a matching CHANGELOG line.
+
+### 5.4 Slash commands
+
+Project-scoped:
+- `/next`, `/done`, `/audit`, `/refresh-docs`, `/log-decision`, `/status` (base six)
+- Plus the extended 25 shipped with blueprint v2 skeleton
+
+### 5.5 Hooks
+
+At `.claude/hooks/`:
+- `protect-decisions-log.sh` (PreToolUse on SPEC.md) — append-only enforcement
+- `update-status-timestamp.sh` (Stop) — rewrites STATUS.md timestamp
+
+### 5.6 Git workflow
+
+**Remote:** `github.com:Vibelogic/FinalWhistle.git` (private — created at user request after bootstrap).
+
+Branch strategy:
+- `main` — shippable only
+- `develop` — integration
+- `feat/<name>` — per-feature
+- `fix/<name>` — per-fix
+
+PR gating: CI green + code-reviewer-agent pass + manual review.
+
+---
+
+## 6. Style + behavior rules
+
+### 6.1 Code + doc style
+
+- **No speculative abstractions.** Bug fix doesn't need surrounding cleanup. Three similar lines beats a premature abstraction.
+- **Comments:** default none. Write one only when WHY is non-obvious (hidden constraint, subtle invariant, specific-bug workaround). Never narrate WHAT.
+- **No emojis** in code/docs unless explicitly requested.
+- **No capitalized state nouns in user-facing UI.** Internal floats (`momentum`, `rhythm`, `pressure`, `team_cohesion`, `signature_readiness`) stay invisible to players. Surface via football-native commentary ("Form: rising", "He's locked in", "The stadium has gone quiet"). See `design/ui-vocabulary.md` for the full rule.
+- **Markdown links** to project files (`[match-engine](design/match-engine.md)`). Full URLs for GitHub PRs/issues.
+
+### 6.2 Dev-flow discipline
+
+- `TodoWrite` for multi-step work when genuinely useful. Mark complete as each step lands, don't batch.
+- Parallel tool calls when independent; sequential when dependent.
+- Dedicated tools (Read/Edit/Write/Glob/Grep) beat Bash for the same job.
+- `Explore` subagent for codebase research >3 queries deep.
+- Verify before recommending from memory — check current state before acting.
+
+### 6.3 Risky actions — confirm first
+
+Destructive / shared-state / third-party-upload actions need user confirmation. Examples: `rm -rf`, `git reset --hard`, `git push --force`, Steam uploads, public posts. Auto mode shifts default to execute-without-asking but does NOT waive safety rules.
+
+### 6.4 UI / feature verification
+
+For 2D viewer work: run in Unity Editor, verify frame-accurate rendering + determinism replay via seed. Don't claim viewer work succeeds without a scene-capture.
+
+For MatchSim work: verify via xUnit tests AND headless balance-harness sweep. Floating-point reproducibility tested on Windows + Mac + Linux (GitHub Actions).
+
+---
+
+## 7. Common pitfalls — don't
+
+- Don't propose capitalized state-nouns for anything player-facing. Football-native vocabulary only.
+- Don't attempt 3D work at MVP scope. 2D-first is committed, not a waypoint.
+- Don't build Coaching Lineage surfacing pre-MVP. Data seeded; surfacing post-MVP.
+- Don't add runtime LLM calls for anything player-facing.
+- Don't allow Unity PhysX into canonical MatchSim state. Custom deterministic sim only; Unity physics exists only in viewer interpolation.
+- Don't overengineer early-phase setup (buy-on-pain; Phase-N+ tooling waits for Phase-N trigger).
+- Don't bypass hooks (`--no-verify`, etc.) unless explicitly requested.
+- Don't add features / docs / abstractions beyond the task requested.
+- Don't amend commits — create new ones.
+- Don't push to `main` directly — PR only.
+
+---
+
+## 8. First-session directive (fresh Claude Code session in this folder)
+
+1. Read `CLAUDE.md` (this file).
+2. Read `PROJECT_CONTEXT.md`, `STATUS.md`, `SPEC.md` current state block.
+3. Run `claude mcp list` via Bash — confirm installed MCPs.
+4. Check `git status` + `git log -3` for recent state.
+5. Report current phase + active task + blockers.
+6. Wait for user instruction OR auto-run `/next` if auto mode active.
+
+---
+
+*Authored 2026-04-22. Fork of blueprint v2. Cross-refs kept current via `/refresh-docs`.*

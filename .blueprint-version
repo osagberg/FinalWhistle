@@ -1,0 +1,38 @@
+blueprint_source: /Users/vibelogic/dev/blueprint
+forked_at: 2026-04-22T12:26:37Z
+forked_commit: 1d972ed81ef5e1fa7680a05f2b7f1f467e7fa9aa
+project_name: Final Whistle
+studio: Vibelogic
+profile: composed (60% sim-management, 30% action-character, 10% narrative trimmings)
+intake_complete: true
+customize_complete: true
+default_scope: research
+context_window_declared: 1M
+bootstrap_rounds: 5 (intake -> brainstorm 1/2 -> GPT-5.5 rounds 3/4)
+key_decisions:
+  - 2D-first MVP; 3D deferred post-EA audience-signal gate
+  - Fully fictional England-readable world (no real places)
+  - No capitalized state nouns; football-native UI language only
+  - Event-sourced career memory as single architectural pattern
+  - 24 pre-authored signatures (3 per role family)
+  - Breakthrough moments are match-flow cinematic, not pause-QTE
+  - Coaching Lineage data seeded at bootstrap; surfacing deferred post-MVP
+  - Scout Disagreement conditional-MVP gated on Month 4 feel prototype
+  - Tone: Giant Killing + Aoashi + occasional anime exaggeration
+  - Narrative ceiling: 5-8 salience-gated events per season
+  - MatchSim pure-C# + fixed-point canonical state for cross-platform determinism
+  - Behavior-tree manager archetypes (YAML); no ML-Agents
+  - AI content compiler pipeline with validation lints
+  - Mod-ready data architecture from day 1; editor UX deferred
+mcps_installed_at_bootstrap:
+  - context7 (already present, skipped reinstall)
+  - github (already present, skipped reinstall)
+  - blender-mcp (already present, skipped reinstall)
+mcps_skipped_intentionally:
+  - chrome (WebSearch/WebFetch cover web needs)
+  - desktop-commander (Read/Write/Edit/Bash cover filesystem/process)
+  - unity-mcp (deferred to Phase 3 — no Unity project yet)
+plugins_queued:
+  - feature-dev
+  - pr-review-toolkit
+  - hookify
