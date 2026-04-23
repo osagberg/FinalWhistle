@@ -53,7 +53,7 @@ Confirm no C# compile errors, no missing script references, no broken asmdef ref
    "/Applications/Unity/Hub/Editor/<version>/Unity.app/Contents/MacOS/Unity" \
      -batchmode -quit -nographics \
      -projectPath "$PROJECT_ROOT/unity-project" \
-     -executeMethod {{PROJECT_NAME}}.Editor.Verification.VerificationReport.Run \
+     -executeMethod FinalWhistle.Editor.Verification.VerificationReport.Run \
      -logFile /tmp/unity-l1.log
    ```
 2. After exit, read `Library/VerificationReport.json` (see [templates/VerificationReport.cs](templates/VerificationReport.cs)).

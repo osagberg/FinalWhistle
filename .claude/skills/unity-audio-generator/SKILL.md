@@ -60,7 +60,7 @@ Match the need to a generator:
 
 Option A — one-shot menu:
 ```
-execute_menu_item("{{PROJECT_NAME}}/Audio/Generate Beep")
+execute_menu_item("FinalWhistle/Audio/Generate Beep")
 ```
 
 Each generator exposes a `[MenuItem]`. When fired, the editor script opens an `EditorWindow` for parameters (in interactive editor sessions) or uses default parameters (in batchmode / headless mode).
@@ -69,7 +69,7 @@ Option B — parameterized via public static API:
 ```
 # via manage_components or an ad-hoc MenuItem like "Generate From Config"
 # writes /tmp/audio-gen.json with { "generator": "Beep", "freq": 440, ... }
-execute_menu_item("{{PROJECT_NAME}}/Audio/Generate From Config")
+execute_menu_item("FinalWhistle/Audio/Generate From Config")
 ```
 
 The `GenerateFromConfig` menu reads `/tmp/audio-gen.json`, dispatches to the right generator, and writes output + sidecar. Good for agentic batch use.

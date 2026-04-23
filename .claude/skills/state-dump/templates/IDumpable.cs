@@ -9,7 +9,7 @@
 // Keep returns small: only fields Claude would use to reason about state.
 // Don't dump the whole MonoBehaviour — PII of the scene graph is noise.
 
-namespace {{PROJECT_NAME}}.Debug
+namespace FinalWhistle.Debug
 {
     public interface IDumpable
     {

@@ -11,11 +11,11 @@
 // How Claude reads the output:
 //   DumpState() writes `Library/StateDump.json`. The state-dump SKILL.md
 //   tells Claude to Read that path after calling this via
-//   `execute_menu_item("{{PROJECT_NAME}}/Debug/Dump State")`. JSON schema
+//   `execute_menu_item("FinalWhistle/Debug/Dump State")`. JSON schema
 //   is documented in state-dump/SKILL.md "Output JSON shape".
 //
 // How to add a new god-mode command:
-//   1. Add a [MenuItem("{{PROJECT_NAME}}/Debug/<Name>")] static method below.
+//   1. Add a [MenuItem("FinalWhistle/Debug/<Name>")] static method below.
 //   2. Inside, guard with `if (!Application.isPlaying) return;` for anything
 //      that mutates runtime state.
 //   3. Call into the relevant singleton / service (e.g. GameManager.Instance).
@@ -40,11 +40,11 @@ using Newtonsoft.Json;
 using UnityEditor;
 #endif
 
-namespace {{PROJECT_NAME}}.Debug
+namespace FinalWhistle.Debug
 {
     public static class McpRemoteControl
     {
-        private const string MenuRoot = "{{PROJECT_NAME}}/Debug/";
+        private const string MenuRoot = "FinalWhistle/Debug/";
         private const string DumpOutputPath = "Library/StateDump.json";
 
         // For parameterized commands via manage_components: set this field on

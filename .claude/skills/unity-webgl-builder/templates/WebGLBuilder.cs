@@ -9,9 +9,9 @@
 //   build time, the file has slipped out of an Editor asmdef folder.
 //
 // How Claude invokes it:
-//   - MCP path:       execute_menu_item("{{PROJECT_NAME}}/Build/WebGL")
-//   - Batchmode path: Unity ... -executeMethod {{PROJECT_NAME}}.Editor.Build.WebGLBuilder.Build
-//   - Ad-hoc:         execute_menu_item("{{PROJECT_NAME}}/Build/WebGL With Config")
+//   - MCP path:       execute_menu_item("FinalWhistle/Build/WebGL")
+//   - Batchmode path: Unity ... -executeMethod FinalWhistle.Editor.Build.WebGLBuilder.Build
+//   - Ad-hoc:         execute_menu_item("FinalWhistle/Build/WebGL With Config")
 //                     (reads /tmp/webgl-config.json — see ConfigPath const)
 //
 // Report contract:
@@ -28,14 +28,14 @@ using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
 
-namespace {{PROJECT_NAME}}.Editor.Build
+namespace FinalWhistle.Editor.Build
 {
     public static class WebGLBuilder
     {
         private const string DefaultOutputPath = "Build/WebGL";
         private const string ReportPath = "Library/WebGLBuildReport.json";
         private const string ConfigPath = "/tmp/webgl-config.json";
-        private const string MenuRoot = "{{PROJECT_NAME}}/Build/";
+        private const string MenuRoot = "FinalWhistle/Build/";
 
         // -----------------------------------------------------------------
         // Menu entries

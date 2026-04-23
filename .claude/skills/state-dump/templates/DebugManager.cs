@@ -45,7 +45,7 @@ using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-namespace {{PROJECT_NAME}}.Debug
+namespace FinalWhistle.Debug
 {
     public sealed class DebugManager : MonoBehaviour
     {

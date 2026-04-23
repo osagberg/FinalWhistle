@@ -29,7 +29,7 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-namespace {{PROJECT_NAME}}.Editor.Audio
+namespace FinalWhistle.Editor.Audio
 {
     public static class AudioGenerator
     {
@@ -41,7 +41,7 @@ namespace {{PROJECT_NAME}}.Editor.Audio
         private const string SfxRoot = "Assets/_Project/Audio/SFX/_placeholder";
         private const string BgmRoot = "Assets/_Project/Audio/BGM/_placeholder";
         private const string ConfigPath = "/tmp/audio-gen.json";
-        private const string MenuRoot = "{{PROJECT_NAME}}/Audio/";
+        private const string MenuRoot = "FinalWhistle/Audio/";
 
         // -----------------------------------------------------------------
         // Menu entries — interactive generators with param windows.

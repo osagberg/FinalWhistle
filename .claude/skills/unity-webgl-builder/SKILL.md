@@ -56,7 +56,7 @@ Bash: claude mcp list | grep unity-mcp
 ### Step 2a — MCP path (preferred, fast feedback)
 
 1. `manage_editor(action="set_active_build_target", target="WebGL")` — switch platform if needed. First switch on a fresh project is slow (2–10 min recompile); subsequent switches are seconds.
-2. `execute_menu_item(menu_path="{{PROJECT_NAME}}/Build/WebGL")` — invokes `WebGLBuilder.Build()`.
+2. `execute_menu_item(menu_path="FinalWhistle/Build/WebGL")` — invokes `WebGLBuilder.Build()`.
 3. Wait for completion. Builds take 1–5 minutes depending on asset count and IL2CPP first-run.
 4. Read `unity-project/Library/WebGLBuildReport.json`. Parse:
    - `result` — `Succeeded` / `Failed` / `Cancelled`
@@ -75,7 +75,7 @@ UNITY_BIN="/Applications/Unity/Hub/Editor/6000.4.3f1/Unity.app/Contents/MacOS/Un
   -batchmode -quit -nographics \
   -projectPath "$PROJECT_ROOT/unity-project" \
   -buildTarget WebGL \
-  -executeMethod {{PROJECT_NAME}}.Editor.Build.WebGLBuilder.Build \
+  -executeMethod FinalWhistle.Editor.Build.WebGLBuilder.Build \
   -logFile /tmp/webgl-build.log
 ```
 
@@ -195,7 +195,7 @@ EOF
 Then invoke via MCP:
 
 ```
-execute_menu_item("{{PROJECT_NAME}}/Build/WebGL With Config")
+execute_menu_item("FinalWhistle/Build/WebGL With Config")
 ```
 
 The template reads `/tmp/webgl-config.json` (path hardcoded; edit the const in `WebGLBuilder.cs` for a different location). Missing config → falls back to defaults.

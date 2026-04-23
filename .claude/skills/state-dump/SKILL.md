@@ -28,7 +28,7 @@ Skip for pure art/shader/UI work — use unity-check L3 instead.
 
 ```
 [Claude] ──┐
-           ├─ execute_menu_item("{{PROJECT_NAME}}/Debug/Dump State")
+           ├─ execute_menu_item("FinalWhistle/Debug/Dump State")
            │     │
            │     ▼
            │  McpRemoteControl.DumpState()            ← Editor menu entry
@@ -46,7 +46,7 @@ Skip for pure art/shader/UI work — use unity-check L3 instead.
 ## Procedure — dump-only flow
 
 1. Ensure Play Mode is running. If not: `manage_editor(action="play")`, wait 3s.
-2. `execute_menu_item(menu_path="{{PROJECT_NAME}}/Debug/Dump State")`.
+2. `execute_menu_item(menu_path="FinalWhistle/Debug/Dump State")`.
 3. Wait ~500ms for file write.
 4. Read `unity-project/Library/StateDump.json` (or use helper script [scripts/dump-and-read.sh](scripts/dump-and-read.sh)).
 5. Parse and inspect relevant sections. Do NOT slurp the full JSON into context if only one component is relevant — JSON is structured, read the needle.
@@ -56,12 +56,12 @@ Skip for pure art/shader/UI work — use unity-check L3 instead.
 Use when you need to prove "when I do X, state becomes Y".
 
 1. `manage_editor(action="play")`, wait 3s.
-2. `execute_menu_item("{{PROJECT_NAME}}/Debug/Dump State")` → baseline snapshot.
+2. `execute_menu_item("FinalWhistle/Debug/Dump State")` → baseline snapshot.
 3. Drive state via god-mode commands:
-   - `execute_menu_item("{{PROJECT_NAME}}/Debug/God Mode")` — toggle invincibility
-   - `execute_menu_item("{{PROJECT_NAME}}/Debug/Set Health 50")` — custom — you add these to McpRemoteControl as needed
+   - `execute_menu_item("FinalWhistle/Debug/God Mode")` — toggle invincibility
+   - `execute_menu_item("FinalWhistle/Debug/Set Health 50")` — custom — you add these to McpRemoteControl as needed
    - Or set `McpRemoteControl.PendingCommand` via `manage_components` for parameterized calls
-4. `execute_menu_item("{{PROJECT_NAME}}/Debug/Dump State")` → post-action snapshot.
+4. `execute_menu_item("FinalWhistle/Debug/Dump State")` → post-action snapshot.
 5. Diff baseline vs post. Report the delta.
 6. `manage_editor(action="stop")`.
 
@@ -106,10 +106,10 @@ Only components implementing `IDumpable` (see [templates/IDumpable.cs](templates
 ## Extending — new god-mode command
 
 1. Open [templates/McpRemoteControl.cs](templates/McpRemoteControl.cs) (copied into `Assets/_Project/Editor/` at bootstrap).
-2. Add a `[MenuItem("{{PROJECT_NAME}}/Debug/<YourCommand>")]` static method.
+2. Add a `[MenuItem("FinalWhistle/Debug/<YourCommand>")]` static method.
 3. Inside, find the relevant runtime manager (e.g. `GameManager.Instance`) and call into it.
 4. Guard anything touching scene state with `if (!Application.isPlaying) return;`.
-5. Call via `execute_menu_item("{{PROJECT_NAME}}/Debug/<YourCommand>")`.
+5. Call via `execute_menu_item("FinalWhistle/Debug/<YourCommand>")`.
 
 ## Safety / constraints
 

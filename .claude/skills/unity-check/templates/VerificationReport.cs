@@ -3,7 +3,7 @@
 // Invoked via:
 //   Unity -batchmode -quit -nographics \
 //     -projectPath <project> \
-//     -executeMethod {{PROJECT_NAME}}.Editor.Verification.VerificationReport.Run \
+//     -executeMethod FinalWhistle.Editor.Verification.VerificationReport.Run \
 //     -logFile /tmp/unity-l1.log
 //
 // Writes JSON to Library/VerificationReport.json for the unity-check skill to read.
@@ -19,7 +19,7 @@ using UnityEditor;
 using UnityEditor.Compilation;
 using UnityEngine;
 
-namespace {{PROJECT_NAME}}.Editor.Verification
+namespace FinalWhistle.Editor.Verification
 {
     public static class VerificationReport
     {
