@@ -2,6 +2,16 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase-1 banned-terms lint shipped)
+
+- `scripts/lint-banned-terms.py` authored — Python 3, stdlib-only, walks repo with path filters (`.claude/`, `design/brainstorm/`, `design-templates/`, Unity caches excluded). Category-A hard-ban patterns cover all 5 subsections from `design/ui-vocabulary.md` 2026-04-24 resolution: A.1 mystical state nouns, A.2 progression vocabulary, A.3 genetics/bloodline, A.4 stigmatizing phenotypes, A.5 real-world place-name analogues. Category-B soft-ban terms (awakens / savant / weapon / realm / forge / etc.) allow inline `ui-lint:allow term="..." reason="..." reviewer="..."` exemption with all-three-required audit discipline
+- **Sentinel-aware** — respects `<!-- ui-lint:ignore-start reason="..." --> ... <!-- ui-lint:ignore-end -->` blocks per the locked `design/ui-vocabulary.md` convention. Strips regions before pattern matching. Scope is consistent with `fw verify-docs`'s placeholder check
+- **Both-forms matching** where relevant (per GPT-5.5 feedback): Category-B "weapon" matches both cases; Category-A patterns use `\b` word boundaries to avoid false positives on compound words (e.g. "Canon" banned, "canonical" unaffected)
+- `--report` flag emits JSON of active Category-B exemptions for EA content lock + RC audit (currently empty — all exemptions go through sentinel blocks)
+- Wired as `fw banned-terms` subcommand; `fw verify` umbrella now runs both `verify-docs` + `banned-terms` — so Tier-A CI picks it up automatically via the existing `fw verify` job, no workflow edit needed
+- First full-repo run caught 143 hits (3 rounds of successive tightening: `.claude/` exclusion → 83 hits → section-level sentinel wraps across 11 files → 0 hits). Files now containing legitimate sentinel-wrapped meta-references: `PROJECT_CONTEXT.md`, `SPEC.md` (entire decisions log), `TOOLING.md`, `CHANGELOG.md`, `design/overview.md`, `design/ui-vocabulary.md`, `design/signatures.md` (lifecycle + stacking + deferred), `design/breakthrough-moments.md`, `design/player-generation.md`, `design/worldbuilding.md` (region analog table + Phase-1-lint-rule spec), `.github/ISSUE_TEMPLATE/bug_report.md`, `scripts/lint-banned-terms.py` (self-reference to own pattern definitions)
+- Verify: `scripts/fw verify` local green; `scripts/fw banned-terms --report` emits `{"exemptions": []}` — no inline Category-B allowances granted yet
+
 ## 2026-04-24 (Codex / GPT-5.5 review pass — 5 findings fixed)
 
 Findings table produced by GPT-5.5 against the Phase-1 scaffolding work. All 5 applied:
@@ -117,7 +127,9 @@ Verify: `scripts/fw verify` local green; next push triggers Tier-A `Verify (Tier
 - Rewrote `design/scout-disagreement.md` "Open questions" → "Resolved" section with the 3 archetypes locked, pass/fail criterion tightened, staged-time feedback loop spelled out, prototype-gate block rewritten; bumped `last_verified` to 2026-04-24
 - Locked Breakthrough Moments trigger behavior via consolidated SPEC entry `2026-04-24 — Breakthrough Moments open questions resolved`:
   - Cinema beat duration: 3-5s range; default Phase-3 tuning seed **3s**; 5s reserved for high-stakes beats. 8s dropped entirely — reads as "the game paused to tell me a thing"
+<!-- ui-lint:ignore-start reason="summarising the banned-vocabulary rule by naming its targets" -->
   - Overlay text: two-tier observational pattern (quiet panel-beat phrase + match-specific follow-up). **Strict no-system-vocabulary rule** — banned: "Signature unlocked," "Awakened," "XP gained," mystical state nouns. Enforced via `ui-vocabulary.md` lint
+<!-- ui-lint:ignore-end -->
   - Near-miss handling: silent first same-match occurrence; post-match stat-card after 2nd+ in the same match. Prevents near-miss farming failure mode
   - Regressive triggers: equal gravity to positive breakthroughs (same duration, same shot chain, tone modulation via existing semantic-cinema channels)
   - **Pillar-tiebreaker interaction (the sharp bit):** during normal play, breakthrough cinema defers to the next natural surface (dead ball → half-time → post-match). During a high-leverage sequence, the cinema fires immediately ONLY if the triggering action is the resolving beat — the shot, save, tackle, or final pass that resolves the chance. **Never** interrupt live play mid-sequence; dead-ball breakthroughs fire immediately because the natural surface already exists. Implementation hook: `chain_rules` condition `resolving_action_of_sequence` on ShotTypeSO
@@ -125,7 +137,9 @@ Verify: `scripts/fw verify` local green; next push triggers Tier-A `Verify (Tier
 - Rewrote `design/breakthrough-moments.md` "Open questions" → "Resolved" section with five resolution blocks (Q1-Q5 including the pillar-tiebreaker interaction); bumped `last_verified` to 2026-04-24
 - Locked player-generation internal model via consolidated SPEC entry `2026-04-24 — Player-generation open questions resolved`:
   - Internal model locked at 22 fields across 4 categories (7 physical / 6 mental / 5 technical / 4 narrative-flag). Growth requires schema bump
+<!-- ui-lint:ignore-start reason="phenotype-edit summary naming the old banned labels and their replacements" -->
   - **Phenotype catalog locked at 46 labels** (ceiling 50). Role-specific expanded from ~10 to 22 to cover all 8 role families including goalkeeper identity (Sweeper Keeper / Line Keeper / Cross Claimer). Three label edits applied: `Fragile Under Scrutiny` → `Struggles Under Scrutiny`, `Powerful Striker` → `Powerful Ball Striker`, `Plateau Risk` removed entirely (concept now surfaces via scout prose + projected-range narrowing). No stigmatizing / systemic / PEGI-sensitive framing
+<!-- ui-lint:ignore-end -->
   - Advanced scout-report tooltip: default OFF; opt-in exposes scout-estimated uncertainty ranges only — never true `internal_gene_snapshot` values. Shipped builds never expose raw internal snapshots under any settings combination
   - Compiler reproducibility: **canonical artifact is checked-in structured JSON**, NOT prompt+seed+model. Manifest records model/seed for audit; regeneration with newer models produces new delta packs, never in-place mutations
   - **ID-stability correction:** player IDs take form `fwh.core:player_00042` or `fwh.core.v1:player_00042`. **Minor pack versions (`v1.1`, `v1.2`) NEVER appear in entity IDs.** Pack-minor-version lives in manifest as `introduced_in_pack_version` per entity. Prevents patches leaking into save references + mod compatibility

@@ -73,9 +73,11 @@ At Month 12 EA:
 - Balance-harness-tuned awakening pacing (so awakenings feel earned, not random)
 - Salience-gated so breakthroughs contribute to the 5-8-events-per-season ceiling
 
+<!-- ui-lint:ignore-start reason="deferred-item technical description of awakened mechanic" -->
 ## Deferred
 
 - Signature evolution (awakened signature evolves via continued use) — post-MVP
+<!-- ui-lint:ignore-end -->
 - Awakenings triggering rivalry / relationship events with other players — post-MVP
 - External trainers / mentors triggering specific awakenings — post-MVP
 
@@ -101,9 +103,11 @@ Phase-3 Week 4 A/B-tests 3s / 4s / 5s variants against the Month-3 gate observer
 **Tier 2 — Match-specific follow-up** (fires in `aftermath-freeze` or post-match report):
 > *"He cuts inside again — and this time he goes through."* / *"Mendez has been looking for that run all half."*
 
+<!-- ui-lint:ignore-start reason="banned-vocabulary callout enumerating the lint's own targets" -->
 **Banned vocabulary (enforced via `design/ui-vocabulary.md` lint):**
 - ~~"Signature unlocked"~~, ~~"Awakened"~~, ~~"The Hush"~~, ~~"Calling"~~, ~~"Canon"~~ — no mystical / capitalized state nouns
 - ~~"XP gained"~~, ~~"Level up"~~, ~~"+5 finishing"~~ — no progression-mechanic menu vocabulary
+<!-- ui-lint:ignore-end -->
 
 Text describes football behavior, not progression mechanics. If copy could appear in a live broadcast commentator's line, it's probably right. If it could appear on a stat-sheet readout, it's probably wrong.
 

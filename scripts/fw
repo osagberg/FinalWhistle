@@ -29,6 +29,9 @@ COMMANDS (implemented)
     status          Read-only summary of repo state (git + active phase)
     verify          Tier-A umbrella — runs every implemented fast-PR check
     verify-docs     Doc frontmatter + unsubstituted-placeholder checks
+    banned-terms    Category-A + Category-B banned-vocabulary lint
+    banned-terms --report
+                    Emit JSON of active Category-B exemptions (EA/RC audit)
 
 COMMANDS (stubbed — land when their phase trigger hits)
     test            dotnet test MatchSim.Tests (Phase 3)
@@ -46,8 +49,16 @@ EOF
         # New checks get wired in here as their deliverables land (see
         # design/production-pipeline.md §workflow-tiers Tier A).
         "$0" verify-docs
-        # Future additions: banned-terms (Phase 1), dotnet test (Phase 3),
-        # determinism smoke (Phase 3), content-lint (Phase 6).
+        "$0" banned-terms
+        # Future additions: dotnet test (Phase 3), determinism smoke (Phase 3),
+        # content-lint (Phase 6).
+        ;;
+
+    banned-terms)
+        # Category-A (hard-ban) + Category-B (soft-ban w/ inline exemption)
+        # vocabulary lint. Source of truth: design/ui-vocabulary.md.
+        # Accepts --report for Category-B exemption audit JSON.
+        exec python3 "$ROOT/scripts/lint-banned-terms.py" --root "$ROOT" "$@" "$ROOT"
         ;;
 
     status)
@@ -140,7 +151,7 @@ EOF
         exit "$exit_code"
         ;;
 
-    test|replay|content-lint|build-local|package-playtest|banned-terms)
+    test|replay|content-lint|build-local|package-playtest)
         cat >&2 <<EOF
 fw: '$cmd' is not implemented yet at Phase 1.
 

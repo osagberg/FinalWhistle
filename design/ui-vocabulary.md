@@ -16,7 +16,9 @@ GPT-5.5's framing: "The anime layer should be visual, not lexical. If a commenta
 
 See SPEC.md 2026-04-22. Summary:
 
+<!-- ui-lint:ignore-start reason="locked-decisions summary naming banned terms" -->
 - **No capitalized state nouns in player-facing UI.** Banned as visible system names: "The Hush", "Weather", "Calling", "Canon", "Seven", "Kismet", "Soul", "The Author", "The Ledger" (as a UI noun).
+<!-- ui-lint:ignore-end -->
 - **Internal float names stay internal.** `momentum`, `rhythm`, `pressure`, `team_cohesion`, `signature_readiness` live in code + design docs, never in player text.
 - **Football-native vocabulary** for all surfaced states. Lift directly from real commentary + supporter culture.
 

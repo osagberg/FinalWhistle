@@ -51,7 +51,7 @@
 - [x] `gh repo create osagberg/FinalWhistle --private --source=. --remote=origin` (2026-04-24 — created under personal namespace; `vibelogic` org exists but dev accounts not members. Transfer to publisher org deferred to Phase 8 if needed for Steam branding)
 - [ ] CI stub from `~/dev/blueprint/ci-cd/github-actions-unity.yml.template` adapted for MatchSim.Tests matrix (Win/Mac/Linux)
 - [x] Asset licensing tracker initialized
-- [ ] Phase-1 lint rule: full `scripts/lint-banned-terms.py` implementing Category-A (hard-ban, no exemption) + Category-B (inline `ui-lint:allow` exemption with term/reason/reviewer audit) + sentinel-exemption blocks (`ui-lint:ignore-start` / `ui-lint:ignore-end`). Scope: UI code + runtime content packs + rendered player-facing outputs. CI emits exemption report reviewed before EA content lock + every RC. Banned-term source is `design/ui-vocabulary.md` Categories A.1-A.5 including real-world place-name analogues (seeded by 2026-04-24 Worldbuilding + UI-vocabulary resolutions)
+- [x] Phase-1 lint rule: full `scripts/lint-banned-terms.py` implementing Category-A (hard-ban, no exemption) + Category-B (inline `ui-lint:allow` exemption with term/reason/reviewer audit) + sentinel-exemption blocks (`ui-lint:ignore-start` / `ui-lint:ignore-end`). Scope: UI code + runtime content packs + rendered player-facing outputs. CI emits exemption report reviewed before EA content lock + every RC. Banned-term source is `design/ui-vocabulary.md` Categories A.1-A.5 including real-world place-name analogues (2026-04-24 — wired as `fw banned-terms`, integrated into `fw verify` umbrella + Tier-A CI; lint green clean across repo; zero Category-B exemptions in current codebase)
 - [ ] Smoke-test slash commands: `/status`, `/next`, `/log-decision`
 - [ ] Plugin install via slash commands (feature-dev / pr-review-toolkit / hookify)
 - [ ] GitHub Actions budget cap set (stop on overage; Free 2k or Pro 3k included minutes per `design/production-pipeline.md`)
@@ -240,7 +240,9 @@
 - [ ] Audience-signal gate: does the game deserve 3D investment?
 - [ ] If yes: 3D match engine R&D begins (Tripo / Hunyuan3D / Cascadeur subscriptions activate)
 - [ ] Coaching Lineage surfacing (data was seeded at bootstrap; now expose)
+<!-- ui-lint:ignore-start reason="internal dev-tool feature name (proper noun), not player-facing verb usage" -->
 - [ ] Manager Archetype Forge (Claude-generates BTs from English briefs)
+<!-- ui-lint:ignore-end -->
 - [ ] Counterfactual Development Lab (if/trained/as projections)
 - [ ] Physical Load as Narrative Debt polish
 - [ ] Workshop editor UX (data architecture was ready at bootstrap; now build)
@@ -254,7 +256,9 @@
 - Second language pass: JP / ES / PT / DE
 - Audio commentary voice-acting (ElevenLabs evaluation) — conditional on player demand
 - Counterfactual Development Lab full UI
+<!-- ui-lint:ignore-start reason="internal dev-tool feature name" -->
 - Manager Archetype Forge English-to-YAML generator
+<!-- ui-lint:ignore-end -->
 - Physical Load as Narrative Debt (injury system polish)
 - Dynasty / lineage mechanics (if audience retains + requests)
 - Steam Deck Verified certification push
@@ -270,6 +274,8 @@
 > decision, append a NEW entry citing the prior one. The
 > `.claude/hooks/protect-decisions-log.sh` hook rejects Edits/Writes that mutate
 > any existing `- **YYYY-MM-DD**` bullet. Use `/log-decision` to append.
+
+<!-- ui-lint:ignore-start reason="append-only decisions log; meta-references to banned terms are intentional historical record" -->
 
 - **<YYYY-MM-DD>** — **<Decision headline>**. Reasoning: <short why>.
 - **2026-04-22** — **Project bootstrapped from blueprint v2.** Composed profile: 60% sim-management + 30% action-character + 10% narrative trimmings. Intake across 5 rounds (including GPT-5.5 design-partner rounds 3-4). Research scope active for Phase 0-2; contract to `rich` at Phase 2 lock.
@@ -316,6 +322,8 @@
 - **2026-04-24** — **UI vocabulary open questions resolved.** Player-facing vocabulary lint covers UI code, runtime content, content-pack JSON, and rendered player-facing doc/content outputs. `design/ui-vocabulary.md` uses explicit ignore sentinels only around banned-term catalog sections; no whole-file self-whitelist. Category-A terms have no exemption path (expanded with 2026-04-24 additions: system/progression vocabulary, genetics/bloodline terms, stigmatizing phenotype framings, real-world place-name analogues). Category-B terms may use audited inline exemptions with exact term, specific reason, and reviewer handle; exemption reports are reviewed before EA content lock / release candidates. Commentary overlay templates use flatter per-shot-type pools of 15-30 templates, targeting ~140 MVP match-flow templates, with stake/memory filters and slot variables providing variation. Default English tone is British-football vernacular; other locales use native football idiom and locale-specific banned-term lists. Template governance folds into the Phase-2 AI Content Compiler ADR.
 
 - **2026-04-24** — **Production pipeline planning pass (GPT-5.5 report).** Authored `design/production-pipeline.md` as authoritative CI/CD + release-ops plan. Core posture: GitHub is source-of-truth for code/docs/PRs and cheap PR-gate CI; Unity CI is slow, license-sensitive, expensive (macOS especially) and runs manual-dispatch only through Phase 7; heavy sim sweeps (10K-match, balance harness, replay corpus regen, full Unity matrix) run local or on self-hosted runner; release CI is manual-approval only. Five workflow tiers: A (fast PR, ≤5 min Linux), B (Unity smoke, manual dispatch), C (heavy local/self-hosted), D (release candidate, tagged + manual), E (Steam deploy, manual approval only). Build channels: dev / tester-closed / demo / ea / hotfix. Core deliverables owed by the pipeline: golden replay corpus (Phase-2 spec, Phase-3 implement), save migration fixtures (Phase-2 spec, Phase-6 implement), content-pack validator (Phase-2 spec, Phase-6 full), local `scripts/fw` command front-door (Phase-3), in-build bug-bundle export + itch.io distribution (Phase-4), local-first crash/log exporter with opt-in anonymous telemetry (Phase-5+), backup policy (Phase-1). No paid pipeline services through MVP. Phase-1/2/3/4/5/6/8 SPEC tasks pre-seeded. Phase-2 ADR pre-seeded for production pipeline itself. TECH_APPROACH.md to add Production Pipeline section cross-referencing this doc.
+
+<!-- ui-lint:ignore-end -->
 
 ---
 

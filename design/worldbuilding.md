@@ -52,6 +52,7 @@ Demonym: **Caldren** (uninflected — avoids awkward "Creslish" / "Anvaran" / "W
 
 **Scope caveat:** Caldren is in-game setting context, not Steam-page branding. Formal legal clearance deferred to Phase-8 prep alongside the "Final Whistle" title clearance.
 
+<!-- ui-lint:ignore-start reason="compiler-seeding region-analog table; strings ship dev-config-only, never runtime content" -->
 ### Regional structure (draft)
 
 ~6-8 regions within the nation, each with cultural flavor priors for AI Content Compiler seeding:
@@ -66,6 +67,7 @@ Demonym: **Caldren** (uninflected — avoids awkward "Creslish" / "Anvaran" / "W
 | The Midlands | Birmingham / Nottingham analog | Mixed-industry; mid-table heartland |
 | The Far North | Newcastle / Edinburgh analog | Fierce parochial support; older player cultures |
 | Offshore islands | Jersey / Isle-of-Man analog | Footnote regions; "discovered unknown from the islands" flavor |
+<!-- ui-lint:ignore-end -->
 
 ### Pyramid structure (locked 2026-04-24)
 
@@ -164,13 +166,17 @@ Trophy is low engineering cost relative to the narrative value it provides lower
 
 ## Real-world-parallel flavour (locked: compiler-only; no user-facing leakage)
 
+<!-- ui-lint:ignore-start reason="meta-reference describing the compiler-only analogue column" -->
 The region analog column in the region-structure table (Manchester / Leeds / London / etc.) is **compiler-seeding context only** — never rendered to the user.
+<!-- ui-lint:ignore-end -->
 
 **Rules:**
 - User-facing surfaces (scout reports, commentary, press, region names in-game) refer to Caldren regions by their **in-game fictional names** (finalised at Phase-6 bake).
 - The `RegionPriors` `region_id` is the stable enum the runtime uses; the real-world analog string is a **compiler-config-only annotation** that never ships in runtime content packs.
 - Ideal storage: analogue strings live in `dev-config/compiler/region-analogues.json` or equivalent, gitignored-from-runtime-build. Never in the shipped content pack payload.
+<!-- ui-lint:ignore-start reason="Phase-1 lint rule spec naming the analogue strings it catches" -->
 - **Phase-1 lint rule (required):** scan runtime content packs + all user-facing string tables for any of the analogue-column strings (`"Manchester"`, `"Leeds"`, `"London"`, `"Cardiff"`, `"Bristol"`, `"Brighton"`, etc.). Any match = build failure. Prevents Uncanny-Valley England leakage.
+<!-- ui-lint:ignore-end -->
 
 Flavour priors that DO ship: `physical_priors`, `mental_priors`, `technical_priors`, `dominant_role_families`, `stylistic_tendencies`, `naming_club_patterns`. None of these reference real places.
 

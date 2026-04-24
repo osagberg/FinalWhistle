@@ -33,7 +33,9 @@
 
 | Server | Trigger | Notes |
 |---|---|---|
+<!-- ui-lint:ignore-start reason="deferred MCP service named 'AI Forge' — proper noun, not verb usage" -->
 | AI Forge | Phase 9 post-EA 3D push | Blender pipeline tier-selection |
+<!-- ui-lint:ignore-end -->
 | Additional 3D MCPs | Post-EA 3D R&D | Evaluate at Phase 9 if audience signal justifies |
 
 ---
@@ -173,7 +175,9 @@ Tools evaluated and rejected. Includes the WHY so future sessions don't re-re-ev
 - **uGUI for primary UI** — UI Toolkit is the target; uGUI only as fallback for documented UIT bugs.
 - **VRoid / UniVRM pipeline** — no 3D at MVP; defer indefinitely.
 - **Monthly subscriptions before Phase 9** — explicit hard rule; exceptions require decisions-log entry.
+<!-- ui-lint:ignore-start reason="anti-patterns list explicitly naming banned vocabulary" -->
 - **"The Hush" / "Weather" / "Calling" / "Canon" / "Seven" / capitalized mystical vocabulary** — never ships as visible system names. Football-native UI copy only.
+<!-- ui-lint:ignore-end -->
 
 ---
 

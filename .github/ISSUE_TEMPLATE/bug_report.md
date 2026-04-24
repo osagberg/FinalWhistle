@@ -7,9 +7,11 @@ labels: bug
 
 ## What happened
 
+<!-- ui-lint:ignore-start reason="bug-report guidance showing banned vs non-banned example phrasings" -->
 <!-- One-sentence description in football-native terms where possible.
      Bad: "The XP counter is wrong."
      Better: "Striker signature unlocked without the 0.85 readiness threshold being crossed." -->
+<!-- ui-lint:ignore-end -->
 
 ## Expected vs actual
 

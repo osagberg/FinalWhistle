@@ -1,6 +1,6 @@
 # Status
 
-**Last updated**: 2026-04-24 (Phase 1 🟡 ACTIVE — Setup. Remote + Tier-A CI + ops runbooks shipped; GPT-5.5 review pass applied 5 findings.)
+**Last updated**: 2026-04-24 (Phase 1 🟡 ACTIVE — Setup. Banned-terms lint shipped; repo lint-clean.)
 
 ## Currently working on
 
@@ -41,6 +41,7 @@ Shipped so far: Unity install (user), `scripts/fw` front-door, PR template, issu
 
 ## Recent milestones
 
+- 2026-04-24: Phase 1 — `scripts/lint-banned-terms.py` shipped. Category-A hard-ban across 5 subsections from ui-vocabulary.md + Category-B soft-ban with inline `ui-lint:allow term=/reason=/reviewer=` exemption audit. Sentinel-aware (ui-lint:ignore-start/end), both-forms matching (per GPT-5.5 feedback). Wired as `fw banned-terms`, integrated into `fw verify` umbrella → Tier-A CI auto-picks up. 11 files sentinel-wrapped for legitimate meta-references; repo lint-clean. Resolved the GPT-5.5 tech-debt note about spaced-placeholder hack via proper sentinel discipline
 - 2026-04-24: Phase 1 — GPT-5.5 Codex review pass applied 5 findings: branch-protection reframed as local-discipline-only (Free plan doesn't allow protection on private repos; verified via `gh api`), approvals corrected to 0 (GitHub blocks author self-approval), JetBrains Mono license corrected to SIL OFL 1.1 (Apache-2.0 covers source code only), `fw verify` umbrella added + false broken-link claim removed, spaced-placeholder hack documented as tech-debt to resolve when `lint-banned-terms.py` lands
 - 2026-04-24: Phase 1 — `osagberg/FinalWhistle` private remote created + initial push (2 commits on origin/main); `.github/workflows/fast-pr-ci.yml` Tier-A v0 authored (fw verify-docs only, phase-gated TODOs commented); `docs/ops/branch-protection.md` + `docs/ops/actions-budget.md` runbooks shipped. `vibelogic` org membership gap diagnosed + namespaced-around
 - 2026-04-24: Phase 1 — first parallel-to-Unity-install batch shipped (6 tasks): Unity 6 LTS installed (user), asset-licensing tracker seeded (Anton/JetBrains Mono/Rajdhani/Magica Cloth 2), `scripts/fw` front-door with `help`/`status`/`verify-docs` implemented + 5 phase-gated stubs, PR template, 2× issue templates, `docs/ops/backup-restore.md`. `fw verify-docs` + `fw status` both green

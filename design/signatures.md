@@ -17,7 +17,9 @@ See SPEC.md 2026-04-22. Summary:
 - **24 pre-authored signatures.** Not composable atoms.
 - **3 per role family × 8 role families.**
 - **Each signature = role-specific football behavior + trigger conditions + sim bias + execution modifier + presentation recipe + counterplay.**
+<!-- ui-lint:ignore-start reason="locked decision naming banned UI-power-name vocabulary" -->
 - **No power names.** UI surfaces football-readable copy ("Looks for early crosses" / "Arrives late in the box"). Never "Savant Shot" / "Weapon" / "Signature Move™" branding in player-facing text.
+<!-- ui-lint:ignore-end -->
 - **Earned, not stat-assigned.** A player's signature-readiness grows under specific trigger conditions; breakthrough moments unlock them.
 
 ## Role families (8)
@@ -81,6 +83,7 @@ See SPEC.md 2026-04-22. Summary:
 23. **Drops deep to link** — comes short to receive between lines; sim bias: +drop-deep freq + link-up xAssist; trigger: minutes as false-9; counterplay: CBs follow him; DMs cover
 24. **Finishes first-time** — prefers one-touch finish, won't set up; sim bias: +first-time-finish xG; trigger: first-time-finish history; counterplay: deny the decisive pass
 
+<!-- ui-lint:ignore-start reason="technical description of the awakening lifecycle mechanic; internal design-doc prose, not player-facing" -->
 ## Signature lifecycle
 
 1. **Latent** — generated player has 1-3 signature affinities in Identity Packet; none active
@@ -88,6 +91,7 @@ See SPEC.md 2026-04-22. Summary:
 3. **Breakthrough** — at readiness threshold (default 0.85), a triggered match event awakens the signature (see `breakthrough-moments.md`)
 4. **Active** — signature is now visible on player card; sim bias + presentation recipe apply
 5. **Evolving (deferred)** — post-MVP, awakened signatures can evolve via continued use
+<!-- ui-lint:ignore-end -->
 
 ## Signature data shape (Phase 2 lock)
 
@@ -156,13 +160,19 @@ Signature {
 
 ## Signature stacking policy
 
+<!-- ui-lint:ignore-start reason="technical stacking-policy description; internal prose about the awakening mechanic" -->
 When a player awakens 2+ signatures whose `sim_bias` entries target the same MatchSim field, effects **stack under the field's stacking policy** — not under a single generic rule.
+<!-- ui-lint:ignore-end -->
 
 **Rules:**
 1. **Additive by default.** Each active signature contributes its `delta` to the field's running total.
 2. **Diminishing returns where tagged.** Fields prone to runaway (`first_time_finish_xG`, `1v1_duel_win_rate`) declare `additive_with_diminishing_returns` with a `diminishing_curve` that de-weights each additional stack.
+<!-- ui-lint:ignore-start reason="technical stacking-cap rule describing the awaken mechanic" -->
 3. **Hard per-field caps.** Every `sim_bias` field declares `min_delta` + `max_delta` bounds. The summed post-stacking value is clamped to those bounds. No signature configuration — no matter how many awaken — can push a field past its cap.
+<!-- ui-lint:ignore-end -->
+<!-- ui-lint:ignore-start reason="technical rule about signature awakening behaviour" -->
 4. **No hand-authored conflict rules at MVP.** Two signatures that logically disagree both fire under their own trigger contexts; the player behaves as each context dictates. Phase-6 balance harness flags any overlap that reliably breaks the game; narrow conflict rules are added then, not now.
+<!-- ui-lint:ignore-end -->
 5. **Balance-harness CI check:** every `sim_bias` field gets a sweep across plausible signature-overlap configurations; fields that breach caps without clamping or produce dominant strategies are flagged.
 
 **Why not softmax:** softmax is a categorical-probability tool; we need scalar clamping per field, not probability normalization. Field-level caps are more debuggable and explicitly list-authored per signature field.
@@ -194,9 +204,11 @@ At Month 5 vertical slice: 12 signatures authored (1-2 per role family, broad co
 
 At Month 12 EA: all 24 signatures authored, balance-harness-tuned, UI copy reviewed.
 
+<!-- ui-lint:ignore-start reason="deferred-item description of awakened mechanic" -->
 ## Deferred
 
 - Signature evolution (awakened-form stages) — post-MVP
+<!-- ui-lint:ignore-end -->
 - User-authored signatures via content packs — Workshop post-EA
 - Per-signature unique cinematics beyond shot-type mapping — no, they use the 7-shot vocabulary
 - Composable signature atoms — rejected

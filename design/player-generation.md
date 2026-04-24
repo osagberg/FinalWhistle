@@ -217,11 +217,13 @@ Stable content-pack-qualified enum. Labels are filter keys for scouts + commenta
 
 **Total: 46.** Headroom of 4 before the 50 ceiling.
 
+<!-- ui-lint:ignore-start reason="phenotype-edits resolution naming the banned / renamed labels" -->
 **Explicit exclusions (edits applied in this resolution):**
 - `Fragile Under Scrutiny` → renamed **`Struggles Under Scrutiny`** (less stigmatizing, more football-observable).
 - `Powerful Striker` → renamed **`Powerful Ball Striker`** (avoids confusion with striker-as-position).
 - `Plateau Risk` **removed from the player-facing enum entirely.** Ceiling-visibility concepts surface through scout prose + projected-range narrowing, not a systemic label.
 - `Injury-Prone` not in catalog; injury history surfaces through explicit record on player card (real events, not a prejudicial tag).
+<!-- ui-lint:ignore-end -->
 
 **No label may reference real-world ethnicity, religion, politics, or mental-health language.** Football-observable traits only. Growth past 50 labels triggers schema review — same ceiling discipline as event-class catalog.
 

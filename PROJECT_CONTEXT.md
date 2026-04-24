@@ -55,11 +55,13 @@ FM is a spreadsheet-flat depth simulator. FIFA-adjacent managers don't simulate.
 
 ## 5. Setting & mood
 
+<!-- ui-lint:ignore-start reason="setting/tone section with explicit banned-term meta-references" -->
 **One-paragraph setting summary:**
 A fully fictional football world structured with England-readable grammar: a six-tier pyramid, identifiable regional culture, top flight + Championship-equivalent + lower tiers + cup competitions. No real places, no real clubs, no "Manchester-but-not-City" uncanny valley. Fictional nation(s) with credible footballing culture, regional rivalries, promotion/relegation, pyramid politics. All club names, places, player names generated via the AI content compiler at bake time with cultural flavor seeding.
 
 **Tone / register:**
 Grounded football first; heightened moments second. Giant Killing + Aoashi + occasional anime exaggeration. The league behaves like real football — injuries, transfers, contracts, relegation, fan sentiment. The game's rhythm is football rhythm. The anime DNA lives in presentation moments: a young striker discovering his move via motion-line-saturated panel cuts; a veteran's last season getting cinematic emphasis; a cup-final signature action captured in impact-frame stylization. Text never says "The Hush." Commentary says "the stadium has gone quiet." Anime is visual, not lexical.
+<!-- ui-lint:ignore-end -->
 
 **Visual target:**
 Stylized 2D manga-broadcast match viewer. Diagonal pitch compositions, player portrait cut-ins, panelized key moments, motion-line runs, impact frames for tackles and shots, state-driven colour grading. Camera grammar vocabulary of 7 shot types (`tactical-wide / diagonal-attack-lane / player-isolation / duel-panel / pass-shot-impact / crowd-reaction / aftermath-freeze`) authored so stakes + memory-state modulate intensity, paneling, text, and timing. UI aesthetic: football-native dense typography (Anton display / JetBrains Mono data / Rajdhani body); management screens prioritize information density and clarity over FM26's over-clicked navigation.
@@ -82,8 +84,10 @@ First match, through a tutorial layer woven into the viewer itself (not a blocki
 **What does the player DO in hour 10?**
 Managing a full season: tactical iteration, scouting disagreement resolution (if system proves out at Month 4), signature-action unlocks for breakthrough players, memory callbacks surfacing from early-season decisions, promotion/relegation pressure, youth-intake decisions for next generation.
 
+<!-- ui-lint:ignore-start reason="retention-hook prose describing the awakening mechanic" -->
 **What's the retention hook?**
 The memory ledger + signature system together. Every save accumulates a specific history: the kid you cut who becomes a rival's captain, the derby you threw to save the league, the veteran who awakened a signature in the cup final. These are not generic storylets — they're your specific causality chain. Players come back because their save has a memory nothing else has.
+<!-- ui-lint:ignore-end -->
 
 ---
 
@@ -107,6 +111,7 @@ The memory ledger + signature system together. Every save accumulates a specific
 - JP / ES / PT / DE as Phase 7 targets
 
 **Deferred (not in EA):**
+<!-- ui-lint:ignore-start reason="scope-out list enumerating deferred / filed-indefinitely mechanics by name" -->
 - 3D match engine (post-audience-signal)
 - Coaching Lineage surfacing (data seeded, exposure post-MVP)
 - Counterfactual Development Lab
@@ -115,6 +120,7 @@ The memory ledger + signature system together. Every save accumulates a specific
 - Physical Load as Narrative Debt polish
 - Workshop / mod editor UX (data architecture ready; UX post-EA)
 - Bloodline / lineage mechanics (filed indefinitely)
+<!-- ui-lint:ignore-end -->
 
 ---
 
@@ -150,6 +156,7 @@ Every proposed feature belongs in exactly one bucket. Features that don't fit ge
 - Validation + lint + sanity checks
 - Balance harness (Claude-assisted, human-approved)
 
+<!-- ui-lint:ignore-start reason="deferred-bucket list enumerating banned/deferred mechanics by name" -->
 ### D. Deferred — seeded now, exposed later
 
 - Coaching Lineage surfacing
@@ -161,6 +168,7 @@ Every proposed feature belongs in exactly one bucket. Features that don't fit ge
 - Multi-nation pyramid
 - Named capitalized "state" vocabulary (never shipping)
 - Bloodline / genetic-lineage mechanics
+<!-- ui-lint:ignore-end -->
 
 ---
 
@@ -171,7 +179,9 @@ Every proposed feature belongs in exactly one bucket. Features that don't fit ge
 - Real-time action gameplay (player-controlled on-pitch moments)
 - Social-media integration / live ops / server-side anything
 - Mobile port (deferred indefinitely; revisit post-1.0 only)
+<!-- ui-lint:ignore-start reason="Non-goals list explicitly naming banned vocabulary" -->
 - Named mystical RPG-vocabulary UI ("The Hush", "Weather", "Calling", "Canon", "Seven" — all banned as visible system names)
+<!-- ui-lint:ignore-end -->
 
 ---
 

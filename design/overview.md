@@ -32,7 +32,9 @@ The game's one unambiguous promise is that consequences stick. A 17-year-old you
 
 ### Pillar 2 — Players are specific
 
+<!-- ui-lint:ignore-start reason="technical prose describing how signatures awaken; internal design-doc, not player-facing" -->
 FM's core complaint is "every player feels the same." Final Whistle's signature system + internal gene model + identity-packet compiler ensure every player has a distinct playing-style coherence: one is a late-bloomer ball-striker who needs confidence minutes before his signature awakens; another is a clinical set-piece natural with fragile composure. **Mechanically, the identity packet couples playing instincts + pressure response + development hooks + signature affinities + scout labels into a single data shape per player**.
+<!-- ui-lint:ignore-end -->
 
 ### Pillar 3 — Every match is watchable
 
