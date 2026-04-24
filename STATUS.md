@@ -23,8 +23,7 @@ Plus three new design docs: `modding.md`, `accessibility.md`, `content_policy.md
 
 ## Blockers
 
-- User must open fresh Claude Code session inside `/Users/vibelogic/dev/football/` for project-scoped `.claude/` (hooks + slash commands) to activate.
-- User must paste `.claude/bootstrap/scripts/install-plugins.txt` commands one at a time.
+- None currently blocking Phase 2. Fresh-session project-scoped `.claude/` activation + plugin install via `.claude/bootstrap/scripts/install-plugins.txt` remain as Phase-1 carryover user-actions (see "Phase-1 carryover" below) — not Phase-2 blockers.
 
 ## Pending async
 
@@ -34,18 +33,21 @@ Plus three new design docs: `modding.md`, `accessibility.md`, `content_policy.md
 
 ## Open questions for user
 
-- Review design docs under `design/` — each remaining doc has "Open questions" section requiring user resolution before Phase 1 / Phase 2 start. Order: `month-3-vertical-slice.md` → `match-engine.md` → `semantic-cinema.md` → `event-sourced-memory.md` → `signatures.md` → `scout-disagreement.md` → `breakthrough-moments.md` → `player-generation.md` → `worldbuilding.md` → `ui-vocabulary.md`.
+- None currently blocking. All 11 design-doc open-question resolutions landed via 2026-04-24 Phase-0 consolidated SPEC entries. Phase-2 ADR authoring may surface narrow follow-ups per ADR; user gets each ADR for sign-off before it's marked Accepted.
 
 ## Next action
 
 `/next` picks up **ADR (1): ShotTypeSO schema + Addressables grouping** — first Phase-3-unblocking ADR. Seeded in Phase 0 with full schema draft (chain_rules, modulation_strength, reduce_motion_variant, fallback_shot_category); ADR formalizes the schema + content-pack grouping strategy.
 
-**Phase-1 user-action carryover** (does NOT block Phase 2):
-- Actions $0 spending cap (1-min GH UI step; runbook at `docs/ops/actions-budget.md §2b`)
-- Blender install (Phase-3 trigger)
-- VS Code / Rider (user editor choice)
-- Slash-command smoke + plugin install (next fresh session)
-- Branch protection (blocked on plan upgrade; revisit Phase 4/8)
+## Phase-1 carryover (non-gating user-actions)
+
+Phase 1 closed 2026-04-24 with these items intentionally open. None gate Phase 2 — they're timed by user convenience / phase triggers:
+
+- Actions $0 spending cap (1-min GH UI step; runbook at `docs/ops/actions-budget.md §2b`). Recommended soon; not urgent
+- Blender install (Phase-3 explicit trigger per `SETUP.md §4`)
+- VS Code / Rider (user editor preference)
+- Slash-command smoke + plugin install — `.claude/bootstrap/scripts/install-plugins.txt` (next fresh Claude session)
+- Branch protection (blocked on plan upgrade — GitHub Free constraint; revisit Phase 4 closed-itch OR Phase 8 EA)
 
 ## Recent milestones
 

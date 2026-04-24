@@ -55,7 +55,7 @@
 - [ ] Smoke-test slash commands: `/status`, `/next`, `/log-decision`
 - [ ] Plugin install via slash commands (feature-dev / pr-review-toolkit / hookify)
 - [ ] GitHub Actions budget cap set (stop on overage; Free 2k or Pro 3k included minutes per `design/production-pipeline.md`)
-- [x] Fast PR CI (Tier A) workflow `.github/workflows/fast-pr-ci.yml` authored (2026-04-24 — minimal v0: `scripts/fw verify-docs` only; banned-vocab / dotnet-test / determinism / content-lint / save-migration jobs commented-out with phase-triggers, uncommented as each deliverable lands)
+- [x] Fast PR CI (Tier A) workflow `.github/workflows/fast-pr-ci.yml` authored (2026-04-24 — single `Verify (Tier A umbrella)` job calls `scripts/fw verify`, which currently runs `verify-docs` + `banned-terms` sequentially. New checks (dotnet-test / determinism / content-lint / save-migration) wire into the `fw verify` umbrella as their Phase-3/6 deliverables land — no workflow edit needed per check)
 - [x] `.github/PULL_REQUEST_TEMPLATE.md` authored (summary / why / test plan / breaking-changes / linked SPEC task)
 - [x] `.github/ISSUE_TEMPLATE/bug_report.md` + `feature_request.md` authored
 - [ ] Branch protection configured — **BLOCKED on plan upgrade**: GitHub Free does not allow branch protection on private repos (verified 2026-04-24 via `gh api`). Current posture: local-discipline-only per `docs/ops/branch-protection.md §0`. Unblocks on Pro/Team or making repo public; flip logged as SPEC entry when triggered
