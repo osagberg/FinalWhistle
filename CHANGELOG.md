@@ -2,6 +2,25 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase 2 — ADR-0004 Accepted after user tightenings)
+
+Five review findings applied:
+
+<!-- ui-lint:ignore-start reason="ADR-0004 tightening descriptions enumerate fields + alternatives by name" -->
+- **MEDIUM — SalienceInputs + SalienceModelVersion persistence.** Immutable `Salience` preserves append-only behavior, but storing only the scalar loses the ability to audit or compare Phase-6 why-did-this-score-0.82 questions. Added `SalienceInputs` struct (Q32.32 breakdown of the 5 inputs: Stakes / ParticipantProminenceAvg / EventClassBaseWeight / RivalryBoost / RarityBoost) + `SalienceModelVersion: ushort` frozen at emission. Behavior remains frozen by the immutable `Salience` scalar; the inputs are a read-only audit trail. Retroactive re-scoring is possible ONLY via explicit schema-bumping migration, never via recompute-on-load
+- **MEDIUM — `FinalWhistle.Memory.Contracts` project split.** Avoids coupling canonical MatchSim to career persistence / compaction / migration. Split is now:
+  - `FinalWhistle.Memory.Contracts` — pure value-type schemas (MemoryEvent, SalienceInputs, EventClass, CallbackTag, ReaderQuery). Zero logic. MatchSim depends on Contracts ONLY
+  - `FinalWhistle.Memory` — persistence / compaction / migration / reader infrastructure. Consumes Contracts; owns ledger storage + MigrationChain
+  - Viewer depends on reader interfaces only; also via Contracts
+- **MEDIUM — Top-5% quota rounding formula locked.** `quota_count = 0 when event_count == 0; else min(N_quota, max(1, ceil(event_count * 0.05)))`. Integer-ceiling via `(count * 5 + 99) / 100` or `Math.Ceiling(count * 0.05)`. Tie-break at cutoff salience by ascending `EventId` (matches ADR-0001 deterministic-selection Id-tiebreak pattern). Floor of 1 ensures noisy seasons preserve at least one hard-preserved event
+- **LOW — Event-class starter count corrected.** Was "~38 starter entries"; design-doc enumeration totals ~40 (6 match-outcomes + 2 signature-life + 10 season-shape + 3 rivalries/scars + 5 contracts/promises + 4 transfers/youth + 2 injuries + 2 scouting + 6 press/fan/board + 2 coaching = 42; ~40 is the honest approximation). Ceiling unchanged at 60
+- **LOW — Added float-salience as rejected Alternative 4** with concrete determinism reasoning: Salience is part of the replay-hashed event record feeding `key_event_hashes` in the golden replay corpus; cross-platform IEEE-754 behavior drift would break replay parity. Q32.32 matches the rest of the canonical sim's fixed-point posture per `design/match-engine.md`
+<!-- ui-lint:ignore-end -->
+
+Plus: Phase-6 content-pack validator SPEC task expanded to cover cross-doc event-class-enum exact-match checks (`SignatureAwakened` / `SignatureExecuted` / `ScoutReportConfirmed` / `ScoutReportDisagreement`) + `CallbackTag.ConsumingReaders ≥ 1` validation. Validator failure = content-pack merge blocked per ADR-0004 cross-doc-stability constraint.
+
+Status: **Accepted**. All ADRs now Accepted; no Proposed ADRs outstanding.
+
 ## 2026-04-24 (Phase 2 — ADR-0002 Accepted + ADR-0004 drafted)
 
 - **ADR-0002 self-review pass → Accepted.** Knowledge Risk MEDIUM gate (URP Render Graph verification at Phase-3 Week-1 spike) stays explicit in ADR body — Accepted WITH the gate, not after it. One self-tightening: `scripts/fw shader-audit` tool promoted to explicit Phase-3 SPEC task so the "no `_Time` in viewer shaders" determinism discipline enters Tier-A CI immediately once authored

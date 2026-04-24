@@ -6,7 +6,7 @@ description: ADR-0004 — MemoryEvent schema, callback-tag enum, compaction tier
 
 ## Status
 
-**Proposed** — pending user review before Accepted.
+**Accepted** — 2026-04-24. Tightened on five user-review findings: SalienceInputs + SalienceModelVersion persistence for Phase-6 audit; `FinalWhistle.Memory.Contracts` / impl split to decouple MatchSim from ledger persistence; quota rounding semantics formalized; event-class starter count corrected to ~40; float-salience added as rejected alternative.
 
 ## Date
 
@@ -51,7 +51,7 @@ Lock the Pillar-1 ledger architecture: append-only `MemoryEvent` records with a 
 
 ### Problem Statement
 
-`design/event-sourced-memory.md` 2026-04-24 resolved all five open questions with specific shapes: salience formula with tuning-seed weights; callback-tag schema with consuming-reader metadata; PascalCase event-class enum (~38 starter entries, ceiling 60); three-tier compaction with top-5% per-season quota capped at `N_quota`; load-time forward migration. That resolution specified what to build. This ADR formalizes the contracts across schema + registry + compaction + migration so Phase-3 implementation has no interpretation questions and so the Phase-2 `IdentityPacket` + `SignatureSO` + `Scout archetype` ADRs can cite a specific `MemoryEvent` shape when they describe their emission patterns.
+`design/event-sourced-memory.md` 2026-04-24 resolved all five open questions with specific shapes: salience formula with tuning-seed weights; callback-tag schema with consuming-reader metadata; PascalCase event-class enum (~40 starter entries, ceiling 60); three-tier compaction with top-5% per-season quota capped at `N_quota`; load-time forward migration. That resolution specified what to build. This ADR formalizes the contracts across schema + registry + compaction + migration so Phase-3 implementation has no interpretation questions and so the Phase-2 `IdentityPacket` + `SignatureSO` + `Scout archetype` ADRs can cite a specific `MemoryEvent` shape when they describe their emission patterns.
 
 ### Current State
 
@@ -67,7 +67,7 @@ No runtime implementation yet. Design doc has the full schema draft and all five
 
 ### Requirements
 
-- **Functional:** ~38 starter event classes; 5 emission-time salience inputs; `CallbackTag` with `consuming_readers` metadata; three-tier compaction; per-season quota cap; load-time forward migration chain.
+- **Functional:** ~40 starter event classes; 5 emission-time salience inputs; `CallbackTag` with `consuming_readers` metadata; three-tier compaction; per-season quota cap; load-time forward migration chain.
 - **Cross-ref-stability:** `SignatureAwakened` + `SignatureExecuted` + `ScoutReportConfirmed` + `ScoutReportDisagreement` enum names must match exact strings used in `design/signatures.md`, `design/scout-disagreement.md`, and downstream ADRs 0005-0007. Rename = schema bump.
 - **Fixture-compatible:** `MemoryEvent` serialization matches `design/specs/save-migration-fixtures.md` four-test discipline (forward migration + callback-preservation + forward-incompat + round-trip).
 
@@ -95,9 +95,22 @@ public readonly struct MemoryEvent
     public ImmutableArray<Consequence> Consequences;// [{ kind, delta }]
     public CallbackEligibility CallbackEligibility; // { recall_after_seasons, recall_tags, expires_after_seasons? }
     public Fixed Salience;                          // Q32.32 [0,1] — computed at emission, IMMUTABLE
+    public SalienceInputs SalienceInputs;           // Q32.32 breakdown of the 5 inputs — persisted alongside Salience
+    public ushort SalienceModelVersion;             // which weight table produced Salience; frozen at emission
     public ushort SchemaVersion;
 }
+
+public readonly struct SalienceInputs
+{
+    public Fixed Stakes;                            // Q32.32 [0,1] — same value as MemoryEvent.Stakes; duplicated here for a self-contained audit record
+    public Fixed ParticipantProminenceAvg;          // Q32.32 [0,1]
+    public Fixed EventClassBaseWeight;              // Q32.32 [0,1]
+    public Fixed RivalryBoost;                      // Q32.32 [0,1]
+    public Fixed RarityBoost;                       // Q32.32 [0,1]
+}
 ```
+
+**Why `SalienceInputs` + `SalienceModelVersion` are persisted:** preserving only the scalar `Salience` keeps behavior frozen (append-only correctness) but loses the ability to explain or compare why an event scored 0.82 vs 0.79 three seasons later. Storing the 5 inputs + the model version used to combine them means Phase-6 balance-harness analysis can retroactively audit, and an intentional re-scoring migration is possible if ever needed — by explicit schema-bumping migration, NEVER by recomputing on load. The immutability invariant applies to `Salience`; the inputs are the audit trail.
 
 `Fixed` = Q32.32 per `design/match-engine.md`. `Salience` is stored as Q32.32 for determinism across platforms.
 
@@ -133,7 +146,7 @@ public sealed record CallbackTag(
 
 MVP starter tags: `alumni`, `rival-recall`, `promise`, `big-match-scar`, `press-fan`, `derby`, `cup-heartbreak`, `youth-sold`, `contract-drama`, `board-ultimatum`, `scoring-milestone`, `upset`. Content-pack-qualified IDs. Tag registry is Phase-2 authoring; tag IDs don't embed pack-minor.
 
-### Event class catalog (Accepted — 38-entry starter set, ceiling 60)
+### Event class catalog (Accepted — ~40-entry starter set, ceiling 60)
 
 Versioned PascalCase enum with monotonic integer IDs for fast-path lookup. Full enumeration lives in `design/event-sourced-memory.md` §Event-class-catalog. Growth beyond 60 triggers a Phase-review.
 
@@ -151,7 +164,18 @@ At 5-season boundary, each `MemoryEvent` is routed by band:
 | `0.6 ≤ salience < 0.85` (**notable**) | **COMPACT PRESERVE.** Retains participants, what, emotion, tags, career_date, season. Drops tick + consequence-delta. | Press / fan / rival-recall readers; tick-specific callbacks degrade |
 | `salience < 0.6` | **AGGREGATED ONLY.** Rolled into `CompactedMemory.aggregates` (counts, sums, streaks). | Stats-flavored readers only |
 
-**Plus a per-season quota:** top 5% of events by salience per season are **hard-preserved regardless of band**, capped at `N_quota` events per season to prevent save bloat on noisy seasons. `N_quota = 20` is a Phase-6 tuning seed (lives in the design doc, not SPEC-locked).
+**Plus a per-season quota:** top events by salience per season are **hard-preserved regardless of band**, capped at `N_quota`. Exact formula (deterministic; no floating-point ambiguity):
+
+```
+quota_count =
+    0                                               when event_count == 0
+    min(N_quota, max(1, ceil(event_count * 0.05)))  otherwise
+```
+
+- **`event_count > 0` guarantees at least 1 event preserved per season** — protects the "season you barely remember" from full aggregation even in a 10-event season.
+- **`ceil(count * 0.05)`** is integer-ceiling (compute as `(count * 5 + 99) / 100` against integer `count`, or via `Math.Ceiling` on `count * 0.05` — same result since inputs are small ints).
+- **Tie-break when >`quota_count` events share the cutoff salience:** ascending `EventId` ordering (stable, deterministic per ADR-0001 §deterministic-selection Id-tiebreak pattern).
+- **`N_quota = 20`** is a Phase-6 tuning seed (lives in `design/event-sourced-memory.md`, not SPEC-locked).
 
 **Compaction never runs during a match.** It executes at season-end as part of save finalization; the ledger is immutable within a match.
 
@@ -237,8 +261,11 @@ public readonly struct CallbackCandidate
 
 ### Implementation Guidelines
 
-- **Asmdef boundary:** `FinalWhistle.Memory` (event structs + salience + compaction + migration). Pure C#, no Unity deps.
-- **`MatchSim.csproj` depends on `FinalWhistle.Memory`** (emission). Viewer depends on readers via interface only.
+- **Asmdef / project boundaries split for decoupling:**
+  - `FinalWhistle.Memory.Contracts` — pure value-type schemas: `MemoryEvent`, `SalienceInputs`, `EventClass` enum, `CallbackTag`, `ReaderQuery`. Zero logic. No Unity deps. This is the dependency surface for any system that EMITS events.
+  - `FinalWhistle.Memory` — persistence / salience computation / compaction / migration / reader infrastructure. Consumes `Contracts`; owns the ledger storage + the `MigrationChain`.
+- **`MatchSim.csproj` depends on `FinalWhistle.Memory.Contracts` ONLY** (emission shape). MatchSim never touches the ledger, never touches compaction, never touches migration. This keeps canonical sim strictly decoupled from career persistence — a hard line that preserves the determinism architecture per `TECH_APPROACH.md §3`.
+- **Viewer depends on reader interfaces only** (consumption); also via `FinalWhistle.Memory.Contracts` + a read-side interface package.
 - **Serialization order is locked** per `MatchSim.Tests/SerializationContract.cs` (Phase-3 SPEC task). Field order matches struct declaration order; `ImmutableArray` fields serialize in index order; no reflection-driven ordering.
 - **Salience computation is deterministic** — all inputs are Q32.32 or enum-backed constants; no floats, no wall-clock, no random sampling.
 - **Compaction is replay-seeded** if it ever needs randomness (it shouldn't; top-5% quota is ordered selection on salience, Id-tiebreaker); quota-tiebreaker rule: when >N_quota events share the cutoff salience, tie-break by event `Id` ascending.
@@ -269,7 +296,14 @@ public readonly struct CallbackCandidate
 - **Cons** — spreads schema complexity into every reader; bugs become intermittent (only reproducible when a specific read path hits an unmigrated event); test surface explodes across reader × schema-version combinations.
 - **Rejected because** — solo-dev complexity budget. Load-time migration catches schema issues loudly at load, not quietly in a rare reader code path. Revisit ONLY if Phase-6 synthetic 20-year saves prove load-time too slow; at that point, `lazy-per-read` becomes a performance optimization with explicit incident justification, not a default choice.
 
-### Alternative 4: String-tag callback registry (no `CallbackTag` struct)
+### Alternative 4: Float `Salience` (not Q32.32)
+
+- **Description** — Store `Salience` as `float` (or `double`) instead of Q32.32. Recompute at emission time from `float` inputs.
+- **Pros** — Smaller memory footprint; simpler arithmetic; natural interop with C# math libraries.
+- **Cons** — Cross-platform IEEE-754 behavior differs in subtle corners (denormals, rounding-mode defaults, fused multiply-add availability). `MemoryEvent` serialization feeds `key_event_hashes` in the golden replay corpus per ADR-0003 + `design/specs/golden-replay-corpus.md`; a `float` Salience means the same event stream might hash differently on Win vs Mac vs Linux. Determinism across platforms is the whole point of the canonical sim — `Salience` sitting outside that discipline would be a slow-burn bug that only surfaces when replay parity is checked.
+- **Rejected because** — `Salience` is part of the replay-hashed event record. Q32.32 matches the rest of the canonical sim's fixed-point posture per `design/match-engine.md`. The memory-footprint saving is irrelevant at event volumes (hundreds per match) compared to the determinism cost.
+
+### Alternative 5: String-tag callback registry (no `CallbackTag` struct)
 
 - **Description** — callbacks reference tags as strings; no struct, no consuming-reader validation.
 - **Pros** — simpler serialization.
@@ -297,7 +331,7 @@ public readonly struct CallbackCandidate
 ### Neutral
 
 - JSON serialization at Phase 3 (vs binary at Phase 6) is a policy decision inside this ADR, reversible per Phase-6 save-size evaluation; binary flip is a schema-version bump + 4 fixture tests.
-- ~38 starter event classes + ceiling 60 is a design-doc authoring decision, not an ADR-level commitment — ADR locks the mechanism (versioned enum, validator-checked), not the specific count.
+- ~40 starter event classes + ceiling 60 is a design-doc authoring decision, not an ADR-level commitment — ADR locks the mechanism (versioned enum, validator-checked), not the specific count.
 
 ---
 
@@ -322,7 +356,7 @@ Actuals land at Phase 6; targets are authoring-time estimates.
 | `design/event-sourced-memory.md` 2026-04-24 | Ledger architecture | Append-only, salience-scored, three-tier compaction, load-time migration | Schema + formula + compaction + migration all locked here |
 | `design/event-sourced-memory.md` Q1 | Salience structure | Formula + band semantics locked; numeric weights are Phase-6 tuning | Emission-time inputs locked; reader-side modifiers separate |
 | `design/event-sourced-memory.md` Q2 | Callback tags | Fixed MVP enum + consuming-reader metadata | `CallbackTag` record with registry discipline |
-| `design/event-sourced-memory.md` Q3 | Event class catalog | Versioned PascalCase enum, ~38 starter | Enum registration pattern; growth gated past 60 |
+| `design/event-sourced-memory.md` Q3 | Event class catalog | Versioned PascalCase enum, ~40 starter | Enum registration pattern; growth gated past 60 |
 | `design/event-sourced-memory.md` Q4 | Compaction | Three tiers + per-season quota | Compactor algorithm in this ADR |
 | `design/event-sourced-memory.md` Q5 | Migration | Load-time forward, no downgrades | `MigrationChain.Migrate` interface |
 | `design/specs/save-migration-fixtures.md` | Schema-bump discipline | 4 tests per bump | This ADR is the first real user |

@@ -37,7 +37,7 @@ Plus three new design docs: `modding.md`, `accessibility.md`, `content_policy.md
 
 ## Next action
 
-**ADR-0001 + ADR-0002 + ADR-0003 Accepted. ADR-0004 Proposed** (just drafted — awaiting user review). `/next` picks up **ADR (5): SignatureSO schema** — depends on ADR-0004's `SignatureAwakened` / `SignatureExecuted` event classes.
+**All 4 drafted ADRs Accepted** (ADR-0001 / 0002 / 0003 / 0004). Zero in Proposed limbo. `/next` picks up **ADR (5): SignatureSO schema** — consumes ADR-0004's `SignatureAwakened` / `SignatureExecuted` event classes; formalizes the Phase-0 signature-system resolution (24-sig catalog + scope enum + dependency metadata + field-level stacking policy + Identity Packet affinity integration).
 
 ## Phase-1 carryover (non-gating user-actions)
 
@@ -51,6 +51,7 @@ Phase 1 closed 2026-04-24 with these items intentionally open. None gate Phase 2
 
 ## Recent milestones
 
+- 2026-04-24: Phase 2 — **ADR-0004 Accepted** after five user-review tightenings (SalienceInputs + SalienceModelVersion persistence for audit; `FinalWhistle.Memory.Contracts` / impl split decouples MatchSim from persistence; quota rounding formula locked; event-class count corrected to ~40; float-salience added as 5th rejected alternative). Phase-6 content-pack validator SPEC task expanded to cover cross-doc event-class enum exact-match + `CallbackTag.ConsumingReaders ≥ 1`
 - 2026-04-24: Phase 2 — **ADR-0002 Accepted** via self-review tightening pass (Knowledge Risk MEDIUM gate remains baked in; `fw shader-audit` promoted to explicit Phase-3 SPEC task). **ADR-0004 (MemoryEvent schema + CallbackTag registry + compaction tiers + migration framework) Proposed** — first real user of both save-migration-fixtures and golden-replay-corpus specs. Four rejected alternatives documented. Cross-doc exact-match discipline formalized for `SignatureAwakened`/`SignatureExecuted`/`ScoutReport*` enum names
 - 2026-04-24: Phase 2 — Corpus spec tightened (Q1 converted to explicit Phase-3 SPEC task for `SerializationContract.cs`; seed policy locked at 1-seed Phase 3 / 3-seed Phase 6; generator owns key order). **Save-migration fixture policy spec** authored at `design/specs/save-migration-fixtures.md` — 4-test-per-schema-bump discipline (forward/callback-preservation/forward-incompat/round-trip); fixtures append-only; Phase 3 ~5 fixtures → Phase 8 ~15. `design/specs/` now holds 2 sibling specs
 - 2026-04-24: Phase 2 — **ADR-0003 Accepted** after user tightenings (self-hosted-runner 4-condition acceptance gate, stale commit-hash removed). **Golden replay corpus spec** authored at `design/specs/golden-replay-corpus.md` — JSON fixture schema, Tier-A smoke seed `0xdeadbeefdeadbeef`, stable serialization rules, append-only growth policy, 3 Phase-3 open questions. New `design/specs/` subdirectory established
