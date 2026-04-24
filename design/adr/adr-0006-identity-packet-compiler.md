@@ -76,7 +76,7 @@ No Unity project. No compiler. No authored packets. Design doc has the 22-field 
 
 ## Decision
 
-### `IdentityPacket` schema (Proposed)
+### `IdentityPacket` schema
 
 Locked per `design/player-generation.md` 2026-04-24. Full shape lives in the design doc; this ADR commits to it:
 
@@ -159,7 +159,7 @@ public sealed record InternalGeneSnapshot
 
 **Q32.32 for all gene numerics** — same cross-platform-determinism posture as `Stakes` / `Salience` in ADR-0004 and `Delta` in ADR-0005. Gene values feed scout-report generation; scout reports emit `ScoutReportConfirmed` / `ScoutReportDisagreement` `MemoryEvent`s whose `key_event_hashes` must match across Win/Mac/Linux.
 
-### Phenotype label catalog (Proposed)
+### Phenotype label catalog
 
 - **Enum-backed with content-pack-qualified IDs.** 46 labels at MVP, ceiling 50 per `design/player-generation.md` 2026-04-24 §Q2.
 - **Banned-term lint scans ONLY the rendered-string form** of the label (e.g., `"Struggles Under Scrutiny"`). Internal enum identifier (`PhenotypeLabelId.StrugglesUnderScrutiny`) is lint-exempt — same Display/ID separation as ADR-0005.
@@ -205,7 +205,7 @@ Per `design/player-generation.md` 2026-04-24 §Q5 resolution:
 - Pack-minor metadata lives in the **pack manifest** as `introduced_in_pack_version: "1.1.0"` per entity, NOT in the ID itself.
 - **Every `ContentPackQualifiedId` is stable forever once shipped.** Renames = deprecation + new ID at next schema bump. Never mutate.
 
-### AI Content Compiler pipeline (locked policy; proposed acceptance)
+### AI Content Compiler pipeline
 
 Canonical artifact is the checked-in JSON, not the prompt+seed+model. Pipeline:
 

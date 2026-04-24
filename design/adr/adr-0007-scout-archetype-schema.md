@@ -6,7 +6,7 @@ description: ADR-0007 — Scout archetype + ScoutReport schema + callback/event 
 
 ## Status
 
-**Proposed** — pending user review before Accepted.
+**Accepted** — 2026-04-24. Five review findings (GPT-5.5 / Codex pass) addressed before Accept: (P1) `ScoutReport` stripped of event-class `const` references — event-class selection moved into the `Scouting.Runtime` emitter so Path B can drop `ScoutReportDisagreement` at schema bump without breaking the `ScoutReport` contract. (P1) `Scouting.Runtime` reframed to own ONLY the post-gate chosen path (no dispatcher, no runtime toggle); the pre-verdict selector + staged-time feedback loop live in `Scouting.Prototype` and are deleted post-gate. (P2) `LabelEstimate` split from `GeneCategoryEstimate` — label confidence is a different measurement than per-gene-category range, types separated so implementers can't confuse them; aligns with ADR-0006 §Q3 advanced-tooltip contract. (P2) Subsection headers use plain naming instead of "(Accepted)" before the ADR itself is Accepted (status-discipline per ADR-0006 review lesson). (P3 — on ADR-0006) Stale "Proposed" / "proposed acceptance" subsection labels cleaned up in ADR-0006 now that it is Accepted.
 
 ## Date
 
@@ -84,7 +84,7 @@ ADR-0006 locked `InternalGeneSnapshot` category-level bias (physical / mental / 
 
 ## Decision
 
-### `Scout` archetype (Accepted)
+### `Scout` archetype
 
 ```csharp
 using FinalWhistle.Memory.Contracts;     // EventClass.ScoutReportConfirmed / .ScoutReportDisagreement
@@ -139,7 +139,9 @@ public readonly struct CategoryBiases
 }
 ```
 
-### `ScoutReport` schema (Accepted — IDENTICAL across both gate outcomes)
+### `ScoutReport` schema — IDENTICAL across both gate outcomes
+
+**`ScoutReport` is pure data.** It holds NO event-class references. The emitter / policy layer (`Scouting.Runtime`) selects which `EventClass` to emit per report per path — `ScoutReportConfirmed` always; `ScoutReportDisagreement` only when Path A is active. Keeping the schema event-class-free means Path B can drop `ScoutReportDisagreement` from the enum (schema bump) without breaking the `ScoutReport` contract or the UI.
 
 ```csharp
 public sealed record ScoutReport
@@ -148,33 +150,45 @@ public sealed record ScoutReport
     public ScoutId ScoutId;                                   // which scout produced this
     public ContentPackQualifiedId PlayerId;                   // target of the report
     public CareerDate ObservedOn;                             // save-world date
-    public Fixed Confidence;                                  // Q32.32 [0,1] — overall scout confidence
+    public Fixed Confidence;                                  // Q32.32 [0,1] — overall scout confidence in THIS report
 
-    // Per-label structured data — the UI + tests read this, NOT the prose.
+    // Per-label data — the UI + tests read this, NOT the prose.
+    // Label estimate is confidence-only; it does NOT carry gene/category bounds.
     public ImmutableArray<LabelEstimate> Labels;
+
+    // Advanced per-gene-category estimates — consumed by the default-OFF
+    // advanced scout tooltip per ADR-0006 §Q3. Category-level per ADR-0006's
+    // category-level scout-bias decision; narrative-flag category is never
+    // emitted (validator rejects it).
+    public ImmutableArray<GeneCategoryEstimate> CategoryEstimates;
 
     // --- Rendered prose — deterministic; stored for replay, never runtime LLM ---
     public string Prose;                                      // rendered at emit time from a template
     public ContentPackQualifiedId SourceTemplateId;           // audit / regeneration
-
-    // --- Event-class emission references (no inline strings per ADR-0005 pattern) ---
-    public const EventClass EmitsOnConfirm = EventClass.ScoutReportConfirmed;
-
-    // Only referenced if Scout Disagreement is ACTIVE (post-Month-4 pass).
-    // If gate fails, this const is dropped at schema bump per ADR-0004 cross-doc discipline.
-    public const EventClass EmitsOnDisagreement = EventClass.ScoutReportDisagreement;
 }
 
 public readonly struct LabelEstimate
 {
+    // "This scout thinks this player has this phenotype label, with this
+    // confidence." No bounds attached — confidence IS the uncertainty here.
     public PhenotypeLabelId Label;              // from ADR-0006 phenotype enum
     public Fixed Confidence;                    // Q32.32 [0,1]
-    public Fixed? LowerBound;                   // Q32.32, optional uncertainty range
-    public Fixed? UpperBound;                   // Q32.32, optional uncertainty range
+}
+
+public readonly struct GeneCategoryEstimate
+{
+    // "This scout's estimated range for this player's category-level score."
+    // Consumed by the advanced tooltip ONLY (default OFF); never exposed in
+    // default UI per ADR-0006 §Q3 (shipped builds never leak raw genes).
+    public GeneCategory Category;               // Physical | Mental | Technical — NOT NarrativeFlag
+    public Fixed LowerBound;                    // Q32.32 [0,1] — scout's low estimate for the category
+    public Fixed UpperBound;                    // Q32.32 [0,1] — scout's high estimate (>= LowerBound)
 }
 ```
 
-**Why identical in both paths:** `signatures.md` §Q5 locked that counterplay surfaces via scout reports for **observed** signatures. The UI renders `ScoutReport` records; whether the underlying system is the 3-archetype disagreement model or the single-scout uncertainty fallback, the report shape is the contract the UI binds to. Only the `Confidence` + `LowerBound` / `UpperBound` ranges differ in population character (disagreement: reports from multiple scouts may diverge; uncertainty: single report with wider ranges).
+**Why identical in both paths:** `signatures.md` §Q5 locked that counterplay surfaces via scout reports for **observed** signatures. The UI renders `ScoutReport` records; whether the underlying system is the 3-archetype disagreement model or the single-scout uncertainty fallback, the report shape is the contract the UI binds to. Only the **population character** of the fields differs — disagreement: reports from multiple scouts may diverge on the same player; uncertainty: single scout, wider `CategoryEstimate` bounds.
+
+**Why `LabelEstimate` and `GeneCategoryEstimate` are separate types:** confidence on a phenotype label ("I'm 70% sure this kid is a Late Bloomer") is a different measurement than a per-category range estimate ("I think his physical category sits between 0.55 and 0.72"). Collapsing them into one type would force implementers to guess what `LowerBound`/`UpperBound` meant. Per ADR-0006 §Q3 the advanced tooltip exposes per-gene-category ranges, not per-label ranges — splitting the types maps the contract cleanly onto that requirement. Validator invariant: `GeneCategoryEstimate.Category ≠ NarrativeFlag` (ADR-0006 narrative-flag zero-visibility).
 
 ### Conditional-MVP gate-fallback (locked both paths)
 
@@ -216,30 +230,40 @@ IdentityPacket (read)  ──►│  ScoutArchetype.ReadFiltered    │
                           │  - uncertainty ranges if any    │
                           │  - prose from template          │
                           └─────────────┬───────────────────┘
-                                        │ ScoutReport (immutable)
+                                        │ ScoutReport (immutable, event-class-free)
                                         v
                           ┌─────────────────────────────────┐
-                          │  ILedgerAppender.Emit           │
-                          │  (via Memory.Contracts consts:  │
-                          │   ScoutReportConfirmed OR       │
-                          │   ScoutReportDisagreement)      │
+                          │  Scouting.Runtime.Emitter       │  ◄── picks EventClass here,
+                          │  (path-specific; only ONE ships)│      NOT inside ScoutReport
+                          │  Path A: Confirmed OR           │
+                          │          Disagreement           │
+                          │  Path B: Confirmed only         │
+                          └─────────────┬───────────────────┘
+                                        │ ILedgerAppender.Emit
+                                        v
+                          ┌─────────────────────────────────┐
+                          │  MemoryEvent ledger             │
+                          │  (per ADR-0004)                 │
                           └─────────────────────────────────┘
 
 Path A (gate PASSES): 3 scouts × N players = 3N reports per cycle
-Path B (gate FAILS):  1 scout  × N players = N reports (wider ranges)
+Path B (gate FAILS):  1 scout  × N players = N reports (wider CategoryEstimate ranges)
+
+Pre-gate experiment: Scouting.Prototype carries BOTH paths for the feel-test build
+only. Post-gate: merge the chosen path into Scouting.Runtime; delete the other.
 ```
 
 ### Implementation Guidelines
 
-- **Asmdef / project boundaries:**
-  - `FinalWhistle.Scouting.Contracts` — pure C#, no Unity. Defines `Scout`, `ScoutReport`, `LabelEstimate`, `CategoryBiases`, `ScoutArchetypeKind`. Consumed by MatchSim (for emission + track-record scoring) and by Unity (for report rendering).
-  - `FinalWhistle.Scouting.Runtime` — report generation, staged-time feedback loop, Path-A-vs-B dispatcher (reads a single SPEC-decided flag at scene-load, loads the appropriate archetype set).
-  - `FinalWhistle.Scouting.Prototype` — Phase-4 Month-4 feel-test scaffolding. Thrown away after the gate verdict.
-- **MatchSim.csproj** depends on `FinalWhistle.Scouting.Contracts` ONLY (for emission); same Contracts-split pattern as ADR-0004 / 0005 / 0006.
+- **Asmdef / project boundaries (gate-aware, no runtime toggle in production):**
+  - `FinalWhistle.Scouting.Contracts` — pure C#, no Unity. Defines `Scout`, `ScoutReport`, `LabelEstimate`, `GeneCategoryEstimate`, `CategoryBiases`, `ScoutArchetypeKind`. Consumed by Unity (for report rendering) and by the emitter layer (for event classes).
+  - `FinalWhistle.Scouting.Runtime` — **owns ONE production path, whichever one the Month-4 gate selected.** Holds the report generator, the archetype catalog for the chosen path, and the emitter that picks the correct `EventClass`. Does NOT hold a dispatcher between Path A and Path B; does NOT carry unreferenced archetype code. Pre-gate, this project either doesn't ship or ships as a stub that fails loudly if hit.
+  - `FinalWhistle.Scouting.Prototype` — Phase-4 scaffolding: the staged-time feedback loop, the 10 hand-authored Identity Packet stubs, AND the pre-verdict Path-A-vs-B selector (so the test build CAN A/B for the gate, but only the prototype build has that ability). Deleted after the gate verdict; the chosen path is migrated into `Scouting.Runtime` as a merge-time operation, and the other path is removed from the repo entirely.
+- **Single merge-time decision — no runtime toggle in production.** The SPEC decisions-log entry post-Month-4 records which path shipped; the merge that lands the chosen path into `Scouting.Runtime` is what codifies it. Save files record the archetype set used at career creation; save-migration fixture discipline covers any Path-A → Path-B post-EA transition (if it ever happens) as an explicit schema bump.
+- **Event-class selection lives in the emitter inside `Scouting.Runtime`**, NOT in `ScoutReport` itself. Path A's emitter calls `ILedgerAppender.Emit(ScoutReport, EventClass.ScoutReportConfirmed)` OR `... ScoutReportDisagreement)` based on report-state; Path B's emitter emits `ScoutReportConfirmed` only. Rename on `Memory.Contracts` side = compile error in the emitter code, caught at build time per ADR-0004 cross-doc exact-match discipline. Keeping the constants OUT of `ScoutReport` means Path B's schema-bump-dropping-`ScoutReportDisagreement` leaves the `ScoutReport` contract intact.
+- **MatchSim.csproj** depends on `FinalWhistle.Scouting.Contracts` ONLY; same Contracts-split pattern as ADR-0004 / 0005 / 0006.
 - **Narrative-flag zero-visibility enforced by validator** — Phase-6 content-pack validator rejects any `Scout.Biases.NarrativeFlag ≠ 0`.
 - **Per-archetype `CategoryBiases`** are Phase-3 tuning seeds (live in the archetype SO/JSON); numeric weights not SPEC-locked.
-- **Event-class constant discipline** — `ScoutReport.EmitsOnConfirm` = `EventClass.ScoutReportConfirmed`; `EmitsOnDisagreement` = `EventClass.ScoutReportDisagreement`. Rename at `Memory.Contracts` side = compile error here, caught at build time (ADR-0004 cross-doc exact-match discipline).
-- **Path-A-vs-B dispatcher is a single decision, not a toggle.** Recorded in SPEC decisions log post-Month-4; content-pack manifest records which archetype set shipped. Save files record the archetype set used at career creation — save-migration fixture discipline (save-migration-fixtures spec) covers Path-A → Path-B incompat if ever needed post-EA.
 
 ---
 
@@ -295,8 +319,9 @@ Path B (gate FAILS):  1 scout  × N players = N reports (wider ranges)
 ### Negative (Accepted Tradeoffs)
 
 - `ScoutArchetypeKind` enum has reserved slots that may never ship (if gate fails, `TempoReader` / `AcademySpotter` / `SetPieceSpecialist` stay unused). Acceptable — enum size is trivial; clarity beats minimalism here.
-- Path B (`BasicScoutUncertainty`) ships even if Path A succeeds — fallback archetype always exists in the enum as a documented conditional-MVP artifact. Small clutter cost; preserves the record of the decision.
-- `FinalWhistle.Scouting.Prototype` project is explicit throw-away code. Non-shipped; but someone has to maintain it Phase 3-4 until it's deleted.
+- Path B (`BasicScoutUncertainty`) stays in the `ScoutArchetypeKind` enum even if Path A succeeds — fallback archetype kind is a documented conditional-MVP artifact. Small clutter cost; preserves the record of the decision. The runtime code for Path B is deleted from `Scouting.Runtime` post-gate; only the enum slot remains.
+- `FinalWhistle.Scouting.Prototype` project is explicit throw-away code. Carries the pre-verdict Path-A-vs-B selector + staged-time feedback loop + 10 hand-authored Identity Packet stubs for the feel-test build only. Maintained Phase 3-4; deleted in the merge commit that lands the chosen path into `Scouting.Runtime`.
+- Post-gate, `Scouting.Runtime` owns exactly one path's code. No dispatcher, no feature flag, no dormant code branch. The other path exists only as (a) the enum slot kept for decision-provenance, (b) the historical ADR + SPEC log entries, (c) the deleted commits in git history.
 
 ### Neutral
 
@@ -324,8 +349,8 @@ Path B (gate FAILS):  1 scout  × N players = N reports (wider ranges)
 | `design/scout-disagreement.md` 2026-04-24 | 3 prototype archetypes | Locked in `ScoutArchetypeKind` enum | Path A section |
 | `design/scout-disagreement.md` 2026-04-24 | Conditional-MVP gate | Both paths architecturally committed | Conditional-MVP gate-fallback section |
 | `design/scout-disagreement.md` 2026-04-24 | Staged-time ledger feedback | `FinalWhistle.Scouting.Prototype` throwaway project | Staged-time feedback loop section |
-| `design/scout-disagreement.md` 2026-04-24 | Event-class contingency | `EmitsOnDisagreement` dropped at schema bump if gate fails | Event-class constant discipline |
-| ADR-0004 | Event-class exact-match discipline | `const EventClass` references from `Memory.Contracts`; compile-time rename catches | ScoutReport schema |
+| `design/scout-disagreement.md` 2026-04-24 | Event-class contingency | `ScoutReportDisagreement` dropped at schema bump if gate fails — `ScoutReport` schema unaffected because event-class selection lives in the emitter, not in the record | Emitter in `Scouting.Runtime` |
+| ADR-0004 | Event-class exact-match discipline | `EventClass` references from `Memory.Contracts` in emitter code; compile-time rename catches | Emitter inside `Scouting.Runtime` |
 | ADR-0006 | Category-level scout bias + narrative-flag zero-visibility | `CategoryBiases.NarrativeFlag = 0` enforced by validator | Scout archetype record |
 | `design/signatures.md` §Q5 | Counterplay via scout reports for observed signatures | Identical `ScoutReport` schema across both paths | Why-identical section |
 

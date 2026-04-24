@@ -2,6 +2,20 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (ADR-0007 Accepted after 5-finding review; ADR-0006 subsection cleanup)
+
+**ADR-0007 review fixes applied before Accept:**
+
+<!-- ui-lint:ignore-start reason="review-findings description references the awakening / event-class mechanic" -->
+- **P1 — `ScoutReport` drops event-class `const` references.** Original schema embedded `const EventClass EmitsOnDisagreement = EventClass.ScoutReportDisagreement` directly in the record. Path B's schema-bump-dropping-`ScoutReportDisagreement` would have made this fail to compile OR made the two paths' schemas not-really-identical. Corrected: `ScoutReport` is pure data; event-class selection moved into the `Scouting.Runtime` emitter layer. Path A's emitter calls `Emit(report, EventClass.ScoutReportConfirmed)` OR `...Disagreement` based on report-state; Path B's emitter emits `ScoutReportConfirmed` only. `ScoutReport` contract stays stable regardless
+- **P1 — `Scouting.Runtime` owns ONE production path, not a Path-A-vs-B dispatcher.** Original draft put the dispatcher inside `Scouting.Runtime`, which preserved exactly the two-codepath production surface the "no runtime toggle" alternative was supposed to reject. Corrected: `Scouting.Runtime` holds ONLY the post-gate chosen path's code — no dispatcher, no feature flag, no dormant branch. Pre-verdict selector + staged-time feedback loop + 10 hand-authored packet stubs live in `Scouting.Prototype` (throwaway). The merge that lands the chosen path into `Scouting.Runtime` is what codifies the gate decision; the other path is deleted from the repo entirely post-verdict
+- **P2 — `LabelEstimate` split from `GeneCategoryEstimate`.** Original `LabelEstimate` had `Confidence` + `LowerBound` + `UpperBound` all attached to a phenotype label, with no stated referent — implementers couldn't tell whether the bounds were label-confidence ranges, gene values, or phenotype intensity. ADR-0006 §Q3 advanced-tooltip contract calls for per-gene-category ranges, not per-label ranges. Corrected: `LabelEstimate = { Label, Confidence }` (confidence IS the uncertainty on a label assertion). Separate `GeneCategoryEstimate = { Category, LowerBound, UpperBound }` for the per-category range data the advanced tooltip exposes. Validator invariant: `GeneCategoryEstimate.Category ≠ NarrativeFlag` per ADR-0006 narrative-flag zero-visibility
+- **P2 — Subsection headers use plain naming until the ADR itself is Accepted.** Status-discipline lesson from ADR-0006: subsections labelled "(Accepted)" before the ADR-as-whole flips to Accepted let downstream work treat schemas as signed off prematurely. Corrected: subsection headers drop the "(Accepted)" annotation; status lives in the ADR's one top-level `## Status` line
+- **P3 — ADR-0006 stale "Proposed" / "proposed acceptance" subsection labels cleaned up.** ADR-0006 is Accepted but three subsection headers still carried "(Proposed)" / "proposed acceptance" wording. Cleared
+<!-- ui-lint:ignore-end -->
+
+Status: ADR-0007 flipped Proposed → Accepted. **All 7 Phase-2 pre-seeded ADRs now Accepted. Zero in Proposed limbo.**
+
 ## 2026-04-24 (Phase 2 — ADR-0007 Scout archetype drafted; last of 7 pre-seeded ADRs)
 
 - `design/adr/adr-0007-scout-archetype-schema.md` authored as **Proposed** — formalizes the 2026-04-24 scout-disagreement resolution into a conditional-MVP architecture commitment
