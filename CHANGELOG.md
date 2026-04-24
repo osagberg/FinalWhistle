@@ -2,6 +2,15 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase 2 — ADR-0001 ShotTypeSO drafted)
+
+- `design/adr/adr-0001-shot-type-so-schema.md` authored as **Proposed** — formalizes the ShotTypeSO authoring asset shape + Addressables grouping strategy for the Phase-0-locked semantic-cinema 7-shot grammar
+- Key decisions: ScriptableObject per shot (rejects hardcoded-C#, UXML-per-shot, per-scene-prefab alternatives); content-pack-qualified stable IDs per the 2026-04-24 ID-stability rule; Addressables groups labelled `shot-type` per content pack; `IShotTypeCatalog` runtime interface with O(1) dictionary lookup; `MatchSim.csproj` strictly NOT depending on `ShotTypeSO` (preserves the determinism architecture split per `TECH_APPROACH.md §3`); reduce-motion wired at shot-asset level (not bolt-on)
+- Validation criteria: Phase-3 Week 2 3-shot Addressable load; Week 3 chain-rule fire end-to-end on goal event; Week 3 reduce-motion runtime toggle; Phase-6 validator confirms ID format + uniqueness; 10K-match harness shot-choice determinism
+- **Status: Proposed.** User + GPT-5.5 sign-off before Accepted. No implementation yet — Phase-3 gated.
+- **First Category-B inline exemption landed** — `ui-lint:allow term="domain"` on the ADR's "Engine Compatibility" table (canonical template field name). Exemption report (`scripts/fw banned-terms --report`) correctly captures it with reviewer attribution for EA/RC audit
+- Verify: `scripts/fw verify` green; ADR reachable at `design/adr/adr-0001-shot-type-so-schema.md`
+
 ## 2026-04-24 (Phase 1 ✅ COMPLETE; Phase 2 🟡 promoted with reordered ADR priorities)
 
 - **Phase 1 closed.** Machine (Unity installed) + accounts (GitHub active + remote pushed + Steam deferred Phase 8) + remote (`osagberg/FinalWhistle` private, Tier-A CI green, `fw verify` umbrella running verify-docs + banned-terms lint) all verified. Low-urgency user-actions (Blender install per SETUP.md §4 Phase-3-trigger / VS Code editor choice / slash-command smoke / plugin install / Actions $0 cap) roll over as open `[ ]`; none gate Phase 2 per solo-dev convention. Branch protection still blocked on plan upgrade

@@ -89,7 +89,7 @@
 **Phase-2 ADRs — ordered to unblock Phase-3 first (playable slice = first deterministic MatchSim + watchable 2D viewer):**
 
 - [ ] ADRs written for every load-bearing system decision
-- [ ] **ADR (1): `ShotTypeSO` schema + Addressables grouping** (seeded by 2026-04-24 Semantic Cinema resolution — chain_rules, modulation_strength, reduce_motion_variant, fallback_shot_category). **Unblocks Phase-3 2D viewer prototype with 3 of 7 shot types.**
+- [x] **ADR (1): `ShotTypeSO` schema + Addressables grouping** (2026-04-24 — `design/adr/adr-0001-shot-type-so-schema.md` authored as **Proposed**; awaiting user / GPT-5.5 sign-off before Accepted)
 - [ ] **ADR (2): Viewer rendering pipeline + URP custom-pass ordering** (screen-tone, impact-frame flash, motion-line trails, UI Toolkit overlay with mesh fallback). **Unblocks Phase-3 semantic-cinema rendering.**
 - [ ] **ADR (3): Production pipeline** — CI/CD tiers A-E, GitHub-vs-local-vs-self-hosted runner policy, artifact retention, build channels (dev/tester-closed/demo/ea/hotfix), release gates, cost controls (seeded by 2026-04-24 Production-pipeline planning pass). **Locks infrastructure before Phase-3 code lands.**
 - [ ] **Golden replay corpus format specified:** `match_seed`, `content_pack_version`, archetype IDs, expected final score, expected key-event hashes, expected final canonical state hash. Per `design/production-pipeline.md`. **Unblocks Phase-3 determinism hash CI gate.**

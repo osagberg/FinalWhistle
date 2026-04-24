@@ -37,7 +37,7 @@ Plus three new design docs: `modding.md`, `accessibility.md`, `content_policy.md
 
 ## Next action
 
-`/next` picks up **ADR (1): ShotTypeSO schema + Addressables grouping** — first Phase-3-unblocking ADR. Seeded in Phase 0 with full schema draft (chain_rules, modulation_strength, reduce_motion_variant, fallback_shot_category); ADR formalizes the schema + content-pack grouping strategy.
+**ADR-0001 (ShotTypeSO) drafted as Proposed.** Awaiting user + GPT-5.5 review before Accepted. `/next` picks up **ADR (2): Viewer rendering pipeline + URP custom-pass ordering** once ADR-0001 signs off — or the user can bounce ADR-0001 to GPT-5.5 first and wait for findings before moving on.
 
 ## Phase-1 carryover (non-gating user-actions)
 
@@ -51,6 +51,7 @@ Phase 1 closed 2026-04-24 with these items intentionally open. None gate Phase 2
 
 ## Recent milestones
 
+- 2026-04-24: Phase 2 — ADR-0001 ShotTypeSO schema + Addressables grouping drafted as **Proposed** at `design/adr/adr-0001-shot-type-so-schema.md`. First Category-B inline exemption recorded (`term="domain"` ADR-template field). Awaiting user/GPT-5.5 sign-off before Accepted
 - **2026-04-24: Phase 1 ✅ COMPLETE.** Phase 2 🟡 ACTIVE — Design Bible / ADR authoring. ADR order reprioritized per GPT-5.5 2026-04-24 guidance to feed Phase-3's playable slice (MatchSim + 2D viewer) rather than tidy-doc order. Stale SPEC tasks cleaned up (Task 52 Unity CI stub superseded, Task 50 accounts done, 11 design-doc locks marked)
 - 2026-04-24: Phase 1 — `scripts/lint-banned-terms.py` shipped. Category-A hard-ban across 5 subsections from ui-vocabulary.md + Category-B soft-ban with inline `ui-lint:allow term=/reason=/reviewer=` exemption audit. Sentinel-aware (ui-lint:ignore-start/end), both-forms matching (per GPT-5.5 feedback). Wired as `fw banned-terms`, integrated into `fw verify` umbrella → Tier-A CI auto-picks up. 11 files sentinel-wrapped for legitimate meta-references; repo lint-clean. Resolved the GPT-5.5 tech-debt note about spaced-placeholder hack via proper sentinel discipline
 - 2026-04-24: Phase 1 — GPT-5.5 Codex review pass applied 5 findings: branch-protection reframed as local-discipline-only (Free plan doesn't allow protection on private repos; verified via `gh api`), approvals corrected to 0 (GitHub blocks author self-approval), JetBrains Mono license corrected to SIL OFL 1.1 (Apache-2.0 covers source code only), `fw verify` umbrella added + false broken-link claim removed, spaced-placeholder hack documented as tech-debt to resolve when `lint-banned-terms.py` lands
