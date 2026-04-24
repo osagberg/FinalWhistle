@@ -2,6 +2,25 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase 2 — ADR-0005 SignatureSO drafted with 6 pre-constraints)
+
+<!-- ui-lint:ignore-start reason="changelog entry enumerating ADR-0005's pre-constraints including awakening-mechanic prose" -->
+- `design/adr/adr-0005-signature-so-schema.md` authored as **Proposed** with six user-specified constraints baked in from first draft (not discovered via review):
+  1. **Event names via `FinalWhistle.Memory.Contracts` const references, NOT duplicate strings.** `const EventClass EmitsOnAwaken = EventClass.SignatureAwakened` — rename on the Contracts side = compile error here, caught at build time not replay time
+  2. **Explicit `SignatureScope` enum:** `Player` / `DefensiveLine` / `PressUnit` / `SetPieceContext`. No ad-hoc team-level modeling
+  3. **`SignatureDependencies` is non-behavioral** — gates scheduling (what ships when) + validation (lint catches dependency violations), NEVER runtime semantics. Signature either loads or doesn't; sim never branches on dependency state
+  4. **Field-level capped stacking with deterministic evaluation:** collect contributions, sort by stable `SignatureSO.Id` ascending, apply additive or additive-with-diminishing-returns, clamp to `[MinDelta, MaxDelta]`. No dictionary iteration without stable sort key
+  5. **`DisplayName` + `UiDescription` + `OverlayTextBank[]` separated from internal enum IDs (`Id`, `RoleFamily`, `Scope`, `SimBiasFieldId`).** Banned-term lint scans ONLY the player-facing fields; internal IDs are lint-exempt. Phase-6 content-pack validator enforces this split
+  6. **Latent affinity explicitly NOT in SignatureSO.** Lives in `IdentityPacket.signature_candidates[]` per ADR-0006 (upcoming). SignatureSO is what-the-signature-does; IdentityPacket is who-can-awaken-it
+<!-- ui-lint:ignore-end -->
+- `FinalWhistle.Signatures.Authoring` (SO + inspector) + `FinalWhistle.Signatures.Runtime` (catalog + stacking + emission) asmdef split. Runtime depends on `FinalWhistle.Memory.Contracts`; MatchSim decoupled via `FinalWhistle.Signatures.SimBiasSnapshot` DTO boundary (pure-C# sim preserved per `TECH_APPROACH.md §3`)
+- Per-content-pack Addressables grouping (inherits ADR-0001 pattern); `SimBiasFieldId` registry authored at Phase 3; catalog validates every referenced field resolves at scene-load
+- Five rejected alternatives: (1) inline event-class strings (rename drift), (2) affinity stored in SignatureSO (architectural inversion vs IdentityPacket), (3) runtime-branching dependency metadata (hidden state dependencies), (4) dictionary-iteration stacking (non-deterministic), (5) unified DisplayCopy field (breaks lint-target separation)
+- Cross-refs woven: ADR-0004 event-class constants, ADR-0001 Addressables pattern, player-generation §Q2 affinity, ui-vocabulary Categories A + B for lint targets
+<!-- ui-lint:ignore-start reason="meta-reference to the sentinel-wrapped ADR sections by the banned tokens they contain" -->
+- Sentinel-wrapped 5 sections of technical "awaken" / "Forge" prose referencing the lifecycle mechanic
+<!-- ui-lint:ignore-end -->
+
 ## 2026-04-24 (Phase 2 — ADR-0004 Accepted after user tightenings)
 
 Five review findings applied:
