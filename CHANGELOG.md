@@ -2,6 +2,22 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase 2 — ADR-0007 Scout archetype drafted; last of 7 pre-seeded ADRs)
+
+- `design/adr/adr-0007-scout-archetype-schema.md` authored as **Proposed** — formalizes the 2026-04-24 scout-disagreement resolution into a conditional-MVP architecture commitment
+- **Both paths committed architecturally** (no scramble after the Month-4 feel-test verdict):
+  - **Path A — Scout Disagreement ships** (gate passes): 3 MVP archetypes (`PhysicalProfiler` / `TechnicalPurist` / `RegionalExpert`); each player receives 3 `ScoutReport` records; ledger emits `ScoutReportConfirmed` + `ScoutReportDisagreement`
+  - **Path B — Scout Uncertainty fallback** (gate fails): single `BasicScoutUncertainty` archetype; one report per player with wider `LowerBound`/`UpperBound` ranges; `ScoutReportDisagreement` dropped at schema-bump per ADR-0004 cross-doc discipline; `ScoutReportConfirmed` stays
+- **Identical `ScoutReport` schema across both paths** — the `signatures.md §Q5` counterplay surface is stable regardless of gate outcome. UI binds to one contract; only the `Confidence` + uncertainty-range population differs
+- Event-class constant discipline: `EmitsOnConfirm = EventClass.ScoutReportConfirmed`, `EmitsOnDisagreement = EventClass.ScoutReportDisagreement` — no inline strings; rename at `Memory.Contracts` side = compile error here
+- `Scout.Biases.NarrativeFlag = 0` validator invariant enforced — narrative-flag category is never directly observable per ADR-0006
+- `ScoutArchetypeKind` enum includes 3 MVP + 3 Phase-5+ conditional-expansion slots (TempoReader / AcademySpotter / SetPieceSpecialist) + BasicScoutUncertainty fallback
+- 3 asmdefs: `Scouting.Contracts` (pure C#, owns Scout + ScoutReport records) + `Scouting.Runtime` (Path-A-vs-B dispatcher + generator) + `Scouting.Prototype` (Phase-4 throwaway scaffolding for staged-time feedback loop; deleted post-gate)
+- Five rejected alternatives: (1) different ScoutReport schemas per path (UI branching tax), (2) runtime toggle between paths (feature-rescue via back door; defeats gate discipline), (3) drop `ScoutReportDisagreement` from enum pre-Month-4 (can't author prototype without it), (4) per-field scout bias (tuning-debt intractable; inherited from ADR-0006 §Alternative 4), (5) runtime LLM scout prose (ruled out by TOOLING.md anti-patterns)
+- Migration plan covers Path-B transition if gate fails: SPEC decisions entry + schema-bump dropping `ScoutReportDisagreement` + 4-test save-migration fixture per `design/specs/save-migration-fixtures.md` + delete `Scouting.Prototype` project
+
+**All 7 Phase-2 pre-seeded ADRs now drafted.** ADRs 1-6 Accepted; ADR-0007 Proposed awaiting review.
+
 ## 2026-04-24 (ADR-0006 Accepted after Codex/GPT-5.5 6-finding review)
 
 All 6 findings from the GPT-5.5 / Codex review pass on ADR-0006 addressed in the working tree (see the "Review fixes" entry immediately below for the per-finding detail); ADR-0006 status flipped from Proposed to Accepted, SPEC checked `[x]`, STATUS `/next` advanced to ADR-0007. Validation: `./scripts/fw verify` clean (now with recursive `design/**.md` frontmatter coverage including ADRs + specs); grep-audit of the old `player.00042` drift pattern returns zero hits; event-class count summaries consistent across SPEC / design docs / ADRs at 42 starter / ~40 shorthand.

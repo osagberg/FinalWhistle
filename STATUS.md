@@ -37,7 +37,7 @@ Plus three new design docs: `modding.md`, `accessibility.md`, `content_policy.md
 
 ## Next action
 
-**All 6 drafted ADRs Accepted** (0001 / 0002 / 0003 / 0004 / 0005 / 0006). Zero in Proposed limbo. Codex/GPT-5.5 6-finding review pass on ADR-0006 landed clean. `/next` picks up **ADR (7): Scout archetype + ScoutReport schema + gate-fallback behavior** — consumes ADR-0006's `InternalGeneSnapshot` via category-level bias filter. Conditional-MVP per Month-4 feel-test; architecture slot reserved regardless of gate outcome.
+**ADRs 0001 / 0002 / 0003 / 0004 / 0005 / 0006 Accepted. ADR-0007 Proposed** (just drafted — commits both Month-4-gate paths architecturally). **All 7 pre-seeded ADRs now authored.** After ADR-0007 review/Accept, Phase-2 remaining work shifts to: (a) 3 new design docs (`modding.md`, `accessibility.md`, `content_policy.md`), (b) 2 remaining specs (content-pack validation contract, artifact retention policy), (c) `/audit` green.
 
 ## Phase-1 carryover (non-gating user-actions)
 
@@ -51,6 +51,7 @@ Phase 1 closed 2026-04-24 with these items intentionally open. None gate Phase 2
 
 ## Recent milestones
 
+- 2026-04-24: Phase 2 — **ADR-0007 Scout archetype + ScoutReport + gate-fallback Proposed.** Both Month-4-gate paths committed architecturally (Path A Scout Disagreement 3-archetype; Path B BasicScoutUncertainty fallback with identical ScoutReport schema). `Scout.Biases.NarrativeFlag = 0` validator invariant. `Scouting.Contracts` / `.Runtime` / `.Prototype` asmdef split. Five rejected alternatives. All 7 pre-seeded Phase-2 ADRs now drafted
 - 2026-04-24: Phase 2 — **ADR-0006 Accepted** after Codex/GPT-5.5 6-finding review pass. Fixes: (P1) LLM path explicitly outside byte-identical regeneration (compiler determinism = cohort + seed + checked-in name-bank artifact); (P1) canonical player-ID regex `^fwh\.core(?:\.v[0-9]+)?:player_[0-9]{5}$` aligned across ADR-0006 + player-generation.md + TECH_APPROACH; (P2) status discipline preserved (stayed Proposed until findings resolved); (P2) event-class count normalized to 42 starter / ~40 shorthand; (P2) `fw verify-docs` recursive frontmatter check; (P3) `.agents/` skill-port corrections. All 6 drafted ADRs now Accepted
 - 2026-04-24: Phase 2 — **ADR-0006 IdentityPacket / AI Content Compiler Proposed**. Walled-off InternalGeneSnapshot (Q32.32 across 22 fields), 46-label phenotype enum with banned-term-lint on rendered strings, SignatureCandidate[] affinity storage (ADR-0005 handoff received), category-level scout bias + narrative-flag zero-visibility, advanced tooltip default OFF, canonical-JSON-artifact compiler discipline, 4-project split (Content.Contracts/.Compiler/.Validator/.UnityImport). Five rejected alternatives
 - 2026-04-24: Phase 2 — **ADR-0005 Accepted** after 3 architectural tightenings: `SimBiasSnapshot` reframed as Unity-free `MatchSim.Contracts` DTO pre-baked BEFORE sim execution (no per-tick Unity push); `SimBiasFieldId` registry ownership moved to `MatchSim.Contracts` (MatchSim owns semantic meaning); continuous vs event-triggered bias application split per-field to avoid premature per-tick work. Asmdefs: MatchSim.Contracts (pure, owns field registry + DTO), Signatures.Authoring (Unity SO), Signatures.Baking (pure baker), MatchSim.csproj (pure consumer)
