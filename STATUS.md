@@ -37,7 +37,7 @@ Plus three new design docs: `modding.md`, `accessibility.md`, `content_policy.md
 
 ## Next action
 
-**ADR-0001 (ShotTypeSO) drafted as Proposed.** Awaiting user + GPT-5.5 review before Accepted. `/next` picks up **ADR (2): Viewer rendering pipeline + URP custom-pass ordering** once ADR-0001 signs off — or the user can bounce ADR-0001 to GPT-5.5 first and wait for findings before moving on.
+**ADR-0001 Accepted.** **ADR-0002 drafted as Proposed** (Knowledge Risk MEDIUM on URP Render Graph — Phase 3 Week 1 spike required before Phase 3 Week 2 authoring). `/next` picks up **ADR (3): Production pipeline ADR** — formalizes the planning-pass in `design/production-pipeline.md` into an Accepted architecture commitment.
 
 ## Phase-1 carryover (non-gating user-actions)
 
@@ -51,6 +51,7 @@ Phase 1 closed 2026-04-24 with these items intentionally open. None gate Phase 2
 
 ## Recent milestones
 
+- 2026-04-24: Phase 2 — **ADR-0001 Accepted** after user tightenings (ChainConditionId registry-backed / explicit deterministic-selection contract / per-content-pack Addressables grouping). **ADR-0002 Proposed** (Viewer rendering pipeline + URP custom-pass ordering). Knowledge Risk MEDIUM flagged on ADR-0002 — Unity 6 LTS URP 17+ Render Graph verification required at Phase 3 Week 1 spike. Two inline Category-B exemptions in place
 - 2026-04-24: Phase 2 — ADR-0001 ShotTypeSO schema + Addressables grouping drafted as **Proposed** at `design/adr/adr-0001-shot-type-so-schema.md`. First Category-B inline exemption recorded (`term="domain"` ADR-template field). Awaiting user/GPT-5.5 sign-off before Accepted
 - **2026-04-24: Phase 1 ✅ COMPLETE.** Phase 2 🟡 ACTIVE — Design Bible / ADR authoring. ADR order reprioritized per GPT-5.5 2026-04-24 guidance to feed Phase-3's playable slice (MatchSim + 2D viewer) rather than tidy-doc order. Stale SPEC tasks cleaned up (Task 52 Unity CI stub superseded, Task 50 accounts done, 11 design-doc locks marked)
 - 2026-04-24: Phase 1 — `scripts/lint-banned-terms.py` shipped. Category-A hard-ban across 5 subsections from ui-vocabulary.md + Category-B soft-ban with inline `ui-lint:allow term=/reason=/reviewer=` exemption audit. Sentinel-aware (ui-lint:ignore-start/end), both-forms matching (per GPT-5.5 feedback). Wired as `fw banned-terms`, integrated into `fw verify` umbrella → Tier-A CI auto-picks up. 11 files sentinel-wrapped for legitimate meta-references; repo lint-clean. Resolved the GPT-5.5 tech-debt note about spaced-placeholder hack via proper sentinel discipline

@@ -2,6 +2,22 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase 2 — ADR-0001 Accepted + ADR-0002 drafted)
+
+- **ADR-0001 tightened + marked Accepted** after user review pass. Three refinements:
+  - **ChainConditionId registry-backed** — no arbitrary scripted predicates in content packs (determinism + sandbox-escape surface closed). MVP registry ships as static `Dictionary<string, Func<ShotSelectionContext, bool>>`; content packs reference condition ids by stable string. Additional memory-related condition ids land with ADR-0004.
+  - **Explicit deterministic-selection contract** — chain rules evaluated in ascending `Priority` order; ties broken by stable `ShotTypeSO.Id`; base pack resolves first, then mod packs sorted lexicographically by `pack_id`; forbidden inputs enumerated (wall-clock, `UnityEngine.Time.*` outside viewer interpolation, `System.Random`/`UnityEngine.Random`, unordered collection iteration); variation path is replay-recorded deterministic viewer seed, never runtime nondeterminism.
+  - **Addressables grouping: per content pack, NOT per shot category.** 7 base shot SOs isn't enough volume to justify per-category unload control. Label convention: `shot-type` (required), `content-pack:<pack-id>` (required), `shot-category:<category>` (optional for category-filtered queries).
+- **ADR-0002 authored as Proposed** — `design/adr/adr-0002-viewer-rendering-pipeline.md`. Formalizes the Phase-0 rendering-stack resolution into a pass-ordered URP Renderer Asset (`FinalWhistleViewer2D`) with 4 `ScriptableRendererFeature` entries:
+  1. Scene sprite pass (URP default)
+  2. Motion-line trails (per-player mesh, `AfterRenderingTransparents`)
+  3. Screen-tone fullscreen HLSL pass (stakes-modulated, `AfterRenderingPostProcessing`)
+  4. Impact-frame flash fullscreen HLSL pass (event-triggered, last)
+  5. UI Toolkit overlay (above all, with per-panel custom-mesh fallback where UIT masking fights)
+- Deterministic rendering contract extended: shader noise seeded from viewer seed (not `_Time`); replay artifact stores pass-activation log (pixel-compare NOT required — pass-log compare IS); Phase-3 `fw shader-audit` greps viewer shaders for `_Time` references
+- **Knowledge Risk MEDIUM** on ADR-0002 — Unity 6 LTS URP 17+ Render Graph API verification required at Phase 3 Week 1 spike before authoring work starts Week 2. Rollback path written
+- Two inline Category-B `ui-lint:allow term="domain"` exemptions now in place (one per ADR for the template's engine-compat field); `scripts/fw banned-terms --report` captures both with reviewer attribution for EA/RC audit
+
 ## 2026-04-24 (Phase 2 — ADR-0001 ShotTypeSO drafted)
 
 - `design/adr/adr-0001-shot-type-so-schema.md` authored as **Proposed** — formalizes the ShotTypeSO authoring asset shape + Addressables grouping strategy for the Phase-0-locked semantic-cinema 7-shot grammar

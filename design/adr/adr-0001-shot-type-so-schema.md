@@ -6,7 +6,7 @@ description: ADR-0001 — ShotTypeSO schema + Addressables grouping. Formalizes 
 
 ## Status
 
-**Proposed** — pending user + GPT-5.5 sign-off before Accepted.
+**Accepted** — 2026-04-24. Tightened on ChainCondition pinning + deterministic-selection mechanism + Addressables-grouping explicit rule per user review.
 
 ## Date
 
@@ -143,10 +143,21 @@ public enum ShotCategory
 public struct ChainRule
 {
     public ShotCategory NextCategory;
-    public ChainCondition Condition;   // enum or scripted predicate reference
-    public int MinTicks;               // 60Hz steps
+    public ChainConditionId ConditionId;  // registry-backed, deterministic; see below
+    public int Priority;                  // lower = higher priority; ties broken by ShotTypeSO.Id
+    public int MinTicks;                  // 60Hz steps
     public int MaxTicks;
 }
+
+// ChainConditionId is a content-pack-qualified stable identifier resolved
+// at scene-load against a registry of PURE DETERMINISTIC condition evaluators.
+// NO arbitrary scripted predicates in content packs (would break determinism +
+// open a sandbox-escape surface for Workshop mods).
+// MVP registry: enum-like set of named conditions (e.g. "goal-scored",
+// "near-miss", "high-salience-callback-hit", "shot-resolved-terminal-action").
+// Additional memory-related condition ids are defined by ADR-0004 (MemoryEvent
+// schema); ADR-0004 must only add validator-friendly deterministic predicates.
+public readonly struct ChainConditionId { public string Value { get; } }
 
 // Runtime lookup.
 public interface IShotTypeCatalog
@@ -159,18 +170,37 @@ public interface IShotTypeCatalog
 
 ### Addressables grouping
 
-- **Group: `shot-types-core`** — labels: `shot-type`, `content-pack:fwh.core`. Contains the 7 base shot SOs.
-- **Group per mod pack: `shot-types-mod-<packname>`** — same `shot-type` label, plus `content-pack:fwh.mod.<packname>`.
-- **Loading:** at scene-load, `ShotTypeCatalog` loads all assets with label `shot-type`, indexes by `Id` + `Category`, wires chain-rule references, and warm-starts the dictionary. No per-frame allocation.
-- **Unloading:** mod packs unload by label when the content pack is disabled; base pack is resident for the session.
+**Group by content pack, NOT by shot category.** 7 base shot SOs is not enough volume to justify per-category unload control; per-pack grouping matches mod-pack lifecycle.
+
+- **Group: `shot-types-fwh.core`** — contains the 7 base shot SOs.
+- **Group per mod pack: `shot-types-mod-<packname>`** — contains that pack's additional shot SOs (post-EA Workshop).
+
+**Labels applied to every `ShotTypeSO` asset:**
+- `shot-type` — required, for catalog-wide load
+- `content-pack:<pack-id>` — required, e.g. `content-pack:fwh.core`
+- `shot-category:<category>` — optional, enables category-filtered queries if needed later
+
+**Loading:** at scene-load, `ShotTypeCatalog` loads all assets with label `shot-type`, indexes by `Id` + `Category`, wires chain-rule references, and warm-starts the dictionary. No per-frame allocation.
+
+**Unloading:** mod packs unload by `content-pack:` label when the pack is disabled; base pack is resident for the session.
+
+### Deterministic shot selection — contract
+
+"Given the same MatchSim event stream + same loaded pack set + same reduce-motion setting, shot choices must be bit-reproducible (same `Id`s in the same order)." Explicit implementation contract:
+
+1. **Chain-rule evaluation order:** rules within a `ShotTypeSO` are evaluated in **ascending `Priority` order** (lower first). When multiple rules share the same `Priority`, ties are broken by **stable `ShotTypeSO.Id` ordering** (lexicographic on the content-pack-qualified id string).
+2. **Active-pack precedence:** the base pack (`fwh.core`) is resolved first; enabled mod packs follow in **deterministic order sorted by `pack_id` lexicographically** (falls back to Addressables load order only if two mod packs share an id, which is itself a validator error).
+3. **Forbidden inputs to shot selection:** NO wall-clock time, NO `UnityEngine.Time.*` except in viewer interpolation (never in selection logic), NO `System.Random` / `UnityEngine.Random`, NO unordered collection iteration (`HashSet`/`Dictionary` iteration is not order-stable — always iterate via sorted keys or explicit priority lists).
+4. **Variation mechanism (when later needed):** do NOT introduce nondeterminism. Use a **replay-recorded deterministic viewer seed** — emit the seed into the replay artifact so any given replay reproduces identical shot choices across platforms + sessions.
+5. **Cross-platform validation:** Phase-3 Week-2 CI matrix (Linux via Tier-A umbrella; Win/Mac via Phase-3 `fw replay` once implemented) must produce identical shot-choice sequence hashes for the canonical replay corpus seeds.
 
 ### Implementation Guidelines
 
 - **Asmdef boundary:** `FinalWhistle.Viewer.ShotAuthoring` (asset-side, no runtime deps beyond UnityEngine.ScriptableObject) + `FinalWhistle.Viewer.Runtime` (shot selection + catalog).
 - **MatchSim.csproj NEVER depends on `ShotTypeSO`** — the sim emits events; the viewer selects shots. Strict split per `TECH_APPROACH.md §3`.
-- **Deterministic shot selection:** given the same MatchSim event stream + same loaded pack set + same reduce-motion setting, shot choices must be bit-reproducible (same Ids in same order). This is a replay-correctness requirement.
-- **ID validation at bake-time:** the Phase-1 banned-terms lint + Phase-6 content-pack validator must check `ShotTypeSO.Id` follows `fwh.<pack>:shot.<category>-<variant?>` format and does not embed pack-minor version.
+- **ID validation at bake-time:** the Phase-1 banned-terms lint + Phase-6 content-pack validator must check `ShotTypeSO.Id` follows `fwh.<pack>:shot.<category>-<variant?>` format and does NOT embed pack-minor version. Same validator enforces the per-pack Addressables-group convention above.
 - **Reduce-motion wiring:** `IsReduceMotionActive()` reads the accessibility settings SO (authored under `design/accessibility.md` — Phase-2 design doc). When true, every shot's `ReduceMotionVariant` overrides the default framing + disables impact flashes + extends hold-tick ranges.
+- **ChainConditionId registry:** Phase-3 ships the MVP registry as a static `Dictionary<string, Func<ShotSelectionContext, bool>>` in `FinalWhistle.Viewer.Runtime`. Content packs reference condition ids as strings in `ShotTypeSO.ChainRules[].ConditionId.Value`; the catalog validates every referenced id resolves at scene-load (failure is a load-time error, never a silent runtime no-op).
 
 ---
 
