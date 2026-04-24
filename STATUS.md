@@ -25,19 +25,22 @@ Shipped so far: Unity install (user), `scripts/fw` front-door, PR template, issu
 
 ## Next action
 
-**User-action in GitHub UI** (runbooks written):
-- **Set Actions spending cap to $0** per `docs/ops/actions-budget.md §2b` (`github.com/settings/billing/spending_limit`). Prevents silent overage. ~1 min.
-- ~~Configure branch protection~~ — **BLOCKED on plan**: GitHub Free disallows branch protection on private repos (verified via `gh api`). Current posture: local-discipline-only per `docs/ops/branch-protection.md §0`. Revisit when upgrading to Pro/Team or going public (Phase-4 itch / Phase-8 EA triggers).
+**All Claude-actionable Phase-1 tasks shipped.** Remaining items are user-action or stale-to-resolve:
 
-**Low-urgency Phase-1 user-actions:**
-- Install Blender (Phase-3 trigger, safe to defer)
-- Install VS Code / Rider (editor choice)
-- Smoke-test slash commands next session
-- Plugin install via slash commands
+**User-action in GitHub UI** (runbook written):
+- **Set Actions spending cap to $0** per `docs/ops/actions-budget.md §2b` (`github.com/settings/billing/spending_limit`). ~1 min.
 
-**Claude-actionable on next `/next`:**
-- `scripts/lint-banned-terms.py` (Phase-1 lint rule per `design/ui-vocabulary.md`) — closes another Phase-1 checkbox and uncomments the Tier-A banned-terms job
-- Pre-seed SPEC-stale-task notes — Task 52 (Unity CI stub) effectively superseded by Task 58 (Tier-A workflow); could mark `[x] (superseded)`
+**Low-urgency user-actions:**
+- Install Blender (Phase-3 trigger, deferred)
+- Install VS Code / Rider (editor choice — you already have a setup)
+- Smoke-test slash commands next fresh session
+- Plugin install via slash commands (feature-dev / pr-review-toolkit / hookify)
+
+**Blocked / stale:**
+- Branch protection — blocked on plan upgrade (GitHub Free constraint)
+- SPEC Task 52 (Unity CI stub from blueprint template) — effectively superseded by Task 58 Tier-A workflow; recommend marking `[x] (superseded 2026-04-24)` with a SPEC edit on user approval
+
+**Ready-to-graduate check:** `/next` can either (a) pick up a stale SPEC cleanup pass, or (b) gate-check Phase 1 as substantially-complete and prep Phase-2 promotion. Phase 2 opens up ADR authoring (7 pre-seeded ADRs ready) + remaining design-doc locks (modding / accessibility / content-policy).
 
 ## Recent milestones
 
