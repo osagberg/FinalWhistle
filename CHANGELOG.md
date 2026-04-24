@@ -17,7 +17,9 @@ Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]
   - Growth policy: every schema bump + every determinism bug produces a new corpus entry; Phase-6 target 20-50 fixtures
   - 3 open questions deferred to Phase-3 Week 1 (exact sim-state serialization order, pass-activation-log field shape post-ADR-0002-impl, Tier-A smoke rotation vs single seed)
 - New design subdirectory `design/specs/` established for implementation specs derived from ADRs (first resident: golden-replay-corpus.md; next will be save-migration-fixture spec)
+<!-- ui-lint:ignore-start reason="meta-reference to Category-B exemption just recorded in the corpus spec" -->
 - Fourth Category-B inline exemption recorded (`term="awakened"` in the corpus spec's event-class-name JSON comment)
+<!-- ui-lint:ignore-end -->
 
 ## 2026-04-24 (Phase 2 — ADR-0003 Production pipeline drafted)
 
