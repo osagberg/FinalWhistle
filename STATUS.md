@@ -1,12 +1,12 @@
 # Status
 
-**Last updated**: 2026-04-24 (Phase 1 🟡 ACTIVE — Setup. First parallel-to-install batch shipped: 6 Phase-1 tasks done.)
+**Last updated**: 2026-04-24 (Phase 1 🟡 ACTIVE — Setup. Remote created, Tier-A CI authored, ops runbooks shipped.)
 
 ## Currently working on
 
 **Phase 1 — Setup** 🟡 ACTIVE.
 
-6 Phase-1 tasks shipped this session: Unity 6 LTS install (user), asset-licensing tracker, `scripts/fw` front-door, PR template, 2× issue templates, `backup-restore.md`. `fw verify-docs` + `fw status` both green. Remaining Phase-1 work mostly gated on either the GitHub remote existing (Actions budget cap / branch protection / `fast-pr-ci.yml`) or additional user-actions (Blender/VS Code install, `gh repo create`, slash-command smoke-test, plugin install).
+Shipped so far: Unity install (user), `scripts/fw` front-door, PR template, issue templates, asset-licensing tracker, backup-restore policy, `osagberg/FinalWhistle` private remote, Tier-A workflow v0, branch-protection policy doc, Actions-budget runbook. `fw verify-docs` + `fw status` green locally. Remaining Phase-1 work is user-action in GitHub UI (budget cap, branch protection) or low-urgency (Blender/VS Code, slash-command smoke, plugin install).
 
 ## Blockers
 
@@ -25,23 +25,23 @@
 
 ## Next action
 
-`/next` first unchecked Phase-1 task is now **Install Blender** — user-action, Phase-3 trigger (deferred-3D pipeline). Not urgent; can be held.
+**User-action in GitHub UI** (not urgent, runbooks written — do when convenient):
+- **Set Actions spending cap to $0** per `docs/ops/actions-budget.md §2b` (`github.com/settings/billing/spending_limit`). Prevents silent overage.
+- **Configure `main` + `develop` branch protection** per `docs/ops/branch-protection.md §2, §3` (`github.com/osagberg/FinalWhistle/settings/branches`).
 
-Live options to accelerate Phase 1:
+**Low-urgency Phase-1 user-actions:**
+- Install Blender (Phase-3 trigger, safe to defer)
+- Install VS Code / Rider (editor choice)
+- Smoke-test slash commands next session
+- Plugin install via slash commands
 
-**User-gated (pick one + signal ready):**
-- ~~GitHub remote creation~~ **done 2026-04-24** under `osagberg/FinalWhistle`. Unlocks: Actions budget cap, branch protection, `fast-pr-ci.yml` authoring — all pickable on next `/next`.
-- Blender / VS Code install (low urgency at Phase 1).
-
-**Claude-actionable after remote exists:**
-- `.github/workflows/fast-pr-ci.yml` Tier-A workflow (safe now that `scripts/fw verify-docs` exists)
-- Branch protection policy doc (`main` / `develop` discipline)
-- Actions budget cap runbook
-
-Recommend user signal: "remote ready" (after `gh repo create`) — Claude picks up the workflow + branch-protection doc + budget-cap runbook in one batch.
+**Claude-actionable on next `/next`:**
+- `scripts/lint-banned-terms.py` (Phase-1 lint rule per `design/ui-vocabulary.md`) — closes another Phase-1 checkbox and uncomments the Tier-A banned-terms job
+- Pre-seed SPEC-stale-task notes — Task 52 (Unity CI stub) effectively superseded by Task 58 (Tier-A workflow); could mark `[x] (superseded)`
 
 ## Recent milestones
 
+- 2026-04-24: Phase 1 — `osagberg/FinalWhistle` private remote created + initial push (2 commits on origin/main); `.github/workflows/fast-pr-ci.yml` Tier-A v0 authored (fw verify-docs only, phase-gated TODOs commented); `docs/ops/branch-protection.md` + `docs/ops/actions-budget.md` runbooks shipped. `vibelogic` org membership gap diagnosed + namespaced-around
 - 2026-04-24: Phase 1 — first parallel-to-Unity-install batch shipped (6 tasks): Unity 6 LTS installed (user), asset-licensing tracker seeded (Anton/JetBrains Mono/Rajdhani/Magica Cloth 2), `scripts/fw` front-door with `help`/`status`/`verify-docs` implemented + 5 phase-gated stubs, PR template, 2× issue templates, `docs/ops/backup-restore.md`. `fw verify-docs` + `fw status` both green
 - **2026-04-24: Phase 0 ✅ COMPLETE.** All 12 design docs resolved, 12 consolidated SPEC entries, 7 Phase-2 ADRs pre-seeded, ~33 pipeline-related SPEC tasks threaded across downstream phases, `/refresh-docs` green (6 findings fixed). Phase 1 🟡 Setup now active
 - 2026-04-24: Phase 0 — `/refresh-docs` pass fixed 6 findings including user-visible `{{ PROJECT_NAME }}` placeholder leak in `.claude/hooks/session-start.sh` (was showing literal template token in SessionStart banner every new session), plus state-dump script + statusline comment + design/README.md stale date + missing production-pipeline row + production-pipeline.md verifier-trip. Intentionally left: bootstrap placeholder source-of-truth + TECH_APPROACH §8.5 non-standard numbering

@@ -2,6 +2,17 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase 1 batch — remote created + Tier-A workflow + ops runbooks)
+
+- **GitHub remote created ✅** — `osagberg/FinalWhistle` private. The `vibelogic` org exists as a reserved-name shell but neither authenticated gh account is a member; personal namespace used with one-click GitHub transfer available at Phase 8 if Steam branding wants a publisher namespace. Both accounts (`osagberg` active + `vibelogicx`) reviewed; neither has `vibelogic` membership despite `admin:org` token scope on `osagberg`. Commit `da29ca9` Phase 0 complete + Phase 1 scaffolding pushed; commit `0013370` fixed 5 namespace references in CLAUDE.md / SETUP.md / SPEC.md / STATUS.md / backup-restore.md; both commits now on `origin/main`
+- **`.github/workflows/fast-pr-ci.yml` authored ✅** — Tier-A v0: runs on PR + push to main/develop, Linux-only, ≤5 min timeout, concurrency-cancel enabled, `permissions: contents: read`. Only real step is `./scripts/fw verify-docs` at Phase 1. Phase-1/3/6 Tier-A jobs (banned-terms lint / dotnet test / determinism smoke / content-pack schema / save-migration) are commented-out with phase-trigger tags — explicitly NO untrusted-input interpolation in any step per GitHub Actions security guidance
+- **`docs/ops/branch-protection.md` authored ✅** — policy doc for `main` + `develop` protection rules. Solo-dev review discipline section (15-minute cooling-off, verbalize the why, bounce to GPT-5.5 on pillar-level work). Quarterly config-drift check via `gh api repos/.../branches/main/protection`
+- **`docs/ops/actions-budget.md` authored ✅** — runbook for the $0 hard spending cap setup, per-workflow budget-impact checklist for new `.yml` additions, kill-switch options if usage spikes, self-hosted runner escalation path (Phase-3+ decision, not default)
+- **Intentionally still `[ ]`** (user-action in GitHub UI, runbooks written):
+  - GitHub Actions budget cap set — user visits `github.com/settings/billing/spending_limit` and sets $0 per `docs/ops/actions-budget.md §2b`
+  - Branch protection configured — user visits `github.com/osagberg/FinalWhistle/settings/branches` and applies rules per `docs/ops/branch-protection.md §2,§3`
+- Verify: `gh repo view osagberg/FinalWhistle --web` loads repo; `git log origin/main --oneline` shows 5 commits; once user configures budget cap + branch protection, first PR from a feat/ branch should trigger the Tier-A workflow green
+
 ## 2026-04-24 (Phase 1 batch — parallel-to-Unity-install production scaffolding)
 
 - Phase-1 tasks shipped (6), while Unity install ran in parallel:

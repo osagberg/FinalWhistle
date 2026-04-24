@@ -1,0 +1,109 @@
+# Fast PR CI (Tier A) — Final Whistle
+#
+# Per design/production-pipeline.md:
+# - Runs on every PR + push to main/develop
+# - GitHub-hosted Linux only (cheapest minute rate)
+# - Budget: ≤5 minutes per run
+# - No Unity Editor boot, no builds, no macOS/Windows runners
+#
+# SECURITY NOTE: this workflow does NOT interpolate any untrusted input
+# (github.event.*.title, github.event.*.body, github.head_ref, commit
+# messages, etc.) into run: steps. All step commands are static shell
+# invocations. See:
+# https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
+#
+# At Phase 1 the only check that exists is scripts/fw verify-docs.
+# Additional checks land as their phase trigger hits — see the TODOs below.
+
+name: Fast PR CI (Tier A)
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+# Cancel in-progress runs for the same branch when a new push arrives —
+# saves Actions minutes on rapid iteration.
+concurrency:
+  group: fast-pr-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify-docs:
+    name: Verify docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run fw verify-docs
+        run: ./scripts/fw verify-docs
+
+  # ------------------------------------------------------------------
+  # Phase-gated TODOs — uncomment + implement as the corresponding
+  # Phase-1/3/6 SPEC tasks land. Keeping them visible here so future
+  # agents see the planned shape without scrolling design docs.
+  # ------------------------------------------------------------------
+
+  # banned-terms-lint:
+  #   name: Banned-terms lint (Phase 1)
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 5
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: '3.11'
+  #     - name: Run lint-banned-terms.py
+  #       run: python scripts/lint-banned-terms.py
+
+  # matchsim-tests:
+  #   name: MatchSim.Tests (Phase 3)
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 5
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-dotnet@v4
+  #       with:
+  #         dotnet-version: '8.0.x'
+  #     - name: dotnet test
+  #       run: dotnet test MatchSim.Tests --configuration Release --logger "console;verbosity=normal"
+
+  # determinism-smoke:
+  #   name: Deterministic replay hash smoke (Phase 3)
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 5
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-dotnet@v4
+  #       with:
+  #         dotnet-version: '8.0.x'
+  #     - name: fw replay canonical-seed
+  #       run: ./scripts/fw replay 0xDEADBEEF
+
+  # content-pack-schema:
+  #   name: Content-pack schema + ID stability (Phase 6)
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 5
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: fw content-lint
+  #       run: ./scripts/fw content-lint
+
+  # save-migration-smoke:
+  #   name: Save migration fixture smoke (Phase 6)
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 5
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-dotnet@v4
+  #       with:
+  #         dotnet-version: '8.0.x'
+  #     - name: Run save migration fixture tests
+  #       run: dotnet test MatchSim.Tests --filter Category=SaveMigration

@@ -55,7 +55,7 @@
 - [ ] Smoke-test slash commands: `/status`, `/next`, `/log-decision`
 - [ ] Plugin install via slash commands (feature-dev / pr-review-toolkit / hookify)
 - [ ] GitHub Actions budget cap set (stop on overage; Free 2k or Pro 3k included minutes per `design/production-pipeline.md`)
-- [ ] Fast PR CI (Tier A) workflow `.github/workflows/fast-pr-ci.yml` authored — markdown-placeholder + frontmatter + banned-vocab + JSON-schema + `dotnet test` MatchSim.Tests + determinism smoke. ≤5 min budget, Linux-only
+- [x] Fast PR CI (Tier A) workflow `.github/workflows/fast-pr-ci.yml` authored (2026-04-24 — minimal v0: `scripts/fw verify-docs` only; banned-vocab / dotnet-test / determinism / content-lint / save-migration jobs commented-out with phase-triggers, uncommented as each deliverable lands)
 - [x] `.github/PULL_REQUEST_TEMPLATE.md` authored (summary / why / test plan / breaking-changes / linked SPEC task)
 - [x] `.github/ISSUE_TEMPLATE/bug_report.md` + `feature_request.md` authored
 - [ ] Branch protection configured: `main` PR+approval required; `develop` PR+Tier-A-green required; no direct pushes
