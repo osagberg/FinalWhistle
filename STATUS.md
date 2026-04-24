@@ -1,29 +1,28 @@
 # Status
 
-**Last updated**: 2026-04-25 (**Phase 1 ✅ COMPLETE.** Phase 2 🟡 ACTIVE — Design Bible / ADR authoring.)
+**Last updated**: 2026-04-25 (**Phase 2 ✅ COMPLETE.** Phase 3 🟡 ACTIVE — Unity Bootstrap + MatchSim Prototype.)
 
 ## Currently working on
 
-**Phase 2 — Design Bible** 🟡 ACTIVE.
+**Phase 3 — Unity Bootstrap + MatchSim Prototype** 🟡 ACTIVE.
 
-Phase 1 shipped everything Claude-actionable (Tier-A CI green, banned-terms lint live, `fw verify` umbrella, full repo on `origin/main`). Phase 2 now focuses on ADR authoring — ordered to unblock Phase-3's real risk (first deterministic MatchSim + watchable 2D viewer). All 12 design docs are locked (11 via Phase-0 open-questions resolution pass + `design/production-pipeline.md` via the Phase-0 production-pipeline planning pass); the ADRs below finalize the architecture commitments.
+Phase 2 shipped 15 design docs + 4 specs + 7 ADRs; `/audit` green; bundle committed `3226c78`. Phase 3 is the first real code phase — MatchSim pure-C# skeleton with Q32.32 fixed-point determinism, 22-player ball physics, Unity + URP + 2D viewer prototype with 3 of 7 shot types, match-replay skill end-to-end. Gate = Month-3 match-engine gate (stranger watches match, understands drama in 3 minutes).
 
-**Phase-2 ADR priority order (Phase-3-unblocking first):**
-1. ShotTypeSO schema + Addressables grouping
-2. Viewer rendering pipeline + URP custom-pass ordering
-3. Production pipeline ADR
-4. Golden replay corpus format spec
-5. Save migration fixture policy spec
-6. MemoryEvent schema
-7. SignatureSO schema
-8. IdentityPacket / AI Content Compiler
-9. Scout archetype (Phase-4 dependency)
+**Phase-3 Week-1 priority order** (gates Week-2 fixture authoring per corpus spec):
+1. `MatchSim.csproj` pure-C# class library + `MatchSim.Tests.csproj` xUnit skeleton
+2. `Fixed` struct (Q32.32 canonical format)
+3. `Tick` deterministic 60Hz timestep loop
+4. `Seed` (match + event seed derivation)
+5. `SerializationContract.cs` — stable order for entities / events / Q32.32 fields. **Gates golden-replay-corpus fixture authoring** per `design/specs/golden-replay-corpus.md`
+6. `scripts/fw shader-audit` — greps FW viewer shaders for banned `_Time` references per ADR-0002
 
-Plus three new design docs: `modding.md`, `accessibility.md`, `content_policy.md`.
+**Weeks 2-4:** Ball custom-deterministic physics + Player state machine + 2 BT archetypes in YAML + xUnit determinism tests (Win/Mac/Linux hashes) + Unity project creation via Unity Hub + URP packages + 2D semantic-cinema prototype with 3 shot types (`tactical-wide` / `diagonal-attack-lane` / `pass-shot-impact`) + match-replay skill + unity-mcp handshake + devlog clips.
+
+**Parallel Week-1 action:** observer-pool recruitment for Month-3 gate — per `design/month-3-vertical-slice.md` §Observer-pool lockdown fallback: if 5 football-literate cold observers can't be named by end of Month 2, the gate is at risk. Criterion not weakened; recruiting solved separately via trusted friends / Discord / private itch keys.
 
 ## Blockers
 
-- None currently blocking Phase 2. Fresh-session project-scoped `.claude/` activation + plugin install via `.claude/bootstrap/scripts/install-plugins.txt` remain as Phase-1 carryover user-actions (see "Phase-1 carryover" below) — not Phase-2 blockers.
+- None currently blocking Phase 3. User-action triggers now firing per `SETUP.md §10 trigger table`: Blender install (was Phase-3 trigger), VS Code / Rider editor install, CoplayDev unity-mcp install post-Unity-project-creation. Fresh-session project-scoped `.claude/` activation + plugin install via `.claude/bootstrap/scripts/install-plugins.txt` still Phase-1 carryover. None gate Week-1 pure-C# MatchSim work; Blender + Unity Hub become actual gates at Week-2 when Unity project creation begins.
 
 ## Pending async
 
@@ -37,13 +36,9 @@ Plus three new design docs: `modding.md`, `accessibility.md`, `content_policy.md
 
 ## Next action
 
-**Artifact retention policy spec authored `[x]`** (2026-04-24 — 5-tier retention model at `design/specs/artifact-retention-policy.md`; ~30 artifact classes catalogued; RC bundle minimum-10 rule; determinism-replay posture; Phase-3 `fw artifact-cleanup` + Phase-6 `fw workflow-audit` added as SPEC tasks; `FW-WF-A-001` uploaded-artifact retention + `FW-WF-A-002` repo/org Actions retention-setting report opened; workflow logs are platform-managed; release bundles verified as GitHub release assets). **All 15 design docs + 4 specs + 7 ADRs shipped.**
+**Phase 2 ✅ COMPLETE (2026-04-25). Phase 3 🟡 ACTIVE.** Bundle committed `3226c78`; `/audit` green on Phase-2 scope (checks 1/17/18 ✅; 2-16 phase-deferred ⚪; 19 ✅ post-commit). Gate condition *"design bible complete; ADRs for every system that locks architecture"* satisfied.
 
-Only Phase-2 blocker remaining: **`/audit` green on Phase-2 checks** (gate condition).
-
-Phase-2 gate condition *"design bible complete; ADRs for every system that locks architecture"* is substantively satisfied. `/audit` is the final verification pass that closes Phase 2 → promotes Phase 3.
-
-Former Phase-2 tracker rows for Phase-6 implementation work are rolled up `[x]` in `SPEC.md`: cross-doc enum / callback-tag validation is spec-satisfied by `content-pack-validation-contract.md` and implemented in Phase 6; smoke-seed rotation is policy-specified by `golden-replay-corpus.md` and measured in Phase 6.
+**Next `/next` picks up Phase-3 Week-1:** `MatchSim.csproj` pure-C# class library + `MatchSim.Tests.csproj` xUnit skeleton. Pure code work; no Unity dependency until Week 2-3. Acceptance = xUnit test runner executes against the two new csprojs + solo-dev `dotnet test` run green locally + CI matrix (Win/Mac/Linux) stub wired inside `fw verify` umbrella.
 
 ## Phase-1 carryover (non-gating user-actions)
 
@@ -57,6 +52,7 @@ Phase 1 closed 2026-04-24 with these items intentionally open. None gate Phase 2
 
 ## Recent milestones
 
+- 2026-04-25: **Phase 2 ✅ COMPLETE.** Phase 3 🟡 ACTIVE. `/audit` green on Phase-2 scope; bundle committed `3226c78` (15 files: 3 new design docs + 2 new specs + 9 modified + .gitignore). `.gitignore` extended to exclude `.claude/session-snapshots/` (auto-generated pre-compact ephemera) + `.agents/` (not yet deliberately ported; contains absolute blueprint paths). Phase-3 first task: `MatchSim.csproj` pure-C# skeleton
 - 2026-04-24: Phase 2 — **Artifact retention policy spec** authored at `design/specs/artifact-retention-policy.md`. 5-tier retention model (ephemeral / short / release-tied / permanent-in-repo / local-only). ~30 artifact classes catalogued with TTL + source + storage + rationale. RC bundle minimum-10-items rule locked for determinism-replay posture. Cost-discipline math projected through Phase 6 (Free 500MB cap tight; Pro 1GB comfortable). Playtest bug-bundle policy explicit. Phase-3 `fw artifact-cleanup` + Phase-6 `fw workflow-audit` added as SPEC tasks; `FW-WF-A-001` covers uploaded Actions artifact retention and `FW-WF-A-002` reports repo/org Actions artifact-and-log retention settings. Workflow logs are platform-managed, not 7-day uploaded artifacts. Release-tied bundles are verified as release assets, not `retention-days: 0`. `design/specs/` now holds 4 sibling specs
 - 2026-04-24: Phase 2 — **`design/content_policy.md` authored.** PEGI 12 / ESRB T content boundaries locked. 12 in-scope mature themes enumerated with shipping-form + example; 13 out-of-scope categories enumerated; 6 edge-case rulings on drift-prone subjects (post-derby hostility / managerial dismissals / youth setback language / discrimination exclusion / injury severity prose / fan-sentiment targeting). AI-content disclosure at Steam 2025 policy compliance via FW-VAL-D-005 + pack-manifest `ai_content_disclosure` block sketch. Mod-pack content-safety review surface closes `design/modding.md` OQ#2 — banned-terms lint + Steam Workshop report-flow cover EA; in-game report flow deferred post-EA. Two prototype gates Phase 6/8. Four open questions. **All 15 Phase-2 design docs shipped** (12 original + modding + accessibility + content_policy)
 - 2026-04-24: Phase 2 — **`design/accessibility.md` authored.** Five-item EA feature set locked (reduce-motion toggle / colorblind palette + color-never-sole-carrier / remappable controls / large-text UI / subtitles + post-match text-log). Synthesis of ADR-0001 `reduce_motion_variant` + ADR-0002 scene-load-time feature-disable + ADR-0006 default-OFF advanced details + corpus spec `reduce_motion` field; fresh commitments on colorblind palette + subtitle timing + text-scale + input-remap surface. Three prototype gates Phase 3/6/7. Missing reduce-motion variants block by Phase-6 content-pack v1 / EA lock; three open questions remain

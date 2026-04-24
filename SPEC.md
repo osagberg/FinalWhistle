@@ -8,9 +8,9 @@
 
 ## Current state
 
-- **Active phase:** Phase 2 — Design Bible 🟡
-- **Gate to next:** design bible complete; ADRs for every system that locks architecture
-- **Active task:** Phase-2 ADR authoring, ordered to unblock Phase-3 playable slice first — ShotTypeSO → Viewer rendering → Production pipeline → Golden replay corpus / save fixtures → remaining ADRs
+- **Active phase:** Phase 3 — Unity Bootstrap + MatchSim Prototype 🟡
+- **Gate to next:** Month-3 match-engine gate — *"A stranger watches a 2D match for three minutes and understands drama, momentum, and player identity without reading a design doc."*
+- **Active task:** Phase-3 Week-1 setup — `MatchSim.csproj` skeleton + `Fixed` Q32.32 + deterministic `Tick` + `Seed` + `SerializationContract.cs` (gates Week-2 golden-corpus fixture authoring)
 
 ---
 
@@ -68,8 +68,10 @@
 
 ---
 
-### Phase 2 — Design Bible 🟡 ACTIVE
+### Phase 2 — Design Bible ✅ COMPLETE (2026-04-25)
 **Goal**: every system design doc locked; ADRs authored for every load-bearing system decision.
+
+**Phase 2 ✅ COMPLETE (2026-04-25).** 15 design docs + 4 specs + 7 ADRs shipped; `/audit` green on Phase-2 scope; Phase-2 bundle committed at `3226c78`. Gate condition *"design bible complete; ADRs for every system that locks architecture"* satisfied. Phase 3 🟡 promoted.
 
 **Active posture (2026-04-24 promotion):** all 12 design docs are locked — 11 via Phase-0 open-questions resolution pass (12 consolidated SPEC entries), plus `design/production-pipeline.md` via the Phase-0 GPT-5.5 planning pass (same day). Phase 2 is now primarily about ADR authoring. Task ordering below prioritizes ADRs that unblock Phase-3's real risk — first deterministic MatchSim + watchable 2D viewer — before tidying-only ADRs.
 
@@ -105,14 +107,16 @@
 - [x] `design/modding.md` — data architecture constraints every system must respect (2026-04-24 — authored as synthesis of ADRs 0001/0002/0004/0005/0006/0007 + TECH_APPROACH §3-4 + specs into 12 load-bearing mod-loadability constraints: content-pack-qualified stable IDs / schema-versioned forward migration / per-pack Addressables grouping / base-then-mod-pack precedence / registry-backed IDs / Contracts-asmdef split / canonical-JSON artifacts / lint-scanned rendered strings / bake-time-only AI / determinism boundaries / walled-off player internals / validator surface. Editor UX explicitly deferred post-EA. Four open questions flagged for Phase-3/6 resolution. No new architectural commitment — consolidation pass only)
 - [x] `design/accessibility.md` — target accessibility features for EA (2026-04-24 — five-item EA surface locked per SPEC Phase-7 canonical list: reduce-motion toggle (synthesis of ADR-0001 `reduce_motion_variant` + ADR-0002 scene-load-time feature-disable) / colorblind palette with default + deuteranopia + protanopia + tritanopia + color-never-sole-carrier discipline / remappable controls via Unity Input System with keyboard+mouse parity + gamepad best-effort / large-text UI at 0.85× / 1.0× / 1.25× scales with Phase-7 reflow pass / subtitles covering crowd audio + match stings + tutorial with post-match text-log accumulator. Default-OFF advanced details already locked via ADR-0006. Three prototype gates at Phase 3/6/7. Missing `reduce_motion_variant` may warn during Phase-3 authoring but blocks by Phase-6 content-pack v1 / EA lock as `FW-VAL-A-021`; three open questions remain)
 - [x] `design/content_policy.md` — PEGI 12 boundaries (2026-04-24 — consolidates 2026-04-22 bootstrap rating target + worldbuilding no-real-places + player-generation compiler-only discipline + ui-vocabulary banned-terms + SETUP §7 AI-disclosure + FW-VAL-D-005 into prescriptive content contract. Positive scope-in enumerated (12 PEGI-12-appropriate mature themes: dressing-room tension / ageing-star decline / relegation anxiety / derby hostility / press attacks / contract standoffs / injury-football-standard / career setbacks / manager confrontations / officiating controversy / transfer-market leverage). Scope-out enumerated (13 categories: violence-beyond-football / explicit sexual / substance / gambling / real-world-politics / religion references / hate speech / real-person-likenesses / real-club-league-venue names / real-brand sponsors / graphic crowd violence / self-harm-suicide / child endangerment). Six edge-case rulings on drift-prone subjects. AI-content disclosure wired to Steam 2025 policy + FW-VAL-D-005 + pack-manifest `ai_content_disclosure` block. Mod-pack content-safety review surface closes modding.md OQ#2 — banned-terms lint + Steam Workshop report-flow cover EA; dedicated in-game report flow deferred post-EA. Two prototype gates Phase 6/8. Four open questions)
-- [ ] `/audit` green on Phase-2 checks
+- [x] `/audit` green on Phase-2 checks (2026-04-25 — Phase-2-scoped checks 1/17/18 green; 2-16 correctly phase-deferred; 19 green after Phase-2 bundle commit `3226c78`. `fw verify` plumbing green. Gate condition satisfied.)
 
 **Gate to Phase 3**: design bible complete; ADRs for every system that locks architecture.
 
 ---
 
-### Phase 3 — Unity Bootstrap + MatchSim Prototype ⚪ PENDING
+### Phase 3 — Unity Bootstrap + MatchSim Prototype 🟡 ACTIVE
 **Goal**: MatchSim runs deterministic on 22 players with custom ball physics; Unity + URP + 2D viewer prototype with 3 of 7 shot types.
+
+**Promoted 2026-04-25** after Phase 2 ✅ COMPLETE. Week-1 priority order: `MatchSim.csproj` skeleton → `Fixed` Q32.32 → `Tick` deterministic timestep → `Seed` derivation → `SerializationContract.cs` (gates Week-2 golden-corpus fixture authoring per corpus spec). Ball physics + Player state machine in Week 2. Unity project + URP + 2D viewer prototype in Weeks 3-4. Month-3 gate observer-pool recruitment starts Week 1 in parallel (per Phase-0 month-3-vertical-slice.md resolution fallback clause).
 
 - [ ] Create `MatchSim.csproj` as pure-C# class library
 - [ ] Create `MatchSim.Tests.csproj` with xUnit

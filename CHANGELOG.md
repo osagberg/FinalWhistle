@@ -2,6 +2,28 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-25 (Phase 2 ✅ COMPLETE; Phase 3 🟡 ACTIVE — Unity Bootstrap + MatchSim Prototype promoted)
+
+`/audit` green on Phase-2 scope. Gate condition *"design bible complete; ADRs for every system that locks architecture"* satisfied:
+
+- **Phase-2-scoped substantive checks (1, 17, 18):** all green. ScriptableObject types declared across Phase-2 ADRs (ShotTypeSO / SignatureSO / IdentityPacket / ScoutArchetype / ScoutReport); SPEC / STATUS / CHANGELOG alignment clean; no archived references in active docs (Cresland fallback + Q16.16/Q24.8 rejected + rejected-nation list + banned UI tokens all legitimate per `/refresh-docs` exception rules)
+- **Phase-3+ scoped checks (2-16):** correctly ⚪ N/A-for-phase
+- **Check 19 git hygiene:** green after Phase-2 bundle commit `3226c78`
+- **`fw verify` plumbing:** green (verify-docs + banned-terms; 10 Category-B exemptions)
+
+**Phase-2 bundle commit `3226c78`** — 15 files, 1360 insertions:
+
+- New: `design/modding.md` + `design/accessibility.md` + `design/content_policy.md` + `design/specs/content-pack-validation-contract.md` + `design/specs/artifact-retention-policy.md`
+- Modified: `SPEC.md` + `STATUS.md` + `CHANGELOG.md` + `TECH_APPROACH.md` + `TOOLING.md` + `design/README.md` + `design/adr/adr-0006-identity-packet-compiler.md` + `design/adr/adr-0007-scout-archetype-schema.md` + `scripts/fw` + `.gitignore`
+- Excluded: `.claude/session-snapshots/` (auto-generated pre-compact ephemera — now gitignored), `.agents/skills/` (not yet deliberately ported; contains absolute blueprint paths + `claude mcp list` references — now gitignored until porting is deliberate per user call)
+
+**Phase-2 final inventory:**
+- **15 design docs shipped** — 12 Phase-0 resolved (overview / month-3-vertical-slice / match-engine / semantic-cinema / event-sourced-memory / signatures / scout-disagreement / breakthrough-moments / player-generation / worldbuilding / ui-vocabulary / production-pipeline) + 3 Phase-2 authored (modding / accessibility / content_policy)
+- **7 ADRs Accepted** — 0001 ShotTypeSO / 0002 Viewer rendering / 0003 Production pipeline / 0004 MemoryEvent / 0005 SignatureSO / 0006 IdentityPacket + AI Content Compiler / 0007 Scout archetype + ScoutReport + gate-fallback
+- **4 specs shipped** — golden-replay-corpus / save-migration-fixtures / content-pack-validation-contract / artifact-retention-policy
+
+**Phase 3 🟡 ACTIVE — promoted 2026-04-25.** Week-1 priority: `MatchSim.csproj` skeleton → `Fixed` Q32.32 → `Tick` 60Hz → `Seed` derivation → `SerializationContract.cs` (gates Week-2 golden-corpus fixture authoring) → `fw shader-audit`. Weeks 2-4: Ball + Player + BT archetypes + xUnit determinism tests + Unity project + URP + 3 shot types + match-replay skill + devlog clips. Month-3 match-engine gate is the Phase-3 exit condition. Observer-pool recruitment starts Week 1 in parallel per `design/month-3-vertical-slice.md` §Observer-pool lockdown fallback.
+
 ## 2026-04-24 (Phase 2 — `design/specs/artifact-retention-policy.md` authored; 5-tier retention model locked)
 
 Shipped `design/specs/artifact-retention-policy.md` — closes the "artifact retention" gap declared in both ADR-0003's description and `design/production-pipeline.md`. **Five retention tiers locked:**
