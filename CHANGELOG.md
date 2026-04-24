@@ -2,6 +2,18 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase 2 — ADR-0003 Production pipeline drafted)
+
+- `design/adr/adr-0003-production-pipeline.md` authored as **Proposed** — formalizes `design/production-pipeline.md` planning pass into an Accepted architecture commitment
+- 5-tier model locked: Tier A (fast PR, Linux ≤5min), Tier B (Unity smoke, manual-dispatch), Tier C (heavy local, never GitHub-hosted), Tier D (RC, paid minutes acceptable), Tier E (Steam deploy, manual-approval-only)
+- 5-channel build-metadata locked: `dev` / `tester-closed` / `demo` / `ea` / `hotfix` with validation-tier scaling per channel
+- Runner policy: macOS-hosted minutes reserved for Tier D only (~10× Linux cost per GitHub billing); self-hosted Mac allowed Phase-3+ with labeled-workflow-only restriction
+- Cost discipline: $0 hard Actions spending cap; no paid pipeline services through MVP; per-workflow budget-impact checklist required on every new `.yml` addition
+- Release-gate discipline: Tier E never auto-fires on tag; rollback build pre-tested; AI-content disclosure checked at Tier D
+- Four rejected alternatives with cited reasons: (1) paid pipeline services (Tier-1 buy-on-pain violation), (2) all-GitHub-Actions including heavy sims (10K sweeps blow budget), (3) auto-deploy-to-Steam-on-tag (release-safety non-negotiable for 30-hour-career-save game), (4) single-tier mega-workflow (collapses feedback-speed or validation-depth)
+- Phase-1 validation criteria already satisfied (4 of 11 check marked as done in-ADR); remaining 7 criteria gated on Phase-3/6/8 deliverables
+- Third Category-B exemption landed (`domain` template field; 3 ADRs × 1 exemption each); `scripts/fw banned-terms --report` captures the audit set for EA/RC review
+
 ## 2026-04-24 (Phase 2 — ADR-0001 Accepted + ADR-0002 drafted)
 
 - **ADR-0001 tightened + marked Accepted** after user review pass. Three refinements:
