@@ -11,7 +11,8 @@ Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]
 - **Intentionally still `[ ]`** (user-action in GitHub UI, runbooks written):
   - GitHub Actions budget cap set — user visits `github.com/settings/billing/spending_limit` and sets $0 per `docs/ops/actions-budget.md §2b`
   - Branch protection configured — user visits `github.com/osagberg/FinalWhistle/settings/branches` and applies rules per `docs/ops/branch-protection.md §2,§3`
-- Verify: `gh repo view osagberg/FinalWhistle --web` loads repo; `git log origin/main --oneline` shows 5 commits; once user configures budget cap + branch protection, first PR from a feat/ branch should trigger the Tier-A workflow green
+- Verify: `gh repo view osagberg/FinalWhistle --web` loads repo; `git log origin/main --oneline` shows 5 commits; **Tier-A CI confirmed green on commit `d5bb359` (run ID 24886778710, 5s, `Verify docs` job passed)** — first real end-to-end validation that `scripts/fw verify-docs` runs identically local vs GitHub-hosted Linux
+- Advisory (non-blocking): `actions/checkout@v4` uses Node.js 20, deprecated by GitHub on 2026-09-16 (forced to Node.js 24 from 2026-06-02). Update pin when an equivalent Node-24-compatible checkout action ships
 
 ## 2026-04-24 (Phase 1 batch — parallel-to-Unity-install production scaffolding)
 
