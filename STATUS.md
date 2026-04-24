@@ -1,12 +1,25 @@
 # Status
 
-**Last updated**: 2026-04-24 (Phase 1 🟡 ACTIVE — Setup. Banned-terms lint shipped; repo lint-clean.)
+**Last updated**: 2026-04-24 (**Phase 1 ✅ COMPLETE.** Phase 2 🟡 ACTIVE — Design Bible / ADR authoring.)
 
 ## Currently working on
 
-**Phase 1 — Setup** 🟡 ACTIVE.
+**Phase 2 — Design Bible** 🟡 ACTIVE.
 
-Shipped so far: Unity install (user), `scripts/fw` front-door, PR template, issue templates, asset-licensing tracker, backup-restore policy, `osagberg/FinalWhistle` private remote, Tier-A workflow v0, branch-protection policy doc, Actions-budget runbook. `fw verify-docs` + `fw status` green locally. Remaining Phase-1 work is user-action in GitHub UI (budget cap, branch protection) or low-urgency (Blender/VS Code, slash-command smoke, plugin install).
+Phase 1 shipped everything Claude-actionable (Tier-A CI green, banned-terms lint live, `fw verify` umbrella, full repo on `origin/main`). Phase 2 now focuses on ADR authoring — ordered to unblock Phase-3's real risk (first deterministic MatchSim + watchable 2D viewer). All 11 design docs are substantively locked per Phase-0 resolutions; the ADRs below finalize the architecture commitments.
+
+**Phase-2 ADR priority order (Phase-3-unblocking first):**
+1. ShotTypeSO schema + Addressables grouping
+2. Viewer rendering pipeline + URP custom-pass ordering
+3. Production pipeline ADR
+4. Golden replay corpus format spec
+5. Save migration fixture policy spec
+6. MemoryEvent schema
+7. SignatureSO schema
+8. IdentityPacket / AI Content Compiler
+9. Scout archetype (Phase-4 dependency)
+
+Plus three new design docs: `modding.md`, `accessibility.md`, `content_policy.md`.
 
 ## Blockers
 
@@ -25,25 +38,18 @@ Shipped so far: Unity install (user), `scripts/fw` front-door, PR template, issu
 
 ## Next action
 
-**All Claude-actionable Phase-1 tasks shipped.** Remaining items are user-action or stale-to-resolve:
+`/next` picks up **ADR (1): ShotTypeSO schema + Addressables grouping** — first Phase-3-unblocking ADR. Seeded in Phase 0 with full schema draft (chain_rules, modulation_strength, reduce_motion_variant, fallback_shot_category); ADR formalizes the schema + content-pack grouping strategy.
 
-**User-action in GitHub UI** (runbook written):
-- **Set Actions spending cap to $0** per `docs/ops/actions-budget.md §2b` (`github.com/settings/billing/spending_limit`). ~1 min.
-
-**Low-urgency user-actions:**
-- Install Blender (Phase-3 trigger, deferred)
-- Install VS Code / Rider (editor choice — you already have a setup)
-- Smoke-test slash commands next fresh session
-- Plugin install via slash commands (feature-dev / pr-review-toolkit / hookify)
-
-**Blocked / stale:**
-- Branch protection — blocked on plan upgrade (GitHub Free constraint)
-- SPEC Task 52 (Unity CI stub from blueprint template) — effectively superseded by Task 58 Tier-A workflow; recommend marking `[x] (superseded 2026-04-24)` with a SPEC edit on user approval
-
-**Ready-to-graduate check:** `/next` can either (a) pick up a stale SPEC cleanup pass, or (b) gate-check Phase 1 as substantially-complete and prep Phase-2 promotion. Phase 2 opens up ADR authoring (7 pre-seeded ADRs ready) + remaining design-doc locks (modding / accessibility / content-policy).
+**Phase-1 user-action carryover** (does NOT block Phase 2):
+- Actions $0 spending cap (1-min GH UI step; runbook at `docs/ops/actions-budget.md §2b`)
+- Blender install (Phase-3 trigger)
+- VS Code / Rider (user editor choice)
+- Slash-command smoke + plugin install (next fresh session)
+- Branch protection (blocked on plan upgrade; revisit Phase 4/8)
 
 ## Recent milestones
 
+- **2026-04-24: Phase 1 ✅ COMPLETE.** Phase 2 🟡 ACTIVE — Design Bible / ADR authoring. ADR order reprioritized per GPT-5.5 2026-04-24 guidance to feed Phase-3's playable slice (MatchSim + 2D viewer) rather than tidy-doc order. Stale SPEC tasks cleaned up (Task 52 Unity CI stub superseded, Task 50 accounts done, 11 design-doc locks marked)
 - 2026-04-24: Phase 1 — `scripts/lint-banned-terms.py` shipped. Category-A hard-ban across 5 subsections from ui-vocabulary.md + Category-B soft-ban with inline `ui-lint:allow term=/reason=/reviewer=` exemption audit. Sentinel-aware (ui-lint:ignore-start/end), both-forms matching (per GPT-5.5 feedback). Wired as `fw banned-terms`, integrated into `fw verify` umbrella → Tier-A CI auto-picks up. 11 files sentinel-wrapped for legitimate meta-references; repo lint-clean. Resolved the GPT-5.5 tech-debt note about spaced-placeholder hack via proper sentinel discipline
 - 2026-04-24: Phase 1 — GPT-5.5 Codex review pass applied 5 findings: branch-protection reframed as local-discipline-only (Free plan doesn't allow protection on private repos; verified via `gh api`), approvals corrected to 0 (GitHub blocks author self-approval), JetBrains Mono license corrected to SIL OFL 1.1 (Apache-2.0 covers source code only), `fw verify` umbrella added + false broken-link claim removed, spaced-placeholder hack documented as tech-debt to resolve when `lint-banned-terms.py` lands
 - 2026-04-24: Phase 1 — `osagberg/FinalWhistle` private remote created + initial push (2 commits on origin/main); `.github/workflows/fast-pr-ci.yml` Tier-A v0 authored (fw verify-docs only, phase-gated TODOs commented); `docs/ops/branch-protection.md` + `docs/ops/actions-budget.md` runbooks shipped. `vibelogic` org membership gap diagnosed + namespaced-around

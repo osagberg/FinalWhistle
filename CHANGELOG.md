@@ -2,6 +2,22 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase 1 ✅ COMPLETE; Phase 2 🟡 promoted with reordered ADR priorities)
+
+- **Phase 1 closed.** Machine (Unity installed) + accounts (GitHub active + remote pushed + Steam deferred Phase 8) + remote (`osagberg/FinalWhistle` private, Tier-A CI green, `fw verify` umbrella running verify-docs + banned-terms lint) all verified. Low-urgency user-actions (Blender install per SETUP.md §4 Phase-3-trigger / VS Code editor choice / slash-command smoke / plugin install / Actions $0 cap) roll over as open `[ ]`; none gate Phase 2 per solo-dev convention. Branch protection still blocked on plan upgrade
+- **Stale cleanup:**
+  - Task 52 (Unity CI stub from blueprint template) marked `[x] (superseded)` by Task 58 Tier-A workflow — production-pipeline.md's tiered approach puts Unity CI at Phase-3 manual-dispatch Tier B, not Phase-1 default
+  - Task 50 (Account prerequisites) marked `[x]` — GitHub active, remote live, Steam Direct tracked in SETUP.md §10 for Phase 8
+  - Phase-2 design-doc locks marked `[x]` across all 11 docs (substantively locked via Phase-0 2026-04-24 open-question resolutions; the ADR authoring that follows tracks the remaining architecture commitments)
+- **Phase 2 🟡 ACTIVE.** ADR authoring ordering reprioritized per GPT-5.5 2026-04-24 guidance — Phase-3's real risk is the first deterministic MatchSim + watchable 2D viewer, so ADRs feed that, not tidy-doc order:
+  1. ShotTypeSO schema + Addressables grouping
+  2. Viewer rendering pipeline + URP custom-pass ordering
+  3. Production pipeline ADR
+  4. Golden replay corpus format spec
+  5. Save migration fixture policy spec
+  6-9. MemoryEvent / SignatureSO / IdentityPacket / Scout archetype (Phase-3 and Phase-4 dependency order)
+- Gate to Phase 3 unchanged: design bible complete + ADRs for every system that locks architecture
+
 ## 2026-04-24 (Phase-1 banned-terms lint shipped)
 
 <!-- ui-lint:ignore-start reason="changelog entry enumerating banned-term lint design by name" -->

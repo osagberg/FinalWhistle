@@ -8,9 +8,9 @@
 
 ## Current state
 
-- **Active phase:** Phase 1 — Setup 🟡
-- **Gate to next:** machine + accounts + remote verified; `/next` picks up first Phase 2 task
-- **Active task:** Phase 1 setup — Unity install is first gate (user-action); Claude-actionable PR/CI/`fw`/backup work ready in parallel
+- **Active phase:** Phase 2 — Design Bible 🟡
+- **Gate to next:** design bible complete; ADRs for every system that locks architecture
+- **Active task:** Phase-2 ADR authoring, ordered to unblock Phase-3 playable slice first — ShotTypeSO → Viewer rendering → Production pipeline → Golden replay corpus / save fixtures → remaining ADRs
 
 ---
 
@@ -41,15 +41,15 @@
 
 ---
 
-### Phase 1 — Setup 🟡 ACTIVE
+### Phase 1 — Setup ✅ COMPLETE (2026-04-24)
 **Goal**: machine ready, accounts ready, harness wired, first commit + remote pushed.
 
 - [x] Install Unity 6 LTS (pin version at Phase 3 kickoff) via Unity Hub with Mac + Win + Linux Build Support
 - [ ] Install Blender (deferred-3D pipeline ready)
 - [ ] Install VS Code with C# extension (or Rider)
-- [ ] Account prerequisites: GitHub (exists), Steam Direct deferred to Phase 8
+- [x] Account prerequisites: GitHub (exists), Steam Direct deferred to Phase 8 (2026-04-24 — GitHub remote created `osagberg/FinalWhistle` private; Steam Direct $100 tracked in SETUP.md §10 trigger table for Phase 8)
 - [x] `gh repo create osagberg/FinalWhistle --private --source=. --remote=origin` (2026-04-24 — created under personal namespace; `vibelogic` org exists but dev accounts not members. Transfer to publisher org deferred to Phase 8 if needed for Steam branding)
-- [ ] CI stub from `~/dev/blueprint/ci-cd/github-actions-unity.yml.template` adapted for MatchSim.Tests matrix (Win/Mac/Linux)
+- [x] CI stub from `~/dev/blueprint/ci-cd/github-actions-unity.yml.template` adapted for MatchSim.Tests matrix (Win/Mac/Linux) — **superseded 2026-04-24** by Task 58 Tier-A workflow (`.github/workflows/fast-pr-ci.yml`) per `design/production-pipeline.md` tiered approach. Unity CI moves to Phase 3 manual-dispatch Tier B; dotnet matrix lands in Phase 3 inside the umbrella
 - [x] Asset licensing tracker initialized
 - [x] Phase-1 lint rule: full `scripts/lint-banned-terms.py` implementing Category-A (hard-ban, no exemption) + Category-B (inline `ui-lint:allow` exemption with term/reason/reviewer audit) + sentinel-exemption blocks (`ui-lint:ignore-start` / `ui-lint:ignore-end`). Scope: UI code + runtime content packs + rendered player-facing outputs. CI emits exemption report reviewed before EA content lock + every RC. Banned-term source is `design/ui-vocabulary.md` Categories A.1-A.5 including real-world place-name analogues (2026-04-24 — wired as `fw banned-terms`, integrated into `fw verify` umbrella + Tier-A CI; lint green clean across repo; zero Category-B exemptions in current codebase)
 - [ ] Smoke-test slash commands: `/status`, `/next`, `/log-decision`
@@ -64,33 +64,42 @@
 
 **Gate to Phase 2**: machine + accounts + remote verified; `/next` picks up first Phase 2 task.
 
+**Phase 1 ✅ COMPLETE (2026-04-24).** Machine (Unity installed), accounts (GitHub active + remote pushed, Steam deferred to Phase 8), remote (`osagberg/FinalWhistle` private, CI green end-to-end via Tier-A `fw verify` umbrella). Low-urgency user-actions carried over as open `[ ]` (Blender install is explicit Phase-3 trigger per SETUP.md §4; VS Code / Rider is user editor preference; slash-command smoke + plugin install happen in a fresh session; Actions $0 budget cap is a ~1-min GH UI step the user will handle soon). Branch protection is blocked on plan upgrade (GitHub Free constraint). None of these gate Phase 2.
+
 ---
 
-### Phase 2 — Design Bible ⚪ PENDING
-**Goal**: every system design doc locked; engineering can start without guessing.
+### Phase 2 — Design Bible 🟡 ACTIVE
+**Goal**: every system design doc locked; ADRs authored for every load-bearing system decision.
 
-- [ ] `design/overview.md` locked
-- [ ] `design/match-engine.md` locked (fixed-point format decided, ball physics spec)
-- [ ] `design/semantic-cinema.md` locked (all 7 shot types fully specified)
-- [ ] `design/event-sourced-memory.md` locked (ledger schema, compaction strategy)
-- [ ] `design/signatures.md` locked (draft of all 24, starting set of 6 specified for Phase 3)
-- [ ] `design/scout-disagreement.md` locked (Month-4 prototype spec)
-- [ ] `design/breakthrough-moments.md` locked (trigger conditions + cinematic emphasis)
-- [ ] `design/player-generation.md` locked (internal gene model → identity packet pipeline)
-- [ ] `design/worldbuilding.md` locked (fictional nation, pyramid structure, cultural flavor)
-- [ ] `design/ui-vocabulary.md` locked (banned-terms lint, approved-phrasing catalog)
+**Active posture (2026-04-24 promotion):** all 11 design docs had their open-questions resolved in Phase 0 via 12 consolidated SPEC entries. Phase 2 is now primarily about ADR authoring. Task ordering below prioritizes ADRs that unblock Phase-3's real risk — first deterministic MatchSim + watchable 2D viewer — before tidying-only ADRs.
+
+**Design-doc locks** — all 11 substantively locked via Phase-0 2026-04-24 open-question resolutions. Remaining Phase-2 work is the ADR authoring below (system-level architecture commitments) + the three new design docs (modding / accessibility / content_policy):
+
+- [x] `design/overview.md` locked (Phase 0 / 2026-04-24 — pillar tiebreaker, title, quickstart archetypes, nation framing)
+- [x] `design/match-engine.md` locked (Phase 0 / 2026-04-24 — Q32.32 fixed-point, ball-physics structure, steering-target movement, Month-3 in-match scope)
+- [x] `design/semantic-cinema.md` locked (Phase 0 / 2026-04-24 — 7-shot vocabulary, ShotTypeSO draft schema, rendering stack, typography w/ scoreline override). **ADR below.**
+- [x] `design/event-sourced-memory.md` locked (Phase 0 / 2026-04-24 — salience structure, CallbackTag schema, 46-entry PascalCase event enum, three-tier compaction, load-time migration). **ADR below.**
+- [x] `design/signatures.md` locked (Phase 0 / 2026-04-24 — 24-sig catalog with dependency metadata, tier-weighted affinity distribution, field-level capped stacking). **ADR below.**
+- [x] `design/scout-disagreement.md` locked (Phase 0 / 2026-04-24 — Month-4 feel-prototype spec w/ 3 archetypes + one-remediation-pass ceiling). **ADR below (conditional-MVP).**
+- [x] `design/breakthrough-moments.md` locked (Phase 0 / 2026-04-24 — cinema 3-5s, two-tier text, silent-first-near-miss, pillar-tiebreaker live-fire rule). No new ADR (composes existing schemas).
+- [x] `design/player-generation.md` locked (Phase 0 / 2026-04-24 — 22-field gene model, 46-label phenotype catalog, ID-stability correction, affinity P(k) tier-weighted). **ADR below.**
+- [x] `design/worldbuilding.md` locked (Phase 0 / 2026-04-24 — Caldren nation, 8 regions, 96-club pyramid, three-cup structure, compiler-only analogues). No new ADR.
+- [x] `design/ui-vocabulary.md` locked (Phase 0 / 2026-04-24 — Categories A.1-A.5, sentinel exemptions, 140-template flatter pool, British-football tone default). No new ADR; lint shipped Phase 1.
+
+**Phase-2 ADRs — ordered to unblock Phase-3 first (playable slice = first deterministic MatchSim + watchable 2D viewer):**
+
 - [ ] ADRs written for every load-bearing system decision
-- [ ] ADR: `ShotTypeSO` schema + Addressables grouping (seeded by 2026-04-24 Semantic Cinema resolution — chain_rules, modulation_strength, reduce_motion_variant, fallback_shot_category)
-- [ ] ADR: Viewer rendering pipeline + URP custom-pass ordering (screen-tone, impact-frame flash, motion-line trails, UI Toolkit overlay with mesh fallback)
-- [ ] ADR: MemoryEvent schema, callback-tag enum, compaction tiers, and migration framework (seeded by 2026-04-24 Event-sourced memory resolution)
-- [ ] ADR: SignatureSO schema — content-pack IDs, dependency metadata, scope enum, stacking policy per MatchSim field, Identity Packet affinity-roll integration (seeded by 2026-04-24 Signature system resolution)
-- [ ] ADR: Scout archetype schema + ScoutReport schema + callback/event integration + fallback behavior if Month-4 gate fails (seeded by 2026-04-24 Scout Disagreement resolution; conditional-MVP — architecture slot reserved regardless of gate outcome)
-- [ ] ADR: IdentityPacket / AI Content Compiler — IdentityPacket schema, phenotype enum governance, affinity-count rolls, content-pack ID rules (no pack-minor in entity IDs), canonical-artifact discipline, scout visibility mapping (seeded by 2026-04-24 Player-generation resolution)
-- [ ] ADR: Production pipeline — CI/CD tiers A-E, GitHub-vs-local-vs-self-hosted runner policy, artifact retention, build channels (dev/tester-closed/demo/ea/hotfix), release gates, cost controls (seeded by 2026-04-24 Production-pipeline planning pass)
-- [ ] Golden replay corpus format specified: `match_seed`, `content_pack_version`, archetype IDs, expected final score, expected key-event hashes, expected final canonical state hash. Per `design/production-pipeline.md`
-- [ ] Save migration fixture policy specified: every schema bump adds prior-version fixture + migration test + callback-preservation test + forward-incompat failure test. Fixtures accumulate in `MatchSim.Tests/fixtures/saves/`
-- [ ] Content-pack validation contract specified: duplicate/legal-sensitive names + missing localizations + invalid phenotype/signature/event-class IDs + unresolved content-pack-qualified IDs + real-world-analogue leakage + banned UI vocabulary. Tier A subset + Tier D full
-- [ ] Artifact retention policy specified — GitHub-hosted runner artifact TTLs, Tier-C local-upload summary retention, RC-build archival policy
+- [ ] **ADR (1): `ShotTypeSO` schema + Addressables grouping** (seeded by 2026-04-24 Semantic Cinema resolution — chain_rules, modulation_strength, reduce_motion_variant, fallback_shot_category). **Unblocks Phase-3 2D viewer prototype with 3 of 7 shot types.**
+- [ ] **ADR (2): Viewer rendering pipeline + URP custom-pass ordering** (screen-tone, impact-frame flash, motion-line trails, UI Toolkit overlay with mesh fallback). **Unblocks Phase-3 semantic-cinema rendering.**
+- [ ] **ADR (3): Production pipeline** — CI/CD tiers A-E, GitHub-vs-local-vs-self-hosted runner policy, artifact retention, build channels (dev/tester-closed/demo/ea/hotfix), release gates, cost controls (seeded by 2026-04-24 Production-pipeline planning pass). **Locks infrastructure before Phase-3 code lands.**
+- [ ] **Golden replay corpus format specified:** `match_seed`, `content_pack_version`, archetype IDs, expected final score, expected key-event hashes, expected final canonical state hash. Per `design/production-pipeline.md`. **Unblocks Phase-3 determinism hash CI gate.**
+- [ ] **Save migration fixture policy specified:** every schema bump adds prior-version fixture + migration test + callback-preservation test + forward-incompat failure test. Fixtures accumulate in `MatchSim.Tests/fixtures/saves/`. **Discipline in place before first schema bumps in Phase 3.**
+- [ ] ADR (4): MemoryEvent schema, callback-tag enum, compaction tiers, and migration framework (seeded by 2026-04-24 Event-sourced memory resolution). Phase-3 slice uses minimal ledger; full ledger Phase 5.
+- [ ] ADR (5): SignatureSO schema — content-pack IDs, dependency metadata, scope enum, stacking policy per MatchSim field, Identity Packet affinity-roll integration (seeded by 2026-04-24 Signature system resolution). Phase 3 authors 3 signatures end-to-end.
+- [ ] ADR (6): IdentityPacket / AI Content Compiler — IdentityPacket schema, phenotype enum governance, affinity-count rolls, content-pack ID rules (no pack-minor in entity IDs), canonical-artifact discipline, scout visibility mapping (seeded by 2026-04-24 Player-generation resolution). Phase 3 needs 22 packets (hand-authored acceptable).
+- [ ] ADR (7): Scout archetype schema + ScoutReport schema + callback/event integration + fallback behavior if Month-4 gate fails (seeded by 2026-04-24 Scout Disagreement resolution; conditional-MVP — architecture slot reserved regardless of gate outcome). Phase-4 dependency.
+- [ ] Content-pack validation contract specified: duplicate/legal-sensitive names + missing localizations + invalid phenotype/signature/event-class IDs + unresolved content-pack-qualified IDs + real-world-analogue leakage + banned UI vocabulary. Tier A subset + Tier D full. (Phase-6 implementation.)
+- [ ] Artifact retention policy specified — GitHub-hosted runner artifact TTLs, Tier-C local-upload summary retention, RC-build archival policy.
 - [ ] `design/modding.md` — data architecture constraints every system must respect
 - [ ] `design/accessibility.md` — target accessibility features for EA
 - [ ] `design/content_policy.md` — PEGI 12 boundaries
@@ -322,6 +331,8 @@
 - **2026-04-24** — **UI vocabulary open questions resolved.** Player-facing vocabulary lint covers UI code, runtime content, content-pack JSON, and rendered player-facing doc/content outputs. `design/ui-vocabulary.md` uses explicit ignore sentinels only around banned-term catalog sections; no whole-file self-whitelist. Category-A terms have no exemption path (expanded with 2026-04-24 additions: system/progression vocabulary, genetics/bloodline terms, stigmatizing phenotype framings, real-world place-name analogues). Category-B terms may use audited inline exemptions with exact term, specific reason, and reviewer handle; exemption reports are reviewed before EA content lock / release candidates. Commentary overlay templates use flatter per-shot-type pools of 15-30 templates, targeting ~140 MVP match-flow templates, with stake/memory filters and slot variables providing variation. Default English tone is British-football vernacular; other locales use native football idiom and locale-specific banned-term lists. Template governance folds into the Phase-2 AI Content Compiler ADR.
 
 - **2026-04-24** — **Production pipeline planning pass (GPT-5.5 report).** Authored `design/production-pipeline.md` as authoritative CI/CD + release-ops plan. Core posture: GitHub is source-of-truth for code/docs/PRs and cheap PR-gate CI; Unity CI is slow, license-sensitive, expensive (macOS especially) and runs manual-dispatch only through Phase 7; heavy sim sweeps (10K-match, balance harness, replay corpus regen, full Unity matrix) run local or on self-hosted runner; release CI is manual-approval only. Five workflow tiers: A (fast PR, ≤5 min Linux), B (Unity smoke, manual dispatch), C (heavy local/self-hosted), D (release candidate, tagged + manual), E (Steam deploy, manual approval only). Build channels: dev / tester-closed / demo / ea / hotfix. Core deliverables owed by the pipeline: golden replay corpus (Phase-2 spec, Phase-3 implement), save migration fixtures (Phase-2 spec, Phase-6 implement), content-pack validator (Phase-2 spec, Phase-6 full), local `scripts/fw` command front-door (Phase-3), in-build bug-bundle export + itch.io distribution (Phase-4), local-first crash/log exporter with opt-in anonymous telemetry (Phase-5+), backup policy (Phase-1). No paid pipeline services through MVP. Phase-1/2/3/4/5/6/8 SPEC tasks pre-seeded. Phase-2 ADR pre-seeded for production pipeline itself. TECH_APPROACH.md to add Production Pipeline section cross-referencing this doc.
+
+- **2026-04-24** — **Phase 1 ✅ COMPLETE; Phase 2 🟡 promoted; ADR order prioritized for Phase-3 playable-slice unblock.** Phase 1 closed with all Claude-actionable work shipped (Tier-A CI green, `fw verify` umbrella includes verify-docs + banned-terms lint, runbooks for branch protection + Actions budget cap written, repo public-committed on `osagberg/FinalWhistle`). Low-urgency user-actions (Blender install / VS Code editor / slash-smoke / plugin install / Actions $0 cap) roll over as open Phase-1 `[ ]` and do NOT gate Phase 2 per solo-dev convention. Stale cleanup: Task 52 (Unity CI stub from blueprint) marked `[x] (superseded)` by Tier-A workflow; Task 50 (account prerequisites) marked `[x]` on remote creation. Phase 2 design-doc locks marked `[x]` across all 11 docs (substantively locked via Phase-0 2026-04-24 open-question resolutions). Phase-2 ADR order reprioritized per GPT-5.5 2026-04-24 guidance to feed Phase-3's real risk (first deterministic MatchSim + watchable 2D viewer) rather than tidy-doc order: (1) ShotTypeSO, (2) Viewer rendering pipeline, (3) Production pipeline, (4) Golden replay corpus format, (5) Save migration fixture policy, then MemoryEvent / SignatureSO / IdentityPacket / Scout archetype. Phase-2 gate unchanged: design bible complete + ADRs for every load-bearing system decision.
 
 <!-- ui-lint:ignore-end -->
 
