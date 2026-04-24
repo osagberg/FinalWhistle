@@ -4,9 +4,11 @@ description: ADR-0002 — Viewer rendering pipeline + URP custom-pass ordering. 
 
 # ADR-0002: Viewer rendering pipeline + URP custom-pass ordering
 
+**Accepted** — 2026-04-24. Self-review tightening: `fw shader-audit` Phase-3 deliverable promoted to explicit SPEC task. Knowledge Risk MEDIUM gate (URP Render Graph verification at Phase-3 Week 1) remains explicit in this ADR body — ADR is Accepted with that verification gate baked in, not after it.
+
 ## Status
 
-**Proposed** — pending user review before Accepted.
+**Accepted** (see date above).
 
 ## Date
 
@@ -178,7 +180,7 @@ Cross-platform reproducibility for Month-3 gate replays. Same rules as ADR-0001 
 - **Asmdef boundary:** `FinalWhistle.Viewer.Rendering` (custom render features + passes); no dependency from `MatchSim.csproj`.
 - **One `RendererAsset`** (`FinalWhistleViewer2D`) — debug/A-B variants live as additional RendererAsset files, switchable via the URP asset settings for isolated feature testing.
 - **Shader code lives at** `unity-project/Assets/_Project/Viewer/Rendering/Shaders/` with `.hlsl` includes shared across passes (noise utilities, seed-based dither).
-- **No `_Time` uniforms in any FinalWhistle shader** — add a Phase-3 `fw` check (`fw shader-audit` — Phase-3 deliverable) that greps viewer shaders for `_Time` references.
+- **No `_Time` uniforms in any FinalWhistle shader** — enforced by a Phase-3 `fw shader-audit` tool (tracked as explicit SPEC task under Phase 3) that greps viewer shaders for `_Time` references. Gate runs inside `fw verify` umbrella once authored so the discipline enters Tier-A CI immediately.
 - **Reduce-motion is a scene-load-time flag** that disables features entirely at feature-registration time — not a per-frame early-exit, to avoid shader compilation variants unused at runtime.
 - **UI Toolkit overlay + mesh-fallback:** ship UIT overlay as default; if a specific panel-split effect requires `UIMeshOverlayFeature` fallback (e.g., hatched split that UIT masks can't do), author the fallback per-panel, NOT pipeline-global.
 

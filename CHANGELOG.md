@@ -2,6 +2,20 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase 2 — ADR-0002 Accepted + ADR-0004 drafted)
+
+- **ADR-0002 self-review pass → Accepted.** Knowledge Risk MEDIUM gate (URP Render Graph verification at Phase-3 Week-1 spike) stays explicit in ADR body — Accepted WITH the gate, not after it. One self-tightening: `scripts/fw shader-audit` tool promoted to explicit Phase-3 SPEC task so the "no `_Time` in viewer shaders" determinism discipline enters Tier-A CI immediately once authored
+- **ADR-0004 (MemoryEvent schema + CallbackTag registry + compaction tiers + migration framework) authored as Proposed.** Formalizes the 2026-04-24 event-sourced-memory resolution into the Pillar-1 architecture commitment:
+  - `MemoryEvent` struct with Q32.32 `Stakes` + `Salience` (stored immutable at emission; reader-side modifiers never persisted — preserves append-only invariant)
+  - 5-input salience formula locked at structure level; numeric weights stay Phase-6 tuning seeds in the design doc
+  - `CallbackTag` record with `ConsumingReaders` metadata + `MinBand` + `ExpiryPolicy` discriminated union. Every tag MUST declare ≥1 consuming reader — lint-enforced
+  - Three-tier compaction (season-defining hard-preserve / notable compact-preserve / routine aggregate-only) + per-season top-5% quota capped at `N_quota` events with deterministic Id-tiebreaker
+  - Load-time `MigrationChain.Migrate(event, toVersion)` composition; no downgrades; `max_supported_schema_version` header in save envelope
+  - First real user of both `design/specs/save-migration-fixtures.md` 4-test discipline AND `design/specs/golden-replay-corpus.md` `key_event_hashes` field
+  - Four rejected alternatives with cited reasons: (1) mutable salience recomputed per load (breaks append-only), (2) single-tier keep-everything (storage explodes), (3) lazy-per-read migration (spreads schema complexity into every reader), (4) string-tag callback registry (silent tag drift — exactly what `CallbackTag.ConsumingReaders` closes)
+  - Cross-doc exact-match discipline formalized: `SignatureAwakened` / `SignatureExecuted` / `ScoutReportConfirmed` / `ScoutReportDisagreement` enum names match downstream ADR terminology; validator catches rename drift
+  - Knowledge Risk LOW (stdlib C#, no Unity deps)
+
 ## 2026-04-24 (Phase 2 — corpus-spec tightenings + save-migration fixture spec)
 
 - **Golden replay corpus spec tightened** per user review:
