@@ -6,7 +6,7 @@ description: ADR-0003 — Production pipeline. CI/CD tiers, runner policy, artif
 
 ## Status
 
-**Proposed** — pending user review before Accepted.
+**Accepted** — 2026-04-24. Tightened on self-hosted-runner acceptance gate + stale commit anchor removed per user review.
 
 ## Date
 
@@ -57,7 +57,7 @@ The production-pipeline planning pass on 2026-04-24 (`design/production-pipeline
 
 ### Current State
 
-As of 2026-04-24 commit `f8908f4`:
+As of Phase 1 closure (2026-04-24):
 - Tier A live and green (`.github/workflows/fast-pr-ci.yml` running `scripts/fw verify` — currently `verify-docs` + `banned-terms`)
 - `scripts/fw` umbrella present; phase-gated stubs for `test` / `replay` / `content-lint` / `build-local` / `package-playtest`
 - `docs/ops/branch-protection.md` + `docs/ops/actions-budget.md` + `docs/ops/backup-restore.md` runbooks written
@@ -169,6 +169,11 @@ Validation-tier requirement scales per channel.
 - **Tier-A umbrella pattern is the default.** New fast-PR checks land inside `scripts/fw verify`; parallel jobs only for checks that need their own failure surface / timeout / heavy setup.
 - **Phase-3 self-hosted-runner verification:** before enabling a self-hosted Mac for Tier B/C, verify current GitHub self-hosted-runner free-for-Actions status (docs have drifted historically; verify before escalation) and confirm the runner is restricted to labeled workflows only.
 - **Self-hosted runner security hard rule:** never exposes the runner to untrusted PRs (unverified external contributors don't exist here yet, but if Workshop modding ever changes that, the runner stays restricted).
+- **Self-hosted runner acceptance gate (hard prereq before any runner registers):** the enabling PR must demonstrate all four conditions are satisfied. Day-one validation is manual checklist; a CI-side automated check can follow later if needed but is NOT required to register the runner.
+  1. The workflow using the runner is triggered **only** by `workflow_dispatch` and/or `schedule` events — **never** by `pull_request`, `pull_request_target`, `issue_comment`, or any trigger that can fire from an external-contributor action.
+  2. The workflow uses **explicit `runs-on` labels** that match ONLY the self-hosted runner tag (e.g. `runs-on: [self-hosted, fw-mac-local]`), never the bare `self-hosted` keyword which could match any registered runner.
+  3. The self-hosted runner is registered with a **restricted label set** so only workflows using those exact labels can target it.
+  4. The enabling PR body answers: "what's the blast radius if this runner executes arbitrary code?" with a concrete answer (e.g. "access to local repo clone + Unity license; no access to 1Password, no access to Steam credentials"). If the answer is hand-wavy, the runner doesn't register.
 
 ---
 
@@ -266,6 +271,7 @@ Not applicable — greenfield. Current Phase-1 state is the first tier (A) live;
 - [x] Phase 1: `scripts/fw verify` locally mirrors Tier-A output (verified 2026-04-24).
 - [x] Phase 1: Spending cap runbook written (`docs/ops/actions-budget.md`); user-action carry-over.
 - [x] Phase 1: Branch-protection runbook written (`docs/ops/branch-protection.md`); blocked on plan upgrade (non-gating).
+- [ ] Phase 3: self-hosted-runner acceptance gate satisfied BEFORE any runner registers — manual checklist of the 4 conditions in the "Self-hosted runner acceptance gate" implementation guideline above: trigger-restricted to workflow_dispatch/schedule, explicit label match (no bare `self-hosted`), restricted label set on the runner, blast-radius written. Gate failure = no runner. No exceptions.
 - [ ] Phase 3: `unity-smoke.yml` exists as manual-dispatch-only workflow; one target green.
 - [ ] Phase 3: `fw verify` absorbs `dotnet test` + determinism smoke without busting 5-minute budget.
 - [ ] Phase 3: Canonical replay-corpus hash verified identical across Win/Mac/Linux Tier-A runs.

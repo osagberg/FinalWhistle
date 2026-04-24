@@ -2,6 +2,23 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase 2 — ADR-0003 Accepted + golden replay corpus spec)
+
+- **ADR-0003 Accepted** after user tightenings:
+  - **Self-hosted runner acceptance gate (hard prereq before any runner registers)** — 4 conditions must hold: (1) workflow triggered only by `workflow_dispatch` / `schedule`, never `pull_request*` or `issue_comment`; (2) explicit `runs-on` labels (never bare `self-hosted`); (3) restricted label set on the runner; (4) enabling PR body declares concrete blast radius. Day-one is manual checklist; automation optional later
+  - Stale commit-hash anchor removed from "Current State" (replaced with phase anchor — doesn't go stale on every commit)
+  - Matching Phase-3 validation criterion added so the gate is enforceable before any runner registers
+- **Golden replay corpus format spec landed** at `design/specs/golden-replay-corpus.md`:
+  - JSON fixture schema v1 at `MatchSim.Tests/fixtures/replay-corpus/<seed-hex>.json`; append-only; regeneration is explicit via `fw replay --regenerate-corpus` and produces a reviewed delta commit
+  - Every fixture self-describing — content-pack version + archetype IDs + expected hashes so it validates without external metadata
+  - Hashes computed from canonical Q32.32 state + ordered event stream, NOT rendered frames — cross-GPU pixel drift is acceptable; sim-state drift is not
+  - Tier-A smoke seed pinned at `0xdeadbeefdeadbeef` (stable constant; `fast-pr-ci.yml` refs by name); Tier-C local regen; Tier-D full-matrix verification
+  - Stable serialization rules: 2-space JSON, lowercase hex, no floats (Q32.32 integer representation stored), SHA-256 with `sha256:` prefix, structural-order key layout (not alphabetical — readable for PR diff review)
+  - Growth policy: every schema bump + every determinism bug produces a new corpus entry; Phase-6 target 20-50 fixtures
+  - 3 open questions deferred to Phase-3 Week 1 (exact sim-state serialization order, pass-activation-log field shape post-ADR-0002-impl, Tier-A smoke rotation vs single seed)
+- New design subdirectory `design/specs/` established for implementation specs derived from ADRs (first resident: golden-replay-corpus.md; next will be save-migration-fixture spec)
+- Fourth Category-B inline exemption recorded (`term="awakened"` in the corpus spec's event-class-name JSON comment)
+
 ## 2026-04-24 (Phase 2 — ADR-0003 Production pipeline drafted)
 
 - `design/adr/adr-0003-production-pipeline.md` authored as **Proposed** — formalizes `design/production-pipeline.md` planning pass into an Accepted architecture commitment
