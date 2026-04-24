@@ -2,6 +2,22 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-25 (Phase 4 pre-seed — player-rating + TacticalPreset commitments from cross-model design session)
+
+Cross-model brainstorm (Claude + GPT-5.5) on the player-match-rating model + tactical-handles-around-stars gap surfaced five commitments, now captured in a consolidated SPEC decisions-log entry + two new Phase-4 SPEC tasks:
+
+1. **"Rate the job, not the highlight"** — project-level rating-design rule. Ratings credit role-fulfillment + counterfactual defensive value (lanes denied / counterattacks killed before becoming shots / opponent xThreat suppressed while player was responsible). Protects CDM / CB / pressing-forward / defensive-fullback / veteran-organizer roles from structural invisibility
+2. **Centered-5.0 rating scale locked** — `5.0 = par` / `6.0 = good` / `7.0 = excellent` / `8.0+ = match-defining`. Labels surfaced alongside the number. NOT A/B-tested against FM-familiar ~6.7-avg; committed now to signal project identity. Revisit clause: supersede via new decisions-log entry if Month-3/4 observer feedback signals the scale is unreadable. Internal role-normalized scoring model is scale-agnostic so a scale shift wouldn't rewrite the rating math
+3. **Counterfactual defensive value is derived, not emitted.** MatchSim emits actual events per ADR-0004; a post-match analysis pass derives `threat-suppressed` / `lanes-denied` / `counterattack-averted` metrics from the existing event stream + player-position traces. Promote to first-class `EventClass` entries only if a Phase-6 signature or memory-reader needs to react to them; default posture avoids event-enum inflation
+4. **TacticalPreset system is parallel to SignatureSO, NOT a scope-expansion of ADR-0005 `SignatureScope`.** Signatures are player-identity moments; tactical presets are team-architecture amplifiers that unlock when squad personnel match (*huge striker → crossing volume + near-post/far-post targeting*; *fast winger → space-behind + isolation-vs-fullback*; *elite DM-anchored counterpress*). Closes the "wild tactics around stars" fun-pillar gap the 24-signature catalog doesn't address
+5. **IdentityPacket role-subtype metadata is implementation-pressure-driven, not pre-committed.** `role_family = DM` is too broad to role-normalize cleanly (destroyer vs ball-playing pivot vs registra are different rating rubrics). ADR-0006 schema-bump happens if Phase-4 rating implementation confirms the need; decided via new ADR + save-migration fixture set at that point. Avoids speculative schema churn
+
+**Two Phase-4 SPEC tasks added:**
+- Design player match-rating model — `design/match-rating.md` + ADR-if-architecture-bearing. Bakes in centered-5.0 scale commitment + role-normalization posture + counterfactual-derived-not-emitted + role-subtype schema-bump decision timing
+- Design TacticalPreset system — `design/tactical-presets.md` + ADR. Authored in parallel with / after first-signatures so implementation-pressure feedback loops between the two systems. Each preset carries its own `SimBiasFieldId` set (reuses MatchSim.Contracts registry per ADR-0005 discipline)
+
+Phase 2 NOT reopened. Phase 3 Week-1 priorities unchanged. Phase-4 task list grew from 11 → 13. Cross-model split-of-labor pattern (GPT-5.5 for design direction → Claude for architectural-anchoring-against-existing-ADRs → consolidated decisions-log commitment) is now the project's standard rhythm for design-call work.
+
 ## 2026-04-25 (Phase 2 ✅ COMPLETE; Phase 3 🟡 ACTIVE — Unity Bootstrap + MatchSim Prototype promoted)
 
 `/audit` green on Phase-2 scope. Gate condition *"design bible complete; ADRs for every system that locks architecture"* satisfied:
