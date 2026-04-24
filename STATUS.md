@@ -37,7 +37,7 @@ Plus three new design docs: `modding.md`, `accessibility.md`, `content_policy.md
 
 ## Next action
 
-**ADR-0001 + 0002 + 0003 + 0004 Accepted. ADR-0005 Proposed** (just drafted with user's 6 pre-constraints baked in — no review round expected to surface major issues). `/next` picks up **ADR (6): IdentityPacket / AI Content Compiler** — houses the latent signature-affinity that ADR-0005 explicitly does NOT store, plus phenotype enum governance + content-pack ID rules.
+**All 5 drafted ADRs Accepted** (0001 / 0002 / 0003 / 0004 / 0005). Zero in Proposed limbo. `/next` picks up **ADR (6): IdentityPacket / AI Content Compiler** — houses the latent signature-affinity that ADR-0005 explicitly does NOT store, plus phenotype enum governance + content-pack ID rules + canonical-artifact discipline + scout visibility mapping.
 
 ## Phase-1 carryover (non-gating user-actions)
 
@@ -51,6 +51,7 @@ Phase 1 closed 2026-04-24 with these items intentionally open. None gate Phase 2
 
 ## Recent milestones
 
+- 2026-04-24: Phase 2 — **ADR-0005 Accepted** after 3 architectural tightenings: `SimBiasSnapshot` reframed as Unity-free `MatchSim.Contracts` DTO pre-baked BEFORE sim execution (no per-tick Unity push); `SimBiasFieldId` registry ownership moved to `MatchSim.Contracts` (MatchSim owns semantic meaning); continuous vs event-triggered bias application split per-field to avoid premature per-tick work. Asmdefs: MatchSim.Contracts (pure, owns field registry + DTO), Signatures.Authoring (Unity SO), Signatures.Baking (pure baker), MatchSim.csproj (pure consumer)
 - 2026-04-24: Phase 2 — **ADR-0005 SignatureSO Proposed** with user's 6 pre-constraints baked in from first draft: event names via Memory.Contracts const references (not duplicate strings), explicit Scope enum, non-behavioral dependency metadata, field-level capped stacking with Id-tiebreak ordering, Display/ID lint-target separation, latent affinity explicitly not-here (lives in IdentityPacket per ADR-0006). Five rejected alternatives. Separate Signatures.Authoring / Runtime asmdefs; SimBiasSnapshot DTO boundary to MatchSim
 - 2026-04-24: Phase 2 — **ADR-0004 Accepted** after five user-review tightenings (SalienceInputs + SalienceModelVersion persistence for audit; `FinalWhistle.Memory.Contracts` / impl split decouples MatchSim from persistence; quota rounding formula locked; event-class count corrected to ~40; float-salience added as 5th rejected alternative). Phase-6 content-pack validator SPEC task expanded to cover cross-doc event-class enum exact-match + `CallbackTag.ConsumingReaders ≥ 1`
 - 2026-04-24: Phase 2 — **ADR-0002 Accepted** via self-review tightening pass (Knowledge Risk MEDIUM gate remains baked in; `fw shader-audit` promoted to explicit Phase-3 SPEC task). **ADR-0004 (MemoryEvent schema + CallbackTag registry + compaction tiers + migration framework) Proposed** — first real user of both save-migration-fixtures and golden-replay-corpus specs. Four rejected alternatives documented. Cross-doc exact-match discipline formalized for `SignatureAwakened`/`SignatureExecuted`/`ScoutReport*` enum names

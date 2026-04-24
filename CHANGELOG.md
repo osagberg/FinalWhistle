@@ -2,6 +2,27 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase 2 — ADR-0005 Accepted after 3 architectural tightenings)
+
+Three user-review tightenings applied to the bridge architecture:
+
+<!-- ui-lint:ignore-start reason="ADR-0005 tightening descriptions reference awakening mechanic + SimBias fields by name" -->
+- **MEDIUM — `SimBiasSnapshot` reframed as Unity-free `MatchSim.Contracts` DTO.** Original draft described a "thin DTO pushed each tick from Unity to MatchSim" which would have let Unity drive canonical sim state. Corrected: `SignatureBaker` (pure C#, Unity-free, runs BEFORE sim execution) reads loaded `SignatureSO` assets + match state, emits immutable `SimBiasSnapshot` values per sim segment / tick-boundary. `MatchSim.csproj` consumes the snapshot as input config. **Unity never pushes mutable bias into MatchSim during sim execution.** Preserves `TECH_APPROACH.md §3` strict sim-boundary discipline.
+- **MEDIUM — `SimBiasFieldId` registry ownership moved to `MatchSim.Contracts`.** Original draft placed the registry in `FinalWhistle.Signatures.Runtime`, but MatchSim owns the fields being biased (semantic meaning + units + clamp semantics). Corrected: enum + registry live in `MatchSim.Contracts`; signature authoring REFERENCES the IDs; Phase-6 content-pack validator rejects unknown or deprecated IDs against the MatchSim-owned registry.
+- **LOW — Continuous vs event-triggered bias application** clarified per-field:
+  - **Continuous** (e.g., `early_cross_freq`, `pressing_intensity_bonus`): constant delta throughout sim segment; snapshotted into `SimBiasSnapshot.ContinuousFields`; MatchSim reads directly each tick with no recomputation
+  - **Event-triggered** (e.g., `cutback_xAssist_on_byline_carry`): applies only on matching MatchSim events; snapshotted as `(event_condition, delta)` pairs in `SimBiasSnapshot.EventModifiers`; zero per-tick cost on non-matching ticks
+  - Authoring convention: each `SimBiasField` declares `ApplicationMode: Continuous | EventTriggered(ConditionId)`. Avoids the premature-per-tick-work anti-pattern
+<!-- ui-lint:ignore-end -->
+
+Asmdef/project boundaries now:
+- `MatchSim.Contracts` — pure C#, no Unity refs. Defines `SimBiasFieldId` + `SimBiasSnapshot`
+- `FinalWhistle.Signatures.Authoring` — Unity-side SO + inspector; consumes Contracts
+- `FinalWhistle.Signatures.Baking` — pure C# baker; reads assets → emits snapshots
+- `MatchSim.csproj` — consumes snapshots; zero Unity refs; deterministic execution
+
+Architecture sketch + performance table updated to reflect the bake-before-sim flow. No per-tick stacking inside MatchSim; stacking happens once per segment inside the baker. All 5 drafted ADRs now Accepted.
+
 ## 2026-04-24 (Phase 2 — ADR-0005 SignatureSO drafted with 6 pre-constraints)
 
 <!-- ui-lint:ignore-start reason="changelog entry enumerating ADR-0005's pre-constraints including awakening-mechanic prose" -->

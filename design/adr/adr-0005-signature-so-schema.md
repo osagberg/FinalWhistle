@@ -6,7 +6,7 @@ description: ADR-0005 — SignatureSO schema, scope enum, dependency metadata, f
 
 ## Status
 
-**Proposed** — pending user review before Accepted.
+**Accepted** — 2026-04-24. Three user-review tightenings applied: (1) `SimBiasSnapshot` reframed as a Unity-free immutable input packet in `MatchSim.Contracts`, pre-computed before sim execution (NOT a per-tick Unity callback); (2) `SimBiasFieldId` registry moved to the pure MatchSim/contracts layer (MatchSim owns semantic meaning + units; signature authoring references it); (3) continuous-vs-event-triggered bias application clarified to avoid premature per-tick work.
 
 ## Date
 
@@ -157,7 +157,7 @@ public readonly struct SystemDependency
 [Serializable]
 public struct SimBiasField
 {
-    public SimBiasFieldId FieldId;       // enum — registry-backed, one per named MatchSim bias field
+    public SimBiasFieldId FieldId;       // enum defined in MatchSim.Contracts; MatchSim owns semantic meaning + units; signatures merely reference
     public Fixed Delta;                  // Q32.32 — applied to field total
     public StackingMode Mode;            // Additive | AdditiveWithDiminishingReturns
     public Fixed MinDelta;               // Q32.32 — hard lower cap after all stacking
@@ -189,6 +189,15 @@ When multiple signatures active on the same player target the same `SimBiasField
 6. **Balance-harness CI sweep** (Phase 6) exercises every realistic (active-signature-set × affected-field) combination and flags any that breach caps without clamping OR produce dominant-strategy outliers.
 
 No dictionary iteration without a stable sort key. No wall-clock, no `Random.*`, no `Time.*` — same determinism rules as ADR-0001 / ADR-0004.
+
+### Continuous vs event-triggered bias application
+
+Not every `SimBiasField` needs per-tick re-evaluation. Two application modes, authored per-field:
+
+- **Continuous bias** (e.g., `early_cross_freq`, `pressing_intensity_bonus`) — applied as a constant delta throughout a sim segment. Snapshotted per segment / tick-boundary into `SimBiasSnapshot.ContinuousFields`. Value is stable within the segment; MatchSim reads it directly from the snapshot each tick without recomputing.
+- **Event-triggered modifier** (e.g., `cutback_xAssist_on_byline_carry`, `near-post_xG_on_blindside_run`) — applies only when a matching MatchSim event fires (byline carry, blindside run, etc.). Snapshotted into `SimBiasSnapshot.EventModifiers` as `(event_condition, delta)` pairs. MatchSim applies these at event-match time, not every tick.
+
+Authoring convention: each `SimBiasField` entry declares `ApplicationMode: Continuous | EventTriggered(ConditionId)`. The baker routes to the correct snapshot bucket. **This avoids the premature-per-tick-work anti-pattern** — an event-triggered effect on a rare condition doesn't cost per-tick CPU just because its source signature is active.
 
 ### Addressables grouping
 
@@ -232,20 +241,38 @@ Cross-ref: `design/signatures.md` §Affinity-distribution is authoritative-refer
                                └─────────┬────────────┘
                                          │ ResolveActiveSignatures(player)
                                          v
+              BEFORE sim segment executes:
+              ┌─────────────────────────────────────────┐
+              │ SignatureBaker (pure C#, Unity-free)    │
+              │  - reads active SignatureSO assets      │
+              │  - evaluates triggers against state     │
+              │  - stacks deltas per SimBiasFieldId     │
+              │  - clamps to Min/Max                    │
+              │  - routes by ApplicationMode            │
+              │    (Continuous | EventTriggered)        │
+              └──────────────┬──────────────────────────┘
+                             │ immutable SimBiasSnapshot (MatchSim.Contracts)
+                             v
 ┌────────────────────┐         ┌────────────────────────┐
-│ MatchSim event     │ ──────> │ SignatureRuntime       │ ─► stacked SimBias deltas
-│ (via Memory.       │         │  - trigger evaluation  │    (clamped to Min/Max)
-│   Contracts DTO)   │         │  - sim-bias stacking   │
-└────────────────────┘         │  - EmitsOnAwaken/      │ ─► ILedgerAppender.Emit
-                               │    Execute event emit  │    (EventClass from Contracts)
+│ MatchSim event     │ ──────> │ MatchSim.csproj        │ ─► apply continuous fields
+│ stream (pure C#)   │         │  (NO Unity refs)       │    each tick from snapshot
+└────────────────────┘         │  - reads snapshot      │ ─► apply event-modifiers
+                               │  - emits events:       │    on matching events only
+                               │    SignatureExecuted / │
+                               │    SignatureAwakened   │ ─► ILedgerAppender.Emit
+                               │    via EventClass      │    (EventClass from Memory.Contracts)
                                └────────────────────────┘
 ```
 
 ### Implementation Guidelines
 
-- **Asmdef boundary:** `FinalWhistle.Signatures.Authoring` (SO + asset-time inspector) + `FinalWhistle.Signatures.Runtime` (catalog + stacking + event emission). Runtime depends on `FinalWhistle.Memory.Contracts`; does NOT depend on `FinalWhistle.Memory` (persistence) directly.
-- **`MatchSim.csproj` depends on neither** — signatures live in the Unity side; MatchSim receives sim-bias deltas via a thin DTO boundary (`FinalWhistle.Signatures.SimBiasSnapshot`) that Unity pushes each tick. Preserves the pure-C# MatchSim per `TECH_APPROACH.md §3`.
-- **`SimBiasFieldId` registry** is authored as a static enum + registry in `FinalWhistle.Signatures.Runtime`; content packs reference field IDs by name; the catalog validates every referenced ID resolves at scene-load.
+- **Asmdef / project boundaries:**
+  - `MatchSim.Contracts` — pure C#, no Unity refs. Defines `SimBiasFieldId` enum + registry (MatchSim owns semantic meaning + units). Defines `SimBiasSnapshot` immutable DTO (see below).
+  - `FinalWhistle.Signatures.Authoring` — Unity-side: SO + asset-time inspector. Consumes `MatchSim.Contracts` and `FinalWhistle.Memory.Contracts` for enum references.
+  - `FinalWhistle.Signatures.Baking` — pure C# or Unity editor-time: reads loaded SignatureSO assets + active player roster + current match state, emits one or more `SimBiasSnapshot` values per sim segment / tick-boundary. **Runs BEFORE MatchSim executes, not during.**
+  - `MatchSim.csproj` — consumes `SimBiasSnapshot` as input config. Zero UnityEngine refs. Zero per-frame Unity callbacks. Deterministic execution against a pre-baked snapshot.
+- **Bridge shape (locked):** `SignatureSO asset` → `SignatureBaker` reads loaded assets → `SimBiasSnapshot` (immutable, Unity-free DTO in `MatchSim.Contracts`) → `MatchSim.csproj` consumes. Unity NEVER pushes mutable bias into MatchSim during sim execution. The sim is driven by pre-baked config, not per-frame Unity state.
+- **`SimBiasFieldId` registry lives in `MatchSim.Contracts`** — MatchSim defines the canonical field enum + their semantic meaning (units, clamp semantics, allowed value range). Signature authoring references `SimBiasFieldId` values; Phase-6 content-pack validator rejects unknown OR deprecated IDs against the MatchSim-owned registry.
 - **Display-copy lint integration:** the Phase-6 content-pack validator extracts `DisplayName` + `UiDescription` + `OverlayTextBank[]` into a flat string array and passes it to `scripts/lint-banned-terms.py` as the lint target. Internal IDs are NOT extracted.
 - **Readiness-threshold default** is a project-level constant (not a magic number in every SO): `SignatureAuthoring.DefaultReadinessThreshold = 0.85 (Q32.32)`. `SignatureSO.ReadinessThreshold = 0` is the sentinel for "use default" — the catalog resolves at load.
 
@@ -311,12 +338,12 @@ Cross-ref: `design/signatures.md` §Affinity-distribution is authoritative-refer
 
 - Two fields (`Id` + `DisplayName`) instead of one means per-signature authoring always fills two strings. Minor per-signature cost; pays back through lint discipline.
 - Per-signature asset authoring cost (24 × ~8 fields) is non-trivial; mitigated by Unity inspector tooling and the fact that the catalog is one-shot at Phase 5-6.
-- `SimBiasFieldId` registry is a new coupling surface — any new MatchSim bias field requires a registry entry. Validator catches unregistered references, but it's one more thing to remember.
+- `SimBiasFieldId` registry (owned by `MatchSim.Contracts`) is a new coupling surface — any new MatchSim bias field requires a registry entry defined by MatchSim, referenced by signature authoring. Validator catches unregistered or deprecated references.
 
 ### Neutral
 
 - Latent affinity landing in ADR-0006 means cross-ADR readers must understand the split. Cross-refs are explicit; no hidden coupling.
-- `FinalWhistle.Signatures.SimBiasSnapshot` DTO boundary is one more interface between Unity and MatchSim; pays for itself via pure-C# sim discipline.
+- `MatchSim.Contracts.SimBiasSnapshot` DTO (Unity-free) is the authoring-to-sim bridge. SignatureBaker is a pure-C# pass that runs before sim execution; MatchSim never sees Unity types. Pays for itself via strict sim-boundary discipline per `TECH_APPROACH.md §3`.
 
 ---
 
@@ -325,7 +352,9 @@ Cross-ref: `design/signatures.md` §Affinity-distribution is authoritative-refer
 | Metric | Target | Notes |
 |---|---|---|
 | SignatureCatalog lookup | O(1) via dictionary | Built at scene-load; 24 base SOs + mod packs |
-| Stacking evaluation per player per tick | O(active signatures × affected fields) | Small constants; <0.05ms per player |
+| Stacking evaluation per sim segment (not per tick) | O(active signatures × affected fields) at segment boundary | Runs inside SignatureBaker before MatchSim executes; snapshot is stable through the segment |
+| MatchSim continuous-bias read | O(1) per tick per field | Direct snapshot lookup; no recomputation |
+| MatchSim event-triggered modifier apply | O(matches per event class) | Only fires on matching MatchSim events; no per-tick cost on non-matching ticks |
 | Event emission per signature trigger | O(1) — direct `ILedgerAppender.Emit` call | Enum constants, no string lookup |
 | Memory footprint per SignatureSO | ~2-4KB | 24 × ~3KB = ~72KB base pack |
 
