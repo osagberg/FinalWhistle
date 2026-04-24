@@ -2,6 +2,22 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase 2 — corpus-spec tightenings + save-migration fixture spec)
+
+- **Golden replay corpus spec tightened** per user review:
+  - Q1 (sim-state serialization order) converted from open-question-prose to **explicit Phase-3 SPEC task**: `Author MatchSim.Tests/SerializationContract.cs — stable order for entities / events / Q32.32 fields`. Task gates Phase-3 Week-2 corpus authoring.
+  - Tier-A smoke-seed policy locked explicitly: one seed at Phase 3, 3-seed rotation evaluated at Phase 6 only if per-run budget stays inside Tier-A's 5-minute ceiling (Phase-6 SPEC task added).
+  - Generator ownership of structural JSON key order made explicit — `fw replay --generate-fixture` / `--regenerate-corpus` rewrite fixtures in locked order; hand-edited drift fails Tier-D fixture-format lint
+- **Save migration fixture policy spec landed** at `design/specs/save-migration-fixtures.md`:
+  - **Four tests per schema bump (not three):** forward migration + callback-eligibility preservation + forward-incompat failure + round-trip byte-identical
+  - One fixture per schema version (not per bump event); migration chains test v1→v3 via v1→v2→v3 composition
+  - Append-only growth; fixtures never deleted; archived-flag for schemas with dropped fields
+  - Tier-A smoke subset inside `fw verify`; Tier-D full (v<N>, v<M>) migration matrix at RC
+  - Schema-bump PRs without accompanying fixture + 4 tests are unmergeable discipline
+  - Phase 3: ~5 fixtures; Phase 6 save-schema-v2: ~10; Phase 8 EA: ~15. Ceiling signal at 50
+  - Synthetic generator tooling (`fw save-fixture`) deferred to Phase 6; Phase-3 first fixtures are hand-authored
+- `design/specs/` subdirectory now holds 2 sibling specs (corpus + save-migration); pattern established for ADR-derived implementation specs
+
 ## 2026-04-24 (Phase 2 — ADR-0003 Accepted + golden replay corpus spec)
 
 - **ADR-0003 Accepted** after user tightenings:

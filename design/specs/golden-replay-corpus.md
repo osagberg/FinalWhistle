@@ -108,7 +108,7 @@ Filename MUST match the `match_seed` field. Rename = new fixture, not edit.
 
 These rules make the hashes reproducible across runs / platforms:
 
-1. **JSON canonicalization:** 2-space indent, LF line endings, keys in the order shown above (not alphabetical — structural order is more readable for PR review).
+1. **JSON canonicalization:** 2-space indent, LF line endings, keys in the structural order shown above (not alphabetical — structural order is more readable for PR review). **The generator owns the ordering** — `fw replay --generate-fixture` + `fw replay --regenerate-corpus` rewrite fixtures in the locked key order so humans never hand-maintain it. Hand-edited fixtures that drift from the locked order fail the Tier-D fixture-format lint.
 2. **Hex integers** MUST use lowercase (`0xdeadbeef`, not `0xDEADBEEF`) to avoid cross-toolchain case mismatches.
 3. **Float values forbidden** — all sim state uses Q32.32; fixtures store raw integer representations when precision matters.
 4. **Hash algorithm:** SHA-256 with standard hex encoding. `sha256:` prefix is part of the stored string.
@@ -184,8 +184,11 @@ At Phase 8 EA: corpus is a release-gate artifact. Shipped fixture hashes accompa
 - `design/event-sourced-memory.md` — MemoryEvent schema defines `key_event_hashes` input (landing in ADR-0004).
 - `scripts/fw` — `replay` subcommand (stubbed Phase 1; implemented Phase 3).
 
-## Open questions (resolve before Phase 3 Week 2 corpus authoring)
+## Open questions — dependencies tracked in SPEC, not this doc
 
-1. **Exact sim-state serialization order** — needs `MatchSim.Tests/SerializationContract.cs` authored alongside the first corpus fixture. Non-blocking at this spec level; blocker at Phase 3 Week 1.
-2. **Pass-activation log field shape** — deferred until ADR-0002 lands in Unity and the ShotSelector is authored. Current spec reserves the hash field; precise field enumeration lands with the viewer implementation.
-3. **Should the Tier-A smoke seed be one fixture or a small rotation (e.g., round-robin across 3 fixtures per week)?** — one is simpler; small rotation catches regressions in fixtures less-frequently-exercised. Recommend ONE at Phase 3, expand to rotation at Phase 6 if the budget allows.
+1. **Exact sim-state serialization order** — MUST land before first corpus fixture authors. Tracked as explicit **Phase-3 SPEC task** (`Author MatchSim.Tests/SerializationContract.cs — stable order for entities/events/Q32.32 fields`). The task gates Phase-3 Week-2 corpus work.
+2. **Pass-activation log field shape** — naturally tied to ADR-0002 viewer implementation. Current spec reserves the `pass_activation_log_hash` field; precise field enumeration lands when the ShotSelector + render features are authored in Phase 3 Week 2-3.
+
+## Locked policy choices
+
+- **Tier-A smoke = one seed** (`0xdeadbeefdeadbeef`) at Phase 3. First goal is proving the harness path, not coverage. Measure replay runtime on Tier-A once Phase-3 `fw replay` lands; **Phase 6 explicitly expands to 3-seed rotation if the per-run budget stays inside Tier-A's 5-minute ceiling** (tracked as a Phase-6 SPEC item when the content-pack-validator task lands).
