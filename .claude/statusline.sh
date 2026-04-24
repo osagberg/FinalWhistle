@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# {{PROJECT_NAME}} — Claude Code statusline
+# Final Whistle — Claude Code statusline
 #
 # Reads a JSON blob on stdin (Claude provides session info) and emits ONE line.
 #

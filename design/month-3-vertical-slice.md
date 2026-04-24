@@ -1,7 +1,7 @@
 ---
 description: Brutal-minimum first-proof spec. The playable slice that proves the three pillars are feasible.
-last_verified: 2026-04-22
-status: scaffolded; awaiting Phase 0 acceptance
+last_verified: 2026-04-24
+status: Phase 0 open questions resolved; match type + first-3 signatures + gate artifact + pass criterion locked
 ---
 
 # Month-3 Vertical Slice — the brutal-minimum first proof
@@ -18,9 +18,9 @@ GPT-5.5's Phase-C correction: the seven-item Product MVP is only legitimate if w
 
 ## The brutal slice — what exists at Month 3
 
-**One match.** Not a season. One home-vs-away fixture.
+**One match.** Not a season. One home-vs-away **opening-day league fixture**. No cup final, no title decider, no derby. Derby / cup stress-tests move to Phase 5 after the viewer vocabulary expands; the gate is baseline legibility and must not be flattered by rivalry-driven stakes.
 
-**Two teams.** One is the player's club. One is a fictional opponent. Neither has deep history; both have enough identity to render a match meaningfully.
+**Two teams.** One is the player's club. One is a fictional opponent. Neither has deep history; both have enough identity to render a match meaningfully. They are **stylistically distinct** (the two behavior-tree archetypes authored for Phase 3 — e.g., "Direct Pressing" vs "Low-Block Counter" — are the style contrast).
 
 **22 players.** 11 vs 11. Each player uses a **slice Identity Packet subset** (see `player-generation.md`) with only:
 - Role (GK / CB / FB / CM / AM / W / ST)
@@ -44,10 +44,15 @@ The full Identity Packet compiler is not required for the Month-3 gate. Hand-aut
 - UI Toolkit overlay: scoreline, time, pre-match squad view
 - Font stack: Anton / JetBrains Mono / Rajdhani
 
-**3 signatures authored as active behaviors** (one per role family, demonstrating breadth):
-- e.g., "Looks for early crosses" (winger), "Blind-side near-post run" (striker), "First-time diagonal switch" (central midfielder)
-- Each with: trigger conditions + sim bias + presentation recipe (which shot type, what overlay text)
-- No latent-to-active lifecycle is required at Month 3. The slice proves signatures change play and presentation; Phase 4 proves breakthrough unlocking.
+**3 signatures authored as active behaviors** (one per role family, demonstrating breadth). Locked 2026-04-24 against the `design/signatures.md` catalog — names must stay exact across docs:
+
+- **#20 "Low cutback from the byline"** (winger)
+- **#22 "Blind-side near-post run"** (striker)
+- **#13 "First-time diagonal switch"** (central midfielder)
+
+Each with: trigger conditions + sim bias + presentation recipe (which shot type, what overlay text). Full specs live in [`signatures.md`](signatures.md); no duplication here.
+
+No latent-to-active lifecycle is required at Month 3. The slice proves signatures change play and presentation; Phase 4 proves breakthrough unlocking.
 
 **1 memory callback** demonstrating the ledger works:
 - Match emits events to ledger
@@ -85,17 +90,29 @@ This slice is NOT the MVP. This slice is the **first proof** the three pillars c
 
 Everything outside the slice list above is deferred to its proper Phase.
 
-## Open questions
+## Resolved (2026-04-24)
 
-1. **Which match type anchors the slice?** Cup final (high stakes; gate-testing aesthetic at its strongest) vs opening-day league fixture (more honest baseline; less cinematic)? Recommend opening-day fixture — gate is about *baseline legibility*, not peak drama.
-2. **Which 3 signatures author first?** Proposal: one from each of `winger`, `striker`, `central-midfielder` role families — most-visible positions in a broadcast-style viewer. See `signatures.md` for full catalog proposal.
-3. **Does the slice ship to trusted testers?** Proposal: no public build. Gate can use private observers watching a recording or local build. Month-4 closed itch distribution is the first external distribution gate.
-4. **What determines "gate passed"?** Proposal: 5 cold observers (not the user) watch; ≥4 of 5 correctly describe drama / momentum / identify one specific player's style without being prompted. Confirm criterion or revise.
+See SPEC.md decisions log entry `2026-04-24 — Month-3 vertical-slice gate parameters resolved`.
+
+1. **Match type — opening-day league fixture.** Two stylistically distinct fictional teams. No cup final, no title decider, no derby. The gate is baseline legibility; rivalry / silverware stakes would flatter-fail the test. Derby + cup stress tests move to Phase 5 after the viewer vocabulary expands.
+2. **First 3 signatures (names exact per `signatures.md`):** #20 Low cutback from the byline (winger) / #22 Blind-side near-post run (striker) / #13 First-time diagonal switch (central midfielder). One per role family; three distinct shot-type recipes; three distinct identity reads.
+3. **Distribution for the gate — none public.** Gate artifact is a local build OR **one continuous ~3-minute recording** shown privately to 5 cold observers. Short 30-60s clips may be extracted separately for Month 2-3 devlog / audience-signal posts, but those clips do **not** count as the gate artifact. Month-4 closed itch is the first external distribution.
+4. **Pass / fail criterion.**
+
+   **Cold observer definition:** football-literate but unfamiliar with Final Whistle — casual fans watching ~10+ matches/year. Not project collaborators, not necessarily FM experts.
+
+   **Pass** if ≥4 of 5 observers, responding privately in writing **before any group discussion**, can describe:
+   - (a) the match's emotional arc — who was pushing, when momentum shifted, or who dropped off; AND
+   - (b) at least one specific player's style in football-native language (e.g., *"the 9 keeps running behind the defence"* or *"the winger keeps looking for the cutback"*).
+
+   **Fail** if observers primarily describe the recording as *"boring"* (watchability failed — viewer too calm) or *"confusing"* (legibility failed — viewer too busy / signatures unreadable). Fix the matching failure mode before adding systems. Do not paper over a gate failure by scaling feature count.
+
+5. **Observer-pool recruitment — lockdown now.** If 5 plausible football-literate cold observers cannot be named by **end of Month 2**, the gate is at risk. Fallback: recruit a tiny private test pool via trusted friends / Discord / private itch keys. Criterion is not weakened; the recruiting problem is solved separately.
 
 ## Prototype gate
 
 This doc IS the prototype gate. Defining it down to this level of brutality is GPT's correction: the Product MVP list (7 items) can't mean anything until we agree what "real" looks like at Month 3.
 
-**Success at Month 3 is**: a recording of the slice playing end-to-end, with 5 cold observers correctly describing what they saw, unprompted.
+**Success at Month 3:** a ~3-minute continuous recording (or local build) of the slice playing end-to-end, with ≥4 of 5 football-literate cold observers correctly describing the match's emotional arc AND at least one specific player's style in football-native language, privately and unprompted.
 
-**Failure at Month 3 is**: observers describe either "boring" or "confusing." Fix the viewer before scaling systems; do not hide viewer failure by adding features.
+**Failure at Month 3:** observers describe the recording as "boring" (watchability) or "confusing" (legibility). Route the fix to the failing pillar; do not hide the failure by adding features.

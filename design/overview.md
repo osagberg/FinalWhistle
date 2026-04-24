@@ -1,7 +1,7 @@
 ---
 description: Top-level game overview, pillars, experience goals, 4-bucket scope split pointer.
-last_verified: 2026-04-22
-status: scaffolded; awaiting Phase 0 open-question resolution
+last_verified: 2026-04-24
+status: Phase 0 open questions resolved; pillar tiebreaker + quickstart-archetype count + title + nation-framing locked
 ---
 
 # Final Whistle — Overview
@@ -59,12 +59,20 @@ Out at EA:
 - Counterfactual Development Lab
 - Dynasty / lineage mechanics (if audience retains + requests)
 
-## Open questions (resolve before Phase 1)
+## Resolved (2026-04-24)
 
-1. **Which single fictional nation** anchors EA? Proposal: an original nation with England-readable league grammar (6-tier pyramid, promotion/relegation, cup competitions, home/away fixtures). Name TBD at `worldbuilding.md` lock. Alternative: no named nation (just "the league"). Recommend named.
-2. **User-facing game title framing** — is "Final Whistle" locked? Alternatives considered and declined: "The Long Memory", "The Author", subtitles. Confirm lock.
-3. **First-playable club archetype mix** — the Month-12 EA offers quickstart-club choice. How many archetypes? Proposal: 4 (decaying giant / rising academy / mid-table survivalist / struggling lower-tier). Confirm or revise.
-4. **Explicit pillar tiebreaker** — if Pillar 1 (memory) and Pillar 3 (watchability) conflict (e.g., a callback disrupts a key match-moment), which wins? Proposal: Pillar 1 — memory always wins because it's the game's unique promise.
+See SPEC.md decisions log entry `2026-04-24 — Overview pillar questions resolved`.
+
+1. **Nation framing.** Single named fictional nation with England-readable football grammar (6-tier pyramid, promotion/relegation, cup competitions, home/away fixtures). The actual nation name is owned by [`worldbuilding.md`](worldbuilding.md) — not duplicated here.
+2. **Product title.** "Final Whistle" is locked as the working / product title. Formal trademark + Steam-name clearance is deferred to Phase 8 launch prep; known existing non-AAA uses include `finalwhistle.es` (daily football mini-game) and `finalwhistle.club` (football community product). Neither is a blocker; both are flags for the clearance pass.
+3. **Quickstart club archetypes — 4 locked.**
+   - Decaying giant, tier 2
+   - Rising academy, tier 3
+   - Mid-table survivalist, tier 1
+   - Backs-against-the-wall, tier 5
+4. **Pillar tiebreaker (P1 Memory vs P3 Watchability).** Memory wins by default. If a memory callback would interrupt a **high-leverage live match sequence**, watchability temporarily wins and the callback is queued to the next natural surface (dead ball, half-time, full-time, or post-match report). Callbacks are **deferred, never suppressed**.
+
+   **High-leverage** = score margin ≤ 1 in the final 10 in-game minutes, **or** any cup / promotion / relegation / derby / title-deciding sequence.
 
 ## Prototype gate (for overall game feel)
 

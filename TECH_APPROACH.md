@@ -241,6 +241,48 @@ Author each when the corresponding Phase triggers.
 
 ---
 
+## 8.5. Production pipeline (CI/CD, builds, release ops)
+
+Authoritative plan: [`design/production-pipeline.md`](design/production-pipeline.md). Summary here; design doc owns details.
+
+**Core posture:** GitHub is source-of-truth for code + PR-gate CI. Unity CI is slow, license-sensitive, and expensive (macOS especially) — runs manual-dispatch only through Phase 7. Heavy simulation work (10K-match sweeps, balance harness, replay corpus regen, full Unity matrix) runs local or on a self-hosted runner. Release CI is manual-approval only; no auto-deploy on tag push through EA.
+
+**Five workflow tiers:**
+
+| Tier | Trigger | Runner | Budget | Scope |
+|---|---|---|---|---|
+| **A — Fast PR CI** | every PR / push | GitHub Linux | ≤5 min | docs + lint + schema + `dotnet test` + determinism smoke |
+| **B — Unity smoke** | manual dispatch / nightly | GitHub Win OR self-hosted | ≤30 min | EditMode tests + one build target + one viewer capture |
+| **C — Heavy local** | local / self-hosted schedule | local / self-hosted | uncapped | 10K-match sweep, full Unity matrix, replay corpus, visual regression |
+| **D — Release candidate** | tagged RC + manual dispatch | GitHub (macOS OK here) | willing to spend | full matrix + content-pack validator + save migration matrix + license audit |
+| **E — Steam deploy** | final tag + manual approval | GitHub (small) | minimal | upload to Steam branch; **never** auto-deploys to public |
+
+**Build channels:** dev / tester-closed / demo / ea / hotfix. Each channel carries validation-tier metadata in the build; `dev` never uploads to Steam; `hotfix` skips full content regression but requires manual QA sign-off.
+
+**Core systems owed by pipeline discipline** (each has a pre-seeded SPEC task):
+- Golden replay corpus — canonical seeds with expected hashes; protects sim from regression
+- Save migration fixtures — every schema bump adds prior-version fixture + migration test + callback-preservation test
+- Content-pack validator — duplicate names, legal-sensitive names, invalid phenotype/signature/event-class IDs, analogue-string leakage, banned UI vocabulary
+- `scripts/fw` local command front-door — bash/makefile, no paid task runner
+- Playtest ops — itch.io private-restricted + in-build "Export bug bundle" (no cloud ingest at MVP)
+- Crash / log — local-first, rotating logs, exportable diagnostics zip, no PII by default
+
+**Cost discipline:**
+- Private repo. Hard Actions budget cap (Free 2k / Pro 3k included minutes). Overage off by default.
+- macOS-hosted runner minutes reserved for Tier D RC runs only — ~10× Linux cost.
+- Self-hosted runner optional; single Mac sufficient through EA.
+- No paid pipeline services (Buildkite / CircleCI / etc.) through MVP.
+
+**Ruled out through EA:**
+- Cloud telemetry ingest — post-EA only, opt-in, minimal PII
+- Automated Steam deploy on tag — manual approval is a hard rule
+- Paid pipeline SaaS
+- Cross-save / Legend Exchange backends — post-1.0
+
+Phase-2 ADR (seeded 2026-04-24): `Production pipeline — CI/CD tiers, local runner policy, artifact retention, build channels, release gates, cost controls`.
+
+---
+
 ## 9. Phase progression (mirror of SPEC.md high-level)
 
 ```

@@ -1,7 +1,7 @@
 ---
 description: Banned-terms lint + approved football-native phrasing catalog. The discipline that stops the game from sounding like a fantasy-RPG skin over football.
-last_verified: 2026-04-22
-status: scaffolded; awaiting Phase 2 lint lock
+last_verified: 2026-04-24
+status: Phase 0 open questions resolved; lint scope + sentinel-exemption mechanism + template pool structure + tone register locked. Category-A bans expanded with 2026-04-24 additions from prior resolutions.
 ---
 
 # UI Vocabulary — the anti-cringe contract
@@ -22,32 +22,90 @@ See SPEC.md 2026-04-22. Summary:
 
 ## The lint — banned terms in player-facing text
 
-### Category A — mystical / RPG / fantasy capitalized nouns (hard ban)
+<!-- ui-lint:ignore-start reason="banned-term catalog" -->
 
-Any text rendered in UI labels, button text, menu headers, in-match overlays, scout reports, press/fan copy, commentary text, achievement names, or tutorial copy MUST NOT contain:
+### Category A — hard ban, no exemption path
 
-| Banned | Internal alternative (if needed) | Player-facing replacement |
+Any text rendered in UI labels, button text, menu headers, in-match overlays, scout reports, press/fan copy, commentary text, achievement names, tutorial copy, or any shipped runtime string MUST NOT contain:
+
+**A.1 — mystical / RPG / fantasy capitalized state nouns** (2026-04-22):
+
+| Banned | Internal alternative | Player-facing replacement |
 |---|---|---|
 | The Hush | `signature_readiness` / `pressure` float | "He's locked in." / "The stadium's gone quiet." / "He's finding something." |
 | Weather (as team state) | `team_cohesion` / `rhythm` | "Form: rising" / "They're starting to click" / "The side's found a tempo" |
 | Calling (as player identity) | `role_family` / `playing_instincts` | "A natural winger" / "Plays like a #10" |
-| Canon / Shelves / Reading Lists (as pyramid tiers) | `tier` | "Top flight" / "Championship" / "Tier 3 South" |
-| The Seven (as rival managers) | (system deferred anyway; no UI needed) | — |
+| Canon / Shelves / Reading Lists (as pyramid tiers) | `tier` | "Caldren Premier Division" / "Championship" / "Tier 3" |
+| The Seven (as rival managers) | (system deferred; no UI needed) | — |
 | Kismet / Soul / Flow (as gene flags) | internal `narrative_triggers` | "Something clicked today." / "A late bloomer, it seems." |
 | The Author (as manager identity) | — | manager / head coach / gaffer |
-| The Ledger (as UI noun) | internal `MemoryEvent` ledger | "Club history" / "Career" / "The archive" (soft, non-capitalized) |
+| The Ledger (as UI noun) | internal `MemoryEvent` ledger | "Club history" / "Career" / "The archive" (lowercase) |
 
-### Category B — fantasy-RPG grammar (soft ban — requires justification)
+**A.2 — system / progression / menu-game vocabulary** (added 2026-04-24 per breakthrough-moments resolution):
 
-Avoid unless the specific surface genuinely needs them:
+| Banned | Internal alternative | Player-facing replacement |
+|---|---|---|
+| Signature unlocked | internal `SignatureAwakened` event | *"He's found something."* / *"He cuts inside again — and this time he goes through."* |
+| Awakened (capitalized noun/verb) | internal `SignatureAwakened` event | *"Something clicked."* / *"That's new."* (lowercase "awakens" is Category B — soft ban) |
+| XP gained / Level up / Skill point | — | no progression-mechanic surface exists; player development is narrative, not numeric |
+| +5 finishing (stat-delta callouts) | internal `sim_bias` deltas | *"He's striking the ball cleaner."* / scout prose |
+| Perk / Trait (as stat-label) | internal `trait` field | phenotype label from `design/player-generation.md` catalog |
 
-- "awakens", "awakened" (as verb of gene unlock) — prefer "clicked", "found", "broke through"
-- "Savant", "Genius" (as stat-label) — use phenotype labels ("Set-Piece Natural", "Reads the Game")
+**A.3 — genetics / bloodline vocabulary** (added 2026-04-24 per player-generation resolution):
+
+| Banned | Internal alternative | Player-facing replacement |
+|---|---|---|
+| Genes / Genetics / Chromosomes | internal `gene_model` fields | phenotype labels + scout prose |
+| Bloodline (as mechanic) | internal `tactical_dna_fragments` | Coaching-lineage surfacing deferred post-MVP; no UI noun |
+| DNA (as player-facing stat) | internal `identity_packet` | phenotype labels + scout prose |
+
+**A.4 — stigmatizing / systemic phenotype framings** (added 2026-04-24 per player-generation resolution):
+
+| Banned | Canonical replacement |
+|---|---|
+| Fragile Under Scrutiny | **Struggles Under Scrutiny** (per `design/player-generation.md`) |
+| Fragile When Tested | **Struggles Under Scrutiny** |
+| Plateau Risk | (removed from enum; surface via scout prose + projected-range narrowing) |
+| Injury-Prone | (not a label; injury history surfaces as explicit event record) |
+| Powerful Striker (as phenotype) | **Powerful Ball Striker** — avoids confusion with striker-as-position |
+
+**A.5 — real-world place-name analogues** (added 2026-04-24 per worldbuilding resolution):
+
+Any occurrence in runtime content packs or user-facing strings: `Manchester`, `Liverpool`, `Leeds`, `London`, `Cardiff`, `Bristol`, `Brighton`, `Southampton`, `Newcastle`, `Edinburgh`, `Norwich`, `Hull`, `Birmingham`, `Nottingham`, `Jersey`, `Isle of Man`.
+
+Replacement: Caldren-region fictional names (finalised at Phase-6 bake). Design-internal `RegionPriors` analogue strings live in `dev-config/compiler/region-analogues.json`, gitignored from runtime build.
+
+<!-- ui-lint:ignore-end -->
+
+<!-- ui-lint:ignore-start reason="banned-term catalog" -->
+
+### Category B — soft ban, inline exemption allowed with audit
+
+Avoid unless the specific surface genuinely needs them. Exemption mechanism:
+
+```csharp
+// ui-lint:allow term="weapon" reason="cup-final commentary, deliberate" reviewer="osagberg"
+commentary.Push("He'll need his best weapon in this final.");
+```
+
+Rules:
+- `term=` must match a Category-B banned term exactly.
+- `reason=` must be non-empty and specific.
+- `reviewer=` must be a handle.
+- Exemptions without reviewer attribution are lint fails.
+- CI emits an exemption report. Exemptions are reviewed before **EA content lock** and before **every release candidate** — not on a fixed calendar.
+
+Category-B terms:
+
+- "awakens", "awakened" (lowercase verb of gene unlock) — prefer "clicked", "found", "broke through"
+- "Savant", "Genius" (as stat-label) — use phenotype labels from `design/player-generation.md`
 - "Weapon" / "Weaponize" — use "signature", "technique", or role-specific term
 - "Egoist", "The Ego" — use "manager", "gaffer", "boss"
 - "Realm", "Domain", "Kingdom" — no royal/fantasy territory framing
-- "Power level", "Tier" as internal-power-ranking — tier is OK as league-tier only
+- "Power level" — use football-native stakes language
 - "Forge", "Forged" (as generator verb) — use "compiled", "generated", "built"
+
+<!-- ui-lint:ignore-end -->
 
 ### Category C — over-quoted FM-specific vocabulary (context-use only)
 
@@ -77,19 +135,17 @@ Allowed but in their proper football context:
 
 ### Player-identity language
 
-Phenotype labels (from Identity Packet `scout_labels`):
+**Phenotype labels:** authoritative catalog lives in [`design/player-generation.md`](player-generation.md) — 46 labels across Physical / Mental / Technical / Development / Role-specific. This doc does NOT duplicate the list. Label IDs are content-pack-qualified; all player-identity copy flows through that catalog.
 
-- "Late Bloomer" / "Early Peak" / "Physically Raw"
-- "Composed Under Pressure" / "Fragile When Tested"
-- "Explosive First Step" / "Set-Piece Natural" / "Aerial Threat"
-- "Reads the Game" / "Direct" / "Technical"
-- "Hometown Kid" / "Cross-Border Signing" / "Academy Graduate"
+Examples (not exhaustive — see player-generation.md for the full catalog):
+- `Late Bloomer`, `Composed Under Pressure`, `Struggles Under Scrutiny`, `Set-Piece Natural`, `Reads the Game`, `Sweeper Keeper`, `Half-Space Creator`
 
-Signature names (football-copy only):
+**Signature display names:** authoritative catalog lives in [`design/signatures.md`](signatures.md) — 24 signatures, football-copy-only names. Cross-doc exact-match discipline (2026-04-24 signatures lock).
 
-- "Looks for early crosses" / "Arrives late in the box" / "Underlaps into cutback lane"
-- "Plays first-time diagonal switches" / "Cuts inside on his weaker foot"
-- "Fast long release" / "Commands his area" / "Front-foot interception"
+Examples:
+- *"Looks for early crosses"* / *"Late arriving in the box"* / *"Underlap into cutback lane"*
+- *"First-time diagonal switch"* / *"Cuts inside onto his stronger foot"* / *"Low cutback from the byline"*
+- *"Fast long release"* / *"Commands his area"* / *"Front-foot interception"*
 
 ## MVP boundary
 
@@ -112,12 +168,37 @@ Lint fails on any hit; CI blocks merge until fixed.
 - Per-commentator style variants — post-EA polish
 - Dynamic commentary generation via bake-time LLM — Phase 6 if template variety feels thin
 
-## Open questions (Phase 2 lock)
+## Commentary template pool structure (locked 2026-04-24)
 
-1. **Lint enforcement surface** — code + content + rendered-design-docs, or just code + content? Recommend all three; rendered-design-doc check catches leaks into player-visible places.
-2. **Category-B soft-ban exceptions** — some terms may have legitimate uses (e.g., "weapon" in a cup-final-commentary context). Recommend: allow with `// ui-lint:allow reason="..."` inline exemption comment in source.
-3. **Commentary template pool size** — how many unique phrases per match-event class? Target: 15-30 per class for freshness without bloat.
-4. **Tone register** — how "British football commentary" vs neutral? Recommend lean British-football for default English localization; allow neutral register for other locales where translation idiom differs.
+**Flatter-per-shot-type pools, not per (shot × stake × memory) combinations.**
+
+- **15-30 templates per shot type** (7 shot types → ~105-210 templates for match-flow overlay text).
+- **MVP target: ~140 total match-flow overlay templates.**
+- **Stake + memory modulation** selects eligible variants from the shot-type pool — not separate pools.
+- **Slot variables** (`{scorer_name}`, `{last_goal_time}`, `{memory_callback_phrase}`, etc.) create variety compounding from data, not from template count.
+- **Separate pools** (separately counted) for scout reports, press/fan copy, post-match reports.
+
+Do NOT build per (shot_type × stake_band × memory_hit) pools at MVP — that's 42-class × 15-30 = 630-1260 templates, content bloat disguised as polish.
+
+**Governance:** template IDs are content-pack-qualified; template rendering is bake-time (no runtime LLM). Template governance folds into the Phase-2 `IdentityPacket / AI Content Compiler` ADR (pre-seeded 2026-04-24) — no separate ADR.
+
+## Tone register (locked 2026-04-24)
+
+**Default English: British-football vernacular.**
+
+Locale-specific: **native football idiom in target language.** Translation briefs for Phase-7 localisation use football-register equivalence, not literal translation. A British phrase that doesn't translate (*"chasing shadows"*) becomes the closest native football-register equivalent in the target locale.
+
+Per-locale banned-terms lints — each locale may need its own stigmatizing-language list that doesn't exist in EN. Phase-7 deliverable.
+
+## Resolved (2026-04-24)
+
+See SPEC.md decisions log entry `2026-04-24 — UI vocabulary open questions resolved`. No new ADR — template governance folds into existing AI Content Compiler ADR.
+
+1. **Lint enforcement surface:** UI code (`Assets/_Project/**/*.cs`) + runtime content (`content/**/*.json`) + rendered player-facing doc/content outputs. **Self-reference exemption uses sentinel comments only** — `<!-- ui-lint:ignore-start reason="..." --> ... <!-- ui-lint:ignore-end -->` — never whole-file whitelist. Only the banned-term catalog sections in this doc are ignored; everything else remains lintable.
+2. **Category-A:** hard ban, **no exemption path.** Expanded with 2026-04-24 additions from prior resolutions: system/progression vocabulary, genetics/bloodline terms, stigmatizing phenotype framings, real-world place-name analogues (see Categories A.1-A.5 above).
+3. **Category-B:** inline exemption allowed via `// ui-lint:allow term="..." reason="..." reviewer="..."` with audit discipline. CI emits an exemption report. Exemptions are reviewed **before EA content lock and before every release candidate** — not on a calendar cadence.
+4. **Commentary templates:** flatter per-shot-type pools of 15-30 templates, ~140 MVP match-flow target, stake/memory filters + slot variables for variety. Separate pools for scout reports / press-fan / post-match. Governance folds into AI Content Compiler ADR.
+5. **Tone register:** British-football vernacular default for EN; native football idiom per locale with per-locale banned-term lists.
 
 ## Prototype gate
 

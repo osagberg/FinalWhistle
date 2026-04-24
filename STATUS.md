@@ -1,12 +1,12 @@
 # Status
 
-**Last updated**: 2026-04-23 (Phase 0 🟡 ACTIVE — Kickoff. Bootstrap complete. Design bible authoring next.)
+**Last updated**: 2026-04-24 (Phase 1 🟡 ACTIVE — Setup. First parallel-to-install batch shipped: 6 Phase-1 tasks done.)
 
 ## Currently working on
 
-**Phase 0 — Kickoff** 🟡 ACTIVE.
+**Phase 1 — Setup** 🟡 ACTIVE.
 
-Bootstrap executed: intake complete (5 rounds incl. GPT-5.5 collaboration), template files customized, design docs scaffolded with real content per each system's purpose/locked-decisions/MVP-boundary/deferred/open-questions/prototype-gate structure, 19 bootstrap decisions plus 1 Codex review decision logged to `SPEC.md`. MCPs inventoried; `context7` / `github` / `blender-mcp` already present. Plugins queued for user to install via `/plugin install` in next session. Ready for design-bible authoring: the design docs in `design/` are scaffolds with explicit open questions to resolve before Phase 1 kickoff.
+6 Phase-1 tasks shipped this session: Unity 6 LTS install (user), asset-licensing tracker, `scripts/fw` front-door, PR template, 2× issue templates, `backup-restore.md`. `fw verify-docs` + `fw status` both green. Remaining Phase-1 work mostly gated on either the GitHub remote existing (Actions budget cap / branch protection / `fast-pr-ci.yml`) or additional user-actions (Blender/VS Code install, `gh repo create`, slash-command smoke-test, plugin install).
 
 ## Blockers
 
@@ -17,18 +17,46 @@ Bootstrap executed: intake complete (5 rounds incl. GPT-5.5 collaboration), temp
 
 - User creates GitHub remote (if desired): `gh repo create Vibelogic/FinalWhistle --private --source=. --push` — bootstrap did NOT push remote; first push is user-gated.
 - User creates Steam Direct account at Phase 8 ($100 one-time).
+- Phase-8 prep: formal trademark + Steam-name clearance for "Final Whistle" (existing non-AAA uses: `finalwhistle.es`, `finalwhistle.club`).
 
 ## Open questions for user
 
-- Confirm the Month-3 brutal vertical slice scope (1 match / 2 teams / 22 players / deterministic sim / 3 of 7 shot types / 3 active signatures / 1 memory callback / 1 post-match development event) matches intent. See `design/month-3-vertical-slice.md`.
-- Review design docs under `design/` — each has "Open questions" section requiring user resolution before Phase 1 / Phase 2 start.
+- Review design docs under `design/` — each remaining doc has "Open questions" section requiring user resolution before Phase 1 / Phase 2 start. Order: `month-3-vertical-slice.md` → `match-engine.md` → `semantic-cinema.md` → `event-sourced-memory.md` → `signatures.md` → `scout-disagreement.md` → `breakthrough-moments.md` → `player-generation.md` → `worldbuilding.md` → `ui-vocabulary.md`.
 
 ## Next action
 
-Close this session. Open fresh Claude Code inside `/Users/vibelogic/dev/football/`. Paste plugin install commands. Then run `/next` — it will pick up the first Phase 0 task (design-bible open-question resolution).
+`/next` first unchecked Phase-1 task is now **Install Blender** — user-action, Phase-3 trigger (deferred-3D pipeline). Not urgent; can be held.
+
+Live options to accelerate Phase 1:
+
+**User-gated (pick one + signal ready):**
+- **GitHub remote creation** — `gh repo create Vibelogic/FinalWhistle --private --source=. --push`. Unblocks: Actions budget cap, branch protection, `fast-pr-ci.yml` authoring, first push.
+- Blender / VS Code install (low urgency at Phase 1).
+
+**Claude-actionable after remote exists:**
+- `.github/workflows/fast-pr-ci.yml` Tier-A workflow (safe now that `scripts/fw verify-docs` exists)
+- Branch protection policy doc (`main` / `develop` discipline)
+- Actions budget cap runbook
+
+Recommend user signal: "remote ready" (after `gh repo create`) — Claude picks up the workflow + branch-protection doc + budget-cap runbook in one batch.
 
 ## Recent milestones
 
+- 2026-04-24: Phase 1 — first parallel-to-Unity-install batch shipped (6 tasks): Unity 6 LTS installed (user), asset-licensing tracker seeded (Anton/JetBrains Mono/Rajdhani/Magica Cloth 2), `scripts/fw` front-door with `help`/`status`/`verify-docs` implemented + 5 phase-gated stubs, PR template, 2× issue templates, `docs/ops/backup-restore.md`. `fw verify-docs` + `fw status` both green
+- **2026-04-24: Phase 0 ✅ COMPLETE.** All 12 design docs resolved, 12 consolidated SPEC entries, 7 Phase-2 ADRs pre-seeded, ~33 pipeline-related SPEC tasks threaded across downstream phases, `/refresh-docs` green (6 findings fixed). Phase 1 🟡 Setup now active
+- 2026-04-24: Phase 0 — `/refresh-docs` pass fixed 6 findings including user-visible `{{ PROJECT_NAME }}` placeholder leak in `.claude/hooks/session-start.sh` (was showing literal template token in SessionStart banner every new session), plus state-dump script + statusline comment + design/README.md stale date + missing production-pipeline row + production-pipeline.md verifier-trip. Intentionally left: bootstrap placeholder source-of-truth + TECH_APPROACH §8.5 non-standard numbering
+- 2026-04-24: Phase 0 — production-pipeline planning pass landed (GPT-5.5 report). Authored `design/production-pipeline.md` with 5-tier workflow policy, 5-channel build policy, core-deliverable specs (golden replay corpus / save fixtures / content validator / `scripts/fw` / playtest ops / crash export / backup). Phase-2 production-pipeline ADR pre-seeded. ~33 pipeline-related SPEC tasks threaded across Phases 1/2/3/4/5/6/8. `TECH_APPROACH.md` §8.5 added
+- 2026-04-24: Phase 0 — `design/ui-vocabulary.md` open questions resolved; **all 11 design docs now locked**. Lint scope (code + content + rendered output), sentinel-ignore mechanism (no whole-file self-whitelist), Category-A expanded to 5 subsections absorbing bans from all prior 2026-04-24 resolutions, Category-B audited inline-exemption mechanism (audit before EA lock + RCs, not quarterly), flatter ~140-template commentary pool structure, British-football tone register default. Phase-1 lint task upgraded to full `scripts/lint-banned-terms.py`. Template governance folds into AI Content Compiler ADR (no new ADR)
+- 2026-04-24: Phase 0 — `design/worldbuilding.md` open questions resolved; nation locked as **Caldren** (Cresland fallback after lightweight clearance pass), 8 regions, pyramid 20/24/16/14/12/10=96 reframed as simulated-slice-not-entire-ecosystem, three cups (National all-tier + League Cup top-2 + Trophy tiers-3-6), compiler-only analogues with Phase-1 lint rule pre-seeded
+- 2026-04-24: Phase 0 — `design/player-generation.md` open questions resolved; 22-field internal model locked, 46-label phenotype catalog with 3 targeted edits, default-off advanced tooltip, canonical-JSON reproducibility, **ID-stability correction** (no pack-minor in entity IDs), authoritative affinity P(k) tables materialized here, category-level scout biases, regional-priors integration. Sixth Phase-2 ADR pre-seeded
+- 2026-04-24: Phase 0 — `design/breakthrough-moments.md` open questions resolved; cinema duration locked to 3-5s (default seed 3s), strict no-system-vocabulary rule, silent-first-near-miss anti-farming policy, regressive parity, pillar-tiebreaker live-fire-on-resolving-action-only rule. No new ADR (composes existing schemas)
+- 2026-04-24: Phase 0 — `design/scout-disagreement.md` open questions resolved; Month-4 feel-prototype spec locked (3 archetypes, hand-authored packets, staged-time ledger feedback, user-excluded pass criterion, one-remediation-pass ceiling to prevent rescue-loop). Fifth Phase-2 ADR pre-seeded — architecture slot reserved regardless of gate outcome
+- 2026-04-24: Phase 0 — `design/signatures.md` open questions resolved; Pillar-2 24-sig catalog locked with dependency metadata, #19 corrected to "stronger foot", #6 scoped as defensive_line. Affinity distribution tier-weighted. Multi-signature stacking uses field-level caps, not softmax. Counterplay via scout reports for observed sigs only. Fourth Phase-2 ADR pre-seeded
+- 2026-04-24: Phase 0 — `design/event-sourced-memory.md` open questions resolved; Pillar-1 ledger architecture locked (salience structure, CallbackTag schema with consuming-reader metadata, ~38-entry PascalCase event enum, three-tier compaction with per-season quota cap, load-time migration). Third Phase-2 ADR pre-seeded. Callback-age + player-attention clarified as reader-side modifiers (not emission-time) to reconcile with 2026-04-22 SPEC seed
+- 2026-04-24: Phase 0 — `design/semantic-cinema.md` open questions resolved; 7-shot vocabulary locked through Month-3 gate, ShotTypeSO schema drafted with chain_rules + reduce_motion_variant, rendering stack + typography locked (scoreline override: not Anton), two Phase-2 ADRs pre-seeded
+- 2026-04-24: Phase 0 — `design/match-engine.md` open questions resolved; ball-physics structure + steering-target movement + Month-3 in-match event scope locked. Numeric coefficients explicitly kept out of SPEC as tuning seeds
+- 2026-04-24: Phase 0 — `design/month-3-vertical-slice.md` open questions resolved; Month-3 gate parameters locked (match type / first-3 signatures / 3-min recording artifact / football-literate observer criterion / observer-pool fallback)
+- 2026-04-24: Phase 0 — `design/overview.md` open questions resolved; 4 pillar-level decisions locked via consolidated SPEC entry (nation framing / title / quickstart archetypes / pillar tiebreaker)
 - 2026-04-22: Project bootstrapped from blueprint v2; composed profile (sim-management + action-character + narrative trimmings); research scope active
 - 2026-04-22: 19 initial decisions logged to `SPEC.md` decisions log (append-only)
 - 2026-04-23: Codex review appended Q32.32 fixed-point decision and tightened Month-3 slice scope

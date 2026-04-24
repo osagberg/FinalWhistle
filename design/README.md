@@ -1,6 +1,6 @@
 ---
 description: Index of authoritative design docs for Final Whistle. Each doc follows the purpose / locked-decisions / MVP-boundary / deferred / open-questions / prototype-gate structure.
-last_verified: 2026-04-22
+last_verified: 2026-04-24
 ---
 
 # design/ — authoritative for intent
@@ -18,19 +18,22 @@ Every doc follows this structure:
 
 ## Index (this project)
 
-| File | System | Phase when locked |
+All 12 docs had their open-questions resolved during the Phase-0 consolidated 2026-04-24 resolution pass. "Open questions resolved" below tracks that milestone; Phase-2 ADR authoring lives in `SPEC.md` as separate tasks.
+
+| File | System | Open questions resolved |
 |---|---|---|
-| [`overview.md`](overview.md) | Game pillars, top-level experience, 4-bucket scope split | Phase 0 |
-| [`month-3-vertical-slice.md`](month-3-vertical-slice.md) | Brutal-minimum first-proof spec | Phase 0 |
-| [`match-engine.md`](match-engine.md) | MatchSim architecture, determinism, ball physics | Phase 2 |
-| [`semantic-cinema.md`](semantic-cinema.md) | 2D viewer 7-shot-type grammar | Phase 2 |
-| [`event-sourced-memory.md`](event-sourced-memory.md) | Career memory ledger, readers, compaction | Phase 2 |
-| [`signatures.md`](signatures.md) | 24-signature catalog, 3 per role family | Phase 2 |
-| [`scout-disagreement.md`](scout-disagreement.md) | Scout-bias system spec; Month-4 feel-gate spec | Phase 2 |
-| [`breakthrough-moments.md`](breakthrough-moments.md) | Match-flow cinematic development-change triggers | Phase 2 |
-| [`player-generation.md`](player-generation.md) | Internal gene model + Identity Packet compiler | Phase 2 |
-| [`worldbuilding.md`](worldbuilding.md) | Fictional nation, pyramid structure, cultural priors | Phase 2 |
-| [`ui-vocabulary.md`](ui-vocabulary.md) | Banned-terms lint + approved football-native phrasing | Phase 2 |
+| [`overview.md`](overview.md) | Game pillars, top-level experience, 4-bucket scope split | Phase 0 / 2026-04-24 |
+| [`month-3-vertical-slice.md`](month-3-vertical-slice.md) | Brutal-minimum first-proof spec | Phase 0 / 2026-04-24 |
+| [`match-engine.md`](match-engine.md) | MatchSim architecture, determinism, ball physics | Phase 0 / 2026-04-24 |
+| [`semantic-cinema.md`](semantic-cinema.md) | 2D viewer 7-shot-type grammar | Phase 0 / 2026-04-24 |
+| [`event-sourced-memory.md`](event-sourced-memory.md) | Career memory ledger, readers, compaction | Phase 0 / 2026-04-24 |
+| [`signatures.md`](signatures.md) | 24-signature catalog, 3 per role family | Phase 0 / 2026-04-24 |
+| [`scout-disagreement.md`](scout-disagreement.md) | Scout-bias system spec; Month-4 feel-gate spec | Phase 0 / 2026-04-24 |
+| [`breakthrough-moments.md`](breakthrough-moments.md) | Match-flow cinematic development-change triggers | Phase 0 / 2026-04-24 |
+| [`player-generation.md`](player-generation.md) | Internal gene model + Identity Packet compiler | Phase 0 / 2026-04-24 |
+| [`worldbuilding.md`](worldbuilding.md) | Fictional nation (Caldren), pyramid structure, cultural priors | Phase 0 / 2026-04-24 |
+| [`ui-vocabulary.md`](ui-vocabulary.md) | Banned-terms lint + approved football-native phrasing | Phase 0 / 2026-04-24 |
+| [`production-pipeline.md`](production-pipeline.md) | CI/CD tiers, runner policy, build channels, release gates | Phase 0 planning pass / 2026-04-24 |
 
 ## Future docs (added when trigger hits)
 

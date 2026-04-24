@@ -1,7 +1,7 @@
 ---
 description: 24-signature catalog. 3 per role family. Football-readable behaviors + trigger conditions + sim bias + presentation recipe + counterplay.
-last_verified: 2026-04-22
-status: scaffolded; awaiting Phase 2 catalog draft
+last_verified: 2026-04-24
+status: Phase 0 open questions resolved; 24-sig catalog locked with dependency metadata, #19 + #6 edits applied, field-level stacking, tier-weighted affinity distribution, scout-report counterplay surface. One Phase-2 ADR pre-seeded.
 ---
 
 # Signatures — player identity as learned match actions
@@ -37,13 +37,13 @@ See SPEC.md 2026-04-22. Summary:
 
 1. **Commands his area** — comes for every cross within 6-yard-box range; sim bias: +cross-claim probability; trigger: consecutive successful claims builds readiness; counterplay: attackers drag GK with decoy runs
 2. **Fast long release** — throws long to winger within 2 seconds of possession; sim bias: +transition-trigger; trigger: fast-break situations played; counterplay: press the release target
-3. **Reads the set piece** — positions 1-2 yards off typical for corner kicks, times reaction 0.2s earlier; sim bias: +set-piece save prob; trigger: successful set-piece reads accumulate
+3. **Reads the set piece** — positions 1-2 yards off typical for corner kicks, times reaction 0.2s earlier; sim bias: +set-piece save prob; trigger: successful set-piece reads accumulate; depends on: Phase-4 set pieces
 
 ### Centre-back (3)
 
 4. **Front-foot interception** — steps out of line to intercept through-ball; sim bias: +interception pre-commitment; trigger: successful interceptions in risky zones; counterplay: run-in-behind variations
-5. **Back-post header** — attacks back post on attacking set pieces; sim bias: +xG on back-post crosses; trigger: time in final third on set plays; counterplay: mark back post tightly
-6. **Calls the line** — co-ordinates offside trap, triggers line pushes; sim bias: +defensive-shape coherence for partners; trigger: minutes as captain / vocal role
+5. **Back-post header** — attacks back post on attacking set pieces; sim bias: +xG on back-post crosses; trigger: time in final third on set plays; counterplay: mark back post tightly; depends on: Phase-4 set pieces
+6. **Calls the line** — co-ordinates offside trap, triggers line pushes; sim bias: +defensive-shape coherence for partners; **scope:** `defensive_line` (authored from one player's identity, effect applies to the defensive unit — not a global team buff); trigger: minutes as captain / vocal role; depends on: Phase-4 shape-coherence scoring
 
 ### Full-back / wing-back (3)
 
@@ -54,7 +54,7 @@ See SPEC.md 2026-04-22. Summary:
 ### Defensive / holding midfielder (3)
 
 10. **Screens the back four** — positions between attack and defense, intercepts shifted-ball; sim bias: +anticipation in half-space; trigger: minutes in DM role with coaching emphasis; counterplay: play around via wingbacks
-11. **Tactical foul recognition** — commits smart fouls to stop counters; sim bias: +foul in transition; trigger: yellow-but-not-red discipline history; counterplay: free-kick specialist in opposition
+11. **Tactical foul recognition** (UI copy: *"Stops counters early"*) — commits smart fouls to stop counters; sim bias: +foul in transition; trigger: yellow-but-not-red discipline history; counterplay: free-kick specialist in opposition; depends on: Phase-4 fouls + cards
 12. **Breaks lines** — passes vertically through press lines; sim bias: +line-breaking-pass freq; trigger: minutes in possession-system team; counterplay: tight press on DM
 
 ### Central midfielder (3)
@@ -71,7 +71,7 @@ See SPEC.md 2026-04-22. Summary:
 
 ### Winger (3)
 
-19. **Cuts inside on weaker foot** — drives from outside to inside to shoot / pass; sim bias: +cut-inside trigger freq; trigger: minutes in inverted-winger role; counterplay: show him down the line
+19. **Cuts inside onto his stronger foot** — drives from outside to inside to shoot / pass (inverted winger on the opposite flank from stronger foot); sim bias: +cut-inside trigger freq; trigger: minutes in inverted-winger role; counterplay: show him down the line
 20. **Low cutback from the byline** — drives outside and cuts the ball back low from the byline; sim bias: +cutback chance after successful wide carry; trigger: byline entries as winger; counterplay: double up wide and protect penalty spot
 21. **Takes the fullback on 1v1** — isolation dribble; sim bias: +1v1-duel win rate; trigger: 1v1 duel history; counterplay: double-team
 
@@ -91,37 +91,100 @@ See SPEC.md 2026-04-22. Summary:
 
 ## Signature data shape (Phase 2 lock)
 
+Full schema + content-pack grouping + stacking-policy-per-field finalized in Phase-2 ADR (see SPEC).
+
 ```
 Signature {
-    id: stable string
+    id: ContentPackQualifiedId            // stable, mod-safe
     role_family: enum
-    display_name: football-copy text ("Looks for early crosses")
-    ui_description: short text ("Delivers cross before reaching byline")
+    display_name: football-copy text      // "Looks for early crosses" — player-facing
+    ui_description: short text            // "Delivers cross before reaching byline"
+
+    scope: enum {                          // what the signature's effect reaches
+        player,                            // default: self-only
+        defensive_line,                    // e.g. #6 "Calls the line"
+        press_unit,                        // e.g. #15 "Press trigger"
+        set_piece_context                  // e.g. #3, #5
+    }
+
+    dependencies: [SystemDependency]       // scheduling metadata, not gameplay
+    // e.g. { system: "set_pieces", min_phase: 4 }
+    //      { system: "fouls_and_cards", min_phase: 4 }
+    //      { system: "defensive_shape_coherence", min_phase: 4 }
+
+    readiness_threshold: f32 [0,1]         // default 0.85 via project-wide constant;
+                                           // per-signature override allowed
+
     trigger_conditions: [  // all AND'd
-        { kind: "minutes_in_role", role: "WB", threshold: 900 }
-        { kind: "event_count", event: "successful_early_cross", threshold: 8 }
+        { kind: "minutes_in_role", role: "WB", threshold: 900 },
+        { kind: "event_count", event_class: SignatureExecuted_Candidate, threshold: 8 }
     ]
-    sim_bias: {  // numerical biases applied to MatchSim when signature active
-        early_cross_freq: +0.15
-        xA_from_deep: +0.08
-    }
+
+    sim_bias: [   // list of field-level effects, each with a stacking policy
+        {
+            field: "early_cross_freq",
+            delta: +0.15,
+            stacking: {
+                mode: enum { additive, additive_with_diminishing_returns },
+                min_delta: -0.50,          // hard lower cap regardless of stacks
+                max_delta: +0.50,          // hard upper cap regardless of stacks
+                diminishing_curve: optional // e.g. { per_additional_stack: 0.5 }
+            }
+        },
+        // ...
+    ]
+
     execution_modifier: {  // how ball physics is biased during signature execution
-        curve_multiplier: 1.2
-        power_variance: -0.05  // more consistent
+        curve_multiplier: 1.2,
+        power_variance: -0.05              // more consistent
     }
+
     presentation_recipe: {
-        shot_type_preference: ["player-isolation", "pass-shot-impact"]
-        overlay_text_bank: [  // for stake-modulated selection
+        shot_type_preference: ["player-isolation", "pass-shot-impact"],
+        overlay_text_bank: [                // for stake-modulated selection
             "He looks for the early ball.",
             "Cross comes in before the byline.",
             "He whips it in first time."
         ]
     }
+
     counterplay: [
         { kind: "team_instruction", instruction: "Block crosses inside 18" }
     ]
 }
 ```
+
+## Signature stacking policy
+
+When a player awakens 2+ signatures whose `sim_bias` entries target the same MatchSim field, effects **stack under the field's stacking policy** — not under a single generic rule.
+
+**Rules:**
+1. **Additive by default.** Each active signature contributes its `delta` to the field's running total.
+2. **Diminishing returns where tagged.** Fields prone to runaway (`first_time_finish_xG`, `1v1_duel_win_rate`) declare `additive_with_diminishing_returns` with a `diminishing_curve` that de-weights each additional stack.
+3. **Hard per-field caps.** Every `sim_bias` field declares `min_delta` + `max_delta` bounds. The summed post-stacking value is clamped to those bounds. No signature configuration — no matter how many awaken — can push a field past its cap.
+4. **No hand-authored conflict rules at MVP.** Two signatures that logically disagree both fire under their own trigger contexts; the player behaves as each context dictates. Phase-6 balance harness flags any overlap that reliably breaks the game; narrow conflict rules are added then, not now.
+5. **Balance-harness CI check:** every `sim_bias` field gets a sweep across plausible signature-overlap configurations; fields that breach caps without clamping or produce dominant strategies are flagged.
+
+**Why not softmax:** softmax is a categorical-probability tool; we need scalar clamping per field, not probability normalization. Field-level caps are more debuggable and explicitly list-authored per signature field.
+
+## Affinity distribution (cross-doc: see `design/player-generation.md`)
+
+Each generated player's Identity Packet rolls `affinity_count ∈ {0, 1, 2, 3}` with a **power-law tail** — most players have 1 affinity, rare players have 3.
+
+**The roll is tier-weighted, not uniform:**
+
+- **Top-flight starters** rarely roll 0. Zero-affinity players are not supposed to feel like everyday Premier-equivalent players.
+- **Lower-tier players, depth squads, late-career journeymen, low-ceiling generated cohorts** carry the bulk of the 0-affinity mass.
+- **3-affinity players are rare across every tier** — they're the once-in-a-generation players the ledger remembers forever.
+
+**Phase-6 tuning seeds (NOT SPEC — authoritative in `design/player-generation.md`):**
+| Cohort | P(0) | P(1) | P(2) | P(3) |
+|---|---|---|---|---|
+| Top-flight starter | 0.02 | 0.60 | 0.32 | 0.06 |
+| Mid-tier starter | 0.08 | 0.62 | 0.25 | 0.05 |
+| Lower-tier / depth / journeyman | 0.20 | 0.60 | 0.18 | 0.02 |
+
+Overall population P(0) ≈ 0.10 falls out of the weighted distribution without forcing top-flight rosters to feel signatureless.
 
 ## MVP boundary
 
@@ -138,13 +201,19 @@ At Month 12 EA: all 24 signatures authored, balance-harness-tuned, UI copy revie
 - Per-signature unique cinematics beyond shot-type mapping — no, they use the 7-shot vocabulary
 - Composable signature atoms — rejected
 
-## Open questions (Phase 2 lock)
+## Resolved (2026-04-24)
 
-1. **Exact signature catalog** — above is draft proposal; user review required before Phase 2 lock.
-2. **Latent-affinity count per player** — 1-3 signature affinities per Identity Packet; what decides the count? Proposal: internal gene model weights (see `player-generation.md`).
-3. **Multi-signature interaction** — when a player awakens 2-3 signatures over a career, do they compound or conflict? Proposal: compound with diminishing returns; no hard conflict rules at MVP.
-4. **Readiness thresholds** — default 0.85; per-signature tuning via balance harness?
-5. **Counterplay surfacing** — how is counterplay revealed to the player? Opponent scout reports? Tactical opposition-analysis UI? Recommend scout reports at MVP.
+See SPEC.md decisions log entry `2026-04-24 — Signature system open questions resolved`. Phase-2 ADR pre-seeded.
+
+1. **24-signature catalog locked** with dependency metadata. No rotations. Two catalog edits applied:
+   - **#19** → "Cuts inside onto his stronger foot" (was "weaker foot" — football-wrong for inverted winger)
+   - **#6 Calls the line** scoped as `defensive_line`, not a global team buff — authored from one player's identity, effect applies to the unit
+   - **#11** alternate player-facing copy *"Stops counters early"* noted for internal name "Tactical foul recognition"
+   - **Dependency tags on #3, #5, #6, #11** — scheduling metadata for Phase-4+ system availability (set pieces, fouls/cards, defensive-shape coherence). Not a reason to weaken the 24.
+2. **Affinity distribution** follows a **power-law tail weighted by generation tier** (cohort, age, role, ceiling). See the "Affinity distribution" section above. Zero-affinity players cluster in lower tiers, depth squads, late-career journeymen — not top-flight starters.
+3. **Multi-signature stacking** uses **field-level capped policies**, NOT a generic softmax. Each `sim_bias` field declares additive vs additive-with-diminishing-returns mode + hard `min_delta` / `max_delta` caps. Balance harness sweeps for broken overlaps in Phase 6. No hand-authored conflict rules at MVP.
+4. **Readiness threshold** — rule locked (default threshold with per-signature override, tuned by balance harness). Numeric default (`0.85`) is a design-doc starting value, NOT SPEC-locked.
+5. **Counterplay surfaces through scout reports** — and ONLY for **observed / scouted signatures**, never latent affinities. Works with the Scout Disagreement system if it passes the Month-4 gate, and with basic scouting (simpler certainty levels) if it doesn't. Same scout-report UI surface either way.
 
 ## Prototype gate
 

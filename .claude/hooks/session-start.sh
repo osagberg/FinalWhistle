@@ -16,7 +16,7 @@ set -u
 ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 cd "$ROOT" 2>/dev/null || exit 0
 
-echo "=== {{PROJECT_NAME}} — session context ==="
+echo "=== Final Whistle — session context ==="
 
 # --- Active phase (SPEC.md) ---------------------------------------------
 if [ -f "$ROOT/SPEC.md" ]; then

@@ -1,7 +1,7 @@
 ---
 description: Fictional nation, pyramid structure, cultural priors, naming grammar. The bake-time inputs that make the generated world feel credible.
-last_verified: 2026-04-22
-status: scaffolded; awaiting Phase 2 nation lock
+last_verified: 2026-04-24
+status: Phase 0 open questions resolved; nation locked as Caldren (Cresland fallback), 8 regions, 96-club MVP slice with tier distribution 20/24/16/14/12/10, three-cup structure, compiler-only analogue strings with Phase-1 lint. No new ADR (RegionPriors covered by AI Content Compiler ADR).
 ---
 
 # Worldbuilding — fictional nation + football structure
@@ -24,17 +24,33 @@ See SPEC.md 2026-04-22. Summary:
 
 A single fictional nation. England-scale (population 50-60M-analog), coastal + inland, mixed urban-industrial + rural. Football is the dominant sport, culturally central. Modern-era setting (present-day-adjacent).
 
-### Nation naming — user to lock
+### Nation name — Caldren (locked 2026-04-24; Cresland fallback)
 
-Proposals (no preferred pick; user choice):
+**Locked: Caldren.** Reads as a grounded fictional football nation, supports clean league/cup naming, and avoids awkward demonym forms.
 
-1. **Anvara** — invented word, vaguely Northern European; does not map to real place
-2. **Wellingsham** — invented but English-sounding compound
-3. **The Reach** — neutral territorial name (no "kingdom" framing); England-readable
-4. **Cresland** — invented compound; coastal-feeling
-5. **[no nation name]** — game says "the league" in UI; nation's name only appears in lore flavor
+Football-sentence examples:
+- *Caldren Premier Division*
+- *Caldren National Cup*
+- *Caldren Football Association*
+- *"a lower-tier club from western Caldren"*
+- *"Caldren clubs have always favoured direct wide play"*
 
-Recommend #5 or #3. Avoids try-hard fantasy while keeping football grammar clean.
+Demonym: **Caldren** (uninflected — avoids awkward "Creslish" / "Anvaran" / "Wellinghamite" forms).
+
+**Fallback:** Cresland — acceptable if formal trademark / Steam-name clearance against Caldren fails during Phase-8 launch prep. Cresland has known low-noise uses (Cresland Development Group, CRESLAND LTD, Cresland/Crescent Island portfolio) but is clear enough for in-game setting context.
+
+**Rejected candidates (lightweight clearance-pass findings, 2026-04-24):**
+- `Anvara` — active ad-marketplace brand; reads fantasy/startup-slick
+- `Wellingsham` — reads as a town/city within a nation, not a nation itself
+- `The Reach` — trademark noise + obvious Halo association + region/territorial framing rather than nation
+- `Haldren` / `Keldren` — stronger sound but read more fantasy-RPG than football sim
+- `Brisland` — plausible grammar, too soft and surname-adjacent
+- `Northmere` — active software / licensing noise
+- `Rivermark` — trademark noise
+- `Valmere` — existing Steam publisher
+- `[no nation name]` — ruled out by 2026-04-24 overview resolution requiring a **named** fictional nation
+
+**Scope caveat:** Caldren is in-game setting context, not Steam-page branding. Formal legal clearance deferred to Phase-8 prep alongside the "Final Whistle" title clearance.
 
 ### Regional structure (draft)
 
@@ -51,22 +67,30 @@ Recommend #5 or #3. Avoids try-hard fantasy while keeping football grammar clean
 | The Far North | Newcastle / Edinburgh analog | Fierce parochial support; older player cultures |
 | Offshore islands | Jersey / Isle-of-Man analog | Footnote regions; "discovered unknown from the islands" flavor |
 
-### Pyramid structure (locked)
+### Pyramid structure (locked 2026-04-24)
 
-Six tiers:
+Six tiers. **The 96-club total is the fully simulated slice, not the entire off-screen Caldren football ecosystem.** The broader lower pyramid exists abstractly — referenced in lore, in scout flavour ("he came up through the Tier-7 Southern Counties league"), and in occasional ledger events — but is not simulated match-by-match.
 
-| Tier | Name (locked: football-native) | Size | Status |
-|---|---|---|---|
-| 1 | Top flight | 20 clubs | Full professional |
-| 2 | Championship (or equivalent football-native name) | 24 clubs | Full professional |
-| 3 | Tier 3 (name TBD) | Phase 2 lock | Semi-professional split or single league |
-| 4 | Tier 4 | Phase 2 lock | Semi-pro / amateur mixed |
-| 5 | Regional leagues | Phase 2 lock | Amateur-ish |
-| 6 | Sub-regional leagues | Phase 2 lock | Non-league |
+| Tier | Name (football-native; final naming at Phase 6 bake) | Clubs | Status | Structure |
+|---|---|---|---|---|
+| 1 | Caldren Premier Division | 20 | Full professional | Single league |
+| 2 | Championship-equivalent (Caldren-native name TBD) | 24 | Full professional | Single league |
+| 3 | Tier-3 name TBD | 16 | Semi-professional | Single league |
+| 4 | Tier-4 name TBD | 14 | Semi-professional | Single league |
+| 5 | Regional leagues | 12 | Amateur-ish | 2 × 6 regional splits |
+| 6 | Sub-regional / feeder | 10 | Non-league | Feeder / reserve pool |
 
-Promotion / relegation between tiers per typical English-football patterns. Cup competitions: one national cup, one league cup, one smaller-tier-club cup.
+**Total: 96** fully simulated clubs for EA content pack v1.
 
-**Total clubs in EA content pack v1:** target ~96 fully simulated clubs. Exact tier distribution is not locked here because the earlier 20 + 24 + split-tier arithmetic overshoots the content target. Phase 2 must choose either smaller fictional tiers or lightweight lower-tier feeder pools, then update this table.
+**Promotion / relegation:**
+- Tier 1 ↔ Tier 2: 3 up / 3 down (top-flight tempo)
+- Tiers 2 ↔ 3, 3 ↔ 4, 4 ↔ 5, 5 ↔ 6: 2 up / 2 down (slower churn, identity stickiness for lower-tier clubs)
+- Finalise at Phase 6 if playtesting demands adjustment
+
+**Small-tier season format** — flagged as Phase-6 decision point:
+- Tier 5's 2×6 regional split = 10 home/away matches per team per season at pure round-robin. That's too thin for a full-season rhythm.
+- Options: **(a)** repeat fixtures (home/away × 3 → 30 matches), **(b)** add a lightweight cross-group phase (top 2 of each group play knockout after regular season), or **(c)** run shorter concurrent seasons for lower tiers that end mid-year.
+- Not locked at Phase 0 — Phase 6 picks based on bake-test feel.
 
 ## Cultural priors (AI Content Compiler seeding)
 
@@ -124,13 +148,41 @@ At Month 12 EA: full ~96 clubs × 8 regions with cultural-prior seeding. Every c
 - International national-team management — post-1.0
 - Deep historical seeding (multiple decades of fictional history) — gradual through EA+
 
-## Open questions (Phase 2 lock)
+## Cup competitions (locked 2026-04-24)
 
-1. **Nation name (above proposals)** — user picks or supplies alternative.
-2. **Region count** — 6 vs 8 vs more? Recommend 8 as target for variety without content bloat.
-3. **Pyramid tier-count exactness** — 6 is locked. Exact club counts per tier TBD during Phase 6 bake.
-4. **Cup competition structure** — FA-Cup-analog all-tiers vs restricted? Recommend all-tiers (classic underdog narrative).
-5. **Real-world parallels in flavor** — how explicit? Is "The North" openly an industrial-north analog, or more distant? Recommend loose — mention flavor only to the Compiler; user-facing world is not on-the-nose.
+Three cups. English-football-pattern.
+
+| Cup | Eligibility | Narrative role |
+|---|---|---|
+| **National Cup** (FA-analog) | All 96 clubs, all 6 tiers | The underdog cup. Tier-6 giant-killing runs are a memory-pillar jackpot. |
+| **League Cup** (EFL-Cup-analog) | Top 2 tiers only (44 clubs) | Mid-stakes silverware. Rotation-friendly. |
+| **Trophy** (EFL-Trophy-analog) | Tiers 3-6 (52 clubs) | Lower-tier silverware. Gives small clubs a chance at their own Wembley moment. |
+
+All-tier National Cup is essential: memory-pillar giant-killing runs from a Tier-6 club to a top-flight semi-final is one of the few ways a lower-tier save can produce an event that rivals a top-tier title. Restricting the main cup would flatten that.
+
+Trophy is low engineering cost relative to the narrative value it provides lower-tier saves — kept in scope.
+
+## Real-world-parallel flavour (locked: compiler-only; no user-facing leakage)
+
+The region analog column in the region-structure table (Manchester / Leeds / London / etc.) is **compiler-seeding context only** — never rendered to the user.
+
+**Rules:**
+- User-facing surfaces (scout reports, commentary, press, region names in-game) refer to Caldren regions by their **in-game fictional names** (finalised at Phase-6 bake).
+- The `RegionPriors` `region_id` is the stable enum the runtime uses; the real-world analog string is a **compiler-config-only annotation** that never ships in runtime content packs.
+- Ideal storage: analogue strings live in `dev-config/compiler/region-analogues.json` or equivalent, gitignored-from-runtime-build. Never in the shipped content pack payload.
+- **Phase-1 lint rule (required):** scan runtime content packs + all user-facing string tables for any of the analogue-column strings (`"Manchester"`, `"Leeds"`, `"London"`, `"Cardiff"`, `"Bristol"`, `"Brighton"`, etc.). Any match = build failure. Prevents Uncanny-Valley England leakage.
+
+Flavour priors that DO ship: `physical_priors`, `mental_priors`, `technical_priors`, `dominant_role_families`, `stylistic_tendencies`, `naming_club_patterns`. None of these reference real places.
+
+## Resolved (2026-04-24)
+
+See SPEC.md decisions log entry `2026-04-24 — Worldbuilding open questions resolved`. No new ADR — `RegionPriors` schema governance is covered by the existing Phase-2 `IdentityPacket / AI Content Compiler` ADR.
+
+1. **Nation name:** **Caldren** (locked; Cresland fallback if Phase-8 clearance fails). See "Nation name" section above.
+2. **Region count:** **8 regions locked.** Internal analog table preserved as compiler-seeding context; user-facing names fictionalised at Phase-6 bake.
+3. **Pyramid tier distribution:** **20 / 24 / 16 / 14 / 12 / 10 = 96** fully simulated clubs for EA v1. This is the simulated slice, not the entire Caldren football ecosystem — the broader lower pyramid exists abstractly off-screen. Small-tier season format (pure round-robin vs repeat fixtures vs cross-group phase) flagged as Phase-6 decision point.
+4. **Cup structure:** **three cups locked.** All-tier National Cup + top-2-tier League Cup + Tiers-3-6 Trophy.
+5. **Real-world parallel explicitness:** **loose; compiler-only.** Analogue strings are dev-config-only and never ship. Phase-1 lint rule blocks runtime leakage.
 
 ## Prototype gate
 

@@ -1,7 +1,7 @@
 ---
 description: MatchSim architecture, determinism discipline, ball physics spec. Canonical source for "how does a match simulate?"
-last_verified: 2026-04-22
-status: scaffolded; awaiting Phase 2 lock
+last_verified: 2026-04-24
+status: Phase 0 open questions resolved; ball-physics structure, movement primitive, in-match event scope locked. Numeric coefficients live in this doc as Phase-3 tuning seeds, not SPEC commitments.
 ---
 
 # Match Engine — MatchSim + Ball Physics
@@ -44,37 +44,73 @@ At Month 12 EA:
 - Networked sim — no (single-player game)
 - Advanced injury modeling (Physical Load as Narrative Debt) — Phase 7+ polish
 
-## Open questions (Phase 2 lock)
+## Resolved (2026-04-24)
 
-### Q1: Fixed-point format
+See SPEC.md decisions log entry `2026-04-24 — Match-engine open questions resolved`.
 
-**Q16.16** (32-bit): ±32,768 integer range, ~1.5e-5 precision. Sufficient for pitch coordinates (m) and velocity. Risk: tight on position × velocity multiplication overflow.
+### Q1 — Fixed-point format
 
-**Q24.8** (32-bit): ±8,388,608 integer range, ~4e-3 precision. Ample range; coarser precision. Risk: sub-cm positioning may feel snap-grid.
+**Q32.32 remains canonical** per SPEC 2026-04-23. No new decision; this section preserved for context.
 
-**Q32.32** (64-bit): both wide range + fine precision. Cost: 64-bit math perf on all platforms (fine on 64-bit ARM + x86).
+- Q16.16 rejected: position × velocity multiplication overflow risk.
+- Q24.8 rejected: ~4e-3 precision too coarse for ball/trajectory work.
+- Q32.32 accepted: wide range + fine precision; 64-bit math performant on all target 64-bit platforms.
 
-**Locked default: Q32.32** for canonical sim state. Football coordinates, velocities, curve forces, and trajectory math need range and precision more than they need 32-bit compactness. Revisit only if Phase 3 profiling proves fixed-point math is the bottleneck after algorithmic cleanup.
+Revisit only if Phase 3 profiling proves fixed-point math is the bottleneck after algorithmic cleanup.
 
-### Q2: Ball physics model complexity
+### Q2 — Ball physics: structure locked, coefficients are Phase-3 tuning seeds
 
-**Minimum viable:** position + velocity + spin vector; update per tick with gravity + air drag + Magnus force when spin > 0; collision with ground (bounce energy coefficient 0.4-0.6), players (possession check), goal (score detection), touchlines.
+**Structure (locked):**
 
-**Stretch:** bounce coefficient varies with pitch state (dry/wet); stadium altitude affects air density; ball-specific models (different ball SOs for cup final vs league vs weather-affected).
+- Ball state: `position` (Q32.32 vec3), `velocity` (Q32.32 vec3), `spin` (Q32.32 vec3, zero unless a signature / action imparts spin).
+- Integrator: **semi-implicit Euler at fixed 60Hz step.**
+- Forces applied each step:
+  - **Gravity** — `F_g = (0, -g, 0)`.
+  - **Linear air drag** — `F_d = -C_d · v`.
+  - **Magnus (optional)** — `F_m = C_m · (spin × v)`, applied only when `|spin| > 0`.
+- Collisions:
+  - **Ground** — bounce energy coefficient `e` on vertical velocity component; rolling friction reduces horizontal velocity when `position.y ≈ 0` and `|v| > 0`.
+  - **Player** — radius-based possession check only. No rebound energy model at Month 3.
+  - **Goal** — line-cross vs goal-plane. No post-hit stochastics at Month 3.
+  - **Touchline** — state transition to throw-in / corner / goal-kick; no crowd interaction.
 
-**Recommend minimum viable at Phase 3.** Stretch behaviors added only when balance harness or player feedback demonstrate the simple model feels wrong.
+**Magnus stub policy:** the Magnus term is **structurally present from Month 3**. If the Month-3 gate observers describe curve-driven moments as noisy / unreadable, the Magnus coefficient may be run at zero for the gate build. Phase 4 re-enables and tunes it for curve-dependent signatures. The structure stays; only the coefficient may be zeroed for the gate.
 
-### Q3: Player movement primitive
+**Coefficients (Phase-3 starting tuning seeds — NOT locked design truth):**
 
-**Option A:** continuous force integration (accelerations + max-speed caps) — physics-feeling, may be noisy, fits 60Hz tick.
+> These are fixed-step tuning constants assuming the 60Hz simulation step. They are **not physical SI-unit coefficients** and will be re-derived if the tick rate ever changes. Expect to re-tune these in Phase 3 Week 1 once the first match is watchable.
 
-**Option B:** steering-target model (player has desired position + speed; actuator model moves toward it; BT controls desired) — more readable, easier to tune, may feel arcade.
+| Symbol | Initial seed | Meaning |
+|---|---|---|
+| `g` | 9.81 m/s² (Q32.32) | gravitational acceleration |
+| `C_d` | 0.02 / step | linear drag coefficient applied each 60Hz step |
+| `C_m` | 0.0004 / step | Magnus coupling applied each 60Hz step |
+| `e` | 0.55 | vertical bounce energy retention (0-1) |
+| `μ_step` | 0.25 / step | rolling friction: `v_horizontal *= (1 - μ_step)` each step while rolling |
 
-**Recommend Option B** for Month-3 slice; evaluate against Option A during Phase 3 prototyping if feel is too mechanical.
+**Deferred stretch (Phase 4+):** pitch-state-modulated bounce (wet/dry), altitude-affected air density, ball-specific ScriptableObjects (cup-final vs league vs weather), post-hit stochastic deflection, collision rebound-energy model.
 
-### Q4: Substitution + in-match events
+### Q3 — Player movement: steering-target actuator
 
-At Month 3 slice: no substitutions, no injuries mid-match, no fouls system. These surface in Phase 4-5. Lock that simplification in the slice spec.
+**Locked:** BT outputs `desired_position` and `desired_speed` per tick. A deterministic fixed-point actuator applies **acceleration, deceleration, turn-rate, and max-speed caps** toward the target.
+
+The actuator is a small physical model — this decision does **not** forbid internal force-integration inside the actuator. What it forbids is **dual-authoritative movement** (e.g., BT force-integration running alongside actuator cap logic). One authority over a player's movement per tick.
+
+**Exit clause:** switching to continuous force integration (Option A — BT directly outputs forces, no steering-target layer) requires a **new append-only SPEC decision or ADR citing this one.** No silent flip during Phase 3 prototyping.
+
+### Q4 — In-match event scope
+
+**Month-3 slice:** NO substitutions, NO injuries, NO fouls, NO cards, NO stoppage time, NO VAR. Full continuous 90 in-game minutes; all 22 starters remain on pitch start-to-finish.
+
+**Phase 4 introduction order (locked):**
+
+1. **Fouls + basic set pieces** — several signatures depend on set-piece context for counterplay.
+2. **Cards** — tightly coupled to fouls, but separate task / separate decision point.
+3. **Substitutions** — surfaces manager-decision ledger events; required for Phase-5 transfer-market prototype compatibility.
+4. **Basic injuries** — seeds the Physical Load as Narrative Debt data shape; full surfacing system is Phase 7+ polish.
+5. **Stoppage time** — ordered last because it needs real event stoppages (fouls, cards, subs, injuries) to count; high-salience late-goal ledger emission.
+
+**VAR deferred indefinitely.** Fictional league; "review" flavor may be added post-EA if audience signal requests. Not on the MVP path.
 
 ## Prototype gate
 

@@ -1,7 +1,7 @@
 ---
 description: Internal gene model + Identity Packet compiler. How bake-time generation produces specific, football-coherent players without surfacing a "gene" UI.
-last_verified: 2026-04-22
-status: scaffolded; awaiting Phase 2 internal-model lock
+last_verified: 2026-04-24
+status: Phase 0 open questions resolved; 22-field model locked, 46-label phenotype catalog authored, affinity P(k) tables materialized, ID strategy corrected to not encode minor pack versions. One Phase-2 ADR pre-seeded.
 ---
 
 # Player Generation — internal model + Identity Packet
@@ -178,13 +178,131 @@ At Month 12 EA: full content pack v1 compiled (~2000-2400 players across 96 club
 - Per-player generated portraits (GPT Image 2 at bake time) — Phase 6 or 7 polish
 - 3D player models — deferred indefinitely
 
-## Open questions (Phase 2 lock)
+## Resolved (2026-04-24)
 
-1. **Internal gene model size** — 22 fields sufficient? Overkill? Recommend lock at 22 for MVP.
-2. **Phenotype label catalog** — how many distinct labels? Recommend 30-50 for variety without becoming dense.
-3. **Advanced tooltip numeric exposure** — default off, power-user toggle on. Confirm.
-4. **Compiler reproducibility across model versions** — Claude Opus 4.7 is current; if 4.8 ships, same prompt+seed may produce different text. Strategy: freeze model version per content pack version; checked-in JSON is canonical; don't regenerate on model updates unless pack_version bumps.
-5. **Content pack delta strategy** — how do we add 500 new players in content pack v1.1 without breaking v1 save compat? Strategy: new IDs in delta pack; v1 IDs never mutate; savefile references by ID, resolver falls back to base pack for unresolved IDs.
+See SPEC.md decisions log entry `2026-04-24 — Player-generation open questions resolved`. One Phase-2 ADR pre-seeded.
+
+### Q1 — Internal gene model size
+
+**Locked at 22 fields across 4 categories:** 7 physical + 6 mental + 5 technical + 4 narrative-flag. Growth requires a schema bump, not organic drift.
+
+### Q2 — Phenotype label catalog (46 locked for MVP, ceiling 50)
+
+Stable content-pack-qualified enum. Labels are filter keys for scouts + commentary + UI surfacing. **No stigmatizing framing; no systemic/mechanics vocabulary; PEGI-safe.**
+
+**Physical (7):**
+`Explosive First Step`, `Relentless Engine`, `Aerial Presence`, `Agile Pivot`, `Slow Starter`, `Late-Career Peak`, `Quick Recovery`
+
+**Mental (8):**
+`Reads the Game`, `Composed Under Pressure`, `Decisive in the Box`, `Struggles Under Scrutiny`, `Slow to Adapt`, `Grows Into Games`, `Ambitious`, `Loyal`
+
+**Technical (6):**
+`Set-Piece Natural`, `Strong Left Foot`, `Pure Finisher`, `Silken First Touch`, `Powerful Ball Striker`, `Aerial Threat`
+
+**Development (3):**
+`Late Bloomer`, `Early Developer`, `Steady Progressor`
+
+**Role-specific (22):**
+
+| Role family | Labels |
+|---|---|
+| Goalkeeper | `Sweeper Keeper`, `Line Keeper`, `Cross Claimer` |
+| Centre-back | `Ball-Playing Defender`, `Stopper`, `Cover Defender` |
+| Full-back / wing-back | `Overlapping Full-Back`, `Inverted Full-Back`, `Wing-Back Runner` |
+| Defensive midfielder | `Anchor Man`, `Ball-Winning Midfielder`, `Pressing Midfielder` |
+| Central midfielder | `Tempo Setter`, `Box-to-Box` |
+| Attacking midfielder / #10 | `Playmaker`, `Half-Space Creator` |
+| Winger | `Inverted Winger`, `Traditional Winger` |
+| Striker / centre-forward | `Poacher`, `Target Man`, `False 9`, `Link Forward` |
+
+**Total: 46.** Headroom of 4 before the 50 ceiling.
+
+**Explicit exclusions (edits applied in this resolution):**
+- `Fragile Under Scrutiny` → renamed **`Struggles Under Scrutiny`** (less stigmatizing, more football-observable).
+- `Powerful Striker` → renamed **`Powerful Ball Striker`** (avoids confusion with striker-as-position).
+- `Plateau Risk` **removed from the player-facing enum entirely.** Ceiling-visibility concepts surface through scout prose + projected-range narrowing, not a systemic label.
+- `Injury-Prone` not in catalog; injury history surfaces through explicit record on player card (real events, not a prejudicial tag).
+
+**No label may reference real-world ethnicity, religion, politics, or mental-health language.** Football-observable traits only. Growth past 50 labels triggers schema review — same ceiling discipline as event-class catalog.
+
+### Q3 — Advanced tooltip numeric exposure
+
+**Default OFF. Power-user opt-in via settings toggle** ("Show advanced scout-report details"). When enabled, the advanced tooltip surfaces **scout-estimated ranges with uncertainty bars** — never the true `internal_gene_snapshot` values. Uncertainty ranges narrow as the scout observes the player more over seasons.
+
+This is advanced scouting detail, **not debug mode.** True internal values never appear in any shipped UI surface under any settings combination. Debug/dev-only builds may expose raw snapshots behind a build-time flag; shipped builds do not.
+
+### Q4 — Compiler reproducibility across model versions
+
+**Canonical artifact is the checked-in structured JSON in the content pack**, NOT the prompt + seed + model combination. The compiler pipeline records the exact model version + seed used to generate the pack as manifest metadata (auditability); regenerating with a different model version produces a **new delta pack**, never an in-place mutation.
+
+```
+content-pack-manifest.json
+{
+  "pack_id": "fwh.core",
+  "pack_version": "1.0.0",
+  "generated_at": "2026-XX-XX",
+  "generator": {
+    "model": "claude-opus-4.7-20XXXXXX",
+    "seed_prefix": "fwh_core_v1_seed_0x...",
+    "prompt_hash": "sha256:..."
+  }
+}
+```
+
+### Q5 — Content pack delta strategy (ID stability corrected)
+
+**Additive-only delta packs. Stable IDs never mutate. Pack version does NOT leak into entity IDs.**
+
+Player IDs use the form `fwh.core:player_00042` (or `fwh.core.v1:player_00042` if a major-version namespace is preserved for hypothetical future rebuilds). **`v1.1`, `v1.2`, etc. never appear in an entity ID.** Pack-minor-version lives in the **manifest** as `introduced_in_pack_version: "1.1.0"` per-entity, not in the ID itself. Otherwise every patch leaks into save references and mod compatibility.
+
+**Rules:**
+- Every `ContentPackQualifiedId` is stable forever once shipped.
+- Delta pack `v1.1.0` introduces new players at fresh sequential IDs (`fwh.core:player_00043`, `fwh.core:player_00044`...). Each entity records `introduced_in_pack_version` in the manifest for auditability.
+- **Never rename an ID.** Renames require a deprecation flag + new ID at the next schema bump.
+- Save-file resolver: reference by ID; if an ID is unresolved (save built against a newer pack than the user has installed), fall back to the base pack's placeholder-player generator with a "missing content" UI badge. Save is not blocked.
+- `IdentityPacket` schema bumps (vs. pack version bumps) run through the load-time migration path in `event-sourced-memory.md`.
+
+---
+
+## Affinity-count distribution (authoritative — cross-ref from `design/signatures.md`)
+
+Each player's `signature_candidates` count (`k ∈ {0, 1, 2, 3}`) is cohort-weighted. Signatures.md surfaces a summary; this table is the source of truth.
+
+**Phase-6 tuning seeds (NOT SPEC-locked):**
+
+| Cohort | P(0) | P(1) | P(2) | P(3) |
+|---|---|---|---|---|
+| Top-flight starter | 0.02 | 0.60 | 0.32 | 0.06 |
+| Mid-tier starter | 0.08 | 0.62 | 0.25 | 0.05 |
+| Lower-tier / depth / journeyman | 0.20 | 0.60 | 0.18 | 0.02 |
+
+Overall population P(0) ≈ 0.10. 3-affinity players remain rare across every tier — these are the save-defining characters.
+
+**Roll procedure:**
+1. Cohort assignment from club tier + squad-depth role + age bracket (authored in the compiler's cohort-spec).
+2. Roll `affinity_count` against the cohort row.
+3. If `affinity_count > 0`: roll which specific signature candidates, weighted by internal-gene-model alignment (e.g., `fast_twitch_ratio > 0.7` biases toward winger/striker signatures).
+4. Store in `IdentityPacket.signature_candidates` with `affinity_weight ∈ [0,1]`. Never more than 3.
+
+## Gene-category visibility for Scout Disagreement (cross-ref `design/scout-disagreement.md`)
+
+Scouts' `biases: { gene_category: weight }` map to the 4 internal categories at **category level only** — no per-field biases at MVP. Per-field biases are tuning debt; the 3-archetype prototype is sufficient with category-level.
+
+**Default archetype mappings (Phase-3 tuning seeds, not SPEC-locked):**
+
+| Archetype | physical | mental | technical | narrative_flag |
+|---|---|---|---|---|
+| `physical_profiler` | 1.0 | 0.3 | 0.4 | 0.0 |
+| `technical_purist` | 0.3 | 0.8 | 1.0 | 0.0 |
+| `regional_expert` | cohort-dependent (neutral in-region, noisy out-of-region) | | | 0.0 |
+
+**Narrative-flag category (`flow_access`, `late_bloomer`, etc.) is never directly observable by any scout.** Zero weight across all archetypes. Narrative flags only ever surface via the events that trigger them — generating a retroactive `Late Bloomer` phenotype label once the unlock conditions have been met. Intentional: narrative flags are the "something you couldn't have known" layer.
+
+## Regional priors integration (cross-ref `design/worldbuilding.md`)
+
+Step 2 of the AI Content Compiler pipeline ("generate gene distributions from regional / cultural priors") consumes `RegionPriors` objects from `worldbuilding.md`. Each region's `physical_priors` / `mental_priors` / `technical_priors` biases the roll **additively** — never replaces the base roll.
+
+A Northern-region player can still be a technical wizard; just less likely. Cultural-flavor priors (`dominant_role_families`, `stylistic_tendencies`) additionally bias role-family assignment + signature-candidate selection.
 
 ## Prototype gate
 

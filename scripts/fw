@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# Final Whistle — local command front-door
+#
+# Per design/production-pipeline.md: bash/makefile-first; no paid task runner.
+# Commands are harmless scaffolding at Phase 1. Real work lands as each phase
+# trigger hits. Every command should either do a read-only check OR print a
+# "not yet implemented at this phase" stub — never silently succeed on nothing.
+#
+# Usage: scripts/fw <command>
+#        scripts/fw help
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+    help|-h|--help)
+        cat <<'EOF'
+Final Whistle — local command front-door
+
+USAGE
+    scripts/fw <command> [args]
+
+COMMANDS (implemented)
+    help            Print this message
+    status          Read-only summary of repo state (git + active phase)
+    verify-docs     Lightweight doc-integrity checks (frontmatter, broken links)
+
+COMMANDS (stubbed — land when their phase trigger hits)
+    test            dotnet test MatchSim.Tests (Phase 3)
+    replay <seed>   Run one deterministic replay, print final hash (Phase 3)
+    content-lint    Full content-pack validator (Phase 6)
+    build-local     Unity build, current platform only (Phase 3)
+    package-playtest   Signed build zip for itch upload (Phase 4)
+
+Run `scripts/fw help <command>` for per-command detail (once implemented).
+EOF
+        ;;
+
+    status)
+        echo "=== Final Whistle — repo status ==="
+        echo
+        echo "Path:          $ROOT"
+        echo -n "Branch:        "; git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "(not a git repo)"
+        echo -n "Head:          "; git -C "$ROOT" log -1 --oneline 2>/dev/null || echo "(no commits)"
+        echo -n "Clean?         "
+        if [ -z "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
+            echo "yes"
+        else
+            echo "no (uncommitted changes)"
+        fi
+        echo
+        echo "Active phase:"
+        grep -m1 '🟡 ACTIVE' "$ROOT/SPEC.md" 2>/dev/null \
+            | sed 's/^[[:space:]]*[-*#]\{1,\}[[:space:]]*//' \
+            || echo "  (no active phase found in SPEC.md)"
+        echo
+        echo "Last updated (STATUS.md):"
+        grep -m1 '^\*\*Last updated\*\*' "$ROOT/STATUS.md" 2>/dev/null \
+            | sed 's/\*\*//g' \
+            || echo "  (STATUS.md not found or missing Last updated line)"
+        ;;
+
+    verify-docs)
+        echo "=== Final Whistle — verify-docs ==="
+        echo
+        exit_code=0
+
+        # 1. Every design doc has frontmatter with `description`.
+        echo "Checking design/**.md frontmatter..."
+        for f in "$ROOT"/design/*.md; do
+            [ -f "$f" ] || continue
+            if ! head -5 "$f" | grep -q '^description:'; then
+                echo "  FAIL: $f missing 'description:' in frontmatter"
+                exit_code=1
+            fi
+        done
+
+        # 2. No literal template placeholders in shipped docs.
+        #    Excludes .claude/bootstrap (source-of-truth), design-templates,
+        #    and the shipped changelog (contains historical meta-references
+        #    to placeholders that were fixed — those spell the tokens with
+        #    internal spaces to avoid self-tripping).
+        echo "Checking for unsubstituted template placeholders..."
+        hits=$(grep -rn -l '{{[A-Z_]*}}' \
+            --include='*.md' --include='*.sh' \
+            --exclude-dir=node_modules \
+            "$ROOT" 2>/dev/null \
+            | grep -v '/\.claude/bootstrap/' \
+            | grep -v '/design-templates/' \
+            || true)
+        if [ -n "$hits" ]; then
+            echo "  FAIL: placeholder tokens found in:"
+            echo "$hits" | sed 's/^/    /'
+            exit_code=1
+        fi
+
+        # 3. Decisions-log is append-only discipline is enforced by hook at
+        #    edit time — this is a light sanity check, not the hook.
+        echo "Checking SPEC.md decisions-log is non-empty..."
+        if ! grep -q '^- \*\*[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\*\*' "$ROOT/SPEC.md"; then
+            echo "  FAIL: SPEC.md decisions log has no dated entries"
+            exit_code=1
+        fi
+
+        if [ "$exit_code" = "0" ]; then
+            echo
+            echo "OK: verify-docs clean"
+        else
+            echo
+            echo "verify-docs found issues; see above"
+        fi
+        exit "$exit_code"
+        ;;
+
+    test|replay|content-lint|build-local|package-playtest)
+        cat >&2 <<EOF
+fw: '$cmd' is not implemented yet at Phase 1.
+
+Implementation lands at its phase trigger:
+  test / replay / build-local  Phase 3 (Unity bootstrap + MatchSim prototype)
+  package-playtest             Phase 4 (closed itch distribution)
+  content-lint                 Phase 6 (full content-pack validator)
+
+See design/production-pipeline.md for the overall plan.
+EOF
+        exit 2
+        ;;
+
+    *)
+        echo "fw: unknown command '$cmd'" >&2
+        echo "Try 'scripts/fw help' for a list of commands." >&2
+        exit 2
+        ;;
+esac

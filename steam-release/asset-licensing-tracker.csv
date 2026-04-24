@@ -1,0 +1,5 @@
+asset_name,source,source_url,version,license,paid_free,cost_usd,purchase_date,attribution_required,redistribution_ok,commercial_ok,notes
+Anton,Google Fonts,https://fonts.google.com/specimen/Anton,3.001,SIL OFL 1.1,free,0,2026-04-24,no,yes,yes,Display / headline typeface per design/ui-vocabulary.md
+JetBrains Mono,JetBrains,https://www.jetbrains.com/lp/mono/,2.304,Apache-2.0,free,0,2026-04-24,no,yes,yes,Monospace data / stat / debug typeface per design/ui-vocabulary.md
+Rajdhani,Google Fonts,https://fonts.google.com/specimen/Rajdhani,1.200,SIL OFL 1.1,free,0,2026-04-24,no,yes,yes,Body / commentary / menu + scoreboard (SemiBold) per design/ui-vocabulary.md 2026-04-24 scoreline override
+Magica Cloth 2,Unity Asset Store,https://assetstore.unity.com/packages/tools/physics/magica-cloth-2-242307,2.x,Unity Asset Store Standard EULA,paid,50,pre-2026-04-22,no,no,yes,Already owned pre-project (sunk cost). Deferred to post-EA 3D push per SETUP.md §3

@@ -19,7 +19,7 @@ set -eu
 PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"
 UNITY_PROJECT="${UNITY_PROJECT:-$PROJECT_ROOT/unity-project}"
 DUMP_PATH="$UNITY_PROJECT/Library/StateDump.json"
-METHOD="${DUMP_METHOD:-{{PROJECT_NAME}}.Debug.McpRemoteControl.DumpState}"
+METHOD="${DUMP_METHOD:-FinalWhistle.Debug.McpRemoteControl.DumpState}"
 
 if ! command -v jq >/dev/null 2>&1; then
     echo "error: jq not found. Install with 'brew install jq' (macOS) or 'apt install jq' (linux)." >&2
@@ -29,7 +29,7 @@ fi
 # Prefer the MCP path — if Unity Editor is already running with the project
 # open, execute_menu_item is instant. We can't call MCP from shell though, so
 # this script falls back to batchmode. If you have an Editor open, use the
-# menu entry "{{PROJECT_NAME}}/Debug/Dump State" directly.
+# menu entry "FinalWhistle/Debug/Dump State" directly.
 if [ -n "${USE_BATCHMODE:-}" ]; then
     UNITY_PATH="${UNITY_PATH:-}"
     if [ -z "$UNITY_PATH" ]; then
@@ -61,7 +61,7 @@ fi
 if [ ! -f "$DUMP_PATH" ]; then
     echo "error: dump file not found at $DUMP_PATH" >&2
     echo "hint:  ensure Unity Editor is open with the project, then invoke" >&2
-    echo "       the menu entry '{{PROJECT_NAME}}/Debug/Dump State', or re-run" >&2
+    echo "       the menu entry 'FinalWhistle/Debug/Dump State', or re-run" >&2
     echo "       this script with USE_BATCHMODE=1" >&2
     exit 1
 fi

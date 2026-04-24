@@ -1,7 +1,7 @@
 ---
 description: 2D viewer 7-shot-type camera grammar. How MatchSim events render as manga-broadcast cinema.
-last_verified: 2026-04-22
-status: scaffolded; awaiting Phase 2 lock
+last_verified: 2026-04-24
+status: Phase 0 open questions resolved; shot-count locked through Month-3 gate, ShotTypeSO schema drafted (incl. chain rules + reduce-motion), rendering stack locked, typography stack locked with scoreline override. Two Phase-2 ADRs pre-seeded in SPEC.
 ---
 
 # Semantic Cinema — 2D viewer grammar
@@ -83,12 +83,106 @@ At Month 12 EA: all 7 shot types. Full stakes modulation. Full memory modulation
 - Replay scrubbing / social export (post-EA)
 - User-configurable camera preferences (post-EA)
 
-## Open questions (Phase 2 lock)
+## Resolved (2026-04-24)
 
-1. **Are 7 shot types the right count?** GPT-5.5 locked 7 as minimum-viable. Too few risks repetition; too many risks UX complexity + authoring bloat. Review after Month-3 slice: does 3-shot slice feel thin?
-2. **Camera authoring format** — how is each shot-type composition encoded? ScriptableObject with Cinemachine-like parameters, or UXML layout with named camera positions? Recommend SO for runtime data-driven selection.
-3. **Screen-tone + motion-line rendering technique** — custom HLSL fullscreen pass vs per-sprite overlay? Recommend custom HLSL pass for screen-tone (cheap, uniform); per-sprite motion-line trails for runs.
-4. **Text overlay typography hierarchy** — Anton for shot-type-defining text, JetBrains Mono for stat callouts, Rajdhani for body. Confirm or revise at Phase 2.
+See SPEC.md decisions log entry `2026-04-24 — Semantic Cinema open questions resolved`.
+
+### Q1 — Shot-count (7) locked through Month-3 gate; post-gate review, not an open question
+
+The 7-shot vocabulary is locked through the Month-3 match-engine gate. Expansion beyond 7 requires a **superseding SPEC decision** — do not quietly grow the vocabulary during Phase 3 prototyping.
+
+After the Month-3 gate, review whether the 3-shot prototype (`tactical-wide`, `diagonal-attack-lane`, `pass-shot-impact`) felt **thin**, **busy**, or **correctly scoped** before implementing the remaining 4. This is a gate-triggered review point, not a reopening of the count.
+
+### Q2 — Camera authoring: Addressable `ShotTypeSO` assets
+
+Each shot type is encoded as a **ScriptableObject asset, loaded via Addressables**, with content-pack-qualified stable IDs. UI Toolkit (UXML / USS) is for overlay composition only — not for camera framing.
+
+Phase-2 ADR required: **ShotTypeSO schema + Addressables grouping.** Draft below is the Phase-0 lock; Phase-2 ADR finalizes the exact type definitions + grouping rules.
+
+**ShotTypeSO draft schema:**
+
+```
+ShotTypeSO {
+  id: ContentPackQualifiedId      // stable, mod-ready
+  shot_category: enum {
+    tactical-wide,
+    diagonal-attack-lane,
+    player-isolation,
+    duel-panel,
+    pass-shot-impact,
+    crowd-reaction,
+    aftermath-freeze
+  }
+
+  framing: {
+    pitch_tilt_degrees: f32
+    camera_distance: f32
+    target_anchor_rule: enum { ball, scorer, duel-midpoint, crowd-section, fixed }
+  }
+
+  modulation_strength: {
+    stakes: f32  [0,1]            // how strongly stakes warps this shot
+    memory: f32  [0,1]            // how strongly memory callbacks warp this shot
+    crowd:  f32  [0,1]            // how strongly crowd state tints this shot
+  }
+
+  chain_rules: [
+    {
+      next_shot_category: enum,
+      condition: ChainCondition,  // e.g., "goal-scored", "near-miss", "high-salience-callback-hit"
+      min_ticks: i32              // 60Hz-step minimum hold before transitioning
+      max_ticks: i32
+    }
+  ]
+
+  fallback_shot_category: enum    // if chain condition fails / no rule matches
+
+  reduce_motion_variant: {
+    impact_flash: bool             // disable fullscreen white-flash
+    motion_lines: bool             // disable trail meshes
+    panel_split_hold_ticks: i32    // longer hold, no hard hatching
+  }
+
+  default_hold_ticks: i32          // 60Hz-step default
+  max_hold_ticks: i32
+
+  overlay_template_set: [TemplateId]  // references templates, not inline text
+}
+```
+
+**Why the additions past the obvious framing fields:**
+- `chain_rules` makes the `pass-shot-impact → crowd-reaction → aftermath-freeze` cascade **data-driven**. Without this, shot chaining becomes hardcoded glue and the "semantic cinema grammar" quietly collapses into C#.
+- `fallback_shot_category` ensures the renderer always has a shot to fall back to when no rule fires — prevents the "frozen camera" failure mode.
+- `reduce_motion_variant` is accessibility-first. Impact flashes + motion lines are accessibility debt fast; every shot ships with a reduce-motion variant baked in, not bolted on.
+- `modulation_strength` lets shots opt out of heavy stakes/memory warping — `tactical-wide` probably has low stakes-strength (it should stay readable even in a cup final); `aftermath-freeze` is the inverse.
+
+### Q3 — Rendering stack
+
+Screen-tone: **URP custom fullscreen HLSL pass.** Scene-global, stakes-modulated.
+Impact frame: **separate URP fullscreen HLSL pass.** Scene-global, event-triggered.
+Motion lines: **per-player trail mesh / sprite trail**, velocity-driven. Agent-local.
+Panel splits / text composition: **UI Toolkit overlay elements**, with masks / textures where they behave. If UI Toolkit masking fights a given effect, fall back to a **custom mesh overlay** for that specific panel — do not over-commit to USS masks as the only mechanism.
+
+Phase-2 ADR required: **viewer rendering pipeline + URP custom-pass ordering.**
+
+| Effect | Technique | Scope |
+|---|---|---|
+| Screen-tone pattern | URP custom fullscreen pass (HLSL) | scene-global, stakes-modulated |
+| Impact-frame flash | URP custom fullscreen pass (HLSL) | scene-global, event-triggered |
+| Motion-line trails | per-sprite / per-player trail mesh | agent-local, velocity-driven |
+| Panel splits / text | UI Toolkit overlay (masks/textures if they behave; custom mesh fallback if not) | UI layer |
+
+### Q4 — Typography stack (Phase-3 provisional)
+
+| Typeface | Role | Where it appears |
+|---|---|---|
+| **Anton** | Display impact / headlines | Goal splash, full-time graphic, `aftermath-freeze` headline text, pre-match splash |
+| **JetBrains Mono** | Data / stat / scout / debug | In-match stat tickers, player-isolation stat overlays, scout labels, debug HUD |
+| **Rajdhani** | Body / commentary / menu | Inline commentary lines, memory-callback tags ("formerly Oldtown Rangers"), menu body, tooltips |
+
+**Scoreline override:** the persistent always-on scoreboard uses **Rajdhani SemiBold** or **JetBrains Mono** for digits, **not Anton**. Anton is too condensed for small-footprint always-on UI; it keeps its impact role for splash / aftermath moments.
+
+Font licensing (Anton: SIL OFL, JetBrains Mono: Apache 2.0, Rajdhani: SIL OFL expected) is **verified and recorded in the Phase-1 asset-licensing tracker** — not taken on reputation.
 
 ## Prototype gate
 
