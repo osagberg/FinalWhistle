@@ -2,6 +2,17 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase 2 — ADR-0006 IdentityPacket / AI Content Compiler drafted)
+
+- `design/adr/adr-0006-identity-packet-compiler.md` authored as **Proposed** — Pillar-2 player-authoring contract
+- Schema locked: stable `ContentPackQualifiedId PlayerId` (no pack-minor leak), walled-off `InternalGeneSnapshot` (22 fields across 4 categories, Q32.32 for cross-platform determinism, NEVER rendered), `SignatureCandidate[]` affinity (receives ADR-0005 handoff — affinity lives HERE, not in SignatureSO), `PhenotypeLabelId` enum with banned-term-lint on rendered strings (46 labels MVP, ceiling 50), RegionId birth, TacticalDnaFragment[] seeded for post-MVP Coaching Lineage
+- Scout visibility at category level at MVP (per-field deferred as tuning debt); narrative-flag category never directly observable by any scout (0-weight across archetypes; flags surface only retroactively via trigger events)
+- Advanced tooltip default OFF; opt-in shows scout-estimated ranges only, NEVER raw `InternalGeneSnapshot`
+- Canonical artifact is the checked-in JSON, NOT prompt+seed+model. Compiler pipeline records generator metadata (frozen-model version, seed prefix, prompt hash) in pack manifest for audit, but artifact is what matters
+- 4-project split: `FinalWhistle.Content.Contracts` (pure C#, schemas), `.Compiler` (bake-time, seeded RNG + LLM-name-gen abstraction), `.Validator` (Phase-6), `.UnityImport` (Addressables grouping). Same Contracts/impl pattern as ADR-0004 `Memory.Contracts`
+- Five rejected alternatives: (1) prompt+seed-as-canonical regenerate-on-import (LLM determinism not bit-guaranteed), (2) flat packet without InternalGeneSnapshot wall (structural leakage risk), (3) affinity per-signature not per-player (architectural inversion — already rejected in ADR-0005), (4) per-field scout bias not category-level (tuning debt intractable), (5) runtime LLM content generation (ruled out by `TOOLING.md §Anti-patterns`)
+- Phase-6 content-pack validator SPEC task extended: ID-format + no-pack-minor-in-ID + duplicate-name + legal-sensitive-names-diff + SignatureCandidate resolution against ADR-0005 catalog + banned phenotype-label leakage
+
 ## 2026-04-24 (Phase 2 — ADR-0005 Accepted after 3 architectural tightenings)
 
 Three user-review tightenings applied to the bridge architecture:
