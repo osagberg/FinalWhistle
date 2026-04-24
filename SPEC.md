@@ -58,7 +58,7 @@
 - [x] Fast PR CI (Tier A) workflow `.github/workflows/fast-pr-ci.yml` authored (2026-04-24 — minimal v0: `scripts/fw verify-docs` only; banned-vocab / dotnet-test / determinism / content-lint / save-migration jobs commented-out with phase-triggers, uncommented as each deliverable lands)
 - [x] `.github/PULL_REQUEST_TEMPLATE.md` authored (summary / why / test plan / breaking-changes / linked SPEC task)
 - [x] `.github/ISSUE_TEMPLATE/bug_report.md` + `feature_request.md` authored
-- [ ] Branch protection configured: `main` PR+approval required; `develop` PR+Tier-A-green required; no direct pushes
+- [ ] Branch protection configured — **BLOCKED on plan upgrade**: GitHub Free does not allow branch protection on private repos (verified 2026-04-24 via `gh api`). Current posture: local-discipline-only per `docs/ops/branch-protection.md §0`. Unblocks on Pro/Team or making repo public; flip logged as SPEC entry when triggered
 - [x] `scripts/fw` local command front-door skeleton (bash / makefile, no paid task runner) with verify / test / replay / content-lint / build-local / package-playtest stubs
 - [x] `docs/ops/backup-restore.md` authored — GitHub + Time Machine + content-pack snapshot policy
 

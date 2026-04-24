@@ -1,6 +1,6 @@
 # Status
 
-**Last updated**: 2026-04-24 (Phase 1 🟡 ACTIVE — Setup. Remote created, Tier-A CI authored, ops runbooks shipped.)
+**Last updated**: 2026-04-24 (Phase 1 🟡 ACTIVE — Setup. Remote + Tier-A CI + ops runbooks shipped; GPT-5.5 review pass applied 5 findings.)
 
 ## Currently working on
 
@@ -25,9 +25,9 @@ Shipped so far: Unity install (user), `scripts/fw` front-door, PR template, issu
 
 ## Next action
 
-**User-action in GitHub UI** (not urgent, runbooks written — do when convenient):
-- **Set Actions spending cap to $0** per `docs/ops/actions-budget.md §2b` (`github.com/settings/billing/spending_limit`). Prevents silent overage.
-- **Configure `main` + `develop` branch protection** per `docs/ops/branch-protection.md §2, §3` (`github.com/osagberg/FinalWhistle/settings/branches`).
+**User-action in GitHub UI** (runbooks written):
+- **Set Actions spending cap to $0** per `docs/ops/actions-budget.md §2b` (`github.com/settings/billing/spending_limit`). Prevents silent overage. ~1 min.
+- ~~Configure branch protection~~ — **BLOCKED on plan**: GitHub Free disallows branch protection on private repos (verified via `gh api`). Current posture: local-discipline-only per `docs/ops/branch-protection.md §0`. Revisit when upgrading to Pro/Team or going public (Phase-4 itch / Phase-8 EA triggers).
 
 **Low-urgency Phase-1 user-actions:**
 - Install Blender (Phase-3 trigger, safe to defer)
@@ -41,6 +41,7 @@ Shipped so far: Unity install (user), `scripts/fw` front-door, PR template, issu
 
 ## Recent milestones
 
+- 2026-04-24: Phase 1 — GPT-5.5 Codex review pass applied 5 findings: branch-protection reframed as local-discipline-only (Free plan doesn't allow protection on private repos; verified via `gh api`), approvals corrected to 0 (GitHub blocks author self-approval), JetBrains Mono license corrected to SIL OFL 1.1 (Apache-2.0 covers source code only), `fw verify` umbrella added + false broken-link claim removed, spaced-placeholder hack documented as tech-debt to resolve when `lint-banned-terms.py` lands
 - 2026-04-24: Phase 1 — `osagberg/FinalWhistle` private remote created + initial push (2 commits on origin/main); `.github/workflows/fast-pr-ci.yml` Tier-A v0 authored (fw verify-docs only, phase-gated TODOs commented); `docs/ops/branch-protection.md` + `docs/ops/actions-budget.md` runbooks shipped. `vibelogic` org membership gap diagnosed + namespaced-around
 - 2026-04-24: Phase 1 — first parallel-to-Unity-install batch shipped (6 tasks): Unity 6 LTS installed (user), asset-licensing tracker seeded (Anton/JetBrains Mono/Rajdhani/Magica Cloth 2), `scripts/fw` front-door with `help`/`status`/`verify-docs` implemented + 5 phase-gated stubs, PR template, 2× issue templates, `docs/ops/backup-restore.md`. `fw verify-docs` + `fw status` both green
 - **2026-04-24: Phase 0 ✅ COMPLETE.** All 12 design docs resolved, 12 consolidated SPEC entries, 7 Phase-2 ADRs pre-seeded, ~33 pipeline-related SPEC tasks threaded across downstream phases, `/refresh-docs` green (6 findings fixed). Phase 1 🟡 Setup now active

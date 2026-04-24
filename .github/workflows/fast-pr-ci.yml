@@ -33,16 +33,18 @@ permissions:
   contents: read
 
 jobs:
-  verify-docs:
-    name: Verify docs
+  verify:
+    name: Verify (Tier A umbrella)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run fw verify-docs
-        run: ./scripts/fw verify-docs
+      - name: Run fw verify
+        # Umbrella runs every Tier-A check currently implemented.
+        # New checks get wired into scripts/fw verify as deliverables land.
+        run: ./scripts/fw verify
 
   # ------------------------------------------------------------------
   # Phase-gated TODOs — uncomment + implement as the corresponding

@@ -2,6 +2,20 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Codex / GPT-5.5 review pass — 5 findings fixed)
+
+Findings table produced by GPT-5.5 against the Phase-1 scaffolding work. All 5 applied:
+
+- **HIGH — `docs/ops/branch-protection.md`:** GitHub Free does NOT allow branch protection on private repos (verified via `gh api` returning 403 "Upgrade to GitHub Pro or make this repository public"). Reframed the doc with a new §0 "Reality check" explicitly marking the rules as aspirational-on-Pro / local-discipline-now, with an explicit upgrade-trigger (second contributor OR Phase-4 closed itch, whichever first). Also updated the SPEC task + STATUS next-action to stop treating branch protection as a simple pending UI action.
+- **MEDIUM — self-approval constraint:** GitHub blocks PR authors from approving their own PRs. `required_approving_review_count: 1` on `main` would permanently block solo-dev merges. Rule corrected to `approvals = 0` for both `main` and `develop`; status checks + conversation resolution + PR-template self-review discipline (§6) are the real gates.
+- **MEDIUM — JetBrains Mono license misstated:** The typeface is **SIL OFL 1.1**, not Apache-2.0 (Apache-2.0 applies to the source-code repository, not the shipped font files). Fixed in `steam-release/asset-licensing-tracker.csv` and `design/semantic-cinema.md`. All three typefaces (Anton / JetBrains Mono / Rajdhani) now correctly recorded as SIL OFL 1.1, with a clarifying note that the JetBrains Mono source repo is Apache-2.0 separately.
+- **MEDIUM — placeholder lint self-trip pattern:** The "space the token" workaround Claude used twice today (`{{ PROJECT_NAME }}` vs `{{PROJECT_NAME}}`) is a hack, not a strategy — a real spaced-placeholder leak would now pass CI. Saved as project memory (`feedback_placeholder_lint_strategy.md`) with the directive that `scripts/lint-banned-terms.py` must match both forms via `{{\s*[A-Z_]+\s*}}` and rely on sentinel blocks for legitimate exemption.
+- **LOW — `scripts/fw` umbrella + false broken-link claim:** Added `fw verify` as the Tier-A umbrella command (currently delegates to `verify-docs`; future banned-terms / dotnet-test / determinism checks land here too). Removed the inaccurate "broken links" phrasing from `fw help` (the script only checks frontmatter + unsubstituted placeholders). Added `banned-terms` to the stubbed-command list for when the Phase-1 lint script lands. Tier-A workflow updated to call `fw verify` so new checks auto-run without workflow edits.
+
+GPT-5.5 spot-checked the signature resolution (#19 "stronger foot", #6 `defensive_line` scope, field-level caps) and player-generation resolution (22 fields, 46 labels, default-off advanced tooltip, no minor pack version in IDs) — both match the signed-off shape. Namespace call (`osagberg/FinalWhistle`) accepted as operationally fine.
+
+Verify: `scripts/fw verify` local green; next push triggers Tier-A `Verify (Tier A umbrella)` job.
+
 ## 2026-04-24 (Phase 1 batch — remote created + Tier-A workflow + ops runbooks)
 
 - **GitHub remote created ✅** — `osagberg/FinalWhistle` private. The `vibelogic` org exists as a reserved-name shell but neither authenticated gh account is a member; personal namespace used with one-click GitHub transfer available at Phase 8 if Steam branding wants a publisher namespace. Both accounts (`osagberg` active + `vibelogicx`) reviewed; neither has `vibelogic` membership despite `admin:org` token scope on `osagberg`. Commit `da29ca9` Phase 0 complete + Phase 1 scaffolding pushed; commit `0013370` fixed 5 namespace references in CLAUDE.md / SETUP.md / SPEC.md / STATUS.md / backup-restore.md; both commits now on `origin/main`

@@ -182,7 +182,7 @@ Phase-2 ADR required: **viewer rendering pipeline + URP custom-pass ordering.**
 
 **Scoreline override:** the persistent always-on scoreboard uses **Rajdhani SemiBold** or **JetBrains Mono** for digits, **not Anton**. Anton is too condensed for small-footprint always-on UI; it keeps its impact role for splash / aftermath moments.
 
-Font licensing (Anton: SIL OFL, JetBrains Mono: Apache 2.0, Rajdhani: SIL OFL expected) is **verified and recorded in the Phase-1 asset-licensing tracker** — not taken on reputation.
+Font licensing — all three typefaces ship under **SIL OFL 1.1** (Anton / JetBrains Mono / Rajdhani). JetBrains Mono's source-code repository is Apache-2.0 separately; only the typeface files ship with the game. Verified in `steam-release/asset-licensing-tracker.csv` 2026-04-24, not taken on reputation.
 
 ## Prototype gate
 

@@ -27,7 +27,8 @@ USAGE
 COMMANDS (implemented)
     help            Print this message
     status          Read-only summary of repo state (git + active phase)
-    verify-docs     Lightweight doc-integrity checks (frontmatter, broken links)
+    verify          Tier-A umbrella — runs every implemented fast-PR check
+    verify-docs     Doc frontmatter + unsubstituted-placeholder checks
 
 COMMANDS (stubbed — land when their phase trigger hits)
     test            dotnet test MatchSim.Tests (Phase 3)
@@ -38,6 +39,15 @@ COMMANDS (stubbed — land when their phase trigger hits)
 
 Run `scripts/fw help <command>` for per-command detail (once implemented).
 EOF
+        ;;
+
+    verify)
+        # Tier-A umbrella. Calls every implemented fast-PR check in sequence.
+        # New checks get wired in here as their deliverables land (see
+        # design/production-pipeline.md §workflow-tiers Tier A).
+        "$0" verify-docs
+        # Future additions: banned-terms (Phase 1), dotnet test (Phase 3),
+        # determinism smoke (Phase 3), content-lint (Phase 6).
         ;;
 
     status)
@@ -116,7 +126,7 @@ EOF
         exit "$exit_code"
         ;;
 
-    test|replay|content-lint|build-local|package-playtest)
+    test|replay|content-lint|build-local|package-playtest|banned-terms)
         cat >&2 <<EOF
 fw: '$cmd' is not implemented yet at Phase 1.
 
