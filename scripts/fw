@@ -105,7 +105,8 @@ EOF
         #    2026-04-24 resolution — content between `ui-lint:ignore-start` and
         #    `ui-lint:ignore-end` markers is skipped (banned-term catalogs,
         #    historical meta-references to placeholders that were fixed, etc.).
-        #    Also excludes .claude/bootstrap (source-of-truth) + design-templates.
+        #    Also excludes .claude/bootstrap (source-of-truth), design-templates,
+        #    and .claude/session-snapshots (auto-generated pre-compact artifacts).
         #
         #    Pattern matches both spaced ({{ PROJECT_NAME }}) and unspaced
         #    ({{PROJECT_NAME}}) forms — GPT-5.5 2026-04-24 feedback: the lint
@@ -114,7 +115,7 @@ EOF
         placeholder_hits=""
         while IFS= read -r -d '' f; do
             case "$f" in
-                */.claude/bootstrap/*|*/design-templates/*|*/node_modules/*) continue ;;
+                */.claude/bootstrap/*|*/.claude/session-snapshots/*|*/design-templates/*|*/node_modules/*) continue ;;
             esac
             # Strip sentinel-ignored regions, then check for placeholder tokens.
             filtered=$(awk '

@@ -51,7 +51,7 @@ Lock the Pillar-2 player-authoring contract: `IdentityPacket` is the stable data
 
 ### Problem Statement
 
-`design/player-generation.md` 2026-04-24 resolved all five open questions with: 22-field internal gene model locked, 46-label phenotype catalog (ceiling 50), default-off advanced tooltip, canonical-JSON-artifact reproducibility, ID-stability correction (no pack-minor in entity IDs). That resolution specified what to build. This ADR proposes the schema + compiler contract so Phase-3 hand-authored packets can serve as the first canonical fixtures, and Phase-6 compiler output can be byte-identical only when generated from deterministic checked-in inputs.
+`design/player-generation.md` 2026-04-24 resolved all five open questions with: 22-field internal gene model locked, 46-label phenotype catalog (ceiling 50), default-off advanced tooltip, canonical-JSON-artifact reproducibility, ID-stability correction (no pack-minor in entity IDs). That resolution specified what to build. This ADR commits the schema + compiler contract so Phase-3 hand-authored packets can serve as the first canonical fixtures, and Phase-6 compiler output can be byte-identical only when generated from deterministic checked-in inputs.
 
 ### Current State
 

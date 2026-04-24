@@ -87,7 +87,6 @@ ADR-0006 locked `InternalGeneSnapshot` category-level bias (physical / mental / 
 ### `Scout` archetype
 
 ```csharp
-using FinalWhistle.Memory.Contracts;     // EventClass.ScoutReportConfirmed / .ScoutReportDisagreement
 using FinalWhistle.Content.Contracts;    // InternalGeneSnapshot (read-only; category-level access via filter)
 
 public sealed record Scout

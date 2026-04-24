@@ -34,12 +34,11 @@ All 12 docs had their open-questions resolved during the Phase-0 consolidated 20
 | [`worldbuilding.md`](worldbuilding.md) | Fictional nation (Caldren), pyramid structure, cultural priors | Phase 0 / 2026-04-24 |
 | [`ui-vocabulary.md`](ui-vocabulary.md) | Banned-terms lint + approved football-native phrasing | Phase 0 / 2026-04-24 |
 | [`production-pipeline.md`](production-pipeline.md) | CI/CD tiers, runner policy, build channels, release gates | Phase 0 planning pass / 2026-04-24 |
+| [`modding.md`](modding.md) | Cross-ADR data-architecture contract (12 mod-loadability constraints) | Phase 2 synthesis pass / 2026-04-24 |
+| [`accessibility.md`](accessibility.md) | EA accessibility feature set (reduce-motion / colorblind / remap / large-text / subtitles) | Phase 2 authoring pass / 2026-04-24 |
+| [`content_policy.md`](content_policy.md) | PEGI 12 / ESRB T content boundaries + AI-content disclosure + mod-pack content-safety surface | Phase 2 authoring pass / 2026-04-24 |
 
 ## Future docs (added when trigger hits)
-
-- `modding.md` — Phase 2 ADR for data-architecture constraints
-- `accessibility.md` — Phase 2 target feature set
-- `content_policy.md` — Phase 2 PEGI 12 boundaries
 - `balance-harness.md` — Phase 6 tuning methodology
 - Per-signature specs under `signatures/*.md` — Phase 3+
 - ADRs under `design/adr/NNN-title.md` — one per load-bearing system decision

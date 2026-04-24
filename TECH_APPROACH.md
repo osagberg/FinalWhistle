@@ -121,13 +121,13 @@ Custom deterministic sim: position + velocity + spin in fixed-point, explicit Ma
 All content ships in versioned packs with stable IDs. Every player, club, league, badge, kit, stadium, signature, event template is addressed by:
 
 ```
-pack_id: "finalwhistle.core.v1"
+pack_id: "fwh.core.v1"
 schema_version: 3
 entity_kind: "player"
 entity_id: "fwh.core.v1:player_00042"
 ```
 
-**Stable IDs** persist across regeneration. Regenerating content pack v1 with new prompt engineering MUST NOT change existing IDs; deltas ship as `finalwhistle.core.v1.patch.2` content packs loaded alongside. Checked-in structured JSON/content packs are canonical; LLM output itself is not assumed bit-deterministic.
+**Stable IDs** persist across regeneration. Regenerating content pack v1 with new prompt engineering MUST NOT change existing IDs; deltas ship as `fwh.core.v1.patch.2` content packs loaded alongside. Checked-in structured JSON/content packs are canonical; LLM output itself is not assumed bit-deterministic.
 
 Canonical player IDs use `fwh.core:player_00042` or `fwh.core.v1:player_00042` (major-pack namespace only). Save references may carry `entity_kind` separately, but the `ContentPackQualifiedId` itself never embeds minor / patch pack versions.
 

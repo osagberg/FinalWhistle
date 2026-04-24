@@ -102,3 +102,13 @@ steamworks/sdk/
 # Session-local transcripts — usually want these
 # .claude/sessions/
 # (uncomment if you want to exclude)
+
+# Pre-compact hook auto-generates snapshots here; ephemera, not source
+.claude/session-snapshots/
+
+# ==========================================
+# Agent / skill ports (not yet deliberately ported — contain absolute
+# blueprint paths + claude-mcp references; revisit when porting is
+# deliberate). Remove this line when porting happens.
+# ==========================================
+.agents/

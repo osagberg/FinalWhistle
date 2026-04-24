@@ -147,7 +147,7 @@ Phase 3 activation note:
 
 | Service | Account | Monthly | Use case |
 |---|---|---|---|
-| GitHub | Vibelogic | free | source + CI |
+| GitHub | osagberg (personal namespace; `vibelogic` org reserved, Phase-8 transfer optional per CLAUDE §5.6) | free | source + CI |
 | Steam Direct | TBD Phase 8 | $100 one-time | per-title |
 | Unity Asset Store | Unity ID | per-asset | Animancer / DOTween / Odin |
 | OpenAI (GPT Image 2) | existing | existing | concept art / portraits |

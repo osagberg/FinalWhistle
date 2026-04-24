@@ -2,6 +2,132 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (Phase 2 — `design/specs/artifact-retention-policy.md` authored; 5-tier retention model locked)
+
+Shipped `design/specs/artifact-retention-policy.md` — closes the "artifact retention" gap declared in both ADR-0003's description and `design/production-pipeline.md`. **Five retention tiers locked:**
+
+- **`ephemeral`** (≤7d uploaded Actions artifacts): Tier-A `fw verify` outputs + `fw content-lint --format=json` per-PR JSON + Tier-B Unity-smoke build outputs + red-team validator self-check output. Workflow logs are platform-managed by the repo/org Actions artifact-and-log retention setting, not cataloged as uploaded artifacts
+- **`short`** (14-30d Actions): Tier-C balance-harness summary digest + viewer-capture reference PNG set + golden-replay-corpus diff output + Tier-B nightly bundle + Tier-D validator dry-run
+- **`release-tied`** (permanent via GitHub release-asset on tag): Tier-D full validator report + Category-B exemption audit JSON + AI-content-disclosure manifest snapshot + golden-replay-corpus hashes + Steam deploy bundle manifest + asset-licensing-tracker CSV snapshot + save-migration test results + PEGI/ESRB questionnaire PDFs (Phase 8+)
+- **`permanent-in-repo`** (git, forever, append-only): golden-replay-corpus fixtures + save-migration fixtures + red-team validator fixtures + anti-red-team clean fixture + synthetic thin-mod-pack fixture
+- **`local-only`** (never uploaded, Time Machine covers): balance-harness raw sweep data + visual-regression reference captures (full set) + tester-submitted bug-bundle zips + dev-side crash-log bundles + Blender source files
+
+**Key commitments:**
+
+- **Every RC tag permanently retains its full artifact bundle** as GitHub release-assets (minimum 10 items enumerated in spec). Loss of bundle = loss of build reproducibility; non-option. EA-build bundles additionally carry PEGI/ESRB submission PDFs + Steam store-page snapshot + launch-day replay capture
+- **Determinism-replay posture:** any historical shipped build reproducible from bundle + git tag. Archived per RC includes `content_pack_version` + `canonical_artifact_sha256` + full `key_event_hashes` + `final_canonical_state_hash` + `pass_activation_log_hash` (reduce-motion-variant-aware per `design/accessibility.md`) + Unity Editor + URP pins + `MatchSim.csproj` commit SHA. Per-release `determinism-replay-readme.txt` carries the reproduction procedure
+- **Cost-discipline math projected to Phase 6:** Free 500MB cap comfortable at Phase 3; tight by Phase 6 (balance-harness + Tier-D dry-runs + ongoing Tier-A/B push ~500-700MB active). Decision point is Free→Pro upgrade ($4/mo) before rewriting retention math. Minutes unaffected
+- **Retention-days declared at workflow level for uploaded Actions artifacts** via GitHub Actions `retention-days:` attribute. Workflow logs use the repo/org Actions artifact-and-log retention setting and are reported, not forced into the artifact tier model. Release-tied bundles are GitHub release assets, not `upload-artifact` outputs. Phase-3 manual audit (`fw artifact-cleanup`); Phase-6 `fw workflow-audit` enforces uploaded-artifact tiers (`FW-WF-A-001`) and reports the repo/org Actions retention setting (`FW-WF-A-002`)
+- **Playtest bug-bundle policy:** `local-only` at MVP. Testers email zips; no cloud ingest; retained in gitignored `playtest-bundles/`; periodic manual prune when folder grows past ~1GB; tester-consent required for any sharing; deletion-on-request honored within 7 days. Respects `production-pipeline.md §Playtest ops` + `content_policy.md §Mod-pack content-safety` user-data posture
+- **Phase-3→Phase-8 migration table** charts retention posture evolution: Phase 3 manual + `fw artifact-cleanup` → Phase 6 `fw workflow-audit` enforcement → Phase 8 per-release bundle-completeness gate at RC→EA promotion
+
+**Phase-3 SPEC task added:** `scripts/fw artifact-cleanup` CLI with `--list` / `--delete-expired` / `--release-lock <tag>` / `--audit-local` subcommands. Bridges the retention-policy gap during Phase 3-5 before workflow-audit automates.
+
+**Phase-6 SPEC task added:** `scripts/fw workflow-audit` — enforces every workflow's `upload-artifact` step carries matching `retention-days:` attribute for uploaded Actions artifacts (`FW-WF-A-001`) and reports the repo/org Actions artifact-and-log retention setting (`FW-WF-A-002`). Release-tied bundles are checked by `fw artifact-cleanup --release-lock <tag>` / Phase-8 bundle completeness, never by `retention-days: 0`.
+
+**Phase-2 remaining blockers:** only `/audit` green on Phase-2 checks. All 15 design docs shipped + 4 specs authored (corpus / save-migration / validation-contract / retention-policy) + 7 ADRs Accepted. The former Phase-2 tracker rows for cross-doc enum validation and smoke-seed rotation are rolled up as spec-satisfied and remain implementation / measurement tasks in Phase 6. Phase-2 gate *"design bible complete; ADRs for every system that locks architecture"* is satisfied; `/audit` is the final verification pass.
+
+## 2026-04-24 (Phase 2 — `design/content_policy.md` authored; PEGI 12 scope-in + scope-out locked)
+
+Shipped `design/content_policy.md` — final Phase-2 design doc. Consolidates rating target (PEGI 12 / ESRB T from 2026-04-22 bootstrap) + already-seeded posture (no-real-people / worldbuilding Caldren fictional lock / compiler-only analogues / banned-terms vocabulary / AI-content Steam 2025 disclosure / FW-VAL-D-005 + D-001) into a prescriptive contract with positive and negative scope:
+
+- **Positive scope (12 mature themes that ARE shipping material, each with shipping-form + example):** dressing-room tension / ageing-star decline / relegation anxiety / derby + cup-final hostility / press narrative attacks / contract standoffs + betrayal / injury in football-standard language / career setback + redemption / manager confrontations / officiating controversy / transfer-market leverage. The game IS allowed to be about these things, at depth, at PEGI 12, in football-native language — this IS the retention hook
+- **Negative scope (13 categories explicitly ruled out):** violence-beyond-football-standard / explicit sexual content / substance use / gambling-betting mechanics / real-world political content / real-world religion references / hate speech + slurs / real-person likenesses + names + voices / real-club + real-league + real-venue names / real-brand sponsor content / graphic crowd-violence depiction / self-harm + suicide narrative / child endangerment prose. Sentinel-wrapped for prescriptive clarity
+- **Six edge-case rulings** on drift-prone subjects: post-derby hostility (hostile reception OK; targeted personal attacks on protected characteristics NOT), managerial dismissals (dismissal OK; naming the row's insult-content NOT), youth-player career-path risk (`"Quietly Gone"` / `"Did Not Kick On"` phenotypes OK; stigmatizing "failure" / "washout" NOT), racism/discrimination in football history (real-world football has documented this; Caldren's fictional football deliberately excludes this theme; mods cannot introduce), injury severity (career-ending as narrative OK; graphic on-pitch injury prose NOT; `pass-shot-impact` never renders injury moment), fan-sentiment hostility (manager/chairman/senior-pro named OK; specific player-name-in-fan-sentiment prose NOT)
+- **AI-content disclosure:** pack-manifest `ai_content_disclosure` block sketched (uses_ai_generation / generation_scope / bake_time_only / runtime_generation=false / human_review_gate / frozen_model_version / canonical_artifact_sha256). FW-VAL-D-005 blocks missing block at RC. Steam 2025 policy compliance posture locked — bake-time AI, no live-AI category
+- **Commentary / prose / overlay content rules** (5 bullets): banned-terms lint prerequisite / British-football vernacular default / no capitalized mystical state nouns / flatter ~140-template pool / prose human-reviewed at pack-compile time
+- **Mod-pack content policy — closes `design/modding.md` open question #2.** EA posture: automated Tier-A + Tier-D validator surface + Steam Workshop report-flow cover the surface; dedicated in-game content-report flow deferred post-EA trigger-gated on observed mod-pack violation rate (< 1% threshold keeps deferred). Explicit "mod packs cannot": introduce Category-A banned terms / reference unshipped-binary registry values / override base-pack IDs / ship runtime code / call external services / populate NarrativeFlag bias weights / misuse AI-content disclosure
+- **Two prototype gates:** Phase 6 content-pack-v1 content-policy audit (banned-terms + legal-sensitive + disclosure + 50-template spot-check + edge-case coverage); Phase 8 rating-submission readiness (PEGI 12 / ESRB T questionnaires with pack-content evidence)
+- **Four open questions:** locale-specific content-policy deltas (Phase 7) / fan-sentiment hostility ceiling calibration (Phase 6) / press-quote profanity-substitution authenticity calibration (Phase 4 closed-itch) / AI-content disclosure granularity per-entity (revisit on regulatory/community signal)
+
+`design/README.md` index updated: content_policy.md moved from "Future docs" into main index. `Future docs (added when trigger hits)` section is now empty — all 12 Phase-2 design docs shipped.
+
+**With this doc shipped, all Phase-2 design-doc authoring is complete** (12 design docs total: overview / month-3-vertical-slice / match-engine / semantic-cinema / event-sourced-memory / signatures / scout-disagreement / breakthrough-moments / player-generation / worldbuilding / ui-vocabulary / production-pipeline + modding / accessibility / content_policy = 15 total including the three new Phase-2 docs). Only the content-pack-validator spec + artifact retention policy spec + `/audit` green remain as Phase-2 gate blockers.
+
+## 2026-04-24 (Phase 2 — `design/accessibility.md` authored; 5-item EA surface locked)
+
+Shipped `design/accessibility.md` — five-item EA accessibility feature set per SPEC Phase-7 canonical list. Mix of synthesis (reduce-motion fully wired across ADRs 0001+0002+corpus spec; default-OFF advanced details locked via ADR-0006 §Q3; predictable vocabulary locked via banned-terms lint) and fresh commitment (colorblind palette policy, subtitle-timing rules, text-scale factors, input-remap surface).
+
+**Five EA features, locked:**
+
+1. **Reduce-motion toggle** — screen-tone becomes static / motion-line + impact-flash features unregister at scene-load / `ShotTypeSO.reduce_motion_variant` substitution / aftermath-hold extended +30% on high-stakes / breakthrough cinema collapses to post-match static stat-card. Scene-load-time posture from ADR-0002 preserved (no per-frame runtime branching). NOT silent mode — match still plays + narrates; only visual motion changes
+2. **Colorblind-safe palette** — default + deuteranopia + protanopia + tritanopia selectable. Color-never-sole-carrier discipline: every UI state using color to discriminate also uses shape/position/label/pattern redundancy. Phase-7 CI `colorblind-contrast-audit` runs through Sim Daltonism / Color Oracle filters on settings-panel + match-view + scout-report captures. Stakes-elevated saturation shift remains (brightness cue); warm/cool hue shift dampens under colorblind palettes
+3. **Remappable controls** via Unity Input System. Default keyboard-first scheme locked (Arrow/Tab/Enter for menus, Space/+/- for match viewer, 1-4 hotkey quick-access, F1 fixed-bind for accessibility panel). Full keyboard ↔ mouse parity; gamepad best-effort at EA (Xbox + DualShock auto-profiles). No QTE / timing-sensitive input anywhere. Deliberative-only per breakthrough-moments resolution
+4. **Large-text UI** — three scales (0.85× small / 1.0× default / 1.25× large). Phase-7 reflow pass per management screen. Monospace data cells stay monospace at all scales (JetBrains Mono). Subtitle/overlay text always rendered at default or large. No xlarge at EA (needs full reflow; post-EA)
+5. **Subtitles** — crowd audio cues / match-state stings / tutorial audio (if any). Timing: `min(max(words × 0.25s, 1.5s), 4.0s)`; max 2 lines simultaneous; bottom-center default with `aftermath-freeze` collision offset; rgba(0,0,0,0.6) background for WCAG AA contrast. **Post-match text-log accumulator always-on** regardless of subtitle-toggle state — players with sound off reconstruct match audio story from text alone. Free win from event-sourced memory posture
+
+**Cross-system discipline re-asserted:** default-OFF advanced details (ADR-0006), predictable banned-terms vocabulary (ui-vocabulary.md), focus-ring discipline (UI-programmer rule), screen-reader NOT in scope at EA (platform inconsistency; post-EA trigger).
+
+**Replay/viewer test expectations leverage existing `reduce_motion` corpus field:**
+
+- Phase 3: paired fixtures (`<seed>.json` + `<seed>.reduce-motion.json`); MatchSim canonical-state hash + `key_event_hashes` identical, `pass_activation_log_hash` may differ via variant substitution — both render-path hashes pinned
+- Phase 7 Tier-C: colorblind-mode + text-scale screenshot audit captures
+- Phase 6+: subtitle-toggle regression asserts zero MatchSim canonical-state hash coupling
+
+**Three prototype gates owed** at Phase 3 / 6 / 7; Phase-7 gate = 5 testers (one per accessibility need), all complete a full match without blocker = pass.
+
+**Three open questions** flagged for Phase 3+ resolution: (1) subtitle-event payload shape under `Memory.Contracts`; (2) `fw focus-ring-audit` CLI tool (Phase 7); (3) localization accessibility parity per-locale. Missing `ShotTypeSO.reduce_motion_variant` is now locked: authoring warning is allowed during Phase 3, but it blocks by Phase-6 content-pack v1 / EA lock as `FW-VAL-A-021`.
+
+SPEC task `[x]`; `design/README.md` index updated (accessibility moves from Future docs into main index). One more Phase-2 design doc owed: `content_policy.md`.
+
+## 2026-04-24 (Phase 2 — content-pack validation contract spec + Phase-6 synthetic mod-pack + red-team fixtures)
+
+Shipped `design/specs/content-pack-validation-contract.md` — turns `design/modding.md §12` into the enforceable validator surface. Design:
+
+- **21 Tier-A checks** (`FW-VAL-A-001` through `FW-VAL-A-021`) — every PR, with the import-safe subset on every pack import, ≤5 min shared budget with `fw verify` umbrella. Covers: pack-manifest schema / pack-ID format / entity-ID format (player regex + kind-slug) / duplicate-ID / unresolved ContentPackQualifiedId / unknown ChainConditionId / SimBiasFieldId / EventClass / CallbackTag (including `ConsumingReaders ≥ 1`) / PhenotypeLabelId / ScoutArchetypeKind / `NarrativeFlag = 0` invariant / Category-A hard-ban in rendered strings / Category-B without `ui-lint:allow` / first-party schema-version-bump-requires-fixture (CI-only) / `Fixed`→`float` drift in SimBias / locale-set coverage / ScoutReport NarrativeFlag bias-path invariant / missing reduce-motion variant for motion-heavy shots
+- **10 Tier-D checks** (`FW-VAL-D-001` through `FW-VAL-D-010`) — RC only, uncapped budget (expected <10 min). Covers: legal-sensitive-names diff / real-world region-analogue leakage / full locale coverage / cross-doc EventClass exact-match per ADR-0004 / AI-content-disclosure manifest / SignatureCandidate affinity resolution / pack-minor manifest discipline / asset-licensing coverage / determinism-replay parity for base pack / Category-B exemption-count audit for EA + RC lock
+
+- **Ownership decentralized** across 5 validator asmdefs (`Content.Validator` / `Viewer.Cinema.Validator` / `MatchSim.Validator` / `Memory.Validator` / `Scouting.Validator`) — each check lives in the asmdef that owns its registry, mirroring the Contracts/impl split pattern from ADRs 0004/0005/0006/0007. Top-level `fw content-lint` is a thin orchestrator; no validation logic in the orchestrator
+- **Red-team fixture per check** at `MatchSim.Tests/fixtures/validator-red-team/FW-VAL-<id>.pack/` — minimal synthetic pack engineered to trip exactly one check; Tier-A test asserts (exit ≠ 0) + (failure contains expected check ID) + (no false-positive other check IDs fire). Plus a negative-control anti-red-team fixture at `validator-clean/minimal.pack/` that passes all checks. **Growth policy:** spec entries without fixtures are unmergeable (mirrors the 4-tests-per-schema-bump discipline)
+- **Binding failure-message convention** — every output starts `[FW-VAL-<id>]` + names pack + names offending entity/field + one-sentence invariant-violated + remediation link. JSON output shape pinned (`check_id`, `severity`, `entity_id`, `field_path`, `message`, `remediation_link`) — CI annotations + future IDE integrations + Phase-9 mod-editor UX build against this schema additive-only
+- **CI wiring sketch:** Tier-A into `fast-pr-ci.yml` (+ `fw verify` umbrella); Tier-D into Phase-8 `release-candidate.yml`; red-team self-check step in Tier-A iterates every fixture and fails if any check-ID doesn't fire. Prevents "added a check, forgot the fixture" slip
+- **Phase rollout:** Phase 3 asmdef skeletons + 5-8 Tier-A checks → Phase 4 scout-disagreement family → Phase 6 full Tier-A + partial Tier-D → Phase 7 locale maturity → Phase 8 full Tier-D + RC wiring
+
+**Phase-6 SPEC tasks added in the same pass:**
+
+- Synthetic thin-mod-pack CI fixture at `MatchSim.Tests/fixtures/mod-packs/thin-mod.fwh.mod.v1/` — 1 new signature + 1 new shot type + 5 new IdentityPackets / players using existing `PhenotypeLabelId` values + 1 new ScoutArchetype using an existing `ScoutArchetypeKind`. It must not modify `Content.Contracts`, add registry values, or require a schema bump, and must load cleanly alongside unchanged `fwh.core@1.0.0` at Tier-D. **This is the end-to-end integration test for external-pack loadability, not a first-party schema-migration test.** Failure = content pack v1 isn't actually mod-ready
+- Red-team validator fixtures in place at `MatchSim.Tests/fixtures/validator-red-team/`, one intentional-fail pack per implemented `FW-VAL-<id>` check; red-team self-check CI step wired per the spec §CI wiring
+- Content-pack validator (full) Phase-6 task annotated to cite the spec explicitly
+
+SPEC task `Content-pack validation contract specified` flipped `[x]`. Handoff posture: spec is enforcement of already-locked architectural commitments (ADR-0004 / 0006 / 0007 + modding.md §12). User/GPT-5.5 review welcome as amendment pass; any finding becomes a new `FW-VAL-<id>` row or a clarification in `§Locked decisions` / ownership table.
+
+## 2026-04-24 (Phase 2 — `design/modding.md` authored as cross-ADR synthesis)
+
+Authoritative data-architecture contract for mod-loadability. Zero new architectural commitments — every constraint cites its source ADR / TECH_APPROACH section / spec. The doc is the synthesis + citation pass the ADR umbrella implied. Structure:
+
+- **12 locked constraints** covering content-pack-qualified stable IDs, schema-versioned forward migration, per-pack Addressables grouping, base-then-mod-pack precedence, registry-backed IDs (7 registries named with owners + consumers), Contracts-asmdef split keeping MatchSim Unity-free, canonical-JSON content-pack artifacts (LLM output explicitly NOT bit-deterministic), lint-scanned rendered strings with internal-enum exemption, bake-time-only AI posture, determinism boundaries mods cannot cross (no floats in canonical sim, no `_Time`, no `DateTime.Now` / unseeded `Random` / `Resources.Load`, no per-tick Unity mutation of MatchSim state), walled-off `InternalGeneSnapshot` with `NarrativeFlag` zero-visibility validator, content-pack validator Tier-A + Tier-D surface (each bullet cited to ADR)
+- **MVP boundary** — mod-loadability in at EA (validator + ID conventions + manifest schema stable); editor UX + dependency resolver + hot-reload + C# assembly mods + mod-authored shaders + paid Workshop mods all out at EA, deferred Phase 9+
+- **Four open questions** flagged for Phase 3+ resolution: Workshop manifest field list (Phase 6), mod-pack content-safety review surface (pairs with `design/content_policy.md`), mod-to-save binding when a referenced mod pack is missing, determinism parity under mod load (golden replay corpus + mod replay-neutrality policy)
+- **No separate prototype gate** — Phase-6 content-pack v1 compile IS the integration test, augmented by a synthetic thin-mod-pack CI fixture as a new Phase-6 SPEC task-owed
+
+design/README.md updated: modding.md moved from "Future docs" into the main design index. SPEC.md Phase-2 `design/modding.md` task flipped `[x]` with 12-constraint summary.
+
+Handoff posture: doc is synthesis, not fresh architecture, so the ADR-style draft → review → tighten rhythm is lighter-weight here. User/GPT-5.5 review welcome as an amendment pass — any finding becomes a referenced clarification in `§Locked decisions` or the constraint list, never a back-dated change.
+
+## 2026-04-24 (Phase 2 — ADR-authoring umbrella closed; all 7 pre-seeded ADRs Accepted)
+
+SPEC.md Phase-2 umbrella task "ADRs written for every load-bearing system decision" marked `[x]` as rollup. All seven pre-seeded Phase-2 ADRs (0001 ShotTypeSO / 0002 Viewer rendering / 0003 Production pipeline / 0004 MemoryEvent / 0005 SignatureSO / 0006 IdentityPacket + AI Content Compiler / 0007 Scout archetype) are Accepted, each through the draft → GPT-5.5/Codex review → tighten → Accept rhythm. Zero ADRs in Proposed limbo.
+
+Interpretation locked: modding constraints are woven across ADRs 0001/0004/0005/0006/0007 via content-pack-qualified IDs + schema versioning + mod-pack-loadability — no separate modding ADR is required; `design/modding.md` will capture the consolidated data-architecture contract as a design doc. Accessibility + content_policy are scope commitments (feature set + PEGI 12 boundaries), not architecture locks, so they remain design docs too.
+
+Remaining Phase-2 `[ ]` work (concrete tasks blocking the Phase-3 gate):
+- Content-pack validation contract spec (Phase-6 implementation)
+- Content-pack validator cross-doc enum exact-match spec (Phase-6 implementation)
+- Phase-6 evaluation: Tier-A smoke-seed single-vs-rotation (policy already locked in corpus spec; this is a Phase-6 runtime measurement)
+- Artifact retention policy spec
+- `design/modding.md` authoring
+- `design/accessibility.md` authoring
+- `design/content_policy.md` authoring
+- `/audit` green on Phase-2 checks
+
+## 2026-04-24 (/refresh-docs pass — fixed 6 findings)
+
+- **TECH_APPROACH.md §4.1** — pack-id example `finalwhistle.core.v1` → `fwh.core.v1`, and delta-pack `finalwhistle.core.v1.patch.2` → `fwh.core.v1.patch.2`, aligning with the canonical prefix used in ADR-0006, player-generation.md, all ADRs, and both specs. Resolves silent drift between the engineering blueprint and the post-ADR-0006 ID-format canonicalization
+- **TOOLING.md §7** — GitHub Account column now reads `osagberg (personal namespace; vibelogic org reserved, Phase-8 transfer optional per CLAUDE §5.6)`; was incorrectly `Vibelogic` (studio name, not account name). `vibelogic` org exists but dev accounts are not members per CLAUDE §5.6 + 2026-04-24 remote-creation decision
+- **SPEC.md Phase-2 active-posture + design-doc-locks intro** — "all 11 design docs" → "all 12 design docs" with explicit clarifier that 11 followed the open-questions resolution track + `design/production-pipeline.md` came via the Phase-0 planning pass. design/README.md lists 12 docs authoritatively
+- **STATUS.md currently-working-on** — same 11→12 correction, matching SPEC wording
+- **scripts/fw verify-docs** — added `.claude/session-snapshots/*` to the placeholder-check exclusion list alongside `.claude/bootstrap/*` and `design-templates/*`. Session snapshots are auto-generated pre-compact artifacts containing raw doc dumps; they're not shipped content and shouldn't be lint-scanned. Mirrors the same "system-generated, not a product artifact" exception already applied to bootstrap sources
+
 ## 2026-04-24 (ADR-0007 Accepted after 5-finding review; ADR-0006 subsection cleanup)
 
 **ADR-0007 review fixes applied before Accept:**

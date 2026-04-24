@@ -1,12 +1,12 @@
 # Status
 
-**Last updated**: 2026-04-24 (**Phase 1 ✅ COMPLETE.** Phase 2 🟡 ACTIVE — Design Bible / ADR authoring.)
+**Last updated**: 2026-04-25 (**Phase 1 ✅ COMPLETE.** Phase 2 🟡 ACTIVE — Design Bible / ADR authoring.)
 
 ## Currently working on
 
 **Phase 2 — Design Bible** 🟡 ACTIVE.
 
-Phase 1 shipped everything Claude-actionable (Tier-A CI green, banned-terms lint live, `fw verify` umbrella, full repo on `origin/main`). Phase 2 now focuses on ADR authoring — ordered to unblock Phase-3's real risk (first deterministic MatchSim + watchable 2D viewer). All 11 design docs are substantively locked per Phase-0 resolutions; the ADRs below finalize the architecture commitments.
+Phase 1 shipped everything Claude-actionable (Tier-A CI green, banned-terms lint live, `fw verify` umbrella, full repo on `origin/main`). Phase 2 now focuses on ADR authoring — ordered to unblock Phase-3's real risk (first deterministic MatchSim + watchable 2D viewer). All 12 design docs are locked (11 via Phase-0 open-questions resolution pass + `design/production-pipeline.md` via the Phase-0 production-pipeline planning pass); the ADRs below finalize the architecture commitments.
 
 **Phase-2 ADR priority order (Phase-3-unblocking first):**
 1. ShotTypeSO schema + Addressables grouping
@@ -33,11 +33,17 @@ Plus three new design docs: `modding.md`, `accessibility.md`, `content_policy.md
 
 ## Open questions for user
 
-- None currently blocking. All 11 design-doc open-question resolutions landed via 2026-04-24 Phase-0 consolidated SPEC entries. Phase-2 ADR authoring may surface narrow follow-ups per ADR; user gets each ADR for sign-off before it's marked Accepted.
+- None currently blocking. All Phase-2 design-doc open-question resolutions have a doc home or phase-deferred tracker row; user gets each architecture-bearing change for sign-off before it is marked Accepted.
 
 ## Next action
 
-**ALL 7 PHASE-2 PRE-SEEDED ADRs ACCEPTED.** ADRs 0001 / 0002 / 0003 / 0004 / 0005 / 0006 / 0007. Zero in Proposed limbo. Phase-2 remaining work: (a) 3 new design docs (`modding.md`, `accessibility.md`, `content_policy.md`), (b) 2 remaining specs (content-pack validation contract, artifact retention policy), (c) `/audit` green → Phase-2 gate.
+**Artifact retention policy spec authored `[x]`** (2026-04-24 — 5-tier retention model at `design/specs/artifact-retention-policy.md`; ~30 artifact classes catalogued; RC bundle minimum-10 rule; determinism-replay posture; Phase-3 `fw artifact-cleanup` + Phase-6 `fw workflow-audit` added as SPEC tasks; `FW-WF-A-001` uploaded-artifact retention + `FW-WF-A-002` repo/org Actions retention-setting report opened; workflow logs are platform-managed; release bundles verified as GitHub release assets). **All 15 design docs + 4 specs + 7 ADRs shipped.**
+
+Only Phase-2 blocker remaining: **`/audit` green on Phase-2 checks** (gate condition).
+
+Phase-2 gate condition *"design bible complete; ADRs for every system that locks architecture"* is substantively satisfied. `/audit` is the final verification pass that closes Phase 2 → promotes Phase 3.
+
+Former Phase-2 tracker rows for Phase-6 implementation work are rolled up `[x]` in `SPEC.md`: cross-doc enum / callback-tag validation is spec-satisfied by `content-pack-validation-contract.md` and implemented in Phase 6; smoke-seed rotation is policy-specified by `golden-replay-corpus.md` and measured in Phase 6.
 
 ## Phase-1 carryover (non-gating user-actions)
 
@@ -51,6 +57,13 @@ Phase 1 closed 2026-04-24 with these items intentionally open. None gate Phase 2
 
 ## Recent milestones
 
+- 2026-04-24: Phase 2 — **Artifact retention policy spec** authored at `design/specs/artifact-retention-policy.md`. 5-tier retention model (ephemeral / short / release-tied / permanent-in-repo / local-only). ~30 artifact classes catalogued with TTL + source + storage + rationale. RC bundle minimum-10-items rule locked for determinism-replay posture. Cost-discipline math projected through Phase 6 (Free 500MB cap tight; Pro 1GB comfortable). Playtest bug-bundle policy explicit. Phase-3 `fw artifact-cleanup` + Phase-6 `fw workflow-audit` added as SPEC tasks; `FW-WF-A-001` covers uploaded Actions artifact retention and `FW-WF-A-002` reports repo/org Actions artifact-and-log retention settings. Workflow logs are platform-managed, not 7-day uploaded artifacts. Release-tied bundles are verified as release assets, not `retention-days: 0`. `design/specs/` now holds 4 sibling specs
+- 2026-04-24: Phase 2 — **`design/content_policy.md` authored.** PEGI 12 / ESRB T content boundaries locked. 12 in-scope mature themes enumerated with shipping-form + example; 13 out-of-scope categories enumerated; 6 edge-case rulings on drift-prone subjects (post-derby hostility / managerial dismissals / youth setback language / discrimination exclusion / injury severity prose / fan-sentiment targeting). AI-content disclosure at Steam 2025 policy compliance via FW-VAL-D-005 + pack-manifest `ai_content_disclosure` block sketch. Mod-pack content-safety review surface closes `design/modding.md` OQ#2 — banned-terms lint + Steam Workshop report-flow cover EA; in-game report flow deferred post-EA. Two prototype gates Phase 6/8. Four open questions. **All 15 Phase-2 design docs shipped** (12 original + modding + accessibility + content_policy)
+- 2026-04-24: Phase 2 — **`design/accessibility.md` authored.** Five-item EA feature set locked (reduce-motion toggle / colorblind palette + color-never-sole-carrier / remappable controls / large-text UI / subtitles + post-match text-log). Synthesis of ADR-0001 `reduce_motion_variant` + ADR-0002 scene-load-time feature-disable + ADR-0006 default-OFF advanced details + corpus spec `reduce_motion` field; fresh commitments on colorblind palette + subtitle timing + text-scale + input-remap surface. Three prototype gates Phase 3/6/7. Missing reduce-motion variants block by Phase-6 content-pack v1 / EA lock; three open questions remain
+- 2026-04-24: Phase 2 — **Content-pack validation contract spec** authored at `design/specs/content-pack-validation-contract.md`. 21 Tier-A checks (`FW-VAL-A-001..021`) + 10 Tier-D checks (`FW-VAL-D-001..010`). Ownership decentralized across 5 validator asmdefs (mirrors Contracts/impl split). Red-team fixture per check + anti-red-team negative control + red-team CI self-check step. Binding failure-message convention + JSON output shape. Phase-6 SPEC tasks added: synthetic thin-mod-pack fixture (modding integration test) + red-team validator fixtures + content-pack validator full (cites spec)
+- 2026-04-24: Phase 2 — **`design/modding.md` authored** as cross-ADR synthesis. 12 load-bearing mod-loadability constraints with per-constraint ADR citation; zero new architecture committed. Four open questions flagged for Phase-3/6 resolution. `design/README.md` index updated; SPEC task `[x]`
+- 2026-04-24: Phase 2 — **ADR-authoring umbrella closed `[x]`** (SPEC.md line 91). Rollup of all 7 pre-seeded ADRs Accepted. Modding confirmed as design-doc-not-ADR (constraints woven across ADRs 0001/0004/0005/0006/0007). Phase-2 remaining work is concrete spec-authoring + 3 design docs + `/audit` green
+- 2026-04-24: Phase 2 — `/refresh-docs` pass fixed 6 findings: TECH_APPROACH pack-id prefix drift (`finalwhistle.core.v1` → `fwh.core.v1`); TOOLING GitHub Account corrected (`Vibelogic` → `osagberg` w/ `vibelogic` org reserve note); SPEC + STATUS "11 design docs" → "12 design docs" (production-pipeline.md was the 12th); `scripts/fw verify-docs` now excludes `.claude/session-snapshots/` auto-generated artifacts
 - 2026-04-24: Phase 2 — **ADR-0007 Accepted** after 5-finding review pass (P1 ScoutReport event-class-free / emitter owns EventClass selection; P1 Scouting.Runtime owns single post-gate path, Prototype carries pre-verdict selector; P2 LabelEstimate split from GeneCategoryEstimate; P2 subsection-header status discipline; P3 ADR-0006 stale subsection labels cleaned). **ALL 7 Phase-2 pre-seeded ADRs Accepted**
 - 2026-04-24: Phase 2 — **ADR-0007 Scout archetype + ScoutReport + gate-fallback Proposed.** Both Month-4-gate paths committed architecturally (Path A Scout Disagreement 3-archetype; Path B BasicScoutUncertainty fallback with identical ScoutReport schema). `Scout.Biases.NarrativeFlag = 0` validator invariant. `Scouting.Contracts` / `.Runtime` / `.Prototype` asmdef split. Five rejected alternatives. All 7 pre-seeded Phase-2 ADRs now drafted
 - 2026-04-24: Phase 2 — **ADR-0006 Accepted** after Codex/GPT-5.5 6-finding review pass. Fixes: (P1) LLM path explicitly outside byte-identical regeneration (compiler determinism = cohort + seed + checked-in name-bank artifact); (P1) canonical player-ID regex `^fwh\.core(?:\.v[0-9]+)?:player_[0-9]{5}$` aligned across ADR-0006 + player-generation.md + TECH_APPROACH; (P2) status discipline preserved (stayed Proposed until findings resolved); (P2) event-class count normalized to 42 starter / ~40 shorthand; (P2) `fw verify-docs` recursive frontmatter check; (P3) `.agents/` skill-port corrections. All 6 drafted ADRs now Accepted
