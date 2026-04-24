@@ -130,8 +130,12 @@ Once machine + tooling is green:
 cd /Users/vibelogic/dev/football/
 
 # 1. Create GitHub remote (private)
-gh repo create Vibelogic/FinalWhistle --private --source=. --push
-# NOTE: --push pushes existing commits. Bootstrap deliberately did NOT push.
+gh repo create osagberg/FinalWhistle --private --source=. --remote=origin
+# NOTE: The `vibelogic` GitHub org exists (reserved as a potential future
+# publisher namespace) but neither authenticated gh account is a member,
+# so repo creation under that org is blocked. Personal-namespace repo is
+# simpler and transferrable one-click at Phase 8 if a publisher namespace
+# is wanted for Steam branding.
 
 # 2. Smoke-test Claude Code
 claude

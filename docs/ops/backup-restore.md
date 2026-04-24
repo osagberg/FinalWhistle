@@ -38,7 +38,7 @@ Authored 2026-04-24 (Phase 1). Updated when tooling or storage-destinations chan
 ### Clean-machine restore (full)
 
 1. Install dev toolchain per `SETUP.md §4`.
-2. `git clone git@github.com:Vibelogic/FinalWhistle.git`
+2. `git clone git@github.com:osagberg/FinalWhistle.git`
 3. `git lfs install && git lfs pull`
 4. Restore secrets from 1Password into `.env.local` + Unity license activation + any Asset Store receipts.
 5. Open in Unity Hub; let it regenerate `Library/`.

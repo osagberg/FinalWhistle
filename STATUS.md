@@ -15,7 +15,7 @@
 
 ## Pending async
 
-- User creates GitHub remote (if desired): `gh repo create Vibelogic/FinalWhistle --private --source=. --push` — bootstrap did NOT push remote; first push is user-gated.
+- ~~GitHub remote creation~~ — **done 2026-04-24**: `osagberg/FinalWhistle` private; `vibelogic` org deferred to Phase 8 transfer if publisher branding wants it.
 - User creates Steam Direct account at Phase 8 ($100 one-time).
 - Phase-8 prep: formal trademark + Steam-name clearance for "Final Whistle" (existing non-AAA uses: `finalwhistle.es`, `finalwhistle.club`).
 
@@ -30,7 +30,7 @@
 Live options to accelerate Phase 1:
 
 **User-gated (pick one + signal ready):**
-- **GitHub remote creation** — `gh repo create Vibelogic/FinalWhistle --private --source=. --push`. Unblocks: Actions budget cap, branch protection, `fast-pr-ci.yml` authoring, first push.
+- ~~GitHub remote creation~~ **done 2026-04-24** under `osagberg/FinalWhistle`. Unlocks: Actions budget cap, branch protection, `fast-pr-ci.yml` authoring — all pickable on next `/next`.
 - Blender / VS Code install (low urgency at Phase 1).
 
 **Claude-actionable after remote exists:**

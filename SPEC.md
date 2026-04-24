@@ -48,7 +48,7 @@
 - [ ] Install Blender (deferred-3D pipeline ready)
 - [ ] Install VS Code with C# extension (or Rider)
 - [ ] Account prerequisites: GitHub (exists), Steam Direct deferred to Phase 8
-- [ ] `gh repo create Vibelogic/FinalWhistle --private --source=. --push` (user-gated)
+- [x] `gh repo create osagberg/FinalWhistle --private --source=. --remote=origin` (2026-04-24 — created under personal namespace; `vibelogic` org exists but dev accounts not members. Transfer to publisher org deferred to Phase 8 if needed for Steam branding)
 - [ ] CI stub from `~/dev/blueprint/ci-cd/github-actions-unity.yml.template` adapted for MatchSim.Tests matrix (Win/Mac/Linux)
 - [x] Asset licensing tracker initialized
 - [ ] Phase-1 lint rule: full `scripts/lint-banned-terms.py` implementing Category-A (hard-ban, no exemption) + Category-B (inline `ui-lint:allow` exemption with term/reason/reviewer audit) + sentinel-exemption blocks (`ui-lint:ignore-start` / `ui-lint:ignore-end`). Scope: UI code + runtime content packs + rendered player-facing outputs. CI emits exemption report reviewed before EA content lock + every RC. Banned-term source is `design/ui-vocabulary.md` Categories A.1-A.5 including real-world place-name analogues (seeded by 2026-04-24 Worldbuilding + UI-vocabulary resolutions)

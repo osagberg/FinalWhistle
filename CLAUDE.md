@@ -138,7 +138,7 @@ At `.claude/hooks/`:
 
 ### 5.6 Git workflow
 
-**Remote:** `github.com:Vibelogic/FinalWhistle.git` (private — created at user request after bootstrap).
+**Remote:** `github.com:osagberg/FinalWhistle.git` (private — created 2026-04-24). The `vibelogic` GitHub org exists as a reserved name but neither authenticated gh account is a member, so personal namespace is used. Transfer to a proper publisher org is a one-click Phase-8 operation if Steam branding requires it.
 
 Branch strategy:
 - `main` — shippable only
