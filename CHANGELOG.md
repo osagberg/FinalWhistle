@@ -9,7 +9,9 @@ Findings table produced by GPT-5.5 against the Phase-1 scaffolding work. All 5 a
 - **HIGH — `docs/ops/branch-protection.md`:** GitHub Free does NOT allow branch protection on private repos (verified via `gh api` returning 403 "Upgrade to GitHub Pro or make this repository public"). Reframed the doc with a new §0 "Reality check" explicitly marking the rules as aspirational-on-Pro / local-discipline-now, with an explicit upgrade-trigger (second contributor OR Phase-4 closed itch, whichever first). Also updated the SPEC task + STATUS next-action to stop treating branch protection as a simple pending UI action.
 - **MEDIUM — self-approval constraint:** GitHub blocks PR authors from approving their own PRs. `required_approving_review_count: 1` on `main` would permanently block solo-dev merges. Rule corrected to `approvals = 0` for both `main` and `develop`; status checks + conversation resolution + PR-template self-review discipline (§6) are the real gates.
 - **MEDIUM — JetBrains Mono license misstated:** The typeface is **SIL OFL 1.1**, not Apache-2.0 (Apache-2.0 applies to the source-code repository, not the shipped font files). Fixed in `steam-release/asset-licensing-tracker.csv` and `design/semantic-cinema.md`. All three typefaces (Anton / JetBrains Mono / Rajdhani) now correctly recorded as SIL OFL 1.1, with a clarifying note that the JetBrains Mono source repo is Apache-2.0 separately.
-- **MEDIUM — placeholder lint self-trip pattern:** The "space the token" workaround Claude used twice today (`{{ PROJECT_NAME }}` vs `{{PROJECT_NAME}}`) is a hack, not a strategy — a real spaced-placeholder leak would now pass CI. Saved as project memory (`feedback_placeholder_lint_strategy.md`) with the directive that `scripts/lint-banned-terms.py` must match both forms via `{{\s*[A-Z_]+\s*}}` and rely on sentinel blocks for legitimate exemption.
+<!-- ui-lint:ignore-start reason="meta-reference to placeholder tokens being audited" -->
+- **MEDIUM — placeholder lint self-trip pattern:** The "space the token" workaround Claude used twice today (`{{ PROJECT_NAME }}` vs `{{PROJECT_NAME}}`) is a hack, not a strategy — a real spaced-placeholder leak would now pass CI. Saved as project memory (`feedback_placeholder_lint_strategy.md`) with the directive that `scripts/lint-banned-terms.py` must match both forms via `{{\s*[A-Z_]+\s*}}` and rely on sentinel blocks for legitimate exemption. `fw verify-docs` updated in-turn to respect `ui-lint:ignore-start` / `ui-lint:ignore-end` sentinel blocks AND match both spaced and unspaced tokens, per the locked convention in `design/ui-vocabulary.md` — this CHANGELOG block is itself now sentinel-wrapped.
+<!-- ui-lint:ignore-end -->
 - **LOW — `scripts/fw` umbrella + false broken-link claim:** Added `fw verify` as the Tier-A umbrella command (currently delegates to `verify-docs`; future banned-terms / dotnet-test / determinism checks land here too). Removed the inaccurate "broken links" phrasing from `fw help` (the script only checks frontmatter + unsubstituted placeholders). Added `banned-terms` to the stubbed-command list for when the Phase-1 lint script lands. Tier-A workflow updated to call `fw verify` so new checks auto-run without workflow edits.
 
 GPT-5.5 spot-checked the signature resolution (#19 "stronger foot", #6 `defensive_line` scope, field-level caps) and player-generation resolution (22 fields, 46 labels, default-off advanced tooltip, no minor pack version in IDs) — both match the signed-off shape. Namespace call (`osagberg/FinalWhistle`) accepted as operationally fine.
@@ -38,10 +40,12 @@ Verify: `scripts/fw verify` local green; next push triggers Tier-A `Verify (Tier
   - **`.github/ISSUE_TEMPLATE/bug_report.md` ✅** — football-native framing in "What happened", diagnostics-bundle ask, match/save seed fields for determinism repro, severity rubric
   - **`.github/ISSUE_TEMPLATE/feature_request.md` ✅** — pillar-alignment checkbox (enforces design/overview.md pillar discipline), 4-bucket scope placement, anti-scope field, candidate SPEC-task wording
   - **`docs/ops/backup-restore.md` ✅** — Time Machine + GitHub + 1Password split per asset class; explicit rules (git-first, secrets stay in 1Password, Library/ regenerable not backed up, pre-destructive-import snapshots); clean-machine restore procedure; quarterly verification
+<!-- ui-lint:ignore-start reason="historical meta-references to placeholder tokens" -->
 - `fw verify-docs` passes after two refinements:
   - Fixed `^\*\*Last updated\*\*` regex escape in `fw status`
   - `fw verify-docs` placeholder check now pipes through `grep -v` to exclude `.claude/bootstrap/` + `design-templates/` (grep's `--exclude-dir` takes dir *name* not path)
   - Spaced the three `{{ PROJECT_NAME }}` meta-references in CHANGELOG's `/refresh-docs` entry so the verifier doesn't trip on its own historical record
+<!-- ui-lint:ignore-end -->
 - **Intentionally NOT shipped this turn** (user held back; correct call — a CI workflow with missing dependencies is worse than no workflow):
   - `.github/workflows/fast-pr-ci.yml` — held until the scripts it calls (`scripts/fw test` / `lint-banned-terms.py`) exist
   - Branch protection config — held until GitHub remote exists
@@ -163,6 +167,7 @@ Verify: `scripts/fw verify` local green; next push triggers Tier-A `Verify (Tier
 - Phase-8 SPEC tasks added (6): Tier-D RC workflow, Tier-E Steam-deploy manual-approval workflow, release-channels doc, version-specific release checklist, rollback tested, AI-content disclosure metadata
 - `TECH_APPROACH.md` §8.5 added — Production pipeline summary cross-referencing the design doc; 5-tier table + channels + cost discipline + ruled-out-through-EA block
 - Verify: `grep -n "2026-04-24" SPEC.md TECH_APPROACH.md design/overview.md design/month-3-vertical-slice.md design/match-engine.md design/semantic-cinema.md design/event-sourced-memory.md design/signatures.md design/scout-disagreement.md design/breakthrough-moments.md design/player-generation.md design/worldbuilding.md design/ui-vocabulary.md design/production-pipeline.md`
+<!-- ui-lint:ignore-start reason="historical /refresh-docs findings naming fixed placeholder tokens" -->
 - `/refresh-docs` pass — fixed 6 findings:
   - `.claude/hooks/session-start.sh:19` `{{ PROJECT_NAME }}` → `Final Whistle` (placeholder token spelled spaced here to avoid tripping the bootstrap verifier; was literal-unspaced in source. User-visible at every session start before fix)
   - `.claude/skills/state-dump/scripts/dump-and-read.sh:22,32,64` three `{{ PROJECT_NAME }}` → `FinalWhistle` (method namespace + Editor menu path form)
@@ -170,6 +175,7 @@ Verify: `scripts/fw verify` local green; next push triggers Tier-A `Verify (Tier
   - `design/README.md` — `last_verified` 2026-04-22 → 2026-04-24; added `production-pipeline.md` index row (12 total); renamed "Phase when locked" column to "Open questions resolved" with consistent `Phase 0 / 2026-04-24` values (clarifies vs Phase-2 ADR authoring tracked in SPEC separately)
   - `design/production-pipeline.md:45` spaced the literal `{{ PROJECT_NAME }}` / `{{ STUDIO }}` tokens so the existing bootstrap verifier doesn't trip on the placeholder-leak check's own description
   - Intentionally NOT changed: `.claude/bootstrap/*` placeholder references + `verify.sh` grep pattern (source-of-truth for the verifier). TECH_APPROACH.md §8.5 non-standard numbering (harmless, preserves player-generation.md §4 cross-ref).
+<!-- ui-lint:ignore-end -->
 
 ## 2026-04-23 (Codex bootstrap review)
 

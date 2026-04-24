@@ -50,6 +50,8 @@ Fill every section. Delete sections only if they genuinely don't apply.
 
 - [ ] Design doc consulted; code matches design intent
 - [ ] No new banned-term strings introduced (or sentinel-exempted with reviewer handle)
-- [ ] No `{{ PROJECT_NAME }}` / `TODO:` / `FIXME` leaks in shipped content
+<!-- ui-lint:ignore-start reason="checklist meta-reference to placeholder tokens" -->
+- [ ] No `{{PROJECT_NAME}}` / `TODO:` / `FIXME` leaks in shipped content
+<!-- ui-lint:ignore-end -->
 - [ ] Decisions log left append-only (no mutations to past entries)
 - [ ] CHANGELOG line drafted (will be landed on merge)

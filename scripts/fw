@@ -90,21 +90,35 @@ EOF
         done
 
         # 2. No literal template placeholders in shipped docs.
-        #    Excludes .claude/bootstrap (source-of-truth), design-templates,
-        #    and the shipped changelog (contains historical meta-references
-        #    to placeholders that were fixed — those spell the tokens with
-        #    internal spaces to avoid self-tripping).
+        #    Legitimate exemption: sentinel-block pairs per design/ui-vocabulary.md
+        #    2026-04-24 resolution — content between `ui-lint:ignore-start` and
+        #    `ui-lint:ignore-end` markers is skipped (banned-term catalogs,
+        #    historical meta-references to placeholders that were fixed, etc.).
+        #    Also excludes .claude/bootstrap (source-of-truth) + design-templates.
+        #
+        #    Pattern matches both spaced ({{ PROJECT_NAME }}) and unspaced
+        #    ({{PROJECT_NAME}}) forms — GPT-5.5 2026-04-24 feedback: the lint
+        #    must catch both, never rely on spelling variants.
         echo "Checking for unsubstituted template placeholders..."
-        hits=$(grep -rn -l '{{[A-Z_]*}}' \
-            --include='*.md' --include='*.sh' \
-            --exclude-dir=node_modules \
-            "$ROOT" 2>/dev/null \
-            | grep -v '/\.claude/bootstrap/' \
-            | grep -v '/design-templates/' \
-            || true)
-        if [ -n "$hits" ]; then
-            echo "  FAIL: placeholder tokens found in:"
-            echo "$hits" | sed 's/^/    /'
+        placeholder_hits=""
+        while IFS= read -r -d '' f; do
+            case "$f" in
+                */.claude/bootstrap/*|*/design-templates/*|*/node_modules/*) continue ;;
+            esac
+            # Strip sentinel-ignored regions, then check for placeholder tokens.
+            filtered=$(awk '
+                /ui-lint:ignore-start/ {skip=1; next}
+                /ui-lint:ignore-end/   {skip=0; next}
+                !skip                  {print}
+            ' "$f")
+            if echo "$filtered" | grep -q '{{[[:space:]]*[A-Z_]\+[[:space:]]*}}'; then
+                placeholder_hits="${placeholder_hits}${f}\n"
+            fi
+        done < <(find "$ROOT" -type f \( -name '*.md' -o -name '*.sh' \) -print0 2>/dev/null)
+
+        if [ -n "$placeholder_hits" ]; then
+            echo "  FAIL: placeholder tokens found (outside sentinel blocks):"
+            printf "    %b" "$placeholder_hits" | sed 's/^/    /'
             exit_code=1
         fi
 

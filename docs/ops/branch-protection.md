@@ -104,7 +104,9 @@ Matches `.github/PULL_REQUEST_TEMPLATE.md`. Key items:
 - [ ] Test plan executed locally; results in PR body
 - [ ] Banned-term lint green (once Phase-1 lint lands)
 - [ ] Content-pack validator green (once content exists)
-- [ ] No `{{ PROJECT_NAME }}` / `TODO:` / `FIXME` leaks in shipped content
+<!-- ui-lint:ignore-start reason="checklist meta-reference to placeholder tokens" -->
+- [ ] No `{{PROJECT_NAME}}` / `TODO:` / `FIXME` leaks in shipped content
+<!-- ui-lint:ignore-end -->
 - [ ] Decisions log left append-only (no mutations)
 - [ ] CHANGELOG line drafted
 

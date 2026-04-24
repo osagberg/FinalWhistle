@@ -42,7 +42,9 @@ Five tiers. Each tier has a trigger, a budget, and a scope. Higher tiers do not 
 **Runner:** GitHub-hosted Linux.
 **Budget:** ≤5 minutes per run. Must fit inside included-minutes envelope for typical solo-dev PR volume.
 **Scope:**
-- Markdown placeholder-leak check (template tokens like `{{ PROJECT_NAME }}` / `{{ STUDIO }}` shown spaced here to avoid tripping the bootstrap verifier, plus `TODO:` and unresolved template tokens).
+<!-- ui-lint:ignore-start reason="meta-reference to placeholder tokens being lint-checked" -->
+- Markdown placeholder-leak check (template tokens like `{{PROJECT_NAME}}` / `{{STUDIO}}` — catches both spaced and unspaced forms — plus `TODO:` and unresolved template tokens).
+<!-- ui-lint:ignore-end -->
 - Markdown frontmatter validation (every design doc has `description`).
 - Banned UI-vocabulary lint (`scripts/lint-banned-terms.py` — Phase-1 deliverable).
 - JSON / content-pack schema validation (once content exists).
