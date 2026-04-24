@@ -2,6 +2,21 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-24 (ADR-0006 Accepted after Codex/GPT-5.5 6-finding review)
+
+All 6 findings from the GPT-5.5 / Codex review pass on ADR-0006 addressed in the working tree (see the "Review fixes" entry immediately below for the per-finding detail); ADR-0006 status flipped from Proposed to Accepted, SPEC checked `[x]`, STATUS `/next` advanced to ADR-0007. Validation: `./scripts/fw verify` clean (now with recursive `design/**.md` frontmatter coverage including ADRs + specs); grep-audit of the old `player.00042` drift pattern returns zero hits; event-class count summaries consistent across SPEC / design docs / ADRs at 42 starter / ~40 shorthand.
+
+All 6 drafted ADRs now Accepted. Zero in Proposed limbo.
+
+## 2026-04-24 (Review fixes — ADR-0006 + verifier tightening)
+
+- ADR-0006 remains **Proposed** until review/acceptance; SPEC no longer marks it `[x]`, and STATUS next action stays on ADR-0006 review before ADR-0007
+- Fixed IdentityPacket ID-format drift: canonical player ID examples now use `fwh.core:player_00042` / `fwh.core.v1:player_00042`, with regex `^fwh\.core(?:\.v[0-9]+)?:player_[0-9]{5}$`
+- Split deterministic compiler regeneration from LLM-assisted name-bank generation: byte-identical regeneration depends on checked-in name-bank JSON, while LLM output only produces reviewed candidate deltas
+- Corrected event-class count summaries to 42 starter entries / ~40 planning shorthand
+- `scripts/fw verify-docs` now checks frontmatter recursively under `design/**.md`, including ADRs and specs
+- Untracked `.agents` skill port path/CLI replacements corrected (`.agents/skills/...`, `claude mcp list`)
+
 ## 2026-04-24 (Phase 2 — ADR-0006 IdentityPacket / AI Content Compiler drafted)
 
 - `design/adr/adr-0006-identity-packet-compiler.md` authored as **Proposed** — Pillar-2 player-authoring contract

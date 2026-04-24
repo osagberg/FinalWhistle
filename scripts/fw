@@ -92,13 +92,13 @@ EOF
 
         # 1. Every design doc has frontmatter with `description`.
         echo "Checking design/**.md frontmatter..."
-        for f in "$ROOT"/design/*.md; do
+        while IFS= read -r -d '' f; do
             [ -f "$f" ] || continue
             if ! head -5 "$f" | grep -q '^description:'; then
                 echo "  FAIL: $f missing 'description:' in frontmatter"
                 exit_code=1
             fi
-        done
+        done < <(find "$ROOT/design" -type f -name '*.md' -print0 2>/dev/null)
 
         # 2. No literal template placeholders in shipped docs.
         #    Legitimate exemption: sentinel-block pairs per design/ui-vocabulary.md

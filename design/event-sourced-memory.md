@@ -120,7 +120,7 @@ Each tag declares which readers can consume it. Tags without at least one consum
 
 ## Event class catalog
 
-Versioned PascalCase enum with stable integer IDs. **MVP target ~35-40**, ceiling ~60. Growth beyond ~60 requires a Phase-review — runaway growth dilutes reader efficacy and bloats the schema-migration surface.
+Versioned PascalCase enum with stable integer IDs. **MVP target ~40**, ceiling ~60. Growth beyond ~60 requires a Phase-review — runaway growth dilutes reader efficacy and bloats the schema-migration surface.
 
 **Starter set (Phase 0 lock):**
 
@@ -137,7 +137,7 @@ Versioned PascalCase enum with stable integer IDs. **MVP target ~35-40**, ceilin
 | Press / fan / board | `PressConferenceWin`, `PressConferenceLoss`, `FanSentimentBoost`, `FanSentimentCollapse`, `BoardUltimatum`, `BoardConfidenceShift` |
 | Coaching | `ManagerHired`, `ManagerFired` |
 
-Count: ~38. Room for ~20 Phase-5/6 additions without hitting the soft ceiling.
+Count: 42 starter entries (~40 for planning shorthand). Room for ~18 Phase-5/6 additions without hitting the soft ceiling.
 
 **Conditional drops / cross-refs:**
 - `SignatureAwakened` + `SignatureExecuted` must match exact strings used in `design/signatures.md`. Cross-doc consistency check required at Phase 2.
@@ -228,7 +228,7 @@ See SPEC.md decisions log entry `2026-04-24 — Event-sourced memory open questi
 
 1. **Salience structure locked; weights are Phase-6 tuning seeds.** See "Salience formula" section above. Reconciliation note: `callback_age` + `player_attention` from the 2026-04-22 SPEC seed are **reader-side surfacing modifiers**, not emission-time salience inputs — separation preserves ledger append-only discipline.
 2. **Callback tags: fixed MVP enum with consuming-reader metadata.** See "Callback tag schema" section. `CallbackTag { id, consuming_readers, min_band, expiry_policy }`. Every tag must declare at least one consuming reader (lint-checked).
-3. **Event class catalog: versioned PascalCase enum, ~38 starter entries, ceiling ~60.** See "Event class catalog" section. Conditional entries flagged for cross-doc sync (signatures, scouting).
+3. **Event class catalog: versioned PascalCase enum, 42 starter entries (~40 planning shorthand), ceiling ~60.** See "Event class catalog" section. Conditional entries flagged for cross-doc sync (signatures, scouting).
 4. **Three-tier compaction + per-season quota cap.** See "Compaction strategy" section. `season-defining` → hard preserve / `notable` → compact preserve / `routine-and-below` → aggregated. Top-5% quota with `N_quota = 20` Phase-6 tuning seed. "Hard preserve" = full participant / tag / emotion / consequence / source context, but NOT raw tick telemetry (that lives in match replay data).
 5. **Load-time forward migration.** See "Save / load migration" section. Not lazy-per-read at MVP — lazy spreads complexity, bugs become intermittent. Optimize to lazy only if Phase-6 synthetic saves prove load-time too slow.
 

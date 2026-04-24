@@ -126,13 +126,13 @@ IdentityPacket {
 
 ## AI Content Compiler pipeline (for bake-time generation)
 
-Generation is reproducible by artifact, not by assuming the LLM is bit-deterministic. Prompt + seed + frozen model version produce the draft; the checked-in structured JSON/content pack is the source of truth. If regeneration differs, the compiler treats it as a new delta pack, not an in-place mutation. Pipeline:
+Generation is reproducible by artifact, not by assuming the LLM is bit-deterministic. Optional prompt + seed + frozen model version can produce a candidate name bank; once reviewed, that name bank is checked in as structured JSON and becomes the compiler input. The checked-in structured JSON/content pack is the source of truth. If regeneration differs, the compiler treats it as a new delta pack, not an in-place mutation. Pipeline:
 
 ```
 1. Specify cohort (e.g., "96 clubs in East-Midlands-analog region, squad size 22-26, 60% native, 30% cross-region, 10% foreign")
 2. Generate gene distributions from regional / cultural priors (seeded RNG)
-3. Generate names via LLM with seed prefix + frozen model version recorded
-4. Compile Identity Packets from gene snapshots
+3. Optionally generate candidate names via LLM with seed prefix + frozen model version recorded; review and commit the name bank JSON
+4. Compile Identity Packets from gene snapshots + checked-in name bank
 5. Validate:
    - schema correctness
    - no duplicate names (lint)
@@ -255,7 +255,7 @@ content-pack-manifest.json
 
 **Additive-only delta packs. Stable IDs never mutate. Pack version does NOT leak into entity IDs.**
 
-Player IDs use the form `fwh.core:player_00042` (or `fwh.core.v1:player_00042` if a major-version namespace is preserved for hypothetical future rebuilds). **`v1.1`, `v1.2`, etc. never appear in an entity ID.** Pack-minor-version lives in the **manifest** as `introduced_in_pack_version: "1.1.0"` per-entity, not in the ID itself. Otherwise every patch leaks into save references and mod compatibility.
+Player IDs use the form `fwh.core:player_00042` (or `fwh.core.v1:player_00042` if a major-version namespace is preserved for hypothetical future rebuilds). **`v1.1`, `v1.2`, etc. never appear in an entity ID.** Pack-minor-version lives in the **manifest** as `introduced_in_pack_version: "1.1.0"` per-entity, not in the ID itself. Otherwise every patch leaks into save references and mod compatibility. Canonical validator regex: `^fwh\.core(?:\.v[0-9]+)?:player_[0-9]{5}$`.
 
 **Rules:**
 - Every `ContentPackQualifiedId` is stable forever once shipped.

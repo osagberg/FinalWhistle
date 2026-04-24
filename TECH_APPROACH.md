@@ -123,10 +123,13 @@ All content ships in versioned packs with stable IDs. Every player, club, league
 ```
 pack_id: "finalwhistle.core.v1"
 schema_version: 3
-entity: "player:fwh.core.v1:player_00042"
+entity_kind: "player"
+entity_id: "fwh.core.v1:player_00042"
 ```
 
 **Stable IDs** persist across regeneration. Regenerating content pack v1 with new prompt engineering MUST NOT change existing IDs; deltas ship as `finalwhistle.core.v1.patch.2` content packs loaded alongside. Checked-in structured JSON/content packs are canonical; LLM output itself is not assumed bit-deterministic.
+
+Canonical player IDs use `fwh.core:player_00042` or `fwh.core.v1:player_00042` (major-pack namespace only). Save references may carry `entity_kind` separately, but the `ContentPackQualifiedId` itself never embeds minor / patch pack versions.
 
 **Schema versions** gate save migrations. Loader knows to run `migrate_v2_to_v3` before instantiating game state.
 
@@ -135,9 +138,9 @@ entity: "player:fwh.core.v1:player_00042"
 Pipeline (see `design/player-generation.md` + `design/worldbuilding.md`):
 
 ```
-spec + prompt + seed
+cohort spec + seed + checked-in name bank
     ↓
-structured JSON draft (prompt + seed + frozen model version recorded)
+structured JSON draft (optional prompt/model provenance recorded for name-bank deltas)
     ↓
 validation (schema check — required fields, type correctness)
     ↓

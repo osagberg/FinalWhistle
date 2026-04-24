@@ -6,7 +6,7 @@ description: ADR-0006 — IdentityPacket schema + AI Content Compiler pipeline. 
 
 ## Status
 
-**Proposed** — pending user review before Accepted.
+**Accepted** — 2026-04-24. Six review findings (GPT-5.5 / Codex pass) addressed before Accept: (P1) LLM path is explicitly OUTSIDE byte-identical regeneration — compiler determinism = cohort spec + seed prefix + checked-in name-bank artifact; LLM output produces reviewed candidate deltas only. (P1) Player ID format canonicalized across ADR-0006 + player-generation.md + TECH_APPROACH: regex `^fwh\.core(?:\.v[0-9]+)?:player_[0-9]{5}$`. (P2) Status discipline preserved — ADR stayed Proposed until findings resolved; SPEC [ ] held. (P2) Event-class count normalized to "42 starter entries / ~40 planning shorthand" across design docs + ADRs. (P2) `scripts/fw verify-docs` frontmatter check now recursive under `design/**.md` (ADRs + specs covered). (P3) `.agents/` skill-port command/path replacements corrected.
 
 ## Date
 
@@ -51,7 +51,7 @@ Lock the Pillar-2 player-authoring contract: `IdentityPacket` is the stable data
 
 ### Problem Statement
 
-`design/player-generation.md` 2026-04-24 resolved all five open questions with: 22-field internal gene model locked, 46-label phenotype catalog (ceiling 50), default-off advanced tooltip, canonical-JSON-artifact reproducibility, ID-stability correction (no pack-minor in entity IDs). That resolution specified what to build. This ADR commits the schema + compiler contract so Phase-3 hand-authored packets can serve as the ground truth that Phase-6 compiler-generated packets must match byte-for-byte after round-trip.
+`design/player-generation.md` 2026-04-24 resolved all five open questions with: 22-field internal gene model locked, 46-label phenotype catalog (ceiling 50), default-off advanced tooltip, canonical-JSON-artifact reproducibility, ID-stability correction (no pack-minor in entity IDs). That resolution specified what to build. This ADR proposes the schema + compiler contract so Phase-3 hand-authored packets can serve as the first canonical fixtures, and Phase-6 compiler output can be byte-identical only when generated from deterministic checked-in inputs.
 
 ### Current State
 
@@ -76,7 +76,7 @@ No Unity project. No compiler. No authored packets. Design doc has the 22-field 
 
 ## Decision
 
-### `IdentityPacket` schema (Accepted)
+### `IdentityPacket` schema (Proposed)
 
 Locked per `design/player-generation.md` 2026-04-24. Full shape lives in the design doc; this ADR commits to it:
 
@@ -84,7 +84,7 @@ Locked per `design/player-generation.md` 2026-04-24. Full shape lives in the des
 public sealed record IdentityPacket
 {
     // --- Stable identity ---
-    public ContentPackQualifiedId PlayerId;         // e.g. "fwh.core:player.00042" — never mutates
+    public ContentPackQualifiedId PlayerId;         // e.g. "fwh.core:player_00042" — never mutates
     public string DisplayNameFull;                  // banned-term-lint TARGET
     public string DisplayNameShort;                 // banned-term-lint TARGET
     public RoleFamily RoleFamily;
@@ -159,7 +159,7 @@ public sealed record InternalGeneSnapshot
 
 **Q32.32 for all gene numerics** — same cross-platform-determinism posture as `Stakes` / `Salience` in ADR-0004 and `Delta` in ADR-0005. Gene values feed scout-report generation; scout reports emit `ScoutReportConfirmed` / `ScoutReportDisagreement` `MemoryEvent`s whose `key_event_hashes` must match across Win/Mac/Linux.
 
-### Phenotype label catalog (Accepted)
+### Phenotype label catalog (Proposed)
 
 - **Enum-backed with content-pack-qualified IDs.** 46 labels at MVP, ceiling 50 per `design/player-generation.md` 2026-04-24 §Q2.
 - **Banned-term lint scans ONLY the rendered-string form** of the label (e.g., `"Struggles Under Scrutiny"`). Internal enum identifier (`PhenotypeLabelId.StrugglesUnderScrutiny`) is lint-exempt — same Display/ID separation as ADR-0005.
@@ -200,11 +200,12 @@ Per `design/player-generation.md` 2026-04-24 §Q3:
 
 Per `design/player-generation.md` 2026-04-24 §Q5 resolution:
 
-- Player IDs take the form `fwh.core:player.00042` or at most `fwh.core.v1:player.00042`. **Pack-minor versions (`v1.1`, `v1.2`) NEVER appear in entity IDs.**
+- Player IDs take the form `fwh.core:player_00042` or at most `fwh.core.v1:player_00042`. **Pack-minor versions (`v1.1`, `v1.2`) NEVER appear in entity IDs.**
+- Canonical validator regex for MVP player IDs: `^fwh\.core(?:\.v[0-9]+)?:player_[0-9]{5}$`. The optional `.vN` segment is a major-pack namespace only; minor/patch versions never appear in IDs.
 - Pack-minor metadata lives in the **pack manifest** as `introduced_in_pack_version: "1.1.0"` per entity, NOT in the ID itself.
 - **Every `ContentPackQualifiedId` is stable forever once shipped.** Renames = deprecation + new ID at next schema bump. Never mutate.
 
-### AI Content Compiler pipeline (locked)
+### AI Content Compiler pipeline (locked policy; proposed acceptance)
 
 Canonical artifact is the checked-in JSON, not the prompt+seed+model. Pipeline:
 
@@ -216,8 +217,8 @@ Canonical artifact is the checked-in JSON, not the prompt+seed+model. Pipeline:
    (pure-C# bake-time process; no Unity; no network; no wall-clock)
             │
             v
-3. LLM generates names via seed prefix + FROZEN model version recorded in manifest
-   (Claude API or similar; record the exact model version + prompt hash in the manifest)
+3. Optional LLM-assisted name bank generation via seed prefix + FROZEN model version recorded in manifest
+   (Claude API or similar; reviewed output becomes a checked-in name-bank JSON artifact)
             │
             v
 4. Compile IdentityPackets from gene snapshots + names
@@ -238,7 +239,7 @@ Canonical artifact is the checked-in JSON, not the prompt+seed+model. Pipeline:
             │
             v
 7. Commit to content pack with bumped pack_version on delta; manifest records
-   generator={model, seed_prefix, prompt_hash, generated_at, matchsim_commit}
+   generator={seed_prefix, name_bank_hash, optional_model, optional_prompt_hash, matchsim_commit}
             │
             v
 8. Phase-3: Unity Addressables import as SO assets (one SO per IdentityPacket, grouped per content pack)
@@ -247,9 +248,9 @@ Canonical artifact is the checked-in JSON, not the prompt+seed+model. Pipeline:
 ### Architecture Sketch
 
 ```
-Cohort Spec  ──►  SeededRngRolls  ──►  LLMNameGen  ──►  PacketCompiler  ──►  Validator
-(human)          (deterministic,       (frozen-model       (pure-C#)           (Phase-6)
-                  regional priors)     recorded)                                    │
+Cohort Spec  ──►  SeededRngRolls  ──►  NameBank JSON  ──►  PacketCompiler  ──►  Validator
+(human)          (deterministic,       (reviewed,          (pure-C#)           (Phase-6)
+                  regional priors)     checked in)                                  │
                                                                                     v
                                                               ┌─────────────────────────────┐
                                                               │  Content Pack (JSON canon)  │
@@ -271,12 +272,12 @@ Cohort Spec  ──►  SeededRngRolls  ──►  LLMNameGen  ──►  Packet
 
 - **Asmdef / project boundaries:**
   - `FinalWhistle.Content.Contracts` — pure C#, no Unity. Defines `IdentityPacket`, `PhenotypeLabelId` enum, `SignatureCandidate`, `InternalGeneSnapshot`, `ContentPackQualifiedId`.
-  - `FinalWhistle.Content.Compiler` — pure C# bake-time. Seeded RNG, regional prior consumer, LLM name-gen integration (via abstraction; swappable), packet compiler.
+  - `FinalWhistle.Content.Compiler` — pure C# bake-time. Seeded RNG, regional prior consumer, reviewed name-bank consumer, packet compiler.
   - `FinalWhistle.Content.Validator` — pure C#. Phase-6 implementation. Consumed by Tier-A subset + Tier-D full.
   - `FinalWhistle.Content.UnityImport` — Unity-side. Addressables grouping per pack; generates SO assets from JSON at editor-time.
 - **MatchSim.csproj depends on `FinalWhistle.Content.Contracts` ONLY** (packet shape for sim sanity checks). Same pattern as ADR-0004's `Memory.Contracts` split.
 - **Canonical JSON serialization rules** match `design/specs/golden-replay-corpus.md` §stable-serialization: 2-space JSON, lowercase hex, no floats (Q32.32 integer representation), SHA-256 with `sha256:` prefix, structural-order keys, generator owns order.
-- **Compiler determinism:** same cohort spec + same seed prefix + same frozen model version = byte-identical JSON output. If any input changes, it's a new pack version, not an in-place mutation.
+- **Compiler determinism:** same cohort spec + same seed prefix + same checked-in name-bank artifact = byte-identical JSON output. If any input changes, it's a new pack version, not an in-place mutation. LLM calls can produce candidate name banks, but they are never part of the deterministic replay path until reviewed and committed as JSON.
 
 ---
 
@@ -391,7 +392,7 @@ Not applicable — greenfield. First real migration exercise when `IdentityPacke
 - [ ] Phase 6: AI Content Compiler produces 1 region's full club set (~10-15 clubs + ~250 players) that passes the validator and plays a 10-match sim-sanity sweep without degenerate behavior.
 - [ ] Phase 6: Full ~96-club / ~2400-player content pack v1 compiled; validator green; storage budget met.
 - [ ] Phase 6: Content-pack validator catches a red-team test where (a) an ID embeds a pack-minor version, (b) a banned Category-A.4 phenotype label slips into `PhenotypeLabelId` enum rendering, (c) a `SignatureCandidate.SignatureId` references an unknown signature.
-- [ ] Phase 6: Round-trip regeneration — same cohort spec + same seed prefix + same frozen model version = byte-identical JSON.
+- [ ] Phase 6: Round-trip deterministic regeneration — same cohort spec + same seed prefix + same checked-in name-bank artifact = byte-identical JSON. Separate LLM-name-bank regeneration produces a reviewed diff, not an automatic acceptance criterion.
 - [ ] Phase 8: Content pack v1 shipped as canonical checked-in JSON; Workshop content packs post-EA can cleanly reference v1 IDs without mutation.
 - [ ] Cross-platform parity: `InternalGeneSnapshot` Q32.32 gene values produce identical scout-report hashes on Win/Mac/Linux Tier-A CI matrix.
 
