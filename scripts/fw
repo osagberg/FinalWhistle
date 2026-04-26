@@ -177,7 +177,7 @@ EOF
 
     replay|content-lint|build-local|package-playtest)
         cat >&2 <<EOF
-fw: '$cmd' is not implemented yet at Phase 1.
+fw: '$cmd' is not implemented yet at this phase.
 
 Implementation lands at its phase trigger:
   replay / build-local         Phase 3 (Unity bootstrap + MatchSim prototype)

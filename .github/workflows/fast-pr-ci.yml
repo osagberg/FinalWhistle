@@ -16,8 +16,8 @@
 # The single job below calls `fw verify`, which currently runs:
 #   - verify-docs  (frontmatter + unsubstituted-placeholder check)
 #   - banned-terms (Category-A + Category-B vocab lint per design/ui-vocabulary.md)
-# Future Phase-3/6 checks (dotnet test, determinism replay hash, content-pack
-# schema, save-migration fixtures) wire into `fw verify` as they land —
+# Future Phase-3/6 checks (determinism replay hash, content-pack schema,
+# save-migration fixtures) wire into `fw verify` as they land —
 # no workflow file edit required. The commented jobs below are a reference
 # shape for when a check needs to run as a parallel job instead of inside
 # the umbrella (e.g., when it's slow enough to want its own failure surface).
@@ -52,7 +52,8 @@ jobs:
         # Required for `fw verify`'s embedded `dotnet test` step
         # (Phase-3 Week-1 onward — MatchSim + MatchSim.Tests).
         # MatchSim.csproj targets netstandard2.1 (Unity-compat);
-        # MatchSim.Tests.csproj targets net10.0.
+        # MatchSim.Tests.csproj targets net10.0. global.json pins the
+        # local SDK feature band; CI installs the matching major/minor SDK.
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
@@ -69,8 +70,8 @@ jobs:
   # (umbrella). Uncomment below ONLY if a specific check needs its own
   # parallel job (e.g., separate failure surface, independent timeout,
   # or heavier setup like dotnet/python install that the umbrella
-  # shouldn't carry). As of 2026-04-24, verify-docs + banned-terms run
-  # inside the umbrella with no standalone-job need.
+  # shouldn't carry). As of 2026-04-26, verify-docs + banned-terms +
+  # dotnet test run inside the umbrella with no standalone-job need.
   # ------------------------------------------------------------------
 
   # banned-terms-lint (SUPERSEDED by umbrella — kept as reference shape):
@@ -86,7 +87,7 @@ jobs:
   #     - name: Run lint-banned-terms.py
   #       run: python scripts/lint-banned-terms.py
 
-  # matchsim-tests-matrix (SUPERSEDED by umbrella for current Linux-only stub;
+  # matchsim-tests-matrix (DEFERRED; umbrella covers current Linux-only stub;
   # promoted to Win/Mac/Linux matrix when Fixed-point + Tick + Seed land
   # and there's actual determinism math to verify cross-platform).
   # Per SPEC Phase-3 task `GitHub dotnet-test matrix (Tier A subset —
@@ -113,7 +114,7 @@ jobs:
   #     - uses: actions/checkout@v4
   #     - uses: actions/setup-dotnet@v4
   #       with:
-  #         dotnet-version: '8.0.x'
+  #         dotnet-version: '10.0.x'
   #     - name: fw replay canonical-seed
   #       run: ./scripts/fw replay 0xDEADBEEF
 
@@ -134,6 +135,6 @@ jobs:
   #     - uses: actions/checkout@v4
   #     - uses: actions/setup-dotnet@v4
   #       with:
-  #         dotnet-version: '8.0.x'
+  #         dotnet-version: '10.0.x'
   #     - name: Run save migration fixture tests
   #       run: dotnet test MatchSim.Tests --filter Category=SaveMigration

@@ -2,9 +2,56 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-26 (Phase-3 Week-1 priority #2 — `Fixed` Q32.32 struct + 141 tests)
+
+First real determinism-math primitive in MatchSim. `MatchSim/Sim/Fixed.cs` + 5 test files (~750 lines of test coverage).
+
+**Fixed.cs structure:**
+
+- `readonly struct Fixed : IEquatable<Fixed>, IComparable<Fixed>, IComparable, IFormattable` with single `long _raw` storage
+- Top 32 bits = signed integer part (2's complement); bottom 32 bits = fractional part
+- Range: ±2.147e9; precision: 2^-32 ≈ 2.328e-10
+- Constants: `Zero` / `One` / `MinusOne` / `Half` / `MaxValue` / `MinValue` / `Epsilon` (1 ULP)
+- Factories: `FromRaw(long)` / `FromInt(int)` (always safe) / `FromLong(long)` (range-checked)
+- Public `RawValue` property for fixture authoring + serialization + debug tools
+
+**Arithmetic:**
+
+- `+`, `-`, unary `-`, unary `+` — all checked; overflow throws `OverflowException`; zero silent wrap
+- `*` — 32-bit-split unsigned 64×64→128 multiply, then `>>32` to renormalize Q32.32, with explicit overflow detection on the upper 64 bits + signed-long range check. **Allocation-free** for the hot path. Special-cases `long.MinValue` inputs via `BigInteger` because their absolute value (`2^63`) is not representable in signed `long`
+- `/` — `BigInteger`-backed for correctness (left-shift dividend by 32 then divide). Allocation cost acceptable at Phase-3 prototype; profile-and-optimize if division becomes a hot path at Phase 6
+- `Negate` / `Abs` / `Sign` / `Min` / `Max` — straightforward; `Abs(MinValue)` and `-MinValue` throw per signed-long semantics
+
+**Rounding:**
+
+- `Floor` — uses signed-right-shift trick: `(raw >> 32) << 32` gives floor for any sign elegantly
+- `Ceiling` — `Floor + 1ULP` when fractional part nonzero
+- `Truncate` — toward zero (differs from `Floor` for negative non-integers; equals `Floor` for non-negatives)
+- `Round` — banker's rounding (`MidpointRounding.ToEven`); 0.5/1.5/2.5 → 0/2/2
+
+**Serialization (FW-VAL-A-018 compliance):**
+
+- `ToString()` emits canonical decimal-string with `CanonicalFractionalDigits = 10` in `CultureInfo.InvariantCulture`. Always uses `.` as decimal separator; never thousands separators
+- `Parse(string)` and `TryParse(string, out Fixed)` accept the canonical form; `NumberStyles.Float` only — culture-specific separators rejected unless an explicit culture is passed
+- Round-trip stability verified: `Parse(value.ToString()) == value` for the spread of values tested
+
+**Test coverage** (141 tests across 5 files):
+
+- `FixedConstantsTests.cs` — locks raw values of all constants + factory round-tripping
+- `FixedArithmeticTests.cs` — additive + multiplicative integer cases, half×half=quarter, all 4 sign quadrants for multiply, overflow detection at MaxValue×2 / MinValue×−1 / MinValue×MinValue, division correctness + DivideByZero + zero/one identities
+- `FixedRoundingTests.cs` — Floor / Ceiling / Truncate / Round across positive + negative + exact-half + integer cases; banker's rounding verified for 0.5/1.5/2.5/3.5 → 0/2/2/4 + negative analogs
+- `FixedSerializationTests.cs` — ToString invariant culture (`.` not `,`), exactly-10-fractional-digits format check, Parse for 7 canonical raws + null-rejection + garbage-rejection + comma-decimal-rejected-without-culture / accepted-with-de-DE-culture, TryParse out-of-range, round-trip stability across spread of raws
+- `FixedDeterminismTests.cs` — equality operator/method agreement, GetHashCode stability, total-ordering via 8-element sorted array, CompareTo non-generic null + non-Fixed, repeated-call determinism for *、/、+, HashSet distinguishes 4 distinct values
+
+**`fw verify` Tier-A umbrella green** end-to-end: verify-docs + banned-terms + dotnet test (now 144 tests total — 3 from skeleton + 141 from Fixed).
+
+**Next /next picks up:** Phase-3 Week-1 priority #3 — `Tick` deterministic 60Hz timestep loop. Consumes Fixed for time math; gates Seed (per-tick event seed derivation per ADR-0001 + ADR-0008).
+
+**Win/Mac/Linux CI matrix** activation now becomes a real candidate (was previously deferred for "no determinism math to verify"). With 141 platform-sensitive arithmetic tests, the matrix would catch any cross-platform integer-arithmetic divergence. Deferred decision: activate matrix now (good catch surface), or wait for Tick+Seed to expand corpus first (preserves Linux-only Tier-A budget per cost-discipline). Flagged as a Phase-3 SPEC item review.
+
 ## 2026-04-26 (Phase-3 Week-1 first task — MatchSim.csproj + MatchSim.Tests.csproj skeleton)
 
-First real code in the project. Three new files + workflow + tooling wiring:
+First real code in the project. New project/test files + workflow + tooling wiring:
 
 **New:** `MatchSim/MatchSim.csproj` — pure-C# class library targeting `netstandard2.1` (Unity 6 LTS Mono-runtime + modern .NET test-host compat both via netstandard2.1 chain). Root namespace `FinalWhistle.MatchSim`; assembly name `FinalWhistle.MatchSim`. `Nullable=enable` + `TreatWarningsAsErrors=true` from day one. `InternalsVisibleTo=FinalWhistle.MatchSim.Tests` for white-box test access without making contract types public-only. Zero UnityEngine references per TECH_APPROACH §3.1 + ADR-0008 MatchSim-canonical-sim-only posture.
 
@@ -12,9 +59,11 @@ First real code in the project. Three new files + workflow + tooling wiring:
 
 **New:** `MatchSim.Tests/MatchSim.Tests.csproj` — `net10.0` (matches local + CI SDK 10.0.202). Package refs: `xunit 2.9.2` + `Microsoft.NET.Test.Sdk 17.11.1` + `xunit.runner.visualstudio 2.8.2` + `coverlet.collector 6.0.2`. Project ref: `..\MatchSim\MatchSim.csproj`.
 
-**New:** `MatchSim.Tests/MatchSimAssemblyMarkerTests.cs` — 2 skeleton tests asserting `AssemblyMarkerVersion` is non-empty + indicates Phase-3 skeleton. Both pass under `dotnet test FinalWhistle.slnx`.
+**New:** `MatchSim.Tests/MatchSimAssemblyMarkerTests.cs` — 3 skeleton tests asserting `AssemblyMarkerVersion` is non-empty, indicates Phase-3 skeleton, and that the MatchSim assembly does not reference UnityEngine. All pass under `dotnet test FinalWhistle.slnx`.
 
 **New:** `FinalWhistle.slnx` — .NET 10 default solution format (XML). Solution adds both projects; `dotnet build FinalWhistle.slnx` + `dotnet test FinalWhistle.slnx` both green.
+
+**New:** `global.json` — pins the .NET SDK feature band at `10.0.202` with `latestFeature` roll-forward so local and CI builds do not silently drift across SDK major versions.
 
 **Modified:** `scripts/fw` — `test` subcommand promoted from stub to implementation: invokes `dotnet test FinalWhistle.slnx --nologo`. Wired into `fw verify` umbrella so Tier-A CI runs it automatically. Help text updated.
 
@@ -24,7 +73,7 @@ First real code in the project. Three new files + workflow + tooling wiring:
 
 **Modified:** SPEC Phase 3 — first two tasks `[x]` flipped with implementation notes citing `netstandard2.1` / `net10.0` / xUnit 2.9.2 / `dotnet test` green / `fw verify` umbrella integration / matrix-deferred-to-determinism-math.
 
-**`fw verify` Tier-A umbrella now runs:** verify-docs + banned-terms + dotnet test (3 stages). Total local time ~3-5s. Acceptance criteria from STATUS satisfied: xUnit test runner executes against the two new csprojs ✅; solo-dev `dotnet test` run green locally ✅ (2 passed); CI matrix stub wired inside `fw verify` umbrella ✅ (linux-only, matrix-promotion deferred per cost-discipline).
+**`fw verify` Tier-A umbrella now runs:** verify-docs + banned-terms + dotnet test (3 stages). Total local time ~3-5s. Acceptance criteria from STATUS satisfied: xUnit test runner executes against the two new csprojs ✅; solo-dev `dotnet test` run green locally ✅ (3 passed); CI matrix stub wired inside `fw verify` umbrella ✅ (linux-only, matrix-promotion deferred per cost-discipline).
 
 **Phase-3 priority order** updated; next /next picks up `Fixed` struct (Q32.32 canonical format) — first real determinism-math primitive, first opportunity for cross-platform parity tests, first golden-replay-corpus seed-able primitive.
 

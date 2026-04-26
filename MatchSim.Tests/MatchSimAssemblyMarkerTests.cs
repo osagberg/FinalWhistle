@@ -1,3 +1,4 @@
+using System;
 using Xunit;
 
 namespace FinalWhistle.MatchSim.Tests;
@@ -20,5 +21,18 @@ public sealed class MatchSimAssemblyMarkerTests
     {
         Assert.Contains("phase3", MatchSimAssemblyMarker.AssemblyMarkerVersion);
         Assert.Contains("skeleton", MatchSimAssemblyMarker.AssemblyMarkerVersion);
+    }
+
+    [Fact]
+    public void MatchSimAssembly_DoesNotReferenceUnityEngine()
+    {
+        var references = typeof(MatchSimAssemblyMarker).Assembly.GetReferencedAssemblies();
+
+        foreach (var reference in references)
+        {
+            Assert.False(
+                reference.Name?.StartsWith("UnityEngine", StringComparison.Ordinal) == true,
+                $"MatchSim must stay Unity-free, but references {reference.Name}.");
+        }
     }
 }

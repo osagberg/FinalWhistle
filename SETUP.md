@@ -37,6 +37,7 @@ Track installed tooling — gets out of sync otherwise.
 | Unity Editor | pin at Phase 3 | `/Applications/Unity/Hub/Editor/<version>/` | Use Unity Hub |
 | Blender | pin at Phase 3 | `/Applications/Blender.app` | Deferred-3D pipeline; Phase 3 install only |
 | VS Code / Rider | current | / | C# editor |
+| .NET SDK | `10.0.202` via `global.json` roll-forward | `/usr/local/share/dotnet/` | MatchSim + xUnit test host |
 | Claude Code | current | `/usr/local/bin/claude` | CLI |
 | gh CLI | present | `/opt/homebrew/bin/gh` | GitHub workflow |
 | git-lfs | present | `/opt/homebrew/bin/git-lfs` | Unity binary assets |
@@ -100,11 +101,12 @@ Run top-to-bottom:
 2. **Unity Editor** — via Unity Hub, pin exact version at Phase 3 kickoff (latest 6 LTS at that moment)
 3. **Build support** — Mac Build Support, Windows Build Support, Linux Build Support (WebGL deferred)
 4. **Source editor** — VS Code with C# extension (or Rider)
-5. **Blender** — Phase 3 install only (deferred 3D pipeline); not needed for MVP
-6. **Claude Code** — already installed
-7. **gh CLI** — already installed; verify `gh auth status` is green
-8. **git LFS** — already installed; `git lfs install` once per clone
-9. **Version pin all of the above** in §2 machine inventory table
+5. **.NET SDK 10** — required for `scripts/fw test` / `scripts/fw verify`; repo pins SDK feature band in `global.json`
+6. **Blender** — Phase 3 install only (deferred 3D pipeline); not needed for MVP
+7. **Claude Code** — already installed
+8. **gh CLI** — already installed; verify `gh auth status` is green
+9. **git LFS** — already installed; `git lfs install` once per clone
+10. **Version pin all of the above** in §2 machine inventory table
 
 ---
 

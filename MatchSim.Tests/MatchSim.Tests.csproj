@@ -5,7 +5,7 @@
          run here. MatchSim.csproj target is netstandard2.1; modern net10.0
          hosts can reference netstandard2.1 via the standard chain. -->
     <TargetFramework>net10.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
+    <LangVersion>14.0</LangVersion>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsPackable>false</IsPackable>
