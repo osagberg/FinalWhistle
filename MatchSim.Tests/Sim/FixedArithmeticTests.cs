@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 using FinalWhistle.MatchSim.Sim;
 using Xunit;
 
@@ -191,6 +192,47 @@ public sealed class FixedArithmeticTests
         Fixed value = Fixed.FromInt(42);
         Assert.Equal(value, value * Fixed.One);
         Assert.Equal(value, Fixed.One * value);
+    }
+
+    [Fact]
+    public void Multiply_MatchesBigIntegerReference_ForFractionalSpread()
+    {
+        (long Left, long Right)[] cases =
+        {
+            (123456789L, 987654321L),
+            (-123456789L, 987654321L),
+            (Fixed.OneRaw + 12345L, Fixed.OneRaw - 67890L),
+            (-(Fixed.OneRaw + 12345L), Fixed.OneRaw - 67890L),
+            (long.MaxValue, Fixed.OneRaw >> 1),
+            (long.MinValue, Fixed.OneRaw >> 1),
+            (long.MaxValue / 4L, Fixed.FromInt(3).RawValue),
+            (Fixed.Epsilon.RawValue, Fixed.Half.RawValue),
+            (-Fixed.Epsilon.RawValue, Fixed.Half.RawValue),
+            (long.MaxValue, Fixed.FromInt(2).RawValue),
+        };
+
+        foreach ((long leftRaw, long rightRaw) in cases)
+        {
+            Fixed left = Fixed.FromRaw(leftRaw);
+            Fixed right = Fixed.FromRaw(rightRaw);
+            BigInteger expected = TruncatingMultiplyReference(leftRaw, rightRaw);
+
+            if (expected < long.MinValue || expected > long.MaxValue)
+            {
+                Assert.Throws<OverflowException>(() => left * right);
+            }
+            else
+            {
+                Assert.Equal((long)expected, (left * right).RawValue);
+            }
+        }
+    }
+
+    private static BigInteger TruncatingMultiplyReference(long leftRaw, long rightRaw)
+    {
+        BigInteger product = (BigInteger)leftRaw * rightRaw;
+        BigInteger magnitude = BigInteger.Abs(product) >> Fixed.FractionalBits;
+        return product.Sign < 0 ? -magnitude : magnitude;
     }
 
     #endregion

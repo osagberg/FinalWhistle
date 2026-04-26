@@ -3,8 +3,7 @@ namespace FinalWhistle.MatchSim;
 /// <summary>
 /// Skeleton marker for the Phase-3 Week-1 MatchSim assembly.
 /// Proves the assembly compiles + is referenceable from MatchSim.Tests
-/// before <c>Fixed</c> / <c>Tick</c> / <c>Seed</c> / etc. land in
-/// subsequent /next passes per SPEC Phase-3 priority order.
+/// while core sim primitives land in SPEC Phase-3 priority order.
 /// </summary>
 public static class MatchSimAssemblyMarker
 {

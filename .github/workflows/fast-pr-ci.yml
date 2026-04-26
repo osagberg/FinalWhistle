@@ -16,6 +16,7 @@
 # The single job below calls `fw verify`, which currently runs:
 #   - verify-docs  (frontmatter + unsubstituted-placeholder check)
 #   - banned-terms (Category-A + Category-B vocab lint per design/ui-vocabulary.md)
+#   - dotnet test  (MatchSim + MatchSim.Tests)
 # Future Phase-3/6 checks (determinism replay hash, content-pack schema,
 # save-migration fixtures) wire into `fw verify` as they land —
 # no workflow file edit required. The commented jobs below are a reference
@@ -87,9 +88,9 @@ jobs:
   #     - name: Run lint-banned-terms.py
   #       run: python scripts/lint-banned-terms.py
 
-  # matchsim-tests-matrix (DEFERRED; umbrella covers current Linux-only stub;
-  # promoted to Win/Mac/Linux matrix when Fixed-point + Tick + Seed land
-  # and there's actual determinism math to verify cross-platform).
+  # matchsim-tests-matrix (DEFERRED; umbrella covers current Linux-only run;
+  # promoted to Win/Mac/Linux matrix when Tick + Seed expand the determinism
+  # corpus enough to justify the added Actions cost).
   # Per SPEC Phase-3 task `GitHub dotnet-test matrix (Tier A subset —
   # Win/Mac/Linux)` and design/production-pipeline.md §Cost discipline
   # (macOS minutes ~10× Linux; matrix activates only when the test surface

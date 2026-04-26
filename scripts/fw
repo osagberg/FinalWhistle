@@ -2,9 +2,9 @@
 # Final Whistle — local command front-door
 #
 # Per design/production-pipeline.md: bash/makefile-first; no paid task runner.
-# Commands are harmless scaffolding at Phase 1. Real work lands as each phase
-# trigger hits. Every command should either do a read-only check OR print a
-# "not yet implemented at this phase" stub — never silently succeed on nothing.
+# Commands are read-only checks / local build helpers / explicit stubs. Every
+# command should either run a real check OR print a "not yet implemented at
+# this phase" stub — never silently succeed on nothing.
 #
 # Usage: scripts/fw <command>
 #        scripts/fw help

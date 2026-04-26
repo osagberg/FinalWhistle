@@ -25,22 +25,23 @@ First real determinism-math primitive in MatchSim. `MatchSim/Sim/Fixed.cs` + 5 t
 **Rounding:**
 
 - `Floor` — uses signed-right-shift trick: `(raw >> 32) << 32` gives floor for any sign elegantly
-- `Ceiling` — `Floor + 1ULP` when fractional part nonzero
+- `Ceiling` — next integer-grid `Fixed` value when fractional part nonzero; throws if that integer is outside the representable range
 - `Truncate` — toward zero (differs from `Floor` for negative non-integers; equals `Floor` for non-negatives)
 - `Round` — banker's rounding (`MidpointRounding.ToEven`); 0.5/1.5/2.5 → 0/2/2
 
 **Serialization (FW-VAL-A-018 compliance):**
 
 - `ToString()` emits canonical decimal-string with `CanonicalFractionalDigits = 10` in `CultureInfo.InvariantCulture`. Always uses `.` as decimal separator; never thousands separators
-- `Parse(string)` and `TryParse(string, out Fixed)` accept the canonical form; `NumberStyles.Float` only — culture-specific separators rejected unless an explicit culture is passed
+- `Parse(string)` and `TryParse(string, out Fixed)` accept plain fixed-decimal notation only — culture-specific separators rejected unless an explicit culture is passed; scientific notation rejected so sim-affecting values do not drift into float-literal style
 - Round-trip stability verified: `Parse(value.ToString()) == value` for the spread of values tested
+- Edge-range stability verified: `Fixed.MaxValue.ToString()` and `Fixed.MinValue.ToString()` round-trip; huge out-of-range decimal input returns `false` from `TryParse` instead of throwing
 
 **Test coverage** (141 tests across 5 files):
 
 - `FixedConstantsTests.cs` — locks raw values of all constants + factory round-tripping
-- `FixedArithmeticTests.cs` — additive + multiplicative integer cases, half×half=quarter, all 4 sign quadrants for multiply, overflow detection at MaxValue×2 / MinValue×−1 / MinValue×MinValue, division correctness + DivideByZero + zero/one identities
+- `FixedArithmeticTests.cs` — additive + multiplicative integer cases, half×half=quarter, all 4 sign quadrants for multiply, BigInteger-reference spread over fractional / signed / near-boundary multiply cases, overflow detection at MaxValue×2 / MinValue×−1 / MinValue×MinValue, division correctness + DivideByZero + zero/one identities
 - `FixedRoundingTests.cs` — Floor / Ceiling / Truncate / Round across positive + negative + exact-half + integer cases; banker's rounding verified for 0.5/1.5/2.5/3.5 → 0/2/2/4 + negative analogs
-- `FixedSerializationTests.cs` — ToString invariant culture (`.` not `,`), exactly-10-fractional-digits format check, Parse for 7 canonical raws + null-rejection + garbage-rejection + comma-decimal-rejected-without-culture / accepted-with-de-DE-culture, TryParse out-of-range, round-trip stability across spread of raws
+- `FixedSerializationTests.cs` — ToString invariant culture (`.` not `,`), exactly-10-fractional-digits format check, Parse for 7 canonical raws + null-rejection + garbage-rejection + comma-decimal-rejected-without-culture / accepted-with-de-DE-culture + scientific-notation rejection, TryParse out-of-range / huge-decimal-no-throw, round-trip stability across spread of raws including `long.MaxValue` / `long.MinValue`
 - `FixedDeterminismTests.cs` — equality operator/method agreement, GetHashCode stability, total-ordering via 8-element sorted array, CompareTo non-generic null + non-Fixed, repeated-call determinism for *、/、+, HashSet distinguishes 4 distinct values
 
 **`fw verify` Tier-A umbrella green** end-to-end: verify-docs + banned-terms + dotnet test (now 144 tests total — 3 from skeleton + 141 from Fixed).

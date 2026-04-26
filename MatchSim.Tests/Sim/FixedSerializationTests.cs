@@ -107,6 +107,12 @@ public sealed class FixedSerializationTests
     }
 
     [Fact]
+    public void Parse_RejectsScientificNotation()
+    {
+        Assert.Throws<System.FormatException>(() => Fixed.Parse("1e-1"));
+    }
+
+    [Fact]
     public void Parse_AcceptsCommaDecimal_WithExplicitCulture()
     {
         var culture = new CultureInfo("de-DE");
@@ -147,6 +153,13 @@ public sealed class FixedSerializationTests
     {
         // Far beyond Q32.32's ±2.147e9 range.
         bool ok = Fixed.TryParse("99999999999", out Fixed _);
+        Assert.False(ok);
+    }
+
+    [Fact]
+    public void TryParse_HugeDecimalInput_ReturnsFalseWithoutThrowing()
+    {
+        bool ok = Fixed.TryParse("100000000000000000000", out Fixed _);
         Assert.False(ok);
     }
 
@@ -191,6 +204,8 @@ public sealed class FixedSerializationTests
             -987654321L,
             (long)int.MaxValue << 16, // big positive
             (long)int.MinValue << 16, // big negative
+            long.MaxValue,
+            long.MinValue,
         };
 
         foreach (long raw in rawValues)

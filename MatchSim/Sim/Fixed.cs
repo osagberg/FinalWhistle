@@ -56,6 +56,9 @@ public readonly struct Fixed : IEquatable<Fixed>, IComparable<Fixed>, IComparabl
     /// </summary>
     public const int CanonicalFractionalDigits = 10;
 
+    private const NumberStyles DecimalParseStyles =
+        NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint;
+
     #endregion
 
     #region Storage
@@ -122,14 +125,14 @@ public readonly struct Fixed : IEquatable<Fixed>, IComparable<Fixed>, IComparabl
 
     /// <summary>
     /// Construct from a 64-bit signed integer. Throws <see cref="OverflowException"/>
-    /// if <paramref name="value"/> is outside ±(2^31 - 1).
+    /// if <paramref name="value"/> is outside [-2^31, 2^31 - 1].
     /// </summary>
     public static Fixed FromLong(long value)
     {
         if (value < int.MinValue || value > int.MaxValue)
         {
             throw new OverflowException(
-                $"Value {value} is outside the Q32.32 integer range (±2^31).");
+                $"Value {value} is outside the Q32.32 integer range [-2^31, 2^31 - 1].");
         }
         return new(value << FractionalBits);
     }
@@ -394,7 +397,8 @@ public readonly struct Fixed : IEquatable<Fixed>, IComparable<Fixed>, IComparabl
         _ = format;
         IFormatProvider provider = formatProvider ?? CultureInfo.InvariantCulture;
 
-        // decimal has a 96-bit mantissa — exact for any 64-bit Q32.32 value.
+        // decimal has enough precision for the 10 fractional digits that make
+        // Q32.32 decimal strings round-trip through Parse().
         decimal asDecimal = (decimal)_raw / (decimal)OneRaw;
         return asDecimal.ToString("F" + CanonicalFractionalDigits.ToString(CultureInfo.InvariantCulture), provider);
     }
@@ -402,7 +406,7 @@ public readonly struct Fixed : IEquatable<Fixed>, IComparable<Fixed>, IComparabl
     /// <summary>
     /// Parse a canonical decimal-string. Round-trips against
     /// <see cref="ToString()"/>. Uses invariant culture; rejects culture-specific
-    /// formatting (e.g. comma decimal separator).
+    /// formatting (e.g. comma decimal separator) and scientific notation.
     /// </summary>
     public static Fixed Parse(string s)
     {
@@ -413,7 +417,7 @@ public readonly struct Fixed : IEquatable<Fixed>, IComparable<Fixed>, IComparabl
         return Parse(s, CultureInfo.InvariantCulture);
     }
 
-    /// <summary>Parse with explicit culture.</summary>
+    /// <summary>Parse with explicit culture; scientific notation is still rejected.</summary>
     public static Fixed Parse(string s, IFormatProvider? formatProvider)
     {
         if (s is null)
@@ -431,7 +435,7 @@ public readonly struct Fixed : IEquatable<Fixed>, IComparable<Fixed>, IComparabl
     public static bool TryParse(string? s, out Fixed result) =>
         TryParse(s, CultureInfo.InvariantCulture, out result);
 
-    /// <summary>Attempt to parse with explicit culture.</summary>
+    /// <summary>Attempt to parse with explicit culture; scientific notation is still rejected.</summary>
     public static bool TryParse(string? s, IFormatProvider? formatProvider, out Fixed result)
     {
         result = default;
@@ -443,19 +447,26 @@ public readonly struct Fixed : IEquatable<Fixed>, IComparable<Fixed>, IComparabl
 
         if (!decimal.TryParse(
                 s,
-                NumberStyles.Float,
+                DecimalParseStyles,
                 provider,
                 out decimal asDecimal))
         {
             return false;
         }
 
-        decimal scaled = asDecimal * (decimal)OneRaw;
-        // long.MinValue / long.MaxValue are exactly representable in decimal.
-        if (scaled < long.MinValue || scaled > long.MaxValue)
+        decimal scaled;
+        try
+        {
+            scaled = checked(asDecimal * (decimal)OneRaw);
+        }
+        catch (OverflowException)
         {
             return false;
         }
+
+        // long.MinValue / long.MaxValue are exactly representable in decimal.
+        // Range-check after rounding so Fixed.MaxValue.ToString() round-trips:
+        // its 10-digit decimal form is slightly above the true raw maximum.
         decimal rounded = decimal.Round(scaled, 0, MidpointRounding.ToEven);
         if (rounded < long.MinValue || rounded > long.MaxValue)
         {
