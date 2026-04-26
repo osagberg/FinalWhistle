@@ -81,7 +81,7 @@ At Month 12 EA: all 7 shot types. Full stakes modulation. Full memory modulation
 ## Deferred
 
 - Per-signature unique cinematics (map into existing 7 shots)
-- Motion capture (no 3D at MVP)
+- Motion capture (not part of the Phase-5/6 3D candidate stack; AI-assisted animation spike owns that decision)
 - Replay scrubbing / social export (post-EA)
 - User-configurable camera preferences (post-EA)
 

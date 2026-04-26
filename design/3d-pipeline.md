@@ -15,8 +15,8 @@ This doc is **renderer-adapter-specific**. The renderer-agnostic presentation co
 ## Locked decisions (per 2026-04-26 visual-target supersession)
 
 - **3D is candidate, not committed.** No public "3D coming in 1.0" promise. EA can ship dots if the spike fails and dots hit polish bar; EA delays if dots also fall short.
-- **Vendor-agnostic core, tooling-specific in this doc only.** Core docs (PROJECT_CONTEXT / CLAUDE / TECH_APPROACH / ADRs) speak of "3D-asset generator," "AI-assisted animation tool," "retargeting tool." Tool names appear in this doc and only this doc; tooling can change without ADR churn.
-- **Renderer-free MatchSim is preserved.** Sim emits `ShotPresentationContract` events per ADR-0008. Gameplay never depends on 3D-only information. The dots adapter (ADR-0009) and the 3D adapter (ADR-0010, conditional) consume the same contract.
+- **Vendor-agnostic architecture, tooling-specific catalogs.** Core architecture docs (PROJECT_CONTEXT / CLAUDE / TECH_APPROACH / ADRs) speak of "3D-asset generator," "AI-assisted animation tool," "retargeting tool." Tooling/catalog docs (`design/3d-pipeline.md`, SETUP, TOOLING) may name candidate tools for cost, license, and trigger tracking. Tooling can change without ADR churn.
+- **Renderer-free MatchSim is preserved.** MatchSim emits canonical sim events only; `Viewer.EventBridge` derives `ViewerEvent`s per ADR-0008. Gameplay never depends on 3D-only information. The dots adapter (ADR-0009) and the 3D adapter (ADR-0010, conditional) consume the same contract.
 - **Licensing as first-class gate.** AI-content disclosure manifest extends with generator / plan-license-tier / prompt-source-refs / human-edit-steps / commercial-rights-proof / generated-asset-hash. New `FW-VAL-D-011` enforces. All 3D-tooling commercial-licenses verified BEFORE the spike begins (Phase-5 SPEC task).
 
 ## The Phase-5/6 production-feasibility spike
@@ -30,7 +30,7 @@ A vertical slice that proves the pipeline produces a usable football scene end-t
 3. **One body-type variant.** ≥1 alternate body type beyond the default (e.g., heavier centre-back vs lean winger). Proves rig retargeting works.
 4. **Locomotion.** Run / walk / jog cycles. Smooth, readable, cel-shaded with outlines.
 5. **One duel.** Two players contesting the ball — football body language, plausible animation blending. Tests animation-state composition + ball-contact markers.
-6. **One signature with ball-contact markers.** Pick one of the 24 signatures from `design/signatures.md`, author its animation end-to-end, prove ball-contact markers fire on the right frame, prove integration with sim-side `MemoryEvent` emission.
+6. **One signature with ball-contact markers.** Pick one of the 24 signatures from `design/signatures.md`, author its animation end-to-end, prove ball-contact markers fire on the right frame, and prove the animation depicts an already-emitted `ViewerEvent` / `MemoryEvent` without causing sim-side emission.
 7. **Cel shader + outline.** URP Shader Graph (or HLSL) cel-shader pass + outline pass (post-process or vertex-extrusion) producing the anime-football aesthetic. Visually defensible at gameplay camera distance.
 8. **Unity import + LOD.** Asset pipeline imports cleanly; LODs configured; scene runs in Unity Editor + a Player build.
 9. **Target FPS on minimum hardware.** Currently provisional minimum: integrated-graphics laptop circa 2022, 1080p, 60 FPS sustained at gameplay camera distance with the multi-player scene rendering. Concrete minimum hardware spec locks at Phase-5 alongside the spike.
@@ -51,7 +51,7 @@ Owed: explicit rig + animation contract that any 3D adapter (Phase-5 spike or la
 
 - **Rig standard.** Bone hierarchy + naming convention + scale + orientation. Compatible with retargeting tools. Provisional candidate: humanoid-extended (Mecanim-compatible humanoid + extra finger / facial / cloth-attachment bones); lock at spike kickoff.
 - **Clip format.** Animation clip type (Unity AnimationClip / Animancer / glTF), root-motion semantics, frame-rate baseline (30fps authored, sample-as-needed).
-- **Event markers.** Generic markers any clip can carry: `step-impact` (foot-down for step audio), `ball-contact` (frame the boot meets the ball), `signature-trigger` (when the sim event should fire from this animation), `animation-end` (resolve next-state).
+- **Event markers.** Generic markers any clip can carry: `step-impact` (foot-down for step audio), `ball-contact` (frame the boot meets the ball), `signature-trigger-visual` (frame where the viewer depicts an already-emitted signature event), `animation-end` (resolve next-state). Animation markers never emit canonical MatchSim events.
 - **Ball-contact marker contract.** Critical for sim-viewer determinism. The animation declares the contact frame; the sim records the deterministic contact tick; the viewer interpolates between them. Spec MUST specify what happens when sim-determined contact tick and animation contact frame disagree (animation skip / re-time / sim re-emit?).
 - **Retargeting rules.** Rules for adapting an animation authored on body-type-A to body-type-B. Constraint: visually plausible across all in-MVP body types without per-player re-authoring. Tooling: TBD at spike kickoff.
 - **Fallback animations.** Every signature animation has a fallback locomotion-and-shoot generic animation that fires if the signature-specific clip is missing (e.g. mod-pack references a signature whose authored animation doesn't ship). Prevents content-pack-loadability blockers from rendering bugs.

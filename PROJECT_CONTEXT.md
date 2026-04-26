@@ -24,12 +24,12 @@ FM is a spreadsheet-flat depth simulator. FIFA-adjacent managers don't simulate.
 | Title | What we learn from it | What we do differently |
 |---|---|---|
 | Football Manager 26 | Depth of sim + UI density expectations; licensed-world anchor | Fictional world, event-sourced memory, signature system, RPG progression ceiling |
-| Out of the Park Baseball | Fictional-universe mode as first-class feature proves the audience exists | Football, stylized 2D viewer, anime-inflected signature moments |
+| Out of the Park Baseball | Fictional-universe mode as first-class feature proves the audience exists | Football, renderer-agnostic semantic-cinema viewer, anime-inflected signature moments |
 | Motorsport Manager (Playsport) | Stylized-but-watchable race engine + tight loops = sustainable indie niche | Football, semantic-cinema viewer, memory/signature systems |
 | Giant Killing (anime) | Tone anchor: grounded + mythic, tactical doctrine + dressing-room drama | Fictional pyramid; manager POV throughout; full manager control |
 | Aoashi (anime) | Scout-view POV, tactical-x-ray, youth-development weight | Scout Disagreement system; internal gene/development model |
 | Clutchtime: Basketball Deckbuilder | Solo dev hybrid proves indie sports-sim + RPG can ship on Steam | Simulation depth instead of deckbuilder loop |
-| NUTMEG (upcoming) | Deckbuilder football manager proves the genre hybrid has room | Non-deckbuilder; depth + memory + 2D cinematic viewer |
+| NUTMEG (upcoming) | Deckbuilder football manager proves the genre hybrid has room | Non-deckbuilder; depth + memory + semantic-cinema viewer |
 
 ---
 
@@ -189,12 +189,12 @@ Every proposed feature belongs in exactly one bucket. Features that don't fit ge
 
 | # | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
-| 1 | 2D match viewer fails to feel emotionally legible → Month-3 gate missed | Medium | Critical | Month-3 explicit gate; fall back to simpler shot grammar or extend Phase 3 by one cycle; do not proceed to later Phases until gate passes |
+| 1 | Dots-phase match viewer fails to feel emotionally legible → Month-3 gate missed | Medium | Critical | Month-3 explicit gate; fall back to simpler shot grammar or extend Phase 3 by one cycle; do not proceed to later Phases until gate passes |
 | 2 | Scout Disagreement prototype feels like spreadsheet noise at Month 4 | Medium | High | Gate criterion clear; drop to "scout uncertainty" simpler system if prototype fails |
 | 3 | Deterministic cross-platform sim breaks via floating-point drift | Medium | High | Fixed-point canonical state; CI matrix tests Windows/Mac/Linux; no Unity physics in canonical path |
 | 4 | Content-pack schema locks us out of modding infrastructure late | Low | High | Phase 0 Modding ADR constrains every system; editor UX deferred not blocked |
 | 5 | Solo-dev burnout | High | Critical | Phase-gate discipline; month-by-month audience checks create external accountability; scope cuts aggressive |
-| 6 | FM26 recovers via patches → community stops looking for alternatives | Medium | Medium | We don't build reactive. Our moats (fictional world + memory + signatures + stylized 2D) remain valid regardless |
+| 6 | FM26 recovers via patches → community stops looking for alternatives | Medium | Medium | We don't build reactive. Our moats (fictional world + memory + signatures + renderer-agnostic semantic cinema) remain valid regardless |
 | 7 | Steam algorithm doesn't surface stylized-football-manager niche | Medium | High | Pre-EA community building via devlog clips Month 2-3; closed itch beta Month 4-6; Next Fest gate Month 8 |
 | 8 | AI content compiler lint catches too much / too little → shipping slop or hand-authoring creep | Medium | Medium | Compiler architecture explicit; lint rules reviewed at Phase 4 gate |
 
@@ -204,8 +204,8 @@ Revise at each phase transition.
 
 ## 11. Audience-signal gates (month-by-month)
 
-- **Month 2-3:** devlog clips of 2D viewer prototype shared publicly. First external audience signal.
-- **Month 3:** match-engine gate — *"Can a stranger watch a 2D match for three minutes and understand drama, momentum, and player identity without reading a design doc?"*
+- **Month 2-3:** devlog clips of dots-phase viewer prototype shared publicly. First external audience signal.
+- **Month 3:** match-engine gate — *"Can a stranger watch a dots-phase match for three minutes and understand drama, momentum, and player identity without reading a design doc?"*
 - **Month 4:** Scout Disagreement feel prototype gate — *"Does disagreement create interesting decisions, or does it just obscure truth?"*
 - **Month 4-6:** closed itch build with trusted testers.
 - **Month 6:** public demo — only if retention metrics from closed itch are sane.

@@ -19,7 +19,7 @@
 
 Accounts intentionally **not** required (despite blueprint default):
 - Apple Developer ($99/yr) — no Mac App Store plan; Steam Mac builds don't need it
-- Adobe / Mixamo — no 3D at MVP; deferred indefinitely
+- Adobe / Mixamo — not part of the current 3D candidate stack; Phase-5 license audit decides any animation/asset-service accounts
 
 **Hardware prerequisites:**
 - Apple Silicon Mac (M1+) — user's primary dev box
@@ -172,7 +172,7 @@ claude
 - Local: Time Machine (Mac)
 - Remote: GitHub (code) + cloud storage (large binary assets not in LFS)
 - Unity Library/ does NOT need backup
-- Blender source files (post-EA 3D push) DO need backup
+- Blender source files from the Phase-5/6 3D spike or any later 3D production DO need backup
 - AI content pack inputs (prompts + seeds) version-controlled; reproducible via compiler
 
 ---
@@ -200,8 +200,8 @@ Deliberately NOT decided at Phase 1 — each has a specific trigger for re-evalu
 | Odin Inspector | $55 | SO-authoring pain at Phase 3+ | 3 | 2 |
 | Animancer Pro | $80 | Mecanim state-graph breakdown at signature-authoring | 4 | 2 |
 | DOTween Pro | $15 | UI juice pain | 5 | 2 |
-| FinalIK | $90 | Hand-contact / foot-IK needed | Post-EA 3D push only | 3 |
-| Auto-Rig Pro (Blender) | $40 | Custom skeleton auto-binding for 3D | Post-EA 3D push only | 3 |
+| FinalIK | $90 | Hand-contact / foot-IK needed | Phase-5 spike only if manual/AI-assisted rigging fails | 3 |
+| Auto-Rig Pro (Blender) | $40 | Custom skeleton auto-binding for 3D | Phase-5 spike only if base Blender rigging is insufficient | 3 |
 | Magica Cloth 2 | $50 (owned) | First cloth-sim scene (kit / hair flutter) | **Phase-5 spike** (was Post-EA; superseded 2026-04-26) | 3 |
 | 3D-asset generator (e.g. Tripo Pro) | $20-30/mo | Bulk player/kit generation; commercial tier required | **Phase-5 spike + Phase-6 production** (was Post-EA; superseded 2026-04-26) | 3 |
 | Hero-asset 3D generator (e.g. Rodin Gen-2 / Hyper3D) | $20-60/mo | Hero stadium/trophy/cup-final context | **Phase-6 production** (post-spike-green; superseded 2026-04-26) | 3 |
@@ -209,12 +209,12 @@ Deliberately NOT decided at Phase 1 — each has a specific trigger for re-evalu
 | Suno / Udio | $10-30/mo | Music pass | Phase 6 | 2 |
 | AI-assisted animation tool (e.g. Cascadeur Pro/Teams) | $24/mo | AI-assisted signature-move animation; Free tier is non-commercial + export-limited | **Phase-5 spike + Phase-6 production** (was Post-EA; superseded 2026-04-26) | 3 |
 | ElevenLabs | $5-22/mo | Commentary VO evaluation | Post-EA (conditional on player demand) | 3 |
-| Amplify Shader Editor | $80 | Custom shader beyond Shader Graph | Post-EA 3D push | 3 |
-| Substance Painter | $250 | PBR texture authoring | Post-EA 3D push | 4 |
+| Amplify Shader Editor | $80 | Custom shader beyond Shader Graph | Phase-5/6 only if Shader Graph cannot hit cel-shader target | 3 |
+| Substance Painter | $250 | PBR texture authoring | Post-spike only if generated/editable texture workflow fails | 4 |
 | Steam Direct | $100 | Phase 8 — Steam submission | 8 | mandatory |
 | Code-signing cert (Win) | $100-500/yr | Phase 8 if SmartScreen avoidance matters | 8 | optional |
 
-Re-evaluate at each phase transition. Most Tier-3 subscriptions only activate if Post-EA 3D push is greenlit via audience-signal gate at Phase 9.
+Re-evaluate at each phase transition. Tier-3 subscriptions activate only after the Phase-5 commercial-license audit and only for the narrow spike task being tested; production subscriptions require a spike-green outcome.
 
 ---
 

@@ -70,13 +70,13 @@ See `TECH_APPROACH.md` for full blueprint. One-line summary:
 - **Rendering:** renderer-agnostic ADR-0008 ShotPresentationContract → adapter implementations. ADR-0009 dots-phase adapter (Phase-3-onward sprite-on-pitch) is shipping-quality candidate. Cel-shaded 3D adapter (ADR-0010, conditional on Phase-5/6 production-feasibility spike per `design/3d-pipeline.md`) is candidate shipping visual. EA visual locked at Phase-7/8 by spike outcome — three outcomes per 2026-04-26 decisions-log entry: spike-green → 3D ships; spike-yellow/red → dots ships if polish bar met (no public 3D promise); dots-not-strong-enough → delay EA
 - **AI:** bake-time only (content compiler). No runtime LLMs. No ML-Agents (behavior trees + hand-authored manager archetypes).
 
-**Budget model:** Tier 1 bootstrap (buy-on-pain). Magica Cloth 2 already owned ($50 sunk); GPT Image 2 in use for concepts. All 3D-asset subscriptions (Tripo / Rodin / Cascadeur / Hunyuan3D) deferred to post-EA 3D push. Steam Direct $100 at Phase 8.
+**Budget model:** Tier 1 bootstrap (buy-on-pain). Existing owned assets remain tracked in SETUP; GPT Image 2 in use for concepts. 3D-asset / animation subscriptions are deferred until the Phase-5 commercial-license audit + production-feasibility spike; Phase-6 production spend requires spike-green outcome. Steam Direct $100 at Phase 8.
 
 **Ruled out:**
 - Unreal / Godot: Unity's Mac Editor + URP + Mono-derived build pipeline fits solo workflow
-- HDRP: fights cel-shading, kills mobile port, overkill for 2D viewer MVP
+- HDRP: fights the URP cel-shader candidate stack, kills mobile-port optionality, overkill for solo viewer work
 - Ink / Yarn Spinner: narrative is event-sourced systemic, not scripted
-- VRoid / UniVRM: no bespoke anime-3D characters (no 3D at MVP at all)
+- VRM-first character pipeline: not the current 3D candidate stack; revisit only if Phase-5 license-audit + spike-feasibility proves it beats the generator → cleanup/rigging → AI-assisted-animation path
 - Runtime local LLMs: inference cost breaks match-day flow; bake-time delivers same variety at zero runtime cost
 - ML-Agents RL tactical AI: training cost + opacity + non-determinism; behavior trees win here
 - Mobile port: deferred indefinitely (revisit post-1.0 if ever)
@@ -91,7 +91,7 @@ See `TECH_APPROACH.md` for full blueprint. One-line summary:
 Installed at bootstrap (user-scope, already present):
 - `context7` (library docs)
 - `github` (repo / PR / issue workflow)
-- `blender-mcp` (Hunyuan3D + Hyper3D access — deferred 3D pipeline)
+- `blender-mcp` (3D asset-generation / Blender workflow access — deferred 3D pipeline)
 
 Intentionally skipped:
 - `chrome` — WebSearch/WebFetch cover web needs
@@ -174,7 +174,7 @@ Destructive / shared-state / third-party-upload actions need user confirmation. 
 
 ### 6.4 UI / feature verification
 
-For 2D viewer work: run in Unity Editor, verify frame-accurate rendering + determinism replay via seed. Don't claim viewer work succeeds without a scene-capture.
+For dots/viewer work: run in Unity Editor, verify frame-accurate rendering + determinism replay via seed. Don't claim viewer work succeeds without a scene-capture.
 
 For MatchSim work: verify via xUnit tests AND headless balance-harness sweep. Floating-point reproducibility tested on Windows + Mac + Linux (GitHub Actions).
 

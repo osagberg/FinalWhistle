@@ -29,14 +29,14 @@
 |---|---|---|
 | **unity-mcp** (CoplayDev) | Package via `Packages/manifest.json` + `claude mcp add -s project unity-mcp <launcher>` | Edit scenes + read console + run tests from Claude. Install after Unity project exists. |
 
-### Deferred (trigger-based; post-EA 3D push)
+### Deferred (trigger-based; Phase-5/6 3D spike or later fallback)
 
 | Server | Trigger | Notes |
 |---|---|---|
 <!-- ui-lint:ignore-start reason="deferred MCP service named 'AI Forge' — proper noun, not verb usage" -->
-| AI Forge | Phase 9 post-EA 3D push | Blender pipeline tier-selection |
+| AI Forge | Phase-5 3D-pipeline spike evaluation | Blender pipeline tier-selection; install only if it materially improves the spike |
 <!-- ui-lint:ignore-end -->
-| Additional 3D MCPs | Post-EA 3D R&D | Evaluate at Phase 9 if audience signal justifies |
+| Additional 3D MCPs | Phase-5/6 3D spike need | Evaluate only after the license audit identifies a concrete workflow gap |
 
 ---
 
@@ -74,7 +74,7 @@ Install via `/plugin install <name>` inside a fresh Claude Code session opened i
 - `creative-director` — vision / pitch / tone integrity
 - `technical-director` — architecture / tech risk / framework decisions
 - `producer` — phase gates / scope discipline / sprint rhythm
-- `art-director` — visual target (minimal role at 2D MVP; activates at Phase 9 3D push)
+- `art-director` — visual target, dots polish bar, Phase-5 3D spike review
 - `narrative-director` — event-sourced memory templates / salience tuning
 - `qa-lead` — test strategy / gate criteria
 - `lead-programmer` — code standards / architecture reviews
@@ -154,8 +154,10 @@ Phase 3 activation note:
 | Anthropic (Claude API) | existing | existing (prompt-caching economics) | AI Content Compiler at bake time |
 | Sentry / crash reporting | TBD Phase 7 | free tier | post-launch observability |
 
-Deferred to post-EA 3D push:
-- Tripo v3.0, Rodin (Hyper3D), Suno/Udio, Cascadeur, ElevenLabs
+Deferred until trigger:
+- Tripo v3.0 / Rodin (Hyper3D) / Cascadeur — Phase-5 commercial-license audit + spike only; Phase-6 production only after spike-green
+- Suno / Udio — Phase 6 music pass if audio direction needs it
+- ElevenLabs — Post-EA only, conditional on player demand for commentary VO
 
 ---
 
@@ -174,7 +176,7 @@ Tools evaluated and rejected. Includes the WHY so future sessions don't re-re-ev
 - **Unity PhysX in canonical MatchSim path** — not deterministic enough for cross-platform replay. Custom fixed-point sim only.
 - **uGUI for primary UI** — UI Toolkit is the target; uGUI only as fallback for documented UIT bugs.
 - **VRoid / UniVRM pipeline** — not in scope. Phase-5/6 3D-pipeline candidate stack (per `design/3d-pipeline.md`) uses 3D-asset-generator tools (Tripo / Rodin / Hunyuan3D candidates) + Blender rigging + AI-assisted animation tool (Cascadeur candidate) + URP cel-shader, not the VRM pipeline. Revisitable via new decisions-log entry if Phase-5 license-audit + spike-feasibility identifies VRM as a better fit than current candidate stack.
-- **Monthly subscriptions before Phase 9** — explicit hard rule; exceptions require decisions-log entry.
+- **Monthly subscriptions before their phase trigger** — explicit hard rule; exceptions require decisions-log entry. 3D tooling triggers start at Phase-5 license-audit/spike, not before.
 <!-- ui-lint:ignore-start reason="anti-patterns list explicitly naming banned vocabulary" -->
 - **"The Hush" / "Weather" / "Calling" / "Canon" / "Seven" / capitalized mystical vocabulary** — never ships as visible system names. Football-native UI copy only.
 <!-- ui-lint:ignore-end -->

@@ -66,7 +66,7 @@ The 2026-04-26 visual-target supersession says dots-prototype is the Phase-3-onw
 - **Cheap to build (relative to 3D).** Production cost target: ≤4 weeks of solo-dev Phase-3 effort to first playable; ≤8 weeks to full polish bar.
 - **Implements ADR-0008 contract verbatim.** No adapter-specific extensions to the contract; the adapter consumes what's there.
 - **Reduce-motion structurally.** Per `design/accessibility.md`: scene-load-time disable of motion-line trails on dots, slowed shot-transition timing, simplified camera rhythm.
-- **Determinism preserved.** Per ADR-0008 + ADR-0001: no `_Time`-driven shaders that affect gameplay-visible elements; no `Random` outside seeded source; `pass_activation_log_hash` is per-adapter and stable across runs.
+- **Determinism preserved.** Per ADR-0008 + ADR-0001: no `_Time`-driven shaders that affect gameplay-visible elements; no `Random` outside seeded source; the dots adapter's semantic pass-activation trace is stable across runs. Pixel output is visually QA'd, not replay-hashed.
 - **Mod-pack-loadable.** Mods reference shot types by `ContentPackQualifiedId`; dots adapter resolves these via the same Addressables groups per ADR-0001.
 
 ---
@@ -129,7 +129,7 @@ If the polish bar is not hit at Month-3 gate, the project doesn't advance to Pha
 
 ### Tier-A CI integration
 
-- Phase-3 dots-adapter has a CI smoke seed: render 60 sim ticks (1 game-second) headless, hash the resulting `pass_activation_log` per ADR-0008. Fixture pinned in `MatchSim.Tests/fixtures/replay-corpus/0xdeadbeefdeadbeef.json` (already established as Tier-A smoke seed per `design/specs/golden-replay-corpus.md`).
+- Phase-3 dots-adapter has a CI smoke seed: consume 60 sim ticks (1 game-second) headlessly, emit the dots adapter's semantic `pass_activation_log`, and compare that hash per ADR-0008. Fixture pinned in `MatchSim.Tests/fixtures/replay-corpus/0xdeadbeefdeadbeef.json` (already established as Tier-A smoke seed per `design/specs/golden-replay-corpus.md`). Visual smoke captures are separate artifacts, not cross-platform hash inputs.
 - `fw shader-audit` per Phase-3 SPEC task ensures no `_Time` references in dots-adapter shaders. Knowledge Risk LOW because dots adapter doesn't need custom HLSL — built on URP defaults + Sprite Renderer.
 
 ---
@@ -164,7 +164,7 @@ The "Alternative A" from `design/3d-pipeline.md §Alternatives if the spike fail
 
 - **Cheap to build, cheap to maintain.** Sprite-on-pitch + URP-default rendering. No custom HLSL passes; minimal Shader Graph; no per-player rig + animation production.
 - **Polish bar produces a defensible shipping visual** if 3D-pipeline spike fails. EA is not at the mercy of 3D timing.
-- **Determinism-clean.** No `_Time`-affected gameplay rendering; `pass_activation_log_hash` is per-adapter stable.
+- **Determinism-clean.** No `_Time`-affected gameplay rendering; semantic pass-activation trace is stable.
 - **Reduce-motion-clean.** Reduce-motion path is structural (scene-load-time feature disable); accessibility paired-fixture pattern works from day one.
 - **Mod-pack-clean.** Dots adapter resolves shot types from any pack via Addressables per ADR-0001. Mods extend, don't override.
 - **Sim-validation-clean.** Month-3 gate measures sim readability through this adapter; observers don't have to "see through" production-quality 3D to evaluate sim drama. Gate becomes more honest about whether the sim is interesting.
@@ -174,11 +174,11 @@ The "Alternative A" from `design/3d-pipeline.md §Alternatives if the spike fail
 - **Marketing cost if dots ships at EA.** Steam screenshots + trailer are dots-rendered; no sweeping cinematic 3D footage. The "we're a different sports sim because we're 2D-stylized" pitch becomes "we're focused on sim depth + memory + signatures, with a stylized dots viewer" — defensible but harder to differentiate at a glance on a Steam page.
 - **Two-adapter maintenance once 3D is shipping.** Dots adapter must continue to work even after 3D ships. Validator + corpus fixtures track both. Ongoing test cost.
 - **Player perception risk.** Some players will see "dots viewer" and think "lazy dev" before reading the framing. Marketing must explicitly position dots as a visual identity choice, not a production shortcut. Pairs with `design/3d-pipeline.md §Alternatives` discussion.
-- **Polish bar is genuinely demanding.** A "good FM-style 2D viewer" is harder than it looks. Camera rhythm + pressure indicator + signature presentation are real design challenges; budget Phase-3 effort accordingly.
+- **Polish bar is genuinely demanding.** A good dots-style football viewer is harder than it looks. Camera rhythm + pressure indicator + signature presentation are real design challenges; budget Phase-3 effort accordingly.
 
 ### Neutral
 
-- **Asmdef structure clean.** `Viewer.Adapters.Dots` is its own Unity-side asmdef; depends on `MatchSim.Contracts` only.
+- **Asmdef structure clean.** `Viewer.Adapters.Dots` is its own Unity-side asmdef; depends on `Viewer.Contracts` + `Viewer.Core` and consumes bridged `ViewerEvent`s. It does not depend directly on `MatchSim.Contracts`.
 - **No new content-pack types.** Dots adapter consumes existing `ShotTypeSO` content packs.
 
 ---
@@ -190,7 +190,7 @@ The "Alternative A" from `design/3d-pipeline.md §Alternatives if the spike fail
 - [ ] Phase-3 Week-4: signature trigger renders the polish-bar visual cue (dot-flash + selection-ring + overlay quote).
 - [ ] Phase-3 end-of-Month-3: 5 cold observers (per `design/month-3-vertical-slice.md`) confirm drama + identity legible through dots-only rendering. ≥4 pass.
 - [ ] No `_Time` references in dots adapter shaders per `fw shader-audit`.
-- [ ] Tier-A CI smoke (1-second sim) renders deterministically; `pass_activation_log_hash` matches pinned corpus value across Win/Mac/Linux.
+- [ ] Tier-A CI smoke (1-second sim) emits a deterministic dots pass-activation trace; `pass_activation_log_hash` matches pinned corpus value across Win/Mac/Linux. Rendered screenshot/video smoke is verified separately and not pixel-hashed.
 
 ---
 
@@ -219,7 +219,7 @@ The "Alternative A" from `design/3d-pipeline.md §Alternatives if the spike fail
 - **`design/accessibility.md`** — reduce-motion adapter posture + subtitle integration
 - **`design/ui-vocabulary.md`** — overlay text discipline (banned-terms lint applies)
 - **`design/month-3-vertical-slice.md`** — gate criterion that this adapter is measured against
-- **`design/specs/golden-replay-corpus.md`** — paired fixtures + `pass_activation_log_hash` per-adapter
+- **`design/specs/golden-replay-corpus.md`** — paired fixtures + v1 active-adapter `pass_activation_log_hash`; multi-adapter CI requires a future adapter-keyed schema bump
 - **`design/3d-pipeline.md`** — sibling 3D adapter pipeline + spike-gate criteria
 
 ## Changelog within this doc

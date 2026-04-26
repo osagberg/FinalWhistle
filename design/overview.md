@@ -38,14 +38,14 @@ FM's core complaint is "every player feels the same." Final Whistle's signature 
 
 ### Pillar 3 — Every match is watchable
 
-FM's 3D match is skip-after-10-minutes. Final Whistle's 2D viewer uses a 7-shot semantic-cinema grammar + state-driven color grading + stake-modulated intensity. **Mechanically, every MatchSim event gets rendered through one of 7 shot types; stakes (cup final vs friendly) and memory state (does anyone in this moment have prior ledger relevance?) modulate intensity/paneling/timing/text**.
+FM's 3D match is skip-after-10-minutes. Final Whistle's viewer uses a renderer-agnostic 7-shot semantic-cinema grammar + state-driven color grading + stake-modulated intensity. Phase-3 proves it through the dots adapter; cel-shaded 3D remains a spike-gated candidate shipping layer. **Mechanically, every bridged ViewerEvent gets rendered through one of 7 shot types; stakes (cup final vs friendly) and memory state (does anyone in this moment have prior ledger relevance?) modulate intensity/paneling/timing/text**.
 
 ## MVP boundary (Month-12 EA)
 
 In: all three pillars shipped with evidence via Month-12 brutal slice (see `month-3-vertical-slice.md` for the first proof).
 
 Out at EA:
-- 3D match engine
+- Guaranteed 3D match engine (cel-shaded 3D ships only if the Phase-5/6 production-feasibility spike is green)
 - Multi-nation pyramid
 - Coaching Lineage surfacing (data seeded, exposed post-EA)
 - Social-media / live-ops / server-side anything

@@ -8,6 +8,8 @@ description: ADR-0001 — ShotTypeSO schema + Addressables grouping. Formalizes 
 
 **Accepted** — 2026-04-24. Tightened on ChainCondition pinning + deterministic-selection mechanism + Addressables-grouping explicit rule per user review.
 
+**Supersession note — 2026-04-26:** ADR-0002 was superseded by ADR-0008 / ADR-0009 during the visual-target pivot. Where this ADR mentions ADR-0002, `ViewerRenderer`, or old 3D timing, read that as the renderer-agnostic `ShotPresentationContract` + active renderer adapter. The `ShotTypeSO` schema remains Accepted.
+
 ## Date
 
 2026-04-24
@@ -42,8 +44,8 @@ Encode each of the 7 semantic-cinema shot types as a Unity `ScriptableObject` as
 | Field | Value |
 |---|---|
 | Depends On | None |
-| Enables | ADR-0002 (Viewer rendering pipeline) — rendering pass reads the active `ShotTypeSO`'s framing + modulation; ADR-0004 (MemoryEvent schema) — chain-rule `condition` field includes memory-hit predicates |
-| Blocks | Phase 3 Week 2-3 2D viewer prototype (3 of 7 shot types); Phase 5 full 7-shot rollout |
+| Enables | ADR-0008 (ShotPresentationContract) + ADR-0009 (dots-phase adapter) — viewer bridge / active adapter reads the active `ShotTypeSO`'s framing + modulation; ADR-0004 (MemoryEvent schema) — chain-rule `condition` field includes memory-hit predicates |
+| Blocks | Phase 3 Week 2-3 dots-phase viewer prototype (3 of 7 shot types); Phase 5 full 7-shot rollout |
 
 ---
 
@@ -63,7 +65,7 @@ No Unity project exists yet (Phase 3 creates it). No shot authoring format exist
 - **Mod-ready from day one** — per `SPEC.md` 2026-04-22 decision "Mod-ready data architecture from day one; editor UX deferred." Shot authoring must survive content-pack replacement/extension.
 - **Solo-dev authoring cost** — SO assets with inspector editing win over per-shot prefab hierarchies.
 - **Determinism** — shot selection + chain-rule evaluation must be deterministic (consumes the same MatchSim event stream; rendering selections are audit-trailed in replays).
-- **Deferred-3D compatibility** — the Phase-9 3D match engine (if audience signal warrants) must be able to consume the same authored `ShotTypeSO` assets — the framing fields generalize to 3D camera placement.
+- **Renderer-adapter compatibility** — the Phase-3 dots adapter and any Phase-5/6 3D adapter spike must be able to consume the same authored `ShotTypeSO` assets. The framing fields generalize across dots-camera placement and future 3D camera placement.
 
 ### Requirements
 
@@ -97,10 +99,11 @@ Each of the 7 shot types is a Unity `ScriptableObject` asset stored at `unity-pr
                                           │ ShotTypeSO
                                           v
                           ┌──────────────────────────┐
-                          │ ViewerRenderer (ADR-0002)│
-                          │  consumes framing +      │
-                          │  modulation + overlay    │
-                          │  template set            │
+                          │ ShotPresentationContract │
+                          │ + active adapter         │
+                          │ (ADR-0008/0009) consumes │
+                          │ framing + modulation +   │
+                          │ overlay template set     │
                           └──────────────────────────┘
 
 Addressables label: "shot-type"
@@ -130,7 +133,7 @@ public sealed class ShotTypeSO : ScriptableObject
     public int DefaultHoldTicks;                 // 60Hz steps
     public int MaxHoldTicks;
 
-    public List<OverlayTemplateReference> OverlayTemplates;  // rendered by ADR-0002
+    public List<OverlayTemplateReference> OverlayTemplates;  // projected to ShotTypeDefinition for ADR-0008
 }
 
 public enum ShotCategory
@@ -196,7 +199,7 @@ public interface IShotTypeCatalog
 
 ### Implementation Guidelines
 
-- **Asmdef boundary:** `FinalWhistle.Viewer.ShotAuthoring` (asset-side, no runtime deps beyond UnityEngine.ScriptableObject) + `FinalWhistle.Viewer.Runtime` (shot selection + catalog).
+- **Asmdef boundary:** `FinalWhistle.Viewer.ShotAuthoring` (asset-side, no runtime deps beyond UnityEngine.ScriptableObject), `FinalWhistle.Viewer.Contracts` (pure-C# `ShotTypeDefinition` projection + `ViewerEvent` contracts per ADR-0008), and `FinalWhistle.Viewer.EventBridge` (pure-C# shot selection + chain-rule evaluation over projected definitions).
 - **MatchSim.csproj NEVER depends on `ShotTypeSO`** — the sim emits events; the viewer selects shots. Strict split per `TECH_APPROACH.md §3`.
 - **ID validation at bake-time:** the Phase-1 banned-terms lint + Phase-6 content-pack validator must check `ShotTypeSO.Id` follows `fwh.<pack>:shot.<category>-<variant?>` format and does NOT embed pack-minor version. Same validator enforces the per-pack Addressables-group convention above.
 - **Reduce-motion wiring:** `IsReduceMotionActive()` reads the accessibility settings SO (authored under `design/accessibility.md` — Phase-2 design doc). When true, every shot's `ReduceMotionVariant` overrides the default framing + disables impact flashes + extends hold-tick ranges.
@@ -247,7 +250,7 @@ public interface IShotTypeCatalog
 ### Neutral
 
 - Shot-selection C# code (`ShotSelector`) remains trivial regardless of schema richness — it's a dictionary lookup + chain-rule evaluator.
-- Future 3D shot extension (Phase-9 conditional) reuses the same SO shape with 3D framing fields, not a schema rewrite.
+- Future 3D shot extension (Phase-5/6 spike conditional) reuses the same SO shape with 3D framing fields, not a schema rewrite.
 
 ---
 
@@ -267,7 +270,7 @@ Shot-catalog lookup is never a frame-rate concern — it fires O(events per matc
 
 | GDD | System | Requirement | How This ADR Satisfies It |
 |---|---|---|---|
-| `design/semantic-cinema.md` | 2D viewer grammar | 7 shot types with stakes + memory modulation | ShotTypeSO schema carries `Category` + `ModulationStrength` + `FramingParams` |
+| `design/semantic-cinema.md` | Renderer-agnostic viewer grammar | 7 shot types with stakes + memory modulation | ShotTypeSO schema carries `Category` + `ModulationStrength` + `FramingParams` |
 | `design/semantic-cinema.md` | Shot chaining | Data-driven, not hardcoded | `ChainRule[]` field + `IShotTypeCatalog.Resolve` |
 | `design/semantic-cinema.md` | Accessibility | Reduce-motion variant baked in | `ReduceMotionVariant` per shot |
 | `design/production-pipeline.md` | Content-pack validator | ID stability, no pack-minor in IDs | Cross-ref to Player-generation 2026-04-24 ID rules |
@@ -287,7 +290,7 @@ Not applicable — no prior implementation to migrate from. Greenfield.
 
 - [ ] Phase 3 Week 2: 3 `ShotTypeSO` assets authored (`tactical-wide`, `diagonal-attack-lane`, `pass-shot-impact`) and loaded via Addressables at runtime.
 - [ ] Phase 3 Week 3: chain rule fires end-to-end on goal event: `pass-shot-impact` → `crowd-reaction` → `aftermath-freeze` with durations pulled from SO data (no hardcoded chain).
-- [ ] Phase 3 Week 3: reduce-motion toggle at runtime swaps shots to their `ReduceMotionVariant` without needing a scene reload.
+- [ ] Phase 3 Week 3: reduce-motion scene-load path swaps shots to their `ReduceMotionVariant`; changing the setting takes effect on viewer scene reload per ADR-0008 / accessibility discipline.
 - [ ] Phase 3 Week 4 (Month-3 gate): observer cold-watch of the 3-shot slice produces no "camera froze" complaints (fallback category working).
 - [ ] Phase 6: content-pack validator confirms every `ShotTypeSO.Id` matches the stable-ID regex and unique-Id constraint across loaded packs.
 - [ ] Shot selection deterministic across 10K-match balance-harness sweeps — same event stream produces identical shot-choice sequence.
@@ -298,6 +301,6 @@ Not applicable — no prior implementation to migrate from. Greenfield.
 
 - Supersedes: none (first ADR).
 - Depends on: `design/semantic-cinema.md` 2026-04-24 resolution (schema source).
-- Enables: ADR-0002 (Viewer rendering pipeline — consumes `ShotTypeSO`); ADR-0004 (MemoryEvent schema — chain-rule conditions reference memory hits).
+- Enables: ADR-0008 (ShotPresentationContract) + ADR-0009 (dots-phase render adapter — consumes `ShotTypeSO`); ADR-0004 (MemoryEvent schema — chain-rule conditions reference memory hits).
 - Cross-refs: `design/production-pipeline.md` (content-pack validation), `design/player-generation.md` (ID-stability rule pattern).
 - Code (once implemented): `unity-project/Assets/_Project/Viewer/ShotAuthoring/` + `unity-project/Assets/_Project/Viewer/Runtime/ShotTypeCatalog.cs` (paths tentative, finalize at Phase 3 bootstrap).

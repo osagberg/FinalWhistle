@@ -105,7 +105,7 @@ MatchSim.Tests/
         README.md                  # describes what this fixture is engineered to trip
       FW-VAL-A-002.pack/
       ...
-      FW-VAL-D-009.pack/
+      FW-VAL-D-011.pack/
 ```
 
 Each fixture is a **minimal synthetic content pack** engineered to:
@@ -243,7 +243,7 @@ This is the Phase-6 integration test for the full modding contract (`design/modd
 | Phase 4 | Checks added as scout-disagreement prototype + first signatures land (FW-VAL-A-014 / A-020). |
 | Phase 6 | Full Tier-A surface (all 21 `FW-VAL-A-*`) complete. Synthetic thin-mod-pack fixture lands. Tier-D `FW-VAL-D-004` / D-006 / D-007 / D-009 live. |
 | Phase 7 | Tier-D `FW-VAL-D-001` / D-002 / D-003 (locale coverage matured as localization pass completes). |
-| Phase 8 | Full Tier-D (`FW-VAL-D-005` AI-content disclosure, `FW-VAL-D-008` asset-licensing, `FW-VAL-D-010` Category-B exemption audit). RC workflow wired. |
+| Phase 8 | Full Tier-D (`FW-VAL-D-005` AI-content disclosure, `FW-VAL-D-008` asset-licensing, `FW-VAL-D-010` Category-B exemption audit, `FW-VAL-D-011` 3D-asset commercial-rights manifest if 3D assets enter the RC bundle). RC workflow wired. |
 
 ## Cross-references
 
@@ -256,4 +256,5 @@ This is the Phase-6 integration test for the full modding contract (`design/modd
 
 ## Changelog within this doc
 
-- **2026-04-24** — Authored as Phase-2 spec. 21 Tier-A checks + 10 Tier-D checks catalogued with IDs, owners, red-team fixtures, failure-message templates. Ownership decentralized across 5 validator asmdefs. Failure-message convention binding. JSON output shape pinned. Phase-6 synthetic thin-mod-pack fixture owed as new SPEC task. CI wiring sketched (full wiring lands Phase 3 via `fw content-lint` + Phase 8 RC workflow). Red-team self-check discipline locked: every new check ships with its fixture in the same PR.
+- **2026-04-24** — Authored as Phase-2 spec. 21 Tier-A checks + `FW-VAL-D-001..010` catalogued with IDs, owners, red-team fixtures, failure-message templates. Ownership decentralized across 5 validator asmdefs. Failure-message convention binding. JSON output shape pinned. Phase-6 synthetic thin-mod-pack fixture owed as new SPEC task. CI wiring sketched (full wiring lands Phase 3 via `fw content-lint` + Phase 8 RC workflow). Red-team self-check discipline locked: every new check ships with its fixture in the same PR.
+- **2026-04-26** — Added `FW-VAL-D-011` 3D-asset commercial-rights manifest check per visual-target supersession. Tier-D catalog now has 11 checks; the check is required whenever AI-generated 3D assets enter an RC bundle.

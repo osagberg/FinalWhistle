@@ -13,7 +13,7 @@ GPT-5.5's Phase-C correction: the seven-item Product MVP is only legitimate if w
 ## Locked decisions
 
 - A **Month-3 gate** exists and blocks progression. See SPEC.md Phase 3 gate.
-- The gate criterion is external-observer legibility: *"A stranger watches a 2D match for three minutes and understands drama, momentum, and player identity without reading a design doc."*
+- The gate criterion is external-observer legibility: *"A stranger watches a dots-phase match for three minutes and understands drama, momentum, and player identity without reading a design doc."*
 - Failure to pass the gate means "extend Phase 3 by one cycle; do not proceed."
 
 ## The brutal slice — what exists at Month 3
@@ -38,9 +38,9 @@ The full Identity Packet compiler is not required for the Month-3 gate. Hand-aut
 - 2 behavior-tree archetypes authored (one for player's team, one for opponent — contrast in style)
 - Match seed → deterministic replay verified via xUnit test
 
-**2D viewer with 3 of 7 shot types** (`tactical-wide`, `diagonal-attack-lane`, `pass-shot-impact`):
-- Stylized 2D rendering (manga-broadcast aesthetic, screen-tone, motion lines on runs)
-- Shot-type selection driven by MatchSim event stream + minimal stakes modulation
+**Dots-phase viewer with 3 of 7 shot types** (`tactical-wide`, `diagonal-attack-lane`, `pass-shot-impact`):
+- Sprite-on-pitch rendering through ADR-0009's polish bar (kit discrimination, identity overlays, camera rhythm, readable possession-pressure)
+- Shot-type selection driven by `Viewer.EventBridge` from MatchSim event stream + minimal stakes modulation
 - UI Toolkit overlay: scoreline, time, pre-match squad view
 - Font stack: Anton / JetBrains Mono / Rajdhani
 

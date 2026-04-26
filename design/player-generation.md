@@ -176,7 +176,7 @@ At Month 12 EA: full content pack v1 compiled (~2000-2400 players across 96 club
 - Lineage surfacing (Coaching Lineage, "son of [player]" flags in scout reports) — post-MVP
 - Player-authored custom players via Workshop content packs — post-EA
 - Per-player generated portraits (GPT Image 2 at bake time) — Phase 6 or 7 polish
-- 3D player models — deferred indefinitely
+- 3D player model generation — governed by `design/3d-pipeline.md` Phase-5/6 spike; IdentityPacket data must not assume 3D availability
 
 ## Resolved (2026-04-24)
 

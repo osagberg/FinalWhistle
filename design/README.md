@@ -25,7 +25,7 @@ All 12 docs had their open-questions resolved during the Phase-0 consolidated 20
 | [`overview.md`](overview.md) | Game pillars, top-level experience, 4-bucket scope split | Phase 0 / 2026-04-24 |
 | [`month-3-vertical-slice.md`](month-3-vertical-slice.md) | Brutal-minimum first-proof spec | Phase 0 / 2026-04-24 |
 | [`match-engine.md`](match-engine.md) | MatchSim architecture, determinism, ball physics | Phase 0 / 2026-04-24 |
-| [`semantic-cinema.md`](semantic-cinema.md) | 2D viewer 7-shot-type grammar | Phase 0 / 2026-04-24 |
+| [`semantic-cinema.md`](semantic-cinema.md) | Renderer-agnostic 7-shot-type grammar | Phase 0 / 2026-04-24 |
 | [`event-sourced-memory.md`](event-sourced-memory.md) | Career memory ledger, readers, compaction | Phase 0 / 2026-04-24 |
 | [`signatures.md`](signatures.md) | 24-signature catalog, 3 per role family | Phase 0 / 2026-04-24 |
 | [`scout-disagreement.md`](scout-disagreement.md) | Scout-bias system spec; Month-4 feel-gate spec | Phase 0 / 2026-04-24 |

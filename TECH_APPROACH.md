@@ -10,8 +10,8 @@
 
 | Concern | Choice | Rationale |
 |---|---|---|
-| Engine | **Unity 6 LTS** (pin at Phase 3) | Solo-dev cross-platform; Mac Editor strong; URP fits 2D stylized; Steam deploys clean |
-| Render pipeline | **URP 17.x** | Lightweight, customizable, 2D-friendly, Apple Silicon + Steam Deck friendly for post-EA |
+| Engine | **Unity 6 LTS** (pin at Phase 3) | Solo-dev cross-platform; Mac Editor strong; URP supports dots-phase and cel-shaded adapter candidates; Steam deploys clean |
+| Render pipeline | **URP 17.x** | Lightweight, customizable, fits sprite-on-pitch now and cel-shader/outline spike later; Apple Silicon + Steam Deck friendly |
 | Render mode | **ForwardPlus** | Tile-based clustering; optimal for Apple Silicon TBDR and desktop |
 | Color space | **Linear** | Required for stylized post-processing passes + colour-grading cinema |
 | **Canonical match sim** | **`MatchSim.csproj` — pure C#, zero-Unity, Q32.32 fixed-point arithmetic** | Headless balance harness; cross-platform deterministic replay; xUnit-testable |
@@ -23,8 +23,8 @@
 | Audio | **FMOD Studio** (free indie) | Dynamic crowd layers, match music stings, scored match moments |
 | Steam | **Steamworks.NET** | Achievements, cloud saves, Workshop readiness |
 | Animation (viewer) | **Animancer Pro** (trigger Phase 4) | Stateless clip play; avoids Mecanim state-graph breakdown with signature actions |
-| Cloth (viewer, deferred) | **Magica Cloth 2** (owned) | Anime hair + kit flutter for post-EA 3D push; no cloth at 2D MVP |
-| Shader (viewer) | **URP Shader Graph + custom HLSL passes** | Manga-broadcast stylization (screen-tone, motion-lines, impact frames, state-driven colour grade) |
+| Cloth (viewer, gated) | **Owned cloth-simulation asset candidate** | Candidate for Phase-5/6 3D spike kit/hair flutter; not part of dots-phase viewer |
+| Shader (viewer) | **URP Shader Graph + custom HLSL passes** | Dots-phase keeps shaders minimal; cel-shader / outline / post-processing live behind the Phase-5/6 spike gate |
 | Editor UX | **Odin Inspector** (trigger Phase 3 SO-authoring pain) | SO authoring quality-of-life at scale |
 | AI at runtime | **NONE** (intentional trap to avoid) | Inference cost breaks match flow; bake-time delivers same variety at zero runtime cost |
 | AI at bake time | **Claude Opus 4.7 + prompt caching** via AI Content Compiler pipeline | Worldbuilding, player generation, match-report templates, press pools — all structured JSON with lints |
@@ -32,9 +32,9 @@
 
 **Ruled out:**
 - **Unreal / Godot:** Unity's Mac Editor + URP + Mono-derived build pipeline fits solo workflow better
-- **HDRP:** fights stylized 2D; overkill for viewer; no 3D at MVP to justify
+- **HDRP:** fights the URP cel-shader candidate stack, increases build/perf risk, and is overkill for solo viewer work
 - **Ink / Yarn Spinner:** narrative is event-sourced systemic, not scripted branching
-- **VRoid / UniVRM:** no 3D characters at MVP; deferred indefinitely
+- **VRM-first character pipeline:** not the current 3D candidate stack; revisit only if Phase-5 license-audit + spike-feasibility proves it beats the generator → cleanup/rigging → AI-assisted-animation path
 - **Unity ML-Agents:** training cost + opacity + non-determinism; BTs win for this shape of game
 - **Runtime local LLMs:** ~3-15s inference on mid-range GPUs April 2026; breaks match flow; 4-8GB distribution bloat
 - **Unity Jobs/ECS speculation:** MatchSim stays pure-C# first; port to Jobs only if Phase 6 perf demands, not speculatively
@@ -239,7 +239,7 @@ Groups by content type: `Content/Clubs`, `Content/Players`, `Content/Signatures`
 
 Authored under `.claude/skills/` as the project grows:
 
-- `match-replay` — given a match seed, re-run MatchSim headless + export 2D viewer capture (QA + trailer authoring)
+- `match-replay` — given a match seed, re-run MatchSim headless + export active-adapter viewer capture (QA + trailer authoring)
 - `balance-harness` — 10K-season sweep + distribution emit (Claude-assisted tuning)
 - `content-compile` — run the AI Content Compiler end-to-end with validation lints
 - `player-identity-compile` — generate identity packets from prompts + seeds
@@ -321,7 +321,7 @@ PHASE 3 — UNITY BOOTSTRAP + MATCHSIM PROTOTYPE
 ├─ 2 rival behavior-tree archetypes authored in YAML
 ├─ 22 players on a pitch, ball physics custom-deterministic
 ├─ unity-project/ created + URP configured
-├─ 2D viewer with 3 shot types prototype (tactical-wide, diagonal-attack-lane, pass-shot-impact)
+├─ Dots-phase viewer with 3 shot types prototype (tactical-wide, diagonal-attack-lane, pass-shot-impact)
 ├─ devlog clips published Month 2-3
 └─ MONTH-3 GATE: stranger watches match + understands drama
 
