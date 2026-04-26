@@ -1,10 +1,12 @@
 ---
-description: 2D viewer 7-shot-type camera grammar. How MatchSim events render as manga-broadcast cinema.
-last_verified: 2026-04-24
-status: Phase 0 open questions resolved; shot-count locked through Month-3 gate, ShotTypeSO schema drafted (incl. chain rules + reduce-motion), rendering stack locked, typography stack locked with scoreline override. Two Phase-2 ADRs pre-seeded in SPEC.
+description: 7-shot-type camera grammar. How MatchSim events render as semantic cinema. Renderer-agnostic per ADR-0008; both dots-phase (ADR-0009) and candidate cel-shaded 3D (ADR-0010 conditional) adapters consume the same vocabulary with adapter-specific rendering.
+last_verified: 2026-04-26
+status: Phase 0 open questions resolved; shot-count locked through Month-3 gate, ShotTypeSO schema (ADR-0001) carries chain rules + reduce-motion + framing parameters consumed by both adapters. Rendering stack split: ADR-0008 ShotPresentationContract is renderer-agnostic; ADR-0009 dots-adapter + ADR-0010 (conditional) 3D-adapter are renderer-specific. Typography stack (Anton display / JetBrains Mono data / Rajdhani body, scoreline override) shared across adapters.
 ---
 
-# Semantic Cinema — 2D viewer grammar
+# Semantic Cinema — renderer-agnostic 7-shot vocabulary
+
+> **2026-04-26 visual-target supersession.** This document originally framed the 7-shot vocabulary as a stylized-2D-illustrated rendering pipeline. After supersession: the 7-shot vocabulary is **renderer-agnostic** (locked in ADR-0008 `ShotPresentationContract`); each adapter (ADR-0009 dots / ADR-0010 candidate 3D) interprets the shot identities + modulation per its own rendering capabilities. Per-adapter interpretation tables live in the adapter ADRs (ADR-0009 §7-shot interpretation in dots; ADR-0010 owed). The canonical shot grammar below is what both adapters honor.
 
 ## Purpose
 

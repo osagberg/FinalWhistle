@@ -2,6 +2,37 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-26 (Visual-target supersession + balance-harness pre-seed — GPT-5.5-reviewed Phase-3+ commitments)
+
+Cross-model review pass (Claude drafts → GPT-5.5 Concerns verdict + 9 P1 findings + 8 P2 + alternatives + missed-gaps) on two pre-Phase-3 commitments. Both consolidated into appended decisions-log entries + SPEC adjustments + new artifacts.
+
+**Visual-target supersession** (supersedes 2026-04-22 *"2D-first MVP / 3D explicitly deferred (post-EA audience-signal gate)"*):
+
+- **Renderer-agnostic `ShotPresentationContract` introduced (ADR-0008 Proposed).** MatchSim emits `ViewerEvent`s referencing `ShotTypeSO` identities + adapter-agnostic modulation (stakes / memory-hits / participants / deterministic seed). Renderer adapters consume the same contract. Same shot identity drives dots-adapter and 3D-adapter; renderers consume the same contract verbatim
+- **Dots-phase render adapter (ADR-0009 Proposed).** Sprite-on-pitch + minimal overlay + camera rhythm + 7-shot dots interpretation table. Held to 10-criteria shippable polish bar (kit discrimination / identity overlays / camera rhythm / signature presentation cues / commentary integration / etc.) because dots may ship at EA. NOT debug UI
+- **Cel-shaded 3D as CANDIDATE shipping layer, NOT pre-committed.** ADR-0010 NOT pre-authored; lands only after Phase-5/6 production-feasibility spike succeeds. `design/3d-pipeline.md` placeholder + animation contract surface + licensing-as-first-class-gate + 4 alternatives if spike fails (dots-EA + 3D cut-ins / low-poly mannequins before AI-gen / dots match + 3D replay / dots-only forever)
+- **Spike gate is hard, multi-deliverable.** ≥6-10 visible players + two kits + body-type variant + locomotion + duel + signature with ball-contact markers + cel-shader + outline + Unity import + LOD + target FPS + repeatable export/import + commercial-rights manifest. Three outcomes: spike-green → 3D ships; spike-yellow/red → dots ships if polish bar met (NO dated 3D promise); dots-not-strong-enough → delay EA
+- **Vendor-agnostic core architecture.** Core docs (PROJECT_CONTEXT / CLAUDE / TECH_APPROACH / ADRs) speak of "3D-asset generator," "AI-assisted animation tool," "retargeting tool." Specific tool names (Tripo / Rodin / Cascadeur / Hunyuan3D / Magica Cloth 2 / Blender / lilToon — current candidates) live ONLY in `design/3d-pipeline.md`. Tooling can change without ADR churn
+- **Licensing as first-class gate.** AI-content-disclosure manifest extends with generator + plan_license_tier + prompt_source_refs + human_edit_steps + commercial_rights_proof + generated_asset_hash. New `FW-VAL-D-011` content-pack-validator check enforces. Asset-licensing-tracker schema-bumps to add columns. Phase-5 task: verify all 3D-tooling commercial-licenses BEFORE pipeline-feasibility spike begins
+- **Animation contract surface owed.** 24 signatures × ball contact requires explicit rig standard + clip format + event markers + ball-contact markers + retargeting rules + fallback animations. Captured in `design/3d-pipeline.md §Animation contract`
+- **Reversibility preserved by floor invariants.** MatchSim renderer-free (already locked); gameplay never depends on 3D-only info; dots viewer maintained throughout 3D development; renderer adapters consume same contract. Architecture absorbs spike failure without rewrite
+
+**Doc-supersession pass:** PROJECT_CONTEXT.md §5 + §6 + §7 + §8 (visual-target rewrite + 3D candidate-shipping framing + 4-bucket scope adapter terminology); CLAUDE.md §1 + §3 + §7 (USP + tech-stack rendering + pitfalls); TECH_APPROACH.md §2 (full visual-target rewrite); design/semantic-cinema.md (status + supersession note + renderer-agnostic framing); SETUP.md §3 + §10 (Tier 3 activation Phase-5/6 not Phase-9; trigger table per-tool); TOOLING.md anti-patterns (VRoid/UniVRM revisited); design/README.md (3d-pipeline.md indexed). ADR-0002 marked Superseded-by ADR-0008/0009; original content preserved per append-only ADR discipline.
+
+**SPEC adjustments:** Phase-3 viewer task rewrite (dots-phase adapter with polish bar + ADR-0008/0009 acceptance pass); Phase-5 3D-pipeline-feasibility spike + license-audit + full-pipeline-spec tasks added; Phase-6 task annotated for spike-conditional 3D adapter; Phase-8 EA-launch contingency three-outcome model + Steam-page-marketing-locks-per-outcome.
+
+**Balance-harness pre-seed** (Phase-6 `design/balance-harness.md` design doc + ADR-if-architecture-bearing owed):
+
+- Methodology locks: scale-agnostic internal performance score (centered-5.0 displayed scale per 2026-04-25 commit; internal metric scale-agnostic so display can shift without rewriting harness math) / stratified attribute-correlation analysis (raw correlation invalid; stratify by role-subtype + team-strength + minutes + tactic + opposition) / `NarrativeFlag` zero rating contribution invariant / EventClass emission scenario-banded / golden-balance-corpus metric-bands not exact-hashes / tactical-fuzzing legality grammar (hybrid: legal grid + archetype mutations + evolutionary exploit search) / thresholds warning-bands-not-hard-fails initially / win-rate exploit normalized by Elo / salience separate from ratings / Claude-assisted analysis on summaries not raw 5M+ events
+- Balance-corpus starter (5-10 configs): equal-strength teams / weak-vs-strong counter / physical-bias lab / role-rating parity (pairs with IdentityPacket role-subtype schema-bump pre-seed from 2026-04-25) / youth-development toy season / known-exploit tactic
+- Methodology supplements: metamorphic tests / micro-sim lab before 10K-seasons / shadow ratings / manager adaptation harness
+- Scope coverage explicit: economy + wages + financial fair play / home advantage / late-season mental pressure / referee variance / weather / injury + fatigue + fixture congestion / transfer AI / promotion-relegation feedback loops
+- SPEC Phase-6 task replaces vague "10K-season sweep + key distributions documented" with explicit `design/balance-harness.md` deliverable + methodology bullets
+
+GPT review caught 4 P1 findings on visual-target (no public 3D promise / renderer-agnostic contract first / spike bar too low / licensing first-class) + 5 P1 on balance-harness (centered-5.0 not actually committed for harness internals / raw-correlation invalid / all-must-emit invalid / exact-hash corpus invalid / fuzzing needs grammar) + alternatives Claude undervalued + missed-gaps (asset rights / rig standard / retargeting fallback / minimum hardware / generated likeness / skin-body-age variation / trailer quality + economy / home advantage / weather / referee / injury / transfer AI / promotion-relegation feedback). All applied.
+
+ADRs 0008 + 0009 are Proposed; flip to Accepted via user / GPT-5.5 review pass before Phase-3 Week-2 viewer authoring begins. ADR-0002 Superseded-by ADR-0008/0009 (original preserved). `FW-VAL-D-011` 3D-asset commercial-rights manifest check added to Tier-D validator. `design/3d-pipeline.md` placeholder authored. ~46 → ~48 entries in append-only decisions log (two new 2026-04-26 entries).
+
 ## 2026-04-25 (Phase 4 pre-seed — player-rating + TacticalPreset commitments from cross-model design session)
 
 Cross-model brainstorm (Claude + GPT-5.5) on the player-match-rating model + tactical-handles-around-stars gap surfaced five commitments, now captured in a consolidated SPEC decisions-log entry + two new Phase-4 SPEC tasks:

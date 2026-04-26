@@ -4,11 +4,15 @@ description: ADR-0002 — Viewer rendering pipeline + URP custom-pass ordering. 
 
 # ADR-0002: Viewer rendering pipeline + URP custom-pass ordering
 
-**Accepted** — 2026-04-24. Self-review tightening: `fw shader-audit` Phase-3 deliverable promoted to explicit SPEC task. Knowledge Risk MEDIUM gate (URP Render Graph verification at Phase-3 Week 1) remains explicit in this ADR body — ADR is Accepted with that verification gate baked in, not after it.
+**Superseded** — 2026-04-26 by ADR-0008 (ShotPresentationContract — renderer-agnostic interface) + ADR-0009 (dots-phase render adapter). The original "stylized-2D-illustrated rendering pipeline as system-level commitment" framing is moot under the 2026-04-26 visual-target supersession; the URP custom-pass ordering described below is now scoped to a specific renderer adapter's implementation rather than a system-level commitment. Original Accepted-2026-04-24 content preserved unchanged below for history per append-only ADR discipline.
 
 ## Status
 
-**Accepted** (see date above).
+**Superseded by ADR-0008 + ADR-0009** — 2026-04-26. Some content (URP pass-ordering for screen-tone / impact-flash / motion-lines + UI-Toolkit overlay composition) is still useful as reference for the eventual 3D-adapter (ADR-0010 conditional on Phase-5 spike); other content (the assumption that this is *the* rendering pipeline) is retired. See `design/3d-pipeline.md` for the current 3D-adapter direction and ADR-0008 for the renderer-agnostic contract.
+
+### Original status (preserved)
+
+**Accepted** — 2026-04-24. Self-review tightening: `fw shader-audit` Phase-3 deliverable promoted to explicit SPEC task. Knowledge Risk MEDIUM gate (URP Render Graph verification at Phase-3 Week 1) remains explicit in this ADR body — ADR was Accepted with that verification gate baked in, not after it.
 
 ## Date
 

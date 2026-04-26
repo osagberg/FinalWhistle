@@ -12,7 +12,7 @@
 A football management RPG where careers remember — your old decisions return years later as rivals, legends, regrets, and revenge.
 
 **Longer pitch (one paragraph):**
-Final Whistle is a football management simulation with RPG-depth progression, running on a deterministic pure-C# match sim, rendered in a stylized 2D manga-broadcast match viewer. You manage a club in a fully fictional six-tier football pyramid; sign and develop players, shape tactics, and live through season-defining moments. Every consequential event — the youth you sold, the promise you broke, the humiliating derby loss, the cup final gamble — is stored in a persistent event ledger. Years later those events surface as returning rivals, mentoring callbacks, press narratives, and fan sentiment. Depth over breadth: one fictional pyramid modelled deeply, with memory, signatures, and breakthrough moments that make each save a genuinely personal history.
+Final Whistle is a football management simulation with RPG-depth progression, running on a deterministic pure-C# match sim, rendered through a renderer-agnostic semantic-cinema viewer (per ADR-0008 ShotPresentationContract; 7-shot-type camera grammar — Phase-3-onward dots-prototype adapter per ADR-0009 sprite-on-pitch viewer; cel-shaded 3D candidate shipping adapter pending Phase-5/6 production-feasibility spike per `design/3d-pipeline.md`). You manage a club in a fully fictional six-tier football pyramid; sign and develop players, shape tactics, and live through season-defining moments. Every consequential event — the youth you sold, the promise you broke, the humiliating derby loss, the cup final gamble — is stored in a persistent event ledger. Years later those events surface as returning rivals, mentoring callbacks, press narratives, and fan sentiment. Depth over breadth: one fictional pyramid modelled deeply, with memory, signatures, and breakthrough moments that make each save a genuinely personal history.
 
 **Problem we're solving / itch we're scratching:**
 FM is a spreadsheet-flat depth simulator. FIFA-adjacent managers don't simulate. Blue Lock-style anime-football is player-centric, not managerial. Nobody is building a football manager where the world has memory and players have specific, expressive identities. FM26's rough November launch (UI regressions, feature cuts, modding-tool gutting) created a window where some FM players are newly willing to try a different football-management fantasy — but we don't build reactive to FM; we build a fantasy FM structurally cannot become.
@@ -63,10 +63,10 @@ A fully fictional football world structured with England-readable grammar: a six
 Grounded football first; heightened moments second. Giant Killing + Aoashi + occasional anime exaggeration. The league behaves like real football — injuries, transfers, contracts, relegation, fan sentiment. The game's rhythm is football rhythm. The anime DNA lives in presentation moments: a young striker discovering his move via motion-line-saturated panel cuts; a veteran's last season getting cinematic emphasis; a cup-final signature action captured in impact-frame stylization. Text never says "The Hush." Commentary says "the stadium has gone quiet." Anime is visual, not lexical.
 <!-- ui-lint:ignore-end -->
 
-**Visual target:**
-Stylized 2D manga-broadcast match viewer. Diagonal pitch compositions, player portrait cut-ins, panelized key moments, motion-line runs, impact frames for tackles and shots, state-driven colour grading. Camera grammar vocabulary of 7 shot types (`tactical-wide / diagonal-attack-lane / player-isolation / duel-panel / pass-shot-impact / crowd-reaction / aftermath-freeze`) authored so stakes + memory-state modulate intensity, paneling, text, and timing. UI aesthetic: football-native dense typography (Anton display / JetBrains Mono data / Rajdhani body); management screens prioritize information density and clarity over FM26's over-clicked navigation.
+**Visual target** (per 2026-04-26 visual-target supersession decisions-log entry):
+Renderer-agnostic semantic-cinema viewer. The 7-shot camera vocabulary (`tactical-wide / diagonal-attack-lane / player-isolation / duel-panel / pass-shot-impact / crowd-reaction / aftermath-freeze`) is renderer-agnostic; stakes + memory-state modulate intensity, paneling, text, and timing through ADR-0008 `ShotPresentationContract`. **Phase-3-onward validation visual:** dots-prototype sprite-on-pitch adapter (ADR-0009) — held to a shippable polish bar (kit discrimination / identity overlays / camera rhythm / readable possession-pressure / signature presentation cues / commentary integration). **Candidate shipping visual:** cel-shaded stylized 3D adapter (ADR-0010 conditional, gated on Phase-5/6 production-feasibility spike per `design/3d-pipeline.md`). Phase-7/8 EA-launch visual locks per spike outcome — three outcomes: spike-green → 3D ships; spike-yellow/red → dots ships if polish bar met (no public 3D promise); dots-not-strong-enough → delay EA. UI aesthetic: football-native dense typography (Anton display / JetBrains Mono data / Rajdhani body); management screens prioritize information density and clarity over FM26's over-clicked navigation. Both adapters share the same UI-Toolkit overlay system + typography stack.
 
-Visual references: Inazuma Eleven (2D match expressiveness), Captain Tsubasa Rise of New Champions (anime impact moments), VA-11 Hall-A (typography discipline), Aoashi manga panels (diagonal compositions + motion lines), Giant Killing manga (tactical-diagram aesthetic).
+Visual references for the eventual 3D adapter (cel-shaded football aesthetic): Inazuma Eleven (sport expressiveness), Captain Tsubasa Rise of New Champions (anime impact moments), VA-11 Hall-A (typography discipline), Aoashi manga panels (diagonal compositions + motion-line emphasis), Giant Killing manga (tactical-diagram aesthetic). For the dots adapter: classic top-down football-management readability (FM2D as comparable baseline, with semantic-cinema camera-rhythm + identity overlays as differentiator).
 
 **Audio target:**
 FMOD-driven crowd layers (anthems, chants, cup-final roar, relegation silence) + contextual match-music stings. Bake-time AI music via Suno or Udio for in-game themes once vertical slice demands it (Phase 6 trigger). No commentary voice-acting at MVP; text commentary only. ElevenLabs evaluated only if post-EA analytics show commentary as top feature request.
@@ -112,7 +112,7 @@ The memory ledger + signature system together. Every save accumulates a specific
 
 **Deferred (not in EA):**
 <!-- ui-lint:ignore-start reason="scope-out list enumerating deferred / filed-indefinitely mechanics by name" -->
-- 3D match engine (post-audience-signal)
+- 3D match engine — candidate shipping visual gated on Phase-5/6 production-feasibility spike per `design/3d-pipeline.md` (per 2026-04-26 visual-target supersession; supersedes original "post-audience-signal" deferral)
 - Coaching Lineage surfacing (data seeded, exposure post-MVP)
 - Counterfactual Development Lab
 - Multi-nation pyramid
@@ -131,7 +131,7 @@ Every proposed feature belongs in exactly one bucket. Features that don't fit ge
 ### A. Product MVP — what the Steam page promises
 
 1. Deterministic MatchSim (pure-C#, fixed-point canonical state)
-2. Stylized 2D viewer with minimum Semantic Cinema (7 shot types)
+2. Renderer-agnostic semantic-cinema viewer (per ADR-0008 ShotPresentationContract) with minimum Semantic Cinema (7 shot types). Phase-3-onward dots-prototype adapter (ADR-0009) is shipping-quality candidate; cel-shaded 3D adapter (ADR-0010, conditional) is candidate shipping visual gated on Phase-5/6 spike per `design/3d-pipeline.md`. EA visual locks per spike outcome.
 3. Event-sourced Career Memory (single ledger)
 4. Signature actions (24 pre-authored, 3 per role family, football-native UI copy)
 5. Breakthrough moments (match-flow cinematic, not pause-QTE)
@@ -164,7 +164,7 @@ Every proposed feature belongs in exactly one bucket. Features that don't fit ge
 - Manager Archetype Forge
 - Physical Load as Narrative Debt
 - Workshop / mod editor UX
-- 3D match engine
+- 3D match engine — candidate shipping visual via spike-gated path per `design/3d-pipeline.md`
 - Multi-nation pyramid
 - Named capitalized "state" vocabulary (never shipping)
 - Bloodline / genetic-lineage mechanics

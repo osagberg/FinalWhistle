@@ -68,18 +68,25 @@ Philosophy: **buy-on-pain.** Don't pre-purchase. Each tier escalates when a spec
   - DOTween Pro ($15) — Phase 5 UI juice
   - Additional Asset Store one-offs as pain hits
 
-### Tier 3 — Post-EA 3D push (only if audience-signal gate passes at Phase 9)
+### Tier 3 — 3D-pipeline production (now Phase-5/6+ candidate-shipping path)
 
-- **Monthly subscriptions (rotating during content phases):**
-  - Tripo v3.0 $20-30/mo (bulk player meshes with auto-rig)
-  - Rodin Gen-2 (Hyper3D) $20-60/mo credits (hero assets)
-  - Suno / Udio $10-30/mo (music pass)
-  - Cascadeur $24/mo (signature-move animation)
-  - ElevenLabs $5-22/mo (only if player data demands commentary VO)
+**2026-04-26 visual-target supersession** moved Tier 3 activation from "post-EA Phase 9 audience-signal gate" to **Phase-5/6 production-feasibility spike per `design/3d-pipeline.md`**. Cel-shaded 3D is a candidate shipping visual; tooling activates incrementally:
 
-Tier 3 does NOT activate at EA. Explicitly gated behind audience-signal review at Phase 9.
+- **Phase-5 spike preparation** — license-audit ALL 3D tooling commercial-rights before any subscription activates. Per supersession §(e) + `FW-VAL-D-011` content-pack-validator check. Free-tier tools used for spike experimentation; commercial tier activates only when committed for shipping content.
+- **Phase-5 spike subscriptions** (only if license-audit passes):
+  - 3D-asset-generator candidate: e.g. Tripo Pro $20-30/mo (commercial-tier required; verify Steam-commercial coverage before activation)
+  - AI-assisted animation tool candidate: e.g. Cascadeur Pro / Teams (Free is non-commercial + export-limited)
+  - Reference / fallback model gen: e.g. Hunyuan3D (open-weights; commercial coverage needs license re-read)
+- **Phase-6 production scaling** (only if spike-green outcome):
+  - Add Rodin Gen-2 (Hyper3D) $20-60/mo credits for hero assets (stadium / trophy / cup-final-context)
+  - Suno / Udio $10-30/mo for music pass (Phase-6 audio)
+  - ElevenLabs $5-22/mo only if commentary VO becomes player-data-demanded (post-EA at earliest)
+- **Magica Cloth 2** ($50 owned) activates at Phase-5 spike (cloth simulation for kit + hair).
+- **Specific tooling names** above are current candidates; final stack locks at Phase-5 license-audit. Vendor-agnostic per supersession §(d) — substitutions allowed if license / quality / pipeline-fit warrants.
 
-**Hard rule:** no monthly subscriptions before Phase 9 unless explicitly signed off in a NEW decisions-log entry.
+**Phase-9 R&D path** still exists as fallback — if Phase-5/6 spike fails terminally and dots ships at EA, post-EA 3D R&D evaluation runs at Phase 9 audience-signal gate (original 2026-04-22 framing).
+
+**Hard rule revised:** no monthly subscriptions before Phase 5 license-audit completes unless explicitly signed off in a NEW decisions-log entry. Tier 1 + Tier 2 unchanged in their phase triggers.
 
 See `~/dev/blueprint/patterns/budget-tier-trigger-table.md` for discipline.
 
@@ -195,12 +202,12 @@ Deliberately NOT decided at Phase 1 — each has a specific trigger for re-evalu
 | DOTween Pro | $15 | UI juice pain | 5 | 2 |
 | FinalIK | $90 | Hand-contact / foot-IK needed | Post-EA 3D push only | 3 |
 | Auto-Rig Pro (Blender) | $40 | Custom skeleton auto-binding for 3D | Post-EA 3D push only | 3 |
-| Magica Cloth 2 | $50 (owned) | First cloth-sim scene | Post-EA 3D push | 3 |
-| Tripo v3.0 | $20-30/mo | Bulk player/kit generation | Post-EA 3D push | 3 |
-| Rodin Gen-2 (Hyper3D) | $20-60/mo | Hero stadium/trophy | Post-EA 3D push | 3 |
-| Hunyuan3D (via Blender MCP) | free | Anime-stylized model prototyping | Post-EA 3D push | 3 |
+| Magica Cloth 2 | $50 (owned) | First cloth-sim scene (kit / hair flutter) | **Phase-5 spike** (was Post-EA; superseded 2026-04-26) | 3 |
+| 3D-asset generator (e.g. Tripo Pro) | $20-30/mo | Bulk player/kit generation; commercial tier required | **Phase-5 spike + Phase-6 production** (was Post-EA; superseded 2026-04-26) | 3 |
+| Hero-asset 3D generator (e.g. Rodin Gen-2 / Hyper3D) | $20-60/mo | Hero stadium/trophy/cup-final context | **Phase-6 production** (post-spike-green; superseded 2026-04-26) | 3 |
+| Hunyuan3D (open-weights) | free | Reference / fallback model gen; commercial coverage needs license re-read | **Phase-5 spike + Phase-6 production** | 3 |
 | Suno / Udio | $10-30/mo | Music pass | Phase 6 | 2 |
-| Cascadeur | $24/mo | AI-assisted signature-move animation | Post-EA 3D push | 3 |
+| AI-assisted animation tool (e.g. Cascadeur Pro/Teams) | $24/mo | AI-assisted signature-move animation; Free tier is non-commercial + export-limited | **Phase-5 spike + Phase-6 production** (was Post-EA; superseded 2026-04-26) | 3 |
 | ElevenLabs | $5-22/mo | Commentary VO evaluation | Post-EA (conditional on player demand) | 3 |
 | Amplify Shader Editor | $80 | Custom shader beyond Shader Graph | Post-EA 3D push | 3 |
 | Substance Painter | $250 | PBR texture authoring | Post-EA 3D push | 4 |

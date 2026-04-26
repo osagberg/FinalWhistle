@@ -37,6 +37,7 @@ All 12 docs had their open-questions resolved during the Phase-0 consolidated 20
 | [`modding.md`](modding.md) | Cross-ADR data-architecture contract (12 mod-loadability constraints) | Phase 2 synthesis pass / 2026-04-24 |
 | [`accessibility.md`](accessibility.md) | EA accessibility feature set (reduce-motion / colorblind / remap / large-text / subtitles) | Phase 2 authoring pass / 2026-04-24 |
 | [`content_policy.md`](content_policy.md) | PEGI 12 / ESRB T content boundaries + AI-content disclosure + mod-pack content-safety surface | Phase 2 authoring pass / 2026-04-24 |
+| [`3d-pipeline.md`](3d-pipeline.md) | 3D cel-shaded shipping-visual pipeline placeholder + Phase-5/6 production-feasibility spike-gate criteria + animation contract surface + licensing requirements + alternatives | Phase 2 placeholder authored 2026-04-26 per visual-target supersession; full spec lands at Phase-5 spike kickoff |
 
 ## Future docs (added when trigger hits)
 - `balance-harness.md` — Phase 6 tuning methodology

@@ -1,6 +1,6 @@
 # Status
 
-**Last updated**: 2026-04-25 (**Phase 2 ✅ COMPLETE.** Phase 3 🟡 ACTIVE — Unity Bootstrap + MatchSim Prototype.)
+**Last updated**: 2026-04-26 (**Phase 2 ✅ COMPLETE.** Phase 3 🟡 ACTIVE — Unity Bootstrap + MatchSim Prototype.)
 
 ## Currently working on
 
@@ -14,7 +14,8 @@ Phase 2 shipped 15 design docs + 4 specs + 7 ADRs; `/audit` green; bundle commit
 3. `Tick` deterministic 60Hz timestep loop
 4. `Seed` (match + event seed derivation)
 5. `SerializationContract.cs` — stable order for entities / events / Q32.32 fields. **Gates golden-replay-corpus fixture authoring** per `design/specs/golden-replay-corpus.md`
-6. `scripts/fw shader-audit` — greps FW viewer shaders for banned `_Time` references per ADR-0002
+6. `scripts/fw shader-audit` — greps FW viewer shaders for banned `_Time` references per ADR-0002 / inherited as discipline by ADR-0009 dots adapter
+7. ADR-0008 ShotPresentationContract + ADR-0009 dots-phase render adapter — flip Proposed → Accepted via user / GPT-5.5 review pass BEFORE Phase-3 Week-2 viewer authoring begins (per 2026-04-26 visual-target supersession)
 
 **Weeks 2-4:** Ball custom-deterministic physics + Player state machine + 2 BT archetypes in YAML + xUnit determinism tests (Win/Mac/Linux hashes) + Unity project creation via Unity Hub + URP packages + 2D semantic-cinema prototype with 3 shot types (`tactical-wide` / `diagonal-attack-lane` / `pass-shot-impact`) + match-replay skill + unity-mcp handshake + devlog clips.
 
@@ -52,6 +53,7 @@ Phase 1 closed 2026-04-24 with these items intentionally open. None gate Phase 2
 
 ## Recent milestones
 
+- 2026-04-26: **Visual-target supersession + balance-harness pre-seed** from GPT-5.5 review pass (Concerns verdict + 9 P1 + 8 P2 findings applied). Visual-target supersedes 2026-04-22 "2D-first MVP / 3D deferred" — new posture: renderer-agnostic ShotPresentationContract (ADR-0008 Proposed) + dots-phase render adapter (ADR-0009 Proposed) for Phase-3 validation + cel-shaded 3D as CANDIDATE shipping layer (ADR-0010 NOT pre-authored; gated on Phase-5/6 production-feasibility spike per `design/3d-pipeline.md` placeholder). Three-outcome EA contingency: spike-green → 3D ships; spike-yellow/red → dots ships if polish bar met (NO public 3D promise); dots-not-strong-enough → delay EA. ADR-0002 Superseded; original preserved. `FW-VAL-D-011` 3D-asset commercial-rights check added. Vendor-agnostic core architecture (tool names live only in 3d-pipeline.md). Balance-harness pre-seed locks methodology (scale-agnostic internal score, stratified analysis, warning-bands-not-hard-fails, hybrid fuzzing legality grammar, NarrativeFlag-zero-rating-contribution invariant). Phase-3/5/6/8 SPEC tasks adjusted; doc supersession across 6 core docs. Both decisions-log entries appended via footer-anchor pattern
 - 2026-04-25: **Phase 4 pre-seed from cross-model design session** (Claude + GPT-5.5). Five commitments consolidated into SPEC decisions-log entry: *"Rate the job, not the highlight"* project rule + **centered-5.0 rating scale locked** (Par / Good / Excellent / Dominant labels; revisit clause tied to Month-3/4 observer feedback) + counterfactual defensive value derived-from-event-stream not emitted-as-EventClass + TacticalPreset system parallel to SignatureSO (NOT scope-expansion of ADR-0005) + IdentityPacket role-subtype schema-bump as implementation-pressure-driven. Two Phase-4 SPEC tasks added. Phase 2 not reopened; Phase 3 Week-1 priorities unchanged
 - 2026-04-25: **Phase 2 ✅ COMPLETE.** Phase 3 🟡 ACTIVE. `/audit` green on Phase-2 scope; bundle committed `3226c78` (15 files: 3 new design docs + 2 new specs + 9 modified + .gitignore). `.gitignore` extended to exclude `.claude/session-snapshots/` (auto-generated pre-compact ephemera) + `.agents/` (not yet deliberately ported; contains absolute blueprint paths). Phase-3 first task: `MatchSim.csproj` pure-C# skeleton
 - 2026-04-24: Phase 2 — **Artifact retention policy spec** authored at `design/specs/artifact-retention-policy.md`. 5-tier retention model (ephemeral / short / release-tied / permanent-in-repo / local-only). ~30 artifact classes catalogued with TTL + source + storage + rationale. RC bundle minimum-10-items rule locked for determinism-replay posture. Cost-discipline math projected through Phase 6 (Free 500MB cap tight; Pro 1GB comfortable). Playtest bug-bundle policy explicit. Phase-3 `fw artifact-cleanup` + Phase-6 `fw workflow-audit` added as SPEC tasks; `FW-WF-A-001` covers uploaded Actions artifact retention and `FW-WF-A-002` reports repo/org Actions artifact-and-log retention settings. Workflow logs are platform-managed, not 7-day uploaded artifacts. Release-tied bundles are verified as release assets, not `retention-days: 0`. `design/specs/` now holds 4 sibling specs

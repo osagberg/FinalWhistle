@@ -21,12 +21,12 @@
 
 The game is simultaneously a shippable product and a proof-point for a solo AI-native production. Every asset goes through bake-time AI pipelines; the thesis is "one human + Claude + modern tools can ship something genuinely good end-to-end." Tone anchor: Giant Killing + Aoashi + occasional anime exaggeration. Grounded football first; heightened moments second.
 
-**Core loop (what the player does):** Sign/develop players → set tactics → play matches (2D stylized viewer with manga-broadcast cinema grammar) → respond to events that remember past choices → deal with consequences seasons later.
+**Core loop (what the player does):** Sign/develop players → set tactics → play matches (semantic-cinema 7-shot-type camera grammar; rendered via the active viewer adapter — dots-prototype Phase-3-onward, candidate cel-shaded 3D Phase-5/6+ pending spike) → respond to events that remember past choices → deal with consequences seasons later.
 
 **Unique selling points (Phase 0 refinement candidates):**
 - **Careers that remember** — event-sourced memory ledger surfaces old decisions as NPC callbacks, rival recall, press/fan sentiment, years after the fact
 - **Signature actions** — every meaningful player has 1-3 football-readable moves that express identity; earned, not stat-assigned
-- **Stylized 2D match cinema** — manga-broadcast 7-shot-type camera grammar modulated by stakes + memory; aims to be the visual identity, not a waypoint to 3D
+- **Stylized match viewer with semantic-cinema grammar** — 7-shot-type camera vocabulary modulated by stakes + memory; renderer-agnostic contract per ADR-0008. Phase-3-onward dots-prototype validates sim through a sprite-on-pitch adapter (ADR-0009) held to a shippable polish bar; cel-shaded 3D is a candidate shipping visual gated on the Phase-5/6 production-feasibility spike per `design/3d-pipeline.md`. Dots may ship at EA if the spike fails; no public "3D coming in 1.0" dated promise. (Supersedes 2026-04-22 "2D-first MVP / 3D deferred post-EA" framing per 2026-04-26 decisions-log entry.)
 - **Unbounded RPG progression** — no 1-20 attribute ceiling; soft-gated by internal gene model, narrative moments redraw ranges
 
 **Full pitch:** `PROJECT_CONTEXT.md`.
@@ -67,7 +67,7 @@ See `TECH_APPROACH.md` for full blueprint. One-line summary:
 - **Loading:** Addressables
 - **Audio:** FMOD Studio integration (free for indies)
 - **Steam:** Steamworks.NET
-- **Rendering:** 2D stylized match viewer (7-shot semantic cinema); 3D deferred post-EA audience-signal gate
+- **Rendering:** renderer-agnostic ADR-0008 ShotPresentationContract → adapter implementations. ADR-0009 dots-phase adapter (Phase-3-onward sprite-on-pitch) is shipping-quality candidate. Cel-shaded 3D adapter (ADR-0010, conditional on Phase-5/6 production-feasibility spike per `design/3d-pipeline.md`) is candidate shipping visual. EA visual locked at Phase-7/8 by spike outcome — three outcomes per 2026-04-26 decisions-log entry: spike-green → 3D ships; spike-yellow/red → dots ships if polish bar met (no public 3D promise); dots-not-strong-enough → delay EA
 - **AI:** bake-time only (content compiler). No runtime LLMs. No ML-Agents (behavior trees + hand-authored manager archetypes).
 
 **Budget model:** Tier 1 bootstrap (buy-on-pain). Magica Cloth 2 already owned ($50 sunk); GPT Image 2 in use for concepts. All 3D-asset subscriptions (Tripo / Rodin / Cascadeur / Hunyuan3D) deferred to post-EA 3D push. Steam Direct $100 at Phase 8.
@@ -183,7 +183,7 @@ For MatchSim work: verify via xUnit tests AND headless balance-harness sweep. Fl
 ## 7. Common pitfalls — don't
 
 - Don't propose capitalized state-nouns for anything player-facing. Football-native vocabulary only.
-- Don't attempt 3D work at MVP scope. 2D-first is committed, not a waypoint.
+- Don't attempt 3D code work before the Phase-5/6 production-feasibility spike per `design/3d-pipeline.md`. Dots-prototype is the Phase-3-onward validation visual; 3D is a candidate shipping layer pending spike outcome (per 2026-04-26 decisions-log entry).
 - Don't build Coaching Lineage surfacing pre-MVP. Data seeded; surfacing post-MVP.
 - Don't add runtime LLM calls for anything player-facing.
 - Don't allow Unity PhysX into canonical MatchSim state. Custom deterministic sim only; Unity physics exists only in viewer interpolation.

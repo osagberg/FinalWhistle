@@ -173,7 +173,7 @@ Tools evaluated and rejected. Includes the WHY so future sessions don't re-re-ev
 - **Runtime LLMs (local or cloud)** — inference cost breaks match-day flow. Bake-time only.
 - **Unity PhysX in canonical MatchSim path** — not deterministic enough for cross-platform replay. Custom fixed-point sim only.
 - **uGUI for primary UI** — UI Toolkit is the target; uGUI only as fallback for documented UIT bugs.
-- **VRoid / UniVRM pipeline** — no 3D at MVP; defer indefinitely.
+- **VRoid / UniVRM pipeline** — not in scope. Phase-5/6 3D-pipeline candidate stack (per `design/3d-pipeline.md`) uses 3D-asset-generator tools (Tripo / Rodin / Hunyuan3D candidates) + Blender rigging + AI-assisted animation tool (Cascadeur candidate) + URP cel-shader, not the VRM pipeline. Revisitable via new decisions-log entry if Phase-5 license-audit + spike-feasibility identifies VRM as a better fit than current candidate stack.
 - **Monthly subscriptions before Phase 9** — explicit hard rule; exceptions require decisions-log entry.
 <!-- ui-lint:ignore-start reason="anti-patterns list explicitly naming banned vocabulary" -->
 - **"The Hush" / "Weather" / "Calling" / "Canon" / "Seven" / capitalized mystical vocabulary** — never ships as visible system names. Football-native UI copy only.

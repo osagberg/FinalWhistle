@@ -43,7 +43,7 @@
 
 ## 2. Visual target
 
-Stylized 2D manga-broadcast match viewer. Diagonal pitch compositions, player portrait cut-ins, panelized key moments, motion-line runs, impact frames for tackles and shots, state-driven colour grading. Camera grammar vocabulary of **7 shot types** (see `design/semantic-cinema.md`):
+Renderer-agnostic semantic-cinema viewer (per ADR-0008 `ShotPresentationContract`; supersedes ADR-0002's coupled rendering pipeline per 2026-04-26 visual-target supersession decisions-log entry). Camera grammar vocabulary of **7 shot types** (see `design/semantic-cinema.md`) is shared across all renderer adapters; only the rendering implementation differs:
 
 1. `tactical-wide` — classic broadcast-style overview
 2. `diagonal-attack-lane` — pitch tilted, attacking run emphasized
@@ -55,15 +55,21 @@ Stylized 2D manga-broadcast match viewer. Diagonal pitch compositions, player po
 
 Stakes (cup final vs friendly) and memory-state (is this player relevant to a prior ledger event?) modulate shot **intensity / colour / paneling / text overlay / timing** — not the vocabulary itself.
 
-**Rationale:** Lowest-risk path to a visual identity that reads as "anime football" without needing 3D. Competes on a different axis than FM (who'll never leave 2D-dots baseline) and other manager games (who'll never leave drab realism).
+**Renderer adapters:**
+- **Dots-phase render adapter (ADR-0009 — Phase-3-onward).** Sprite-on-pitch + minimal overlay; Phase-3 sim-validation visual; held to a shippable polish bar (kit discrimination / identity overlays / camera rhythm / readable possession-pressure / signature presentation cues). Candidate shipping visual if 3D-pipeline spike fails. Cheap to build; pure-C# determinism preserved end-to-end.
+- **Cel-shaded 3D render adapter (ADR-0010 conditional, Phase-5/6+).** Candidate shipping visual; gated on production-feasibility spike per `design/3d-pipeline.md`. Tooling-agnostic at the contract level; specific tool stack (3D-asset generator, AI-assisted animation tool, retargeting tool, cloth simulation, cel-shader stack) lives in `design/3d-pipeline.md` so adapter implementation can swap tools without ADR churn.
+
+**Phase-7/8 EA-launch visual locks per spike outcome:** spike-green → 3D ships at EA or 1.0 per timing; spike-yellow/red → dots ships if polish bar met (no public "3D coming in 1.0" dated promise); dots-not-strong-enough → delay EA. Per 2026-04-26 supersession entry.
+
+**Rationale:** Sequential investment over double-paying for art. Dots-phase validates sim through cheap rendering; if 3D-spike succeeds, cel-shaded becomes shipping moat (anime-football stylized identity hard to copy); if 3D-spike fails, dots is shippable on its own polish bar. MatchSim renderer-free posture (per §3.1) makes the architecture absorb either outcome without rewrite.
 
 **Non-goals at MVP:**
-- 3D player models / stadiums / crowds
-- Motion-capture or realistic player animation
+- Motion-capture or realistic player animation (cel-shaded 3D uses AI-assisted animation tool, not mocap)
 - Free-cam / replay scrub UI (beyond internal dev tools)
 - Signature-specific unique cinematics (they map into the 7-shot vocabulary; no per-signature authoring)
+- Public "3D coming in 1.0" dated promise (spike outcome decides; no marketing pre-commitment)
 
-**References:** Aoashi manga (diagonal compositions), Captain Tsubasa Rise of New Champions (impact moments), Inazuma Eleven 2D portions (signature expressiveness), VA-11 Hall-A (typography discipline), Giant Killing manga (tactical-diagram aesthetic).
+**References for the eventual cel-shaded 3D adapter:** Aoashi manga (diagonal compositions), Captain Tsubasa Rise of New Champions (impact moments), Inazuma Eleven 2D portions (signature expressiveness), VA-11 Hall-A (typography discipline), Giant Killing manga (tactical-diagram aesthetic). For the dots adapter: classic top-down football-management readability with semantic-cinema camera-rhythm + identity overlays as differentiator.
 
 ---
 
