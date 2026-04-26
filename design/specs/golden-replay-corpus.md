@@ -8,7 +8,7 @@ status: Phase 2 spec — format locked; first corpus entries authored in Phase 3
 
 ## Purpose
 
-Make the determinism posture from ADR-0001 / ADR-0002 / ADR-0003 **testable as an artifact**, not just a philosophy. A small set of canonical match seeds with expected hashes gives CI a cheap cross-platform regression guard that catches any change to the sim, ball physics, behavior trees, signature dispatch, shot selection, or render-feature pass activation — all from a single Linux job running `scripts/fw replay <seed>`.
+Make the determinism posture from ADR-0001 / ADR-0008 / ADR-0009 / ADR-0003 **testable as an artifact**, not just a philosophy. A small set of canonical match seeds with expected hashes gives CI a cheap cross-platform regression guard that catches any change to the sim, ball physics, behavior trees, signature dispatch, shot selection, or viewer pass-activation trace — all from a single Linux job running `scripts/fw replay <seed>`.
 
 ## Why this spec exists (not an ADR)
 
@@ -16,7 +16,7 @@ This doc specifies a **file format + CI-contract**, not an architectural decisio
 
 - `design/match-engine.md` 2026-04-24 — Q32.32 fixed-point, deterministic 60Hz tick
 - ADR-0001 — deterministic shot selection contract
-- ADR-0002 — pass-activation log as the determinism verifier (not pixel compare)
+- ADR-0008 / ADR-0009 — pass-activation log as the active adapter's semantic-trace verifier (not pixel compare); ADR-0002 is superseded history
 - ADR-0003 — Tier-A CI runs one canonical seed as smoke; Tier-C local regenerates + diffs the full corpus; Tier-D re-runs full corpus as RC gate
 
 This spec defines the on-disk artifact shape those systems read and emit.
@@ -79,7 +79,7 @@ Filename MUST match the `match_seed` field. Rename = new fixture, not edit.
     // Q32.32 fixed-point state dump, serialized in a documented stable order.
     "final_canonical_state_hash": "sha256:...",
 
-    // Pass-activation log from ADR-0002. Empty until Phase 3 viewer lands;
+    // Semantic pass-activation log from ADR-0008/ADR-0009. Empty until Phase 3 viewer lands;
     // once populated, one entry per shot-change event, covering:
     //   - active ShotTypeSO.Id
     //   - reduce-motion variant active (bool)
@@ -103,6 +103,8 @@ Filename MUST match the `match_seed` field. Rename = new fixture, not edit.
   "notes": "If this hash changes, investigate before re-baselining — silent regeneration is a hard-ban."
 }
 ```
+
+**2026-04-26 multi-adapter note:** schema v1 stores one `pass_activation_log_hash` for the active adapter's semantic pass-activation trace. Phase-3's active adapter is the dots adapter from ADR-0009. Before any second adapter enters CI, bump `corpus_schema_version` to v2 and replace this single field with adapter-keyed pass-activation hashes. Rendered frames, screenshots, and videos are visual QA artifacts, not cross-platform replay hashes.
 
 ### Stable serialization rules
 
@@ -172,13 +174,13 @@ At Phase 8 EA: corpus is a release-gate artifact. Shipped fixture hashes accompa
 ## Deferred
 
 - Automatic fixture generation from interesting match events (e.g., "harness flagged an unusual scoreline, auto-author a fixture") — Phase 9 if balance-harness feedback demands it.
-- Perceptual / visual-diff corpus entries — deferred indefinitely. Pass-activation-log diff per ADR-0002 is sufficient for MVP.
+- Perceptual / visual-diff corpus entries — deferred indefinitely. Pass-activation-log diff per ADR-0008/ADR-0009 is sufficient for MVP.
 - Player-specific signature-awakening fixtures (one per signature) — Phase 6; bundled with full-corpus expansion.
 
 ## Cross-refs
 
 - ADR-0001 (ShotTypeSO) — shot-selection determinism contract feeds pass-activation-log field.
-- ADR-0002 (Viewer rendering pipeline) — pass-activation log replaces pixel-compare; this spec provides the hash storage.
+- ADR-0008 (ShotPresentationContract) + ADR-0009 (dots-phase render adapter) — pass-activation log replaces pixel-compare; this spec provides the hash storage.
 - ADR-0003 (Production pipeline) — Tier A / C / D CI contracts for corpus operations.
 - `design/match-engine.md` §Prototype gate — Q32.32 canonical state hash test uses this corpus shape.
 - `design/event-sourced-memory.md` — MemoryEvent schema defines `key_event_hashes` input (landing in ADR-0004).
@@ -187,7 +189,7 @@ At Phase 8 EA: corpus is a release-gate artifact. Shipped fixture hashes accompa
 ## Open questions — dependencies tracked in SPEC, not this doc
 
 1. **Exact sim-state serialization order** — MUST land before first corpus fixture authors. Tracked as explicit **Phase-3 SPEC task** (`Author MatchSim.Tests/SerializationContract.cs — stable order for entities/events/Q32.32 fields`). The task gates Phase-3 Week-2 corpus work.
-2. **Pass-activation log field shape** — naturally tied to ADR-0002 viewer implementation. Current spec reserves the `pass_activation_log_hash` field; precise field enumeration lands when the ShotSelector + render features are authored in Phase 3 Week 2-3.
+2. **Pass-activation log field shape** — naturally tied to ADR-0008/ADR-0009 viewer implementation. Current spec reserves the v1 `pass_activation_log_hash` field for the active adapter's semantic trace; precise field enumeration lands when the ShotSelector + dots adapter are authored in Phase 3 Week 2-3. Multi-adapter CI requires a v2 schema bump to adapter-keyed hashes before the second adapter enters the replay matrix.
 
 ## Locked policy choices
 

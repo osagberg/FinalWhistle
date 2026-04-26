@@ -48,9 +48,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up .NET SDK
+        # Required for `fw verify`'s embedded `dotnet test` step
+        # (Phase-3 Week-1 onward — MatchSim + MatchSim.Tests).
+        # MatchSim.csproj targets netstandard2.1 (Unity-compat);
+        # MatchSim.Tests.csproj targets net10.0.
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
       - name: Run fw verify
         # Umbrella runs every Tier-A check currently implemented
-        # (verify-docs + banned-terms as of 2026-04-24).
+        # (verify-docs + banned-terms + dotnet test as of 2026-04-26).
         # New checks wire into scripts/fw verify as Phase-3/6 deliverables land.
         run: ./scripts/fw verify
 
@@ -77,17 +86,24 @@ jobs:
   #     - name: Run lint-banned-terms.py
   #       run: python scripts/lint-banned-terms.py
 
-  # matchsim-tests:
-  #   name: MatchSim.Tests (Phase 3)
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 5
+  # matchsim-tests-matrix (SUPERSEDED by umbrella for current Linux-only stub;
+  # promoted to Win/Mac/Linux matrix when Fixed-point + Tick + Seed land
+  # and there's actual determinism math to verify cross-platform).
+  # Per SPEC Phase-3 task `GitHub dotnet-test matrix (Tier A subset —
+  # Win/Mac/Linux)` and design/production-pipeline.md §Cost discipline
+  # (macOS minutes ~10× Linux; matrix activates only when the test surface
+  # warrants the cost):
+  #   strategy:
+  #     matrix:
+  #       os: [ubuntu-latest, windows-latest, macos-latest]
+  #   runs-on: ${{ matrix.os }}
   #   steps:
   #     - uses: actions/checkout@v4
   #     - uses: actions/setup-dotnet@v4
   #       with:
-  #         dotnet-version: '8.0.x'
+  #         dotnet-version: '10.0.x'
   #     - name: dotnet test
-  #       run: dotnet test MatchSim.Tests --configuration Release --logger "console;verbosity=normal"
+  #       run: dotnet test FinalWhistle.slnx --logger "console;verbosity=normal"
 
   # determinism-smoke:
   #   name: Deterministic replay hash smoke (Phase 3)

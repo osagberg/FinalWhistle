@@ -32,9 +32,9 @@ COMMANDS (implemented)
     banned-terms    Category-A + Category-B banned-vocabulary lint
     banned-terms --report
                     Emit JSON of active Category-B exemptions (EA/RC audit)
+    test            dotnet test against FinalWhistle.slnx (MatchSim + tests)
 
 COMMANDS (stubbed — land when their phase trigger hits)
-    test            dotnet test MatchSim.Tests (Phase 3)
     replay <seed>   Run one deterministic replay, print final hash (Phase 3)
     content-lint    Full content-pack validator (Phase 6)
     build-local     Unity build, current platform only (Phase 3)
@@ -50,8 +50,9 @@ EOF
         # design/production-pipeline.md §workflow-tiers Tier A).
         "$0" verify-docs
         "$0" banned-terms
-        # Future additions: dotnet test (Phase 3), determinism smoke (Phase 3),
-        # content-lint (Phase 6).
+        "$0" test
+        # Future additions: determinism smoke / corpus replay (Phase 3),
+        # content-lint (Phase 6), shader-audit (Phase 3 once viewer code lands).
         ;;
 
     banned-terms)
@@ -152,12 +153,34 @@ EOF
         exit "$exit_code"
         ;;
 
-    test|replay|content-lint|build-local|package-playtest)
+    test)
+        # Phase-3 Week-1 deliverable: dotnet test against MatchSim solution.
+        # Wired into `fw verify` umbrella so Tier-A CI picks this up
+        # automatically per design/production-pipeline.md §Tier-A.
+        echo "=== Final Whistle — dotnet test ==="
+        echo
+        if ! command -v dotnet >/dev/null 2>&1; then
+            echo "FAIL: dotnet SDK not found on PATH." >&2
+            echo "Install .NET 10+ SDK; see SETUP.md §4." >&2
+            exit 2
+        fi
+        # Solution file is .slnx (XML) per .NET 10 default.
+        solution="$ROOT/FinalWhistle.slnx"
+        if [ ! -f "$solution" ]; then
+            echo "FAIL: $solution missing." >&2
+            exit 2
+        fi
+        # `--nologo` keeps output focused; `-c Release` is overkill for Tier-A
+        # and slower than Debug — stay on default Debug for fast-PR cadence.
+        exec dotnet test "$solution" --nologo "$@"
+        ;;
+
+    replay|content-lint|build-local|package-playtest)
         cat >&2 <<EOF
 fw: '$cmd' is not implemented yet at Phase 1.
 
 Implementation lands at its phase trigger:
-  test / replay / build-local  Phase 3 (Unity bootstrap + MatchSim prototype)
+  replay / build-local         Phase 3 (Unity bootstrap + MatchSim prototype)
   package-playtest             Phase 4 (closed itch distribution)
   content-lint                 Phase 6 (full content-pack validator)
 

@@ -97,6 +97,17 @@ steamworks/sdk/
 /tmp/
 
 # ==========================================
+# .NET / C# build artifacts (MatchSim + tests)
+# ==========================================
+**/bin/
+**/obj/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+.vs/
+
+# ==========================================
 # Claude Code project state (opt-in: most of these stay)
 # ==========================================
 # Session-local transcripts — usually want these

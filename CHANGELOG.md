@@ -2,6 +2,32 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-26 (Phase-3 Week-1 first task — MatchSim.csproj + MatchSim.Tests.csproj skeleton)
+
+First real code in the project. Three new files + workflow + tooling wiring:
+
+**New:** `MatchSim/MatchSim.csproj` — pure-C# class library targeting `netstandard2.1` (Unity 6 LTS Mono-runtime + modern .NET test-host compat both via netstandard2.1 chain). Root namespace `FinalWhistle.MatchSim`; assembly name `FinalWhistle.MatchSim`. `Nullable=enable` + `TreatWarningsAsErrors=true` from day one. `InternalsVisibleTo=FinalWhistle.MatchSim.Tests` for white-box test access without making contract types public-only. Zero UnityEngine references per TECH_APPROACH §3.1 + ADR-0008 MatchSim-canonical-sim-only posture.
+
+**New:** `MatchSim/Versioning.cs` — `MatchSimAssemblyMarker.AssemblyMarkerVersion = "0.0.1-phase3-week1-skeleton"` skeleton class. Proves the assembly compiles + is referenceable from MatchSim.Tests before `Fixed` / `Tick` / `Seed` / `SerializationContract.cs` land in subsequent /next passes per SPEC Phase-3 priority order.
+
+**New:** `MatchSim.Tests/MatchSim.Tests.csproj` — `net10.0` (matches local + CI SDK 10.0.202). Package refs: `xunit 2.9.2` + `Microsoft.NET.Test.Sdk 17.11.1` + `xunit.runner.visualstudio 2.8.2` + `coverlet.collector 6.0.2`. Project ref: `..\MatchSim\MatchSim.csproj`.
+
+**New:** `MatchSim.Tests/MatchSimAssemblyMarkerTests.cs` — 2 skeleton tests asserting `AssemblyMarkerVersion` is non-empty + indicates Phase-3 skeleton. Both pass under `dotnet test FinalWhistle.slnx`.
+
+**New:** `FinalWhistle.slnx` — .NET 10 default solution format (XML). Solution adds both projects; `dotnet build FinalWhistle.slnx` + `dotnet test FinalWhistle.slnx` both green.
+
+**Modified:** `scripts/fw` — `test` subcommand promoted from stub to implementation: invokes `dotnet test FinalWhistle.slnx --nologo`. Wired into `fw verify` umbrella so Tier-A CI runs it automatically. Help text updated.
+
+**Modified:** `.github/workflows/fast-pr-ci.yml` — `actions/setup-dotnet@v4` step added before `fw verify` (`dotnet-version: 10.0.x`). Win/Mac/Linux matrix is a separate Phase-3 SPEC task; stays linux-only stub until `Fixed`/`Tick`/`Seed` land and there's actual determinism math to verify cross-platform per design/production-pipeline.md cost-discipline. The matrix-stub block in the workflow file is updated with the right targets.
+
+**Modified:** `.gitignore` — new section for .NET / C# build artifacts: `**/bin/`, `**/obj/`, `*.user`, `*.userosscache`, `*.sln.docstates`, `*.suo`, `.vs/`.
+
+**Modified:** SPEC Phase 3 — first two tasks `[x]` flipped with implementation notes citing `netstandard2.1` / `net10.0` / xUnit 2.9.2 / `dotnet test` green / `fw verify` umbrella integration / matrix-deferred-to-determinism-math.
+
+**`fw verify` Tier-A umbrella now runs:** verify-docs + banned-terms + dotnet test (3 stages). Total local time ~3-5s. Acceptance criteria from STATUS satisfied: xUnit test runner executes against the two new csprojs ✅; solo-dev `dotnet test` run green locally ✅ (2 passed); CI matrix stub wired inside `fw verify` umbrella ✅ (linux-only, matrix-promotion deferred per cost-discipline).
+
+**Phase-3 priority order** updated; next /next picks up `Fixed` struct (Q32.32 canonical format) — first real determinism-math primitive, first opportunity for cross-platform parity tests, first golden-replay-corpus seed-able primitive.
+
 ## 2026-04-26 (Visual-target supersession + balance-harness pre-seed — GPT-5.5-reviewed Phase-3+ commitments)
 
 Cross-model review pass (Claude drafts → GPT-5.5 Concerns verdict + 9 P1 findings + 8 P2 + alternatives + missed-gaps) on two pre-Phase-3 commitments. Both consolidated into appended decisions-log entries + SPEC adjustments + new artifacts.

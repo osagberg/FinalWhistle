@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- netstandard2.1 keeps MatchSim consumable by Unity 6 LTS Mono runtime
+         AND by modern .NET test/build hosts. Pure-C# only; zero UnityEngine
+         references per TECH_APPROACH.md §3.1 + design/modding.md §6
+         Contracts/impl asmdef-split posture. -->
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <RootNamespace>FinalWhistle.MatchSim</RootNamespace>
+    <AssemblyName>FinalWhistle.MatchSim</AssemblyName>
+    <ProductName>Final Whistle MatchSim</ProductName>
+    <Description>Pure-C# canonical match simulation. Q32.32 fixed-point determinism. Zero UnityEngine references per TECH_APPROACH.md §3.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="FinalWhistle.MatchSim.Tests" />
+  </ItemGroup>
+
+</Project>
