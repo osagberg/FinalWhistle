@@ -2,6 +2,54 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-27 (Phase-3 Week-1 priority #4 — `Seed` match + per-event derivation + 45 tests)
+
+`MatchSim/Sim/Seed.cs` lands. The canonical-triple per-event seed-derivation primitive per ADR-0001 forbidden-nondeterminism + ADR-0008 `ViewerEvent.Seed` + TECH_APPROACH §3.2. Same `(matchSeed, tick, eventId)` triple → same Seed, across runs and platforms. Replay determinism floor.
+
+**Seed.cs structure:**
+
+- `readonly struct Seed : IEquatable<Seed>, IComparable<Seed>, IComparable` over single `ulong _value` storage
+- Constants: `Zero` (default-constructible)
+- Factories: `FromUInt64(ulong)` for known-good wrap, `Derive(ulong matchSeed, Tick tick, ulong eventId)` for the canonical-triple derivation
+- Canonical string form: lowercase 16-digit hex with `0x` prefix (`"0xdeadbeefdeadbeef"`) matches `golden-replay-corpus.md` Tier-A smoke-seed format
+- `Parse` / `TryParse` accept lowercase + uppercase hex, with or without `0x` / `0X` prefix; reject 17-digit-or-longer + non-hex garbage; round-trip stable against `ToString`
+- Full equality + comparison surface; total-ordering via underlying ulong order
+
+**Derivation (SplitMix64):**
+
+```
+h = matchSeed
+h = SplitMix64(h ^ (ulong)tick.Value)
+h = SplitMix64(h ^ eventId)
+```
+
+SplitMix64 is the well-known finalizer used by Java's `SplittableRandom` and recommended by xoshiro authors as a seed mixer. Properties we want: pure integer math (deterministic across platforms), allocation-free (safe for hot-path per-tick stochastic events), strong avalanche (~50% bit-flip rate on a 1-bit input change; tests assert ≥16/64 minimum), well-tested in production sim engines. Composition is non-commutative on `(matchSeed, eventId)` — swapping them produces a different seed (matches the spec intent that they're conceptually distinct identifiers).
+
+**Test coverage** (45 tests in `MatchSim.Tests/Sim/SeedTests.cs`):
+
+- **Determinism:** same triple → same seed; pinned reference value via in-test SplitMix64 oracle so any future mixer or composition change trips the test (locks the cross-run determinism contract — failure here = replay determinism is broken); 100 repeated calls with same inputs all match
+- **Sensitivity:** different matchSeed / different tick / different eventId each produce different seeds; (matchSeed, eventId) order matters
+- **Avalanche:** flipping a single bit in any of the three inputs (matchSeed bit-0, tick 0→1, eventId 0→1) flips ≥16 of 64 output bits — catches outright passthrough or weak-mixer regressions
+- **Distribution:** 1000 sequential eventIds with same (matchSeed, tick) produce 1000 distinct seeds (HashSet test)
+- **Equality + Comparison:** operator/method agreement, hash stability, 5-element total-ordering, IComparable null + non-Seed handling
+- **ToString:** Zero → `"0x0000000000000000"`, corpus smoke seed `0xdeadbeefdeadbeef` matches spec, always 16 hex digits, always lowercase
+- **Parse:** 7 accepted forms (with/without prefix, lowercase/uppercase, padded/unpadded, MaxValue), 6 garbage-rejection cases (empty, bare prefix, 17 digits, decimal point, negative, non-hex), TryParse no-throw on null/empty/garbage
+- **Round-trip:** spread of values ToString → Parse stable
+
+**`fw verify` Tier-A umbrella green:** verify-docs + banned-terms + dotnet test (now 234 total tests).
+
+**Next /next picks up:** Phase-3 Week-1 priority #5 — `SerializationContract.cs`. **Gates Week-2 golden-replay-corpus fixture authoring** per `design/specs/golden-replay-corpus.md`. Consumes Fixed + Tick + Seed (now all landed). First explicit cross-platform-determinism artifact: defines exactly which fields hash into canonical-state hashes and in what stable order.
+
+## 2026-04-27 (Codex review pass on Tick — fix ToSeconds long-tick narrowing bug)
+
+Caught a real architectural bug: `Tick.ToSeconds()` was routing through `Fixed.FromLong(_value)`, which has a ±2^31 integer-range check. Translation: any long-tick value beyond ~414 in-sim days at 60Hz (`int.MaxValue / 60`) would throw OverflowException — defeating the entire purpose of choosing long storage over int. Multi-season corpus replays + balance-harness 10K-season sweeps would have hit this silently.
+
+**Fix:** convert directly to raw Q32.32 seconds without narrowing — `((BigInteger)_value << 32) / TicksPerSecond`, range-check vs long.MinValue / long.MaxValue, return `Fixed.FromRaw((long)rawSeconds)`. Long-horizon ticks now convert correctly as long as the seconds value itself fits in Fixed (±2.147e9 seconds ≈ 68 years of in-sim time). Beyond that, throws OverflowException — correct response, not silent wraparound.
+
+**Test additions:** int.MaxValue + int.MinValue seconds round-trip losslessly + tick value where seconds exceed Fixed range throws + renamed two misleading `*_OverflowOnLargeInput_Throws` tests (which actually asserted int inputs fit in long) to `*_IntMaxValueInput_FitsInLong`.
+
+**Doc cleanup:** SPEC tick-task description updated; STATUS counts 42→45 / 186→189; CLAUDE.md + docs/ops/branch-protection.md aligned to direct-to-main solo-dev posture (drops residual aspirational "PR only" wording stale post-2026-04-26 user confirmation). Verification: `git diff --check` clean / `fw verify` green / `dotnet test` 189 passed. Committed as `2a453e5`.
+
 ## 2026-04-26 (Phase-3 Week-1 priority #3 — `Tick` deterministic 60Hz timestep + 45 tests)
 
 `MatchSim/Sim/Tick.cs` lands. Sim-time discrete-counter primitive consumed by every event-bearing surface from this point forward (ADR-0001 ShotTypeSO chain rules / ADR-0004 MemoryEvent.Tick / ADR-0008 ViewerEvent.StartTick + EndTick / future Seed derivation per ADR-0001 forbidden-nondeterminism).
