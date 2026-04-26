@@ -2,6 +2,72 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-26 (Phase-3 Week-1 priority #3 — `Tick` deterministic 60Hz timestep + 42 tests)
+
+`MatchSim/Sim/Tick.cs` lands. Sim-time discrete-counter primitive consumed by every event-bearing surface from this point forward (ADR-0001 ShotTypeSO chain rules / ADR-0004 MemoryEvent.Tick / ADR-0008 ViewerEvent.StartTick + EndTick / future Seed derivation per ADR-0001 forbidden-nondeterminism).
+
+**Tick.cs structure:**
+
+- `readonly struct Tick : IEquatable<Tick>, IComparable<Tick>, IComparable` over single `long _value` storage
+- `TicksPerSecond = 60` constant locked per TECH_APPROACH §3.2 + 2026-04-22 SPEC "MatchSim architectural split" entry. Changing this is a determinism-contract supersession requiring SPEC entry + golden-replay-corpus + save-migration fixture refresh
+- `TicksPerMinute = 3600` derived constant
+- Constants: `Zero` (default-constructible) / `One`
+- Factories: `FromSeconds(int)` / `FromMinutes(int)` — both `checked`-arithmetic; integer inputs always fit in `long`
+- `Value` property exposes the raw counter (for serialization + golden-corpus seed derivation)
+
+**Why long-storage instead of int:**
+
+A 90-minute match at 60Hz = 324,000 ticks — fine for int. But multi-season golden-replay-corpus fixtures + balance-harness 10K-season sweeps tick past `int.MaxValue` (≈ 2.1e9 ticks ≈ 414 in-sim days). 64-bit width is a guarantee, not a luxury. Long storage also gives headroom for `Tick - Tick` delta arithmetic without wrap risk on subtraction across long-running replays.
+
+**Type-distinguished tick-vs-delta arithmetic:**
+
+- `Tick + long → Tick` (advance an absolute tick by a delta)
+- `long + Tick → Tick` (commutative form)
+- `Tick - long → Tick` (step back an absolute tick by a delta)
+- `Tick - Tick → long` (duration-in-ticks; the delta type is distinct from the absolute type)
+
+Type system enforces the semantic distinction: you can't accidentally add two absolute ticks together. All arithmetic checked; overflow throws `OverflowException`.
+
+**Conversion to seconds:**
+
+`ToSeconds() : Fixed` via Q32.32 division `Fixed.FromLong(value) / Fixed.FromInt(60)`. Exact at integer-second multiples; ≤1 Q32.32 ULP error otherwise (1/60 isn't exactly representable in Q32.32 — error is bounded). Architectural posture: sim-side code stays in tick units; conversion to seconds happens only at presentation boundaries.
+
+**Test coverage** (42 tests in `MatchSim.Tests/Sim/TickTests.cs`):
+
+- Constants — TicksPerSecond locked at 60, TicksPerMinute = 3600, Zero/One/default agreement
+- Construction — value storage, negative ticks legitimate, long.MaxValue
+- Factories — FromSeconds(0/1/60/90), FromMinutes(0/1/45/90), int.MaxValue inputs don't overflow
+- ToSeconds — Zero → Fixed.Zero, 60 ticks → Fixed.One, 30 ticks → Fixed.Half, integer-multiples lossless across 0-90, non-multiple ≤1 ULP
+- Arithmetic — Tick + long / long + Tick / Tick - long / Tick - Tick, all overflow paths throw
+- Equality + Comparison — operator/method agreement, hash stability, total ordering, IComparable handles null + non-Tick
+- HashSet distinguishes 4 distinct ticks; determinism on repeated calls
+- ToString invariant integer
+
+**fw verify Tier-A umbrella green:** verify-docs + banned-terms + dotnet test (now 186 total tests).
+
+**Next /next picks up:** Phase-3 Week-1 priority #4 — `Seed` derivation. Per ADR-0001 + ADR-0008 forbidden-nondeterminism contract: every stochastic event derives its seed from `(match_seed, tick, event_id)`. Consumes Tick. First per-tick deterministic randomness primitive; gates the SerializationContract.cs work that follows.
+
+**Workflow note:** committed directly to `main` per CLAUDE.md §5.6 + user confirmation (2026-04-26). Branch protection blocked on GitHub Free plan; local-discipline-only posture per `docs/ops/branch-protection.md §0`. CLAUDE.md §7 still has aspirational "Don't push to main directly — PR only" wording that's stale for this repo's current state — flagged for `/refresh-docs` cleanup pass when one runs.
+
+## 2026-04-26 (Codex review pass on Fixed Q32.32 — MaxValue round-trip + parse hardening + multiply oracle)
+
+Caught a subtle round-trip bug: `Fixed.MaxValue.ToString()` emits a 10-digit decimal that, when multiplied back by 2^32 in decimal arithmetic, rounds slightly above `long.MaxValue` and would have silently failed Parse at boundary fixtures. Without this catch, golden-replay-corpus fixtures hitting MaxValue would have looked invalid even though they were canonically authored by ToString.
+
+**Fixes:**
+
+- `Fixed.cs Parse / TryParse` — handle the boundary-rounding case so `ToString → Parse` round-trips exactly at MaxValue / MinValue
+- `Fixed.cs DecimalParseStyles` constant — explicit `AllowLeadingSign | AllowDecimalPoint`, NO `AllowExponent`. Scientific notation now rejected as a parser-level invariant rather than a side effect of the chosen NumberStyles flags
+- `Fixed.cs TryParse` with huge decimal input now returns false instead of bubbling an OverflowException up the call stack
+
+**Test additions:**
+
+- `FixedSerializationTests`: min/max round-trip exact, scientific-notation rejection (e.g. `"1e-1"` throws FormatException), TryParse with 20-digit `"100000000000000000000"` returns false without throwing
+- `FixedArithmeticTests`: BigInteger reference oracle for the custom 64×64→128 multiply path. Compares 10 case raw-pair tuples spanning signed / fractional / boundary / overflow against `TruncatingMultiplyReference`. Locks the split-multiply correctness surface against future regression
+
+**Doc + tooling cleanup:** stale wording in CHANGELOG / STATUS / SPEC / scripts/fw / fast-pr-ci.yml comments / Versioning.cs assembly-marker comment.
+
+Verification: `git diff --check` clean, `fw verify` green, `dotnet test` 144 passed / 0 failed. Committed as `a276ba0`.
+
 ## 2026-04-26 (Phase-3 Week-1 priority #2 — `Fixed` Q32.32 struct + 141 tests)
 
 First real determinism-math primitive in MatchSim. `MatchSim/Sim/Fixed.cs` + 5 test files (~750 lines of test coverage).
