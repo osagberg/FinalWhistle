@@ -108,7 +108,7 @@ public sealed class TickTests
     }
 
     [Fact]
-    public void FromSeconds_OverflowOnLargeInput_Throws()
+    public void FromSeconds_IntMaxValueInput_FitsInLong()
     {
         // int.MaxValue * 60 overflows long? No — int.MaxValue ≈ 2.1e9,
         // × 60 ≈ 1.3e11 which fits in long (max ≈ 9.2e18). So FromSeconds
@@ -119,7 +119,7 @@ public sealed class TickTests
     }
 
     [Fact]
-    public void FromMinutes_OverflowOnLargeInput_Throws()
+    public void FromMinutes_IntMaxValueInput_FitsInLong()
     {
         // int.MaxValue minutes = ~408 million minutes, × 3600 ticks/min
         // = 7.7e12 ticks — still fits in long.
@@ -159,6 +159,30 @@ public sealed class TickTests
             Fixed actual = Tick.FromSeconds(s).ToSeconds();
             Assert.Equal(expected, actual);
         }
+    }
+
+    [Fact]
+    public void ToSeconds_PreservesLargeIntegerSecondsExactly()
+    {
+        Tick tick = Tick.FromSeconds(int.MaxValue);
+
+        Assert.Equal(Fixed.FromInt(int.MaxValue), tick.ToSeconds());
+    }
+
+    [Fact]
+    public void ToSeconds_PreservesLargeNegativeIntegerSecondsExactly()
+    {
+        Tick tick = Tick.FromSeconds(int.MinValue);
+
+        Assert.Equal(Fixed.FromInt(int.MinValue), tick.ToSeconds());
+    }
+
+    [Fact]
+    public void ToSeconds_OverflowBeyondFixedRange_Throws()
+    {
+        Tick tick = new(((long)int.MaxValue + 1L) * Tick.TicksPerSecond);
+
+        Assert.Throws<OverflowException>(() => tick.ToSeconds());
     }
 
     [Fact]

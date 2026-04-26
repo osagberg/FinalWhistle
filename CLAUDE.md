@@ -146,7 +146,11 @@ Branch strategy:
 - `feat/<name>` — per-feature
 - `fix/<name>` — per-fix
 
-PR gating: CI green + code-reviewer-agent pass + manual review.
+Current solo-dev posture (user-confirmed 2026-04-26): direct scoped commits
+to `main` are allowed while GitHub Free blocks private-repo branch protection.
+Run `scripts/fw verify` before committing. PR gating (CI green +
+code-reviewer-agent pass + manual review) returns when branch protection is
+available or the user asks for PR mode.
 
 ---
 
@@ -191,7 +195,10 @@ For MatchSim work: verify via xUnit tests AND headless balance-harness sweep. Fl
 - Don't bypass hooks (`--no-verify`, etc.) unless explicitly requested.
 - Don't add features / docs / abstractions beyond the task requested.
 - Don't amend commits — create new ones.
-- Don't push to `main` directly — PR only.
+- Don't push to `main` directly unless the user has explicitly confirmed
+  direct-to-main solo-dev mode for the current phase. In that mode, keep
+  commits scoped and run `scripts/fw verify` before committing; PR-only returns
+  when branch protection becomes available or the user asks for it.
 
 ---
 

@@ -12,7 +12,7 @@ Until one of the following is true, the rules in §2 + §3 are **aspirational �
 - **Repository made public** — unlocks branch protection on Free, but forces early launch posture we aren't ready for
 - **Transfer to a paid org / Team** (including a future Vibelogic publisher org, Phase 8)
 
-**Current posture (Tier-1 buy-on-pain, pre-audience-signal):** local-discipline-only. The rules in this doc are the contract; you enforce them by not pushing directly to `main` or `develop`, opening PRs for your own work, and running `scripts/fw verify-docs` before merging. Tier-A CI is already live and will run on every push / PR — CI-green *can* be a gate even without branch protection, because you choose not to merge red.
+**Current posture (Tier-1 buy-on-pain, pre-audience-signal):** local-discipline-only. Per user confirmation on 2026-04-26, the current solo-dev workflow allows direct-to-main commits when the change is scoped and `scripts/fw verify` is green before commit. Tier-A CI is already live and will run on every push / PR; CI-green is still the gate, but enforcement is human discipline until branch protection is available.
 
 **Upgrade trigger:** when a second contributor lands on the project, OR when the first closed-itch playtest (Phase 4) happens and a rollback discipline becomes genuinely expensive-if-broken — whichever comes first. Log the plan flip as a SPEC decisions-log entry.
 
@@ -24,13 +24,13 @@ Per `CLAUDE.md §5.6`:
 
 | Branch | Role | Protected? | How changes land |
 |---|---|---|---|
-| `main` | Shippable only. EA / RC / hotfix builds tag from here. | Yes | PR from `develop` only (except emergency hotfixes — see §4) |
-| `develop` | Integration. All feature work merges here first. | Yes | PR from `feat/*` / `fix/*` branches |
+| `main` | Shippable only. EA / RC / hotfix builds tag from here. | Aspirational until paid/public | Direct scoped commits in current solo-dev mode; PR from `develop` once protection is available |
+| `develop` | Integration. All feature work merges here first. | Aspirational until paid/public | PR from `feat/*` / `fix/*` branches once PR mode returns |
 | `feat/<name>` | Per-feature work. | No | Free-fire local; push when ready |
 | `fix/<name>` | Per-fix work. | No | Free-fire local; push when ready |
 
-**Solo-dev caveat:** self-PRs are fine and expected. The protection is against:
-- Accidental direct-push to `main` or `develop`
+**Solo-dev caveat:** self-PRs are fine once PR mode returns. In the current direct-to-main phase, the protection is against:
+- Unverified direct-push to `main` or `develop`
 - Merging without CI green
 - Merging without at least one deliberate review pass (self or otherwise)
 

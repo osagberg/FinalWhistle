@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Numerics;
 
 namespace FinalWhistle.MatchSim.Sim;
 
@@ -85,13 +86,24 @@ public readonly struct Tick : IEquatable<Tick>, IComparable<Tick>, IComparable
 
     /// <summary>
     /// Convert this tick count to in-sim seconds as a <see cref="Fixed"/>.
-    /// Uses fixed-point division; the conversion is approximate when the
-    /// tick count is not an exact multiple of <see cref="TicksPerSecond"/>
-    /// (1/60 is not exactly representable in Q32.32 — error is bounded by
-    /// the per-tick Q32.32 ULP). For sim-side arithmetic, prefer staying
-    /// in tick units; convert to seconds only at presentation boundaries.
+    /// Converts directly into raw Q32.32 seconds before range-checking, so
+    /// long-horizon tick values do not get narrowed to <see cref="Fixed"/>
+    /// before division. The conversion is approximate when the tick count is
+    /// not an exact multiple of <see cref="TicksPerSecond"/> (1/60 is not
+    /// exactly representable in Q32.32). For sim-side arithmetic, prefer
+    /// staying in tick units; convert to seconds only at presentation
+    /// boundaries.
     /// </summary>
-    public Fixed ToSeconds() => Fixed.FromLong(_value) / Fixed.FromInt(TicksPerSecond);
+    public Fixed ToSeconds()
+    {
+        BigInteger rawSeconds = ((BigInteger)_value << Fixed.FractionalBits) / TicksPerSecond;
+        if (rawSeconds < long.MinValue || rawSeconds > long.MaxValue)
+        {
+            throw new OverflowException("Tick-to-seconds conversion overflow.");
+        }
+
+        return Fixed.FromRaw((long)rawSeconds);
+    }
 
     #endregion
 

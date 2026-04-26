@@ -2,7 +2,7 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
-## 2026-04-26 (Phase-3 Week-1 priority #3 — `Tick` deterministic 60Hz timestep + 42 tests)
+## 2026-04-26 (Phase-3 Week-1 priority #3 — `Tick` deterministic 60Hz timestep + 45 tests)
 
 `MatchSim/Sim/Tick.cs` lands. Sim-time discrete-counter primitive consumed by every event-bearing surface from this point forward (ADR-0001 ShotTypeSO chain rules / ADR-0004 MemoryEvent.Tick / ADR-0008 ViewerEvent.StartTick + EndTick / future Seed derivation per ADR-0001 forbidden-nondeterminism).
 
@@ -30,24 +30,24 @@ Type system enforces the semantic distinction: you can't accidentally add two ab
 
 **Conversion to seconds:**
 
-`ToSeconds() : Fixed` via Q32.32 division `Fixed.FromLong(value) / Fixed.FromInt(60)`. Exact at integer-second multiples; ≤1 Q32.32 ULP error otherwise (1/60 isn't exactly representable in Q32.32 — error is bounded). Architectural posture: sim-side code stays in tick units; conversion to seconds happens only at presentation boundaries.
+`ToSeconds() : Fixed` uses direct raw Q32.32 conversion `(tick << 32) / 60` with range-checking. That preserves the long-backed tick horizon instead of narrowing the tick value to `Fixed` before dividing. Exact at integer-second multiples within Fixed range; ≤1 Q32.32 ULP error otherwise (1/60 isn't exactly representable in Q32.32 — error is bounded). Architectural posture: sim-side code stays in tick units; conversion to seconds happens only at presentation boundaries.
 
-**Test coverage** (42 tests in `MatchSim.Tests/Sim/TickTests.cs`):
+**Test coverage** (45 tests in `MatchSim.Tests/Sim/TickTests.cs`):
 
 - Constants — TicksPerSecond locked at 60, TicksPerMinute = 3600, Zero/One/default agreement
 - Construction — value storage, negative ticks legitimate, long.MaxValue
 - Factories — FromSeconds(0/1/60/90), FromMinutes(0/1/45/90), int.MaxValue inputs don't overflow
-- ToSeconds — Zero → Fixed.Zero, 60 ticks → Fixed.One, 30 ticks → Fixed.Half, integer-multiples lossless across 0-90, non-multiple ≤1 ULP
+- ToSeconds — Zero → Fixed.Zero, 60 ticks → Fixed.One, 30 ticks → Fixed.Half, integer-multiples lossless across 0-90 and at `int.MaxValue` / `int.MinValue` seconds, overflow beyond Fixed range throws, non-multiple ≤1 ULP
 - Arithmetic — Tick + long / long + Tick / Tick - long / Tick - Tick, all overflow paths throw
 - Equality + Comparison — operator/method agreement, hash stability, total ordering, IComparable handles null + non-Tick
 - HashSet distinguishes 4 distinct ticks; determinism on repeated calls
 - ToString invariant integer
 
-**fw verify Tier-A umbrella green:** verify-docs + banned-terms + dotnet test (now 186 total tests).
+**fw verify Tier-A umbrella green:** verify-docs + banned-terms + dotnet test (now 189 total tests).
 
 **Next /next picks up:** Phase-3 Week-1 priority #4 — `Seed` derivation. Per ADR-0001 + ADR-0008 forbidden-nondeterminism contract: every stochastic event derives its seed from `(match_seed, tick, event_id)`. Consumes Tick. First per-tick deterministic randomness primitive; gates the SerializationContract.cs work that follows.
 
-**Workflow note:** committed directly to `main` per CLAUDE.md §5.6 + user confirmation (2026-04-26). Branch protection blocked on GitHub Free plan; local-discipline-only posture per `docs/ops/branch-protection.md §0`. CLAUDE.md §7 still has aspirational "Don't push to main directly — PR only" wording that's stale for this repo's current state — flagged for `/refresh-docs` cleanup pass when one runs.
+**Workflow note:** committed directly to `main` per user confirmation (2026-04-26). Branch protection is blocked on GitHub Free plan; current local-discipline posture is direct-to-main with `scripts/fw verify` before commits, documented in CLAUDE.md + `docs/ops/branch-protection.md §0`.
 
 ## 2026-04-26 (Codex review pass on Fixed Q32.32 — MaxValue round-trip + parse hardening + multiply oracle)
 
