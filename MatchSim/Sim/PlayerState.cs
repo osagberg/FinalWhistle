@@ -40,6 +40,9 @@ public readonly struct PlayerState : IEquatable<PlayerState>
     /// <summary>Construct from explicit components.</summary>
     public PlayerState(Vector3Fixed position, Vector3Fixed velocity, byte jerseyNumber, TeamSide side)
     {
+        ValidateJerseyNumber(jerseyNumber);
+        ValidateTeamSide(side);
+
         Position = position;
         Velocity = velocity;
         JerseyNumber = jerseyNumber;
@@ -56,11 +59,37 @@ public readonly struct PlayerState : IEquatable<PlayerState>
         {
             throw new ArgumentNullException(nameof(encoder));
         }
+        if (!IsValidJerseyNumber(JerseyNumber) || !IsValidTeamSide(Side))
+        {
+            throw new InvalidOperationException("PlayerState contains invalid identity fields and cannot be serialized canonically.");
+        }
         encoder.WriteVector3Fixed(Position);
         encoder.WriteVector3Fixed(Velocity);
         encoder.WriteByte(JerseyNumber);
         encoder.WriteByte((byte)Side);
     }
+
+    private static void ValidateJerseyNumber(byte jerseyNumber)
+    {
+        if (!IsValidJerseyNumber(jerseyNumber))
+        {
+            throw new ArgumentOutOfRangeException(nameof(jerseyNumber), jerseyNumber, "JerseyNumber must be in [1, 99].");
+        }
+    }
+
+    private static bool IsValidJerseyNumber(byte jerseyNumber)
+        => jerseyNumber is >= 1 and <= 99;
+
+    private static void ValidateTeamSide(TeamSide side)
+    {
+        if (!IsValidTeamSide(side))
+        {
+            throw new ArgumentOutOfRangeException(nameof(side), side, "TeamSide must be Home or Away.");
+        }
+    }
+
+    private static bool IsValidTeamSide(TeamSide side)
+        => side is TeamSide.Home or TeamSide.Away;
 
     #region Equality + ToString
 

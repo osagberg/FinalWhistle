@@ -2,6 +2,17 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-27 (Codex review pass on `PlayerActuator` — pitch-plane invariant + identity validation)
+
+Review pass on `MatchSim/Sim/PlayerActuator.cs`, `MatchSim/Sim/PlayerState.cs`, and `MatchSim.Tests/Sim/PlayerActuatorTests.cs`.
+
+- Caught a ground-player invariant bug: `PlayerActuator.Step` used the full 3D `desiredPosition`, so a BT chasing an airborne ball position could give players nonzero Y velocity and lift them off the pitch in the Month-3 slice.
+- Added red-first regression coverage for airborne desired positions and vertical drift in input state. The actuator now projects current position, current velocity, and desired position onto the pitch plane before steering, preserving `Position.Y = 0` and `Velocity.Y = 0` for ground players.
+- Enforced documented canonical identity constraints: `PlayerState` constructor rejects jersey numbers outside 1-99 and invalid `TeamSide` values; `WriteCanonical` rejects default/uninitialized states instead of serializing side 0.
+- Enforced non-negative `PlayerKinematics` values so bad tuning cannot invert speed, acceleration, or possession-radius semantics.
+
+Verification: targeted `PlayerActuatorTests` green (27 tests); full dotnet test green with **397 total tests**. Full `fw verify` green after doc sync.
+
 ## 2026-04-27 (Phase-3 Week-2 — `Player` state machine + `Fixed.Sqrt` + 56 tests)
 
 `MatchSim/Sim/TeamSide.cs` + `MatchSim/Sim/PlayerState.cs` + `MatchSim/Sim/PlayerActuator.cs` (with `PlayerKinematics` co-located) land. Pure-deterministic player kinematic actuator per `design/match-engine.md §Q3` steering-target-actuator spec. Q32.32 fixed-point throughout; semi-implicit Euler at 60Hz; one authority over a player's movement per tick (dual-authoritative movement is forbidden per design exit clause).

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using FinalWhistle.MatchSim.Sim;
 using Xunit;
@@ -25,6 +26,24 @@ public sealed class PlayerActuatorTests
         Assert.Equal(vel, p.Velocity);
         Assert.Equal((byte)7, p.JerseyNumber);
         Assert.Equal(TeamSide.Away, p.Side);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(100)]
+    public void PlayerState_Construct_InvalidJerseyNumber_Throws(byte jerseyNumber)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new PlayerState(Vector3Fixed.Zero, Vector3Fixed.Zero, jerseyNumber, TeamSide.Home));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(255)]
+    public void PlayerState_Construct_InvalidTeamSide_Throws(byte rawSide)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new PlayerState(Vector3Fixed.Zero, Vector3Fixed.Zero, 9, (TeamSide)rawSide));
     }
 
     [Fact]
@@ -70,6 +89,14 @@ public sealed class PlayerActuatorTests
     }
 
     [Fact]
+    public void PlayerState_WriteCanonical_DefaultState_Throws()
+    {
+        CanonicalEncoder enc = new();
+
+        Assert.Throws<InvalidOperationException>(() => default(PlayerState).WriteCanonical(enc));
+    }
+
+    [Fact]
     public void TeamSide_HomeAndAway_DistinctByteValues()
     {
         // Wire-format pinning: Home = 1, Away = 2.
@@ -106,6 +133,14 @@ public sealed class PlayerActuatorTests
         Assert.Equal(F(7), k.MaxSpeed);                                   // 7 m/s sustained sprint
         Assert.Equal(F(6), k.MaxAcceleration);                            // 6 m/s²
         Assert.Equal(Fixed.One / F(2), k.Radius);                         // 0.5 m possession radius
+    }
+
+    [Fact]
+    public void PlayerKinematics_Construct_NegativeValuesThrow()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PlayerKinematics(F(-1), F(6), Fixed.Half));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PlayerKinematics(F(7), F(-1), Fixed.Half));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PlayerKinematics(F(7), F(6), F(-1)));
     }
 
     #endregion
@@ -161,6 +196,30 @@ public sealed class PlayerActuatorTests
 
         // X velocity should be reduced (target velocity is zero; current is +5).
         Assert.True(after.Velocity.X < F(5));
+    }
+
+    [Fact]
+    public void Step_DesiredPositionAbovePitch_StaysOnPitchPlane()
+    {
+        PlayerState start = AtRest(V3(0, 0, 0));
+        Vector3Fixed airborneTarget = V3(10, 5, 0);
+
+        PlayerState after = PlayerActuator.Step(start, airborneTarget, F(7), PlayerKinematics.Phase3Defaults);
+
+        Assert.True(after.Velocity.X > Fixed.Zero, "Player should still move horizontally toward the target X/Z.");
+        Assert.Equal(Fixed.Zero, after.Position.Y);
+        Assert.Equal(Fixed.Zero, after.Velocity.Y);
+    }
+
+    [Fact]
+    public void Step_VerticalDriftInInputState_ClampsOutputToPitchPlane()
+    {
+        PlayerState start = new(V3(0, 2, 0), V3(3, 1, 0), 9, TeamSide.Home);
+
+        PlayerState after = PlayerActuator.Step(start, V3(10, 4, 0), F(7), PlayerKinematics.Phase3Defaults);
+
+        Assert.Equal(Fixed.Zero, after.Position.Y);
+        Assert.Equal(Fixed.Zero, after.Velocity.Y);
     }
 
     #endregion

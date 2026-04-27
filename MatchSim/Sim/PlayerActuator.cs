@@ -46,9 +46,13 @@ public static class PlayerActuator
         Fixed desiredSpeed,
         PlayerKinematics kinematics)
     {
+        Vector3Fixed currentPosition = ProjectToPitchPlane(state.Position);
+        Vector3Fixed currentVelocity = ProjectToPitchPlane(state.Velocity);
+        Vector3Fixed targetPosition = ProjectToPitchPlane(desiredPosition);
+
         // 1. Direction toward target (sqrt-free LengthSquared first to
         //    handle the at-target case without any Sqrt cost).
-        Vector3Fixed toTarget = desiredPosition - state.Position;
+        Vector3Fixed toTarget = targetPosition - currentPosition;
         Fixed distSq = toTarget.LengthSquared();
 
         Vector3Fixed targetVelocity;
@@ -68,11 +72,11 @@ public static class PlayerActuator
         }
 
         // 2. Velocity-delta toward target, clamped by MaxAcceleration · dt.
-        Vector3Fixed delta = targetVelocity - state.Velocity;
+        Vector3Fixed delta = targetVelocity - currentVelocity;
         Fixed maxDeltaMag = kinematics.MaxAcceleration * Dt;
         Vector3Fixed clampedDelta = ClampMagnitude(delta, maxDeltaMag);
 
-        Vector3Fixed newVelocity = state.Velocity + clampedDelta;
+        Vector3Fixed newVelocity = currentVelocity + clampedDelta;
 
         // 3. Defensive max-speed clamp. The per-step delta cap above should
         //    keep us under, but accumulated rounding could nudge over by a
@@ -81,7 +85,7 @@ public static class PlayerActuator
 
         // 4. Position update (semi-implicit Euler; matches BallPhysics step
         //    so player + ball trajectories advance with the same convention).
-        Vector3Fixed newPosition = state.Position + newVelocity * Dt;
+        Vector3Fixed newPosition = currentPosition + newVelocity * Dt;
 
         return new PlayerState(newPosition, newVelocity, state.JerseyNumber, state.Side);
     }
@@ -117,6 +121,9 @@ public static class PlayerActuator
         Fixed scale = maxMagnitude / len;
         return v * scale;
     }
+
+    private static Vector3Fixed ProjectToPitchPlane(Vector3Fixed v)
+        => new(v.X, Fixed.Zero, v.Z);
 }
 
 /// <summary>
@@ -141,6 +148,19 @@ public readonly struct PlayerKinematics
     /// <summary>Construct from explicit values. Use <see cref="Phase3Defaults"/> for Month-3 placeholder values.</summary>
     public PlayerKinematics(Fixed maxSpeed, Fixed maxAcceleration, Fixed radius)
     {
+        if (maxSpeed < Fixed.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxSpeed), maxSpeed, "MaxSpeed must be non-negative.");
+        }
+        if (maxAcceleration < Fixed.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxAcceleration), maxAcceleration, "MaxAcceleration must be non-negative.");
+        }
+        if (radius < Fixed.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(radius), radius, "Radius must be non-negative.");
+        }
+
         MaxSpeed = maxSpeed;
         MaxAcceleration = maxAcceleration;
         Radius = radius;
