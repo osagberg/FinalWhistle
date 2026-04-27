@@ -2,9 +2,9 @@
 #
 # Per design/production-pipeline.md:
 # - Runs on every PR + push to main/develop
-# - GitHub-hosted Linux only (cheapest minute rate)
-# - Budget: ≤5 minutes per run
-# - No Unity Editor boot, no builds, no macOS/Windows runners
+# - GitHub-hosted Win/Mac/Linux matrix now active for MatchSim determinism parity
+# - Budget: ≤10 minutes per OS leg
+# - No Unity Editor boot, no builds
 #
 # SECURITY NOTE: this workflow does NOT interpolate any untrusted input
 # (github.event.*.title, github.event.*.body, github.head_ref, commit
@@ -17,11 +17,10 @@
 #   - verify-docs  (frontmatter + unsubstituted-placeholder check)
 #   - banned-terms (Category-A + Category-B vocab lint per design/ui-vocabulary.md)
 #   - dotnet test  (MatchSim + MatchSim.Tests)
-# Future Phase-3/6 checks (determinism replay hash, content-pack schema,
-# save-migration fixtures) wire into `fw verify` as they land —
-# no workflow file edit required. The commented jobs below are a reference
-# shape for when a check needs to run as a parallel job instead of inside
-# the umbrella (e.g., when it's slow enough to want its own failure surface).
+# Future Phase-3/6 checks (content-pack schema, save-migration fixtures)
+# wire into `fw verify` as they land — no workflow file edit required. The
+# commented jobs below are a reference shape for when a check needs to run as
+# a parallel job instead of inside the umbrella.
 
 name: Fast PR CI (Tier A)
 
@@ -42,9 +41,13 @@ permissions:
 
 jobs:
   verify:
-    name: Verify (Tier A umbrella)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    name: Verify (Tier A umbrella, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,11 +62,18 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Set up Python
+        # Required for `fw verify`'s banned-terms lint step on every OS.
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Run fw verify
         # Umbrella runs every Tier-A check currently implemented
-        # (verify-docs + banned-terms + dotnet test as of 2026-04-26).
+        # (verify-docs + banned-terms + dotnet test as of 2026-04-27).
         # New checks wire into scripts/fw verify as Phase-3/6 deliverables land.
-        run: ./scripts/fw verify
+        shell: bash
+        run: bash ./scripts/fw verify
 
   # ------------------------------------------------------------------
   # Phase-gated TODOs — reference shapes only, NOT a backlog.
@@ -88,24 +98,9 @@ jobs:
   #     - name: Run lint-banned-terms.py
   #       run: python scripts/lint-banned-terms.py
 
-  # matchsim-tests-matrix (DEFERRED; umbrella covers current Linux-only run;
-  # promoted to Win/Mac/Linux matrix when Tick + Seed expand the determinism
-  # corpus enough to justify the added Actions cost).
-  # Per SPEC Phase-3 task `GitHub dotnet-test matrix (Tier A subset —
-  # Win/Mac/Linux)` and design/production-pipeline.md §Cost discipline
-  # (macOS minutes ~10× Linux; matrix activates only when the test surface
-  # warrants the cost):
-  #   strategy:
-  #     matrix:
-  #       os: [ubuntu-latest, windows-latest, macos-latest]
-  #   runs-on: ${{ matrix.os }}
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-dotnet@v4
-  #       with:
-  #         dotnet-version: '10.0.x'
-  #     - name: dotnet test
-  #       run: dotnet test FinalWhistle.slnx --logger "console;verbosity=normal"
+  # matchsim-tests-matrix (ACTIVE in verify job above as of 2026-04-27).
+  # The determinism gate's pinned MatchCanonicalState hash now warrants
+  # Win/Mac/Linux parity despite the extra Actions cost.
 
   # determinism-smoke:
   #   name: Deterministic replay hash smoke (Phase 3)

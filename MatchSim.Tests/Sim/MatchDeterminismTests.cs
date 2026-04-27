@@ -12,7 +12,7 @@ namespace FinalWhistle.MatchSim.Tests.Sim;
 /// initial state, and asserts the SHA256 of the final canonical state
 /// matches a literal pinned hash. Hash values were computed once on macOS
 /// (2026-04-27); the Tier-A CI matrix subsequently runs these same tests
-/// on Win + Linux runners. Any drift = a real bug, not a tolerance issue.
+/// on Win/Mac/Linux runners. Any drift = a real bug, not a tolerance issue.
 ///
 /// <para>
 /// Coverage strategy:
@@ -38,74 +38,10 @@ public sealed class MatchDeterminismTests
     private static Fixed F(int n) => Fixed.FromInt(n);
     private static Vector3Fixed V3(int x, int y, int z) => new(F(x), F(y), F(z));
 
-    /// <summary>Pinned smoke-seed reference value (computed on macOS 2026-04-27 via the test below; CI matrix verifies Win/Linux match).</summary>
+    /// <summary>Pinned smoke-seed reference value (computed on macOS 2026-04-27 via the test below; CI matrix verifies Win/Mac/Linux match).</summary>
     private const string SmokeSeed60TickHash = "sha256:299cdb0cbbc9606e141db278a14585780d0e3b5dbfb8815f634af89be7f6118a";
 
     #region Composition helper — runs the full BT + Player + Ball stack
-
-    /// <summary>
-    /// State held by the simulator between ticks. Plain class with mutable
-    /// arrays; the loop overwrites in place to avoid per-tick allocations.
-    /// </summary>
-    private sealed class MatchSimulationState
-    {
-        public Tick CurrentTick;
-        public BallState Ball;
-        public PlayerState[] HomeTeam = new PlayerState[11];
-        public PlayerState[] AwayTeam = new PlayerState[11];
-    }
-
-    /// <summary>
-    /// Run N ticks of the match, advancing each layer in deterministic
-    /// order: BT.Tick × 2 → PlayerActuator.Step × 22 → BallPhysics.Step.
-    /// Mutates <paramref name="state"/> in place; final state is the state
-    /// after the Nth tick.
-    /// </summary>
-    private static void RunMatch(
-        MatchSimulationState state,
-        BehaviorTreeArchetype homeArchetype,
-        BehaviorTreeArchetype awayArchetype,
-        PlayerKinematics kinematics,
-        BallPhysicsCoefficients ballCoeffs,
-        int ticks)
-    {
-        // Pre-allocate command buffers — re-used each tick (allocation-free
-        // hot path per the rules-file matchsim discipline).
-        PlayerCommand[] homeCommands = new PlayerCommand[11];
-        PlayerCommand[] awayCommands = new PlayerCommand[11];
-
-        for (int t = 0; t < ticks; t++)
-        {
-            // 1. BT for both sides — emits desired (position, speed) per player.
-            BehaviorTreeRunner.Tick(state.Ball, state.HomeTeam, state.AwayTeam,
-                TeamSide.Home, homeArchetype, kinematics, homeCommands);
-            BehaviorTreeRunner.Tick(state.Ball, state.AwayTeam, state.HomeTeam,
-                TeamSide.Away, awayArchetype, kinematics, awayCommands);
-
-            // 2. PlayerActuator advances each player. Order: home roster
-            //    indices 0..10 then away roster 0..10. Iteration order is
-            //    locked at the runner-call level.
-            for (int i = 0; i < 11; i++)
-            {
-                state.HomeTeam[i] = PlayerActuator.Step(
-                    state.HomeTeam[i], homeCommands[i].DesiredPosition,
-                    homeCommands[i].DesiredSpeed, kinematics);
-            }
-            for (int i = 0; i < 11; i++)
-            {
-                state.AwayTeam[i] = PlayerActuator.Step(
-                    state.AwayTeam[i], awayCommands[i].DesiredPosition,
-                    awayCommands[i].DesiredSpeed, kinematics);
-            }
-
-            // 3. Ball advances after players (the canonical match-loop order;
-            //    the inverse — ball before players — would still be
-            //    deterministic but produce a different hash).
-            state.Ball = BallPhysics.Step(state.Ball, ballCoeffs);
-
-            state.CurrentTick = state.CurrentTick + 1L;
-        }
-    }
 
     /// <summary>
     /// Build the canonical Phase-3 smoke fixture initial state: 22 players
@@ -115,32 +51,8 @@ public sealed class MatchDeterminismTests
         BehaviorTreeArchetype homeArchetype,
         BehaviorTreeArchetype awayArchetype)
     {
-        MatchSimulationState state = new()
-        {
-            CurrentTick = Tick.Zero,
-            Ball = BallState.AtRest,
-        };
-
-        for (int i = 0; i < 11; i++)
-        {
-            FormationSlot homeSlot = homeArchetype.Formation[i];
-            state.HomeTeam[i] = new PlayerState(
-                position: homeSlot.HomeBasePosition,
-                velocity: Vector3Fixed.Zero,
-                jerseyNumber: (byte)(i + 1),
-                side: TeamSide.Home);
-        }
-        for (int i = 0; i < 11; i++)
-        {
-            FormationSlot awaySlot = awayArchetype.Formation[i];
-            state.AwayTeam[i] = new PlayerState(
-                position: awaySlot.AwayBasePosition(),
-                velocity: Vector3Fixed.Zero,
-                jerseyNumber: (byte)(i + 1),
-                side: TeamSide.Away);
-        }
-
-        return state;
+        return MatchSimulationState.FromArchetypeFormations(
+            Tick.Zero, BallState.AtRest, homeArchetype, awayArchetype);
     }
 
     #endregion
@@ -152,7 +64,7 @@ public sealed class MatchDeterminismTests
     {
         // The cross-platform-determinism gate. This SHA256 was computed on
         // macOS 2026-04-27. The Tier-A CI matrix runs this same test on
-        // Win + Linux runners; all three must produce the identical hash.
+        // Win/Mac/Linux runners; all three must produce the identical hash.
         // Any disagreement = a determinism leak in BT / Player / Ball / hashing
         // pipeline. Pixel rendering is NOT exercised — this is purely the
         // canonical sim-state.
@@ -160,13 +72,12 @@ public sealed class MatchDeterminismTests
         BehaviorTreeArchetype lowBlock = BehaviorTreeArchetypes.Load("low-block-counter");
         MatchSimulationState state = BuildSmokeFixture(direct, lowBlock);
 
-        RunMatch(state, direct, lowBlock,
+        MatchSimulationRunner.RunTicks(state, direct, lowBlock,
             PlayerKinematics.Phase3Defaults,
             BallPhysicsCoefficients.Phase3Seeds,
             ticks: 60);
 
-        string hash = MatchCanonicalState.ComputeHash(
-            state.CurrentTick, state.Ball, state.HomeTeam, state.AwayTeam);
+        string hash = MatchCanonicalState.ComputeHash(state);
 
         // Use Assert.True with full message so xUnit doesn't truncate the
         // failure output (Assert.Equal truncates string mismatches at ~38 chars).
@@ -191,12 +102,11 @@ public sealed class MatchDeterminismTests
         for (int run = 0; run < 100; run++)
         {
             MatchSimulationState state = BuildSmokeFixture(direct, lowBlock);
-            RunMatch(state, direct, lowBlock,
+            MatchSimulationRunner.RunTicks(state, direct, lowBlock,
                 PlayerKinematics.Phase3Defaults,
                 BallPhysicsCoefficients.Phase3Seeds,
                 ticks: 60);
-            distinctHashes.Add(MatchCanonicalState.ComputeHash(
-                state.CurrentTick, state.Ball, state.HomeTeam, state.AwayTeam));
+            distinctHashes.Add(MatchCanonicalState.ComputeHash(state));
         }
 
         Assert.Single(distinctHashes);
@@ -221,15 +131,13 @@ public sealed class MatchDeterminismTests
 
         for (int s = 0; s < Samples; s++)
         {
-            RunMatch(a, direct, lowBlock, PlayerKinematics.Phase3Defaults,
+            MatchSimulationRunner.RunTicks(a, direct, lowBlock, PlayerKinematics.Phase3Defaults,
                 BallPhysicsCoefficients.Phase3Seeds, ticks: 10);
-            RunMatch(b, direct, lowBlock, PlayerKinematics.Phase3Defaults,
+            MatchSimulationRunner.RunTicks(b, direct, lowBlock, PlayerKinematics.Phase3Defaults,
                 BallPhysicsCoefficients.Phase3Seeds, ticks: 10);
 
-            runA[s] = MatchCanonicalState.ComputeHash(
-                a.CurrentTick, a.Ball, a.HomeTeam, a.AwayTeam);
-            runB[s] = MatchCanonicalState.ComputeHash(
-                b.CurrentTick, b.Ball, b.HomeTeam, b.AwayTeam);
+            runA[s] = MatchCanonicalState.ComputeHash(a);
+            runB[s] = MatchCanonicalState.ComputeHash(b);
 
             Assert.Equal(runA[s], runB[s]);
         }
@@ -251,15 +159,13 @@ public sealed class MatchDeterminismTests
         MatchSimulationState a = BuildSmokeFixture(direct, lowBlock);
         MatchSimulationState b = BuildSmokeFixture(lowBlock, direct);
 
-        RunMatch(a, direct, lowBlock, PlayerKinematics.Phase3Defaults,
+        MatchSimulationRunner.RunTicks(a, direct, lowBlock, PlayerKinematics.Phase3Defaults,
             BallPhysicsCoefficients.Phase3Seeds, ticks: 60);
-        RunMatch(b, lowBlock, direct, PlayerKinematics.Phase3Defaults,
+        MatchSimulationRunner.RunTicks(b, lowBlock, direct, PlayerKinematics.Phase3Defaults,
             BallPhysicsCoefficients.Phase3Seeds, ticks: 60);
 
-        string hashA = MatchCanonicalState.ComputeHash(
-            a.CurrentTick, a.Ball, a.HomeTeam, a.AwayTeam);
-        string hashB = MatchCanonicalState.ComputeHash(
-            b.CurrentTick, b.Ball, b.HomeTeam, b.AwayTeam);
+        string hashA = MatchCanonicalState.ComputeHash(a);
+        string hashB = MatchCanonicalState.ComputeHash(b);
 
         Assert.NotEqual(hashA, hashB);
     }
@@ -275,15 +181,13 @@ public sealed class MatchDeterminismTests
         // Nudge ball off-centre by 1m for state b.
         b.Ball = new BallState(V3(1, 0, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
 
-        RunMatch(a, direct, lowBlock, PlayerKinematics.Phase3Defaults,
+        MatchSimulationRunner.RunTicks(a, direct, lowBlock, PlayerKinematics.Phase3Defaults,
             BallPhysicsCoefficients.Phase3Seeds, ticks: 60);
-        RunMatch(b, direct, lowBlock, PlayerKinematics.Phase3Defaults,
+        MatchSimulationRunner.RunTicks(b, direct, lowBlock, PlayerKinematics.Phase3Defaults,
             BallPhysicsCoefficients.Phase3Seeds, ticks: 60);
 
-        string hashA = MatchCanonicalState.ComputeHash(
-            a.CurrentTick, a.Ball, a.HomeTeam, a.AwayTeam);
-        string hashB = MatchCanonicalState.ComputeHash(
-            b.CurrentTick, b.Ball, b.HomeTeam, b.AwayTeam);
+        string hashA = MatchCanonicalState.ComputeHash(a);
+        string hashB = MatchCanonicalState.ComputeHash(b);
 
         Assert.NotEqual(hashA, hashB);
     }
@@ -347,7 +251,7 @@ public sealed class MatchDeterminismTests
         MatchCanonicalState.Write(encoder, state.CurrentTick, state.Ball,
             state.HomeTeam, state.AwayTeam);
 
-        Assert.Equal(1188, encoder.WrittenCount);
+        Assert.Equal(MatchCanonicalState.EncodedByteCount, encoder.WrittenCount);
     }
 
     [Fact]
@@ -381,6 +285,72 @@ public sealed class MatchDeterminismTests
             MatchCanonicalState.Write(encoder, Tick.Zero, BallState.AtRest, tooFew, full));
         Assert.Throws<ArgumentException>(() =>
             MatchCanonicalState.Write(encoder, Tick.Zero, BallState.AtRest, full, tooFew));
+    }
+
+    [Fact]
+    public void MatchSimulationState_WrongTeamLength_Throws()
+    {
+        PlayerState[] tooFew = new PlayerState[10];
+        for (byte i = 1; i <= 10; i++)
+        {
+            tooFew[i - 1] = new PlayerState(Vector3Fixed.Zero, Vector3Fixed.Zero, i, TeamSide.Home);
+        }
+        PlayerState[] full = new PlayerState[11];
+        for (byte i = 1; i <= 11; i++)
+        {
+            full[i - 1] = new PlayerState(Vector3Fixed.Zero, Vector3Fixed.Zero, i, TeamSide.Away);
+        }
+
+        Assert.Throws<ArgumentException>(() =>
+            new MatchSimulationState(Tick.Zero, BallState.AtRest, tooFew, full));
+        Assert.Throws<ArgumentException>(() =>
+            new MatchSimulationState(Tick.Zero, BallState.AtRest, full, tooFew));
+    }
+
+    [Fact]
+    public void FromArchetypeFormations_OrdersPlayersByRosterSlot()
+    {
+        FormationSlot[] shuffled = new FormationSlot[MatchCanonicalState.PlayersPerTeam];
+        shuffled[0] = new FormationSlot(2, "RB", V3(20, 0, 0));
+        shuffled[1] = new FormationSlot(1, "GK", V3(10, 0, 0));
+        for (byte rosterSlot = 3; rosterSlot <= MatchCanonicalState.PlayersPerTeam; rosterSlot++)
+        {
+            shuffled[rosterSlot - 1] = new FormationSlot(
+                rosterSlot,
+                "T",
+                new Vector3Fixed(F(rosterSlot), Fixed.Zero, Fixed.Zero));
+        }
+
+        BehaviorTreeArchetype archetype = new(
+            "shuffled",
+            "valid but not list-sorted",
+            shuffled,
+            F(10),
+            Fixed.One);
+
+        MatchSimulationState state = MatchSimulationState.FromArchetypeFormations(
+            Tick.Zero, BallState.AtRest, archetype, archetype);
+
+        Assert.Equal(V3(10, 0, 0), state.HomeTeam[0].Position);
+        Assert.Equal(V3(20, 0, 0), state.HomeTeam[1].Position);
+        Assert.Equal(V3(-10, 0, 0), state.AwayTeam[0].Position);
+        Assert.Equal(V3(-20, 0, 0), state.AwayTeam[1].Position);
+    }
+
+    [Fact]
+    public void MatchSimulationRunner_NegativeTicks_Throws()
+    {
+        BehaviorTreeArchetype direct = BehaviorTreeArchetypes.Load("direct-pressing");
+        BehaviorTreeArchetype lowBlock = BehaviorTreeArchetypes.Load("low-block-counter");
+
+        MatchSimulationState state = MatchSimulationState.FromArchetypeFormations(
+            Tick.Zero, BallState.AtRest, direct, lowBlock);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            MatchSimulationRunner.RunTicks(state, direct, lowBlock,
+                PlayerKinematics.Phase3Defaults,
+                BallPhysicsCoefficients.Phase3Seeds,
+                ticks: -1));
     }
 
     #endregion

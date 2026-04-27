@@ -2,6 +2,19 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-27 (Codex review pass on determinism gate — production loop + CI matrix)
+
+Review pass on `1cacb46` caught two real contract mismatches before the Unity pivot:
+
+- The claimed cross-platform gate was still running in a Linux-only workflow. `.github/workflows/fast-pr-ci.yml` now runs the full `scripts/fw verify` umbrella on `ubuntu-latest`, `windows-latest`, and `macos-latest` with `shell: bash`, so the pinned `MatchCanonicalState` hash is actually checked across platforms.
+- The matrix path now installs Python explicitly and `scripts/fw banned-terms` resolves `python3` or `python`, avoiding a Windows-runner failure where only `python` is present.
+- The canonical match-loop composition lived only inside `MatchDeterminismTests`. It now lives in production as `MatchSimulationState` + `MatchSimulationRunner`, locking the Month-3 step order as BT.Tick × 2 → PlayerActuator.Step × 22 → BallPhysics.Step → Tick+1. The determinism tests exercise that production runner rather than a private copy.
+- `MatchCanonicalState` now exposes `PlayersPerTeam = 11` and `EncodedByteCount = 1188` constants, plus overloads for production `MatchSimulationState`, so fixture code and docs do not depend on magic numbers.
+- `MatchSimulationState.FromArchetypeFormations` now fills player arrays by `FormationSlot.RosterSlot`, not YAML/list order, so valid-but-shuffled archetype data still produces stable roster-order canonical state.
+- Pinned smoke hash unchanged: `sha256:299cdb0cbbc9606e141db278a14585780d0e3b5dbfb8815f634af89be7f6118a`.
+
+Verification: focused determinism suite green (**13 tests**); full `fw verify` green (verify-docs + banned-terms + dotnet test, **457 total tests**).
+
 ## 2026-04-27 (Phase-3 Week-2 — Cross-platform determinism gate + 10 tests)
 
 `MatchSim/Sim/MatchCanonicalState.cs` + `MatchSim.Tests/Sim/MatchDeterminismTests.cs` land. The cross-platform-determinism gate per `design/match-engine.md §Prototype gate`: same initial state + same N ticks → same SHA256 of canonical state on Win/Mac/Linux. Everything we've built since the start of Phase 3 (Fixed / Tick / Seed / Vector3Fixed / BallPhysics / PlayerActuator / BehaviorTreeRunner / SerializationContract / CanonicalEncoder) converges here.

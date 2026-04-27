@@ -47,6 +47,15 @@ namespace FinalWhistle.MatchSim.Sim;
 /// </summary>
 public static class MatchCanonicalState
 {
+    /// <summary>Canonical Month-3 on-pitch player count per side.</summary>
+    public const int PlayersPerTeam = 11;
+
+    /// <summary>
+    /// Canonical v1 snapshot width in bytes:
+    /// Tick (8) + Ball (72) + two count headers (8) + 22 PlayerStates (22×50).
+    /// </summary>
+    public const int EncodedByteCount = 1188;
+
     /// <summary>
     /// Write the canonical state of a match snapshot to the encoder. Bytes
     /// are appended to the encoder's existing buffer; caller controls when
@@ -63,13 +72,13 @@ public static class MatchCanonicalState
         {
             throw new ArgumentNullException(nameof(encoder));
         }
-        if (homeTeam.Length != 11)
+        if (homeTeam.Length != PlayersPerTeam)
         {
-            throw new ArgumentException($"homeTeam must contain exactly 11 players; got {homeTeam.Length}.", nameof(homeTeam));
+            throw new ArgumentException($"homeTeam must contain exactly {PlayersPerTeam} players; got {homeTeam.Length}.", nameof(homeTeam));
         }
-        if (awayTeam.Length != 11)
+        if (awayTeam.Length != PlayersPerTeam)
         {
-            throw new ArgumentException($"awayTeam must contain exactly 11 players; got {awayTeam.Length}.", nameof(awayTeam));
+            throw new ArgumentException($"awayTeam must contain exactly {PlayersPerTeam} players; got {awayTeam.Length}.", nameof(awayTeam));
         }
 
         // 1. Tick.
@@ -79,18 +88,31 @@ public static class MatchCanonicalState
         ball.WriteCanonical(encoder);
 
         // 3-4. Home team.
-        encoder.WriteCount(11);
-        for (int i = 0; i < 11; i++)
+        encoder.WriteCount(PlayersPerTeam);
+        for (int i = 0; i < PlayersPerTeam; i++)
         {
             homeTeam[i].WriteCanonical(encoder);
         }
 
         // 5-6. Away team.
-        encoder.WriteCount(11);
-        for (int i = 0; i < 11; i++)
+        encoder.WriteCount(PlayersPerTeam);
+        for (int i = 0; i < PlayersPerTeam; i++)
         {
             awayTeam[i].WriteCanonical(encoder);
         }
+    }
+
+    /// <summary>
+    /// Write the canonical state of a production match simulation snapshot.
+    /// </summary>
+    public static void Write(CanonicalEncoder encoder, MatchSimulationState state)
+    {
+        if (state is null)
+        {
+            throw new ArgumentNullException(nameof(state));
+        }
+
+        Write(encoder, state.CurrentTick, state.Ball, state.HomeTeam, state.AwayTeam);
     }
 
     /// <summary>
@@ -104,8 +126,19 @@ public static class MatchCanonicalState
         ReadOnlySpan<PlayerState> homeTeam,
         ReadOnlySpan<PlayerState> awayTeam)
     {
-        CanonicalEncoder encoder = new(initialCapacity: 1188);
+        CanonicalEncoder encoder = new(initialCapacity: EncodedByteCount);
         Write(encoder, currentTick, ball, homeTeam, awayTeam);
+        return encoder.ComputeSha256Hex();
+    }
+
+    /// <summary>
+    /// Convenience: compute the SHA256 hash of a production match simulation
+    /// snapshot.
+    /// </summary>
+    public static string ComputeHash(MatchSimulationState state)
+    {
+        CanonicalEncoder encoder = new(initialCapacity: EncodedByteCount);
+        Write(encoder, state);
         return encoder.ComputeSha256Hex();
     }
 }
