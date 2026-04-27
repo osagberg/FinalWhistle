@@ -341,6 +341,28 @@ public sealed class BallPhysicsTests
     }
 
     [Fact]
+    public void Bounce_GroundedAtRestWithGravity_DoesNotBounce()
+    {
+        BallState after = BallPhysics.Step(BallState.AtRest, BallPhysicsCoefficients.Phase3Seeds);
+
+        Assert.Equal(Vector3Fixed.Zero, after.Position);
+        Assert.Equal(Vector3Fixed.Zero, after.Velocity);
+    }
+
+    [Fact]
+    public void Bounce_GroundedRollingWithGravity_DoesNotCreateVerticalBounce()
+    {
+        BallState start = new(Vector3Fixed.Zero, V3(8, 0, 0), Vector3Fixed.Zero);
+
+        BallState after = BallPhysics.Step(start, BallPhysicsCoefficients.Phase3Seeds);
+
+        Assert.Equal(Fixed.Zero, after.Position.Y);
+        Assert.Equal(Fixed.Zero, after.Velocity.Y);
+        Assert.True(after.Velocity.X > Fixed.Zero, $"Rolling ball should still move forward; X velocity = {after.Velocity.X}");
+        Assert.True(after.Velocity.X < F(8), $"Drag + rolling friction should reduce X velocity; X velocity = {after.Velocity.X}");
+    }
+
+    [Fact]
     public void Bounce_PerfectlyElastic_PreservesVerticalSpeedExactly()
     {
         // e=1.0 → no energy loss. v.y=-10 → +10 after bounce.

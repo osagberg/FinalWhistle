@@ -2,6 +2,17 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-27 (Codex review pass on `BallPhysics` — grounded-ball contact fix)
+
+Review pass on `MatchSim/Sim/BallPhysics.cs` + `MatchSim.Tests/Sim/BallPhysicsTests.cs`.
+
+- Caught a contact-resolution bug: because gravity was applied before ground collision, `BallState.AtRest` on `Y=0` became downward-moving inside the tick, then bounced upward via the normal falling-ball path.
+- Added two red-first regression tests: grounded-at-rest with Phase-3 gravity must stay at rest; grounded rolling ball with Phase-3 gravity must keep `Velocity.Y = 0` while drag + rolling friction reduce horizontal velocity.
+- Fixed ground collision to bounce only when the ball crossed into the ground from above; balls that started grounded clamp negative vertical velocity to zero and roll.
+- Cached `BallPhysicsCoefficients.Phase3Seeds` behind the existing property so repeated access does not redo fixed-point ratio divisions.
+
+Verification: focused grounded-ball regressions green; full `fw verify` green with **333 total tests**.
+
 ## 2026-04-27 (Phase-3 Week-2 — `Ball` custom deterministic physics + `Vector3Fixed` + 54 tests)
 
 `MatchSim/Sim/Vector3Fixed.cs` + `MatchSim/Sim/BallState.cs` + `MatchSim/Sim/BallPhysics.cs` land. Pure-deterministic ball physics integrator per `design/match-engine.md §Q2` structure-locked spec. Q32.32 fixed-point throughout; semi-implicit Euler at fixed 60Hz step; gravity + linear drag + Magnus stub + ground bounce + rolling friction; all coefficients tunable via `BallPhysicsCoefficients`.

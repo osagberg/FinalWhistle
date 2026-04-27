@@ -43,6 +43,7 @@ public static class BallPhysics
     public static BallState Step(BallState state, BallPhysicsCoefficients coefficients)
     {
         Vector3Fixed v = state.Velocity;
+        bool startedOnGround = state.Position.Y <= Fixed.Zero;
 
         // 1. Gravity. F = (0, -g, 0); per-step delta on velocity = -g * dt.
         //    g is in m/s² (continuous SI units per design doc), so dt scaling matters.
@@ -70,19 +71,23 @@ public static class BallPhysics
         // 5. Ground collision. Y <= 0 means ball is on or below the pitch.
         if (p.Y <= Fixed.Zero)
         {
-            // Was the ball moving downward when it hit? Determines whether
-            // to bounce (flip Y velocity) or just clamp + roll.
-            bool wasFalling = v.Y < Fixed.Zero;
+            bool crossedIntoGroundFromAir = !startedOnGround && v.Y < Fixed.Zero;
 
             // Clamp position to exact ground plane. Avoids subterranean drift
             // that would compound over season-long replays.
             p = new Vector3Fixed(p.X, Fixed.Zero, p.Z);
 
-            if (wasFalling)
+            if (crossedIntoGroundFromAir)
             {
                 // Bounce: vertical velocity flipped + scaled by retention.
                 // For e=0.55, a -10 m/s downward becomes +5.5 m/s upward.
                 v = new Vector3Fixed(v.X, -coefficients.BounceRetention * v.Y, v.Z);
+            }
+            else if (v.Y < Fixed.Zero)
+            {
+                // Gravity is applied before contact resolution. A ball that
+                // started grounded must stay grounded, not gain a tiny rebound.
+                v = new Vector3Fixed(v.X, Fixed.Zero, v.Z);
             }
 
             // Rolling friction applies only when the ball is "settled" on
@@ -148,7 +153,9 @@ public readonly struct BallPhysicsCoefficients
     /// Phase 3 visual playtests; Magnus may be zeroed for Month-3 gate per
     /// stub policy.
     /// </summary>
-    public static BallPhysicsCoefficients Phase3Seeds => new(
+    public static BallPhysicsCoefficients Phase3Seeds => Phase3SeedValues;
+
+    private static readonly BallPhysicsCoefficients Phase3SeedValues = new(
         gravity:         FixedRatio(981, 100),       // 9.81
         linearDrag:      FixedRatio(2, 100),         // 0.02
         magnusCoupling:  FixedRatio(4, 10000),       // 0.0004
