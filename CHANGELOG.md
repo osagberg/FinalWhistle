@@ -2,6 +2,64 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-27 (Phase-3 Week-2 — 2 BT manager archetypes in YAML + 42 tests)
+
+`MatchSim/Content/archetypes/direct-pressing.yaml` + `low-block-counter.yaml` (embedded resources) + `MatchSim/Sim/PlayerCommand.cs` + `MatchSim/Sim/BehaviorTreeArchetype.cs` + `MatchSim/Sim/BehaviorTreeArchetypes.cs` + `MatchSim/Sim/BehaviorTreeRunner.cs` land. Pure-deterministic per-tick tactical-heuristic runner that converts a YAML-loaded archetype + match snapshot into 11 `PlayerCommand`s. YamlDotNet 17.0.1 added to MatchSim.csproj per CLAUDE.md tech-stack lock ("YAML for behavior-tree archetypes").
+
+**Scope decision:** Month-3 "BT archetype" is a tactical heuristic with formation + PressRadius + BuildupSpeedFactor knobs — NOT a full BT engine with sequence/selector nodes. Sequence/selector nodes land in Phase 4 if Month-3 observer feedback says current tactics are too thin. The framing of "behavior-tree archetype" in the design doc is shorthand for "manager-archetype tactical heuristic," which is what this implementation provides.
+
+**`PlayerCommand.cs` structure:**
+
+- `readonly struct PlayerCommand` of (`DesiredPosition`, `DesiredSpeed`). Matches the design-doc-locked BT-output shape per match-engine.md §Q3 exit clause.
+- `Halt(Vector3Fixed)` factory: stand-still sentinel.
+
+**`BehaviorTreeArchetype.cs` structure:**
+
+- `sealed class BehaviorTreeArchetype` with: `Name`, `Description`, `Formation: IReadOnlyList<FormationSlot>`, `PressRadiusMetres: Fixed`, `BuildupSpeedFactor: Fixed`.
+- Constructor validates: name non-blank, formation has exactly 11 slots, roster slots 1-11 each appear exactly once, PressRadius > 0, BuildupSpeedFactor > 0.
+- `readonly struct FormationSlot` of (`RosterSlot: byte 1-11`, `Role: string`, `HomeBasePosition: Vector3Fixed`). `AwayBasePosition()` mirrors X. Authored in HOME orientation; runner handles Away mirroring.
+
+**`BehaviorTreeArchetypes.cs` structure:**
+
+- `Parse(string yamlContent) → BehaviorTreeArchetype` — YamlDotNet `UnderscoredNamingConvention`; `IgnoreUnmatchedProperties` for forward-compat with future schema additions.
+- `Load(string name) → BehaviorTreeArchetype` — reads embedded YAML resource, parses, caches by ordinal name. Repeat calls return same reference.
+- `BuiltInNames: IReadOnlyList<string>` — `["direct-pressing", "low-block-counter"]`.
+- Numeric fields parse via `Fixed.Parse` (canonical decimal form); rejects non-positive values.
+- Embedded resources: `Content/archetypes/*.yaml` is wildcard-included in MatchSim.csproj `<EmbeddedResource>` block.
+
+**`BehaviorTreeRunner.cs` structure:**
+
+- `static Tick(BallState, ReadOnlySpan<PlayerState> ownTeam, ReadOnlySpan<PlayerState> opponents, TeamSide side, BehaviorTreeArchetype archetype, PlayerKinematics kinematics, Span<PlayerCommand> commandsOut)` — pure deterministic; allocation-free hot path; commands written into caller-provided buffer in own-team-index order.
+- **Three-mode heuristic:**
+  1. **Press** — opponents have possession AND own player within `PressRadius` of ball → command: head to ball at `MaxSpeed`.
+  2. **Build-up** — own team has possession → ball-carrier (nearest own player to ball) heads to opponent goal at `MaxSpeed × BuildupSpeedFactor`; other players hold formation.
+  3. **Hold shape** — otherwise, head to formation base position (mirrored if Away) at `MaxSpeed × 0.5` (jog).
+- **Possession resolution:** team whose nearest player is strictly closer to the ball; ties resolve to opponent (defensive default; conservative). Match-loop layers may eventually replace with a more nuanced contest-resolution policy.
+- **Coordinate convention:** pitch is 105m × 68m centred on origin; goal lines at X = ±52.5. Home defends −X, opponent goal at +X; Away defends +X, opponent goal at −X.
+
+**`direct-pressing.yaml` (4-4-2 high press):**
+
+- Formation: GK at (-45, 0); back four ~(-25, ±20) and (-30, ±8); midfield four ~(-5 to -10, ±20 / ±5); two strikers at (20, ±5).
+- PressRadius: 25m (generous; engages in middle third).
+- BuildupSpeedFactor: 0.95 (near-sprint when in possession; tempo over patience).
+
+**`low-block-counter.yaml` (4-5-1 deep block):**
+
+- Formation: GK deeper at (-48, 0); back four pushed to (-40 to -42); midfield five compact in central channels (-25 to -32, ±0 / ±8 / ±20); lone striker forward at (10, 0).
+- PressRadius: 12m (only engages in defensive third).
+- BuildupSpeedFactor: 1.0 (full sprint on counter-attack release).
+
+**Test coverage** (42 new tests across 2 files):
+
+- **`BehaviorTreeArchetypeTests.cs` — 24 tests:** construction validation (7 negative-path: blank/null name × 3, null formation, wrong-length formation, duplicate roster slot, non-positive PressRadius × 2, non-positive BuildupSpeedFactor × 2, plus all-fields-valid happy path); FormationSlot validation (3 out-of-range RosterSlot × 3 + AwayBasePosition X-mirror + equality); YAML parser (valid round-trip with all fields + null/empty/missing-formation/non-positive-press-radius/duplicate-roster-slot rejections + determinism — same input twice produces same parsed structure); built-in loaders (direct-pressing + low-block-counter loaders return expected authored values; tactical-difference invariant `direct.PressRadius > lowBlock.PressRadius`; unknown name throws FileNotFoundException; blank/null name throws ArgumentException × 3; iterating BuiltInNames all loads cleanly; cache returns same reference on repeat Load).
+- **`BehaviorTreeRunnerTests.cs` — 18 tests:** determinism 100x; argument validation (null archetype + wrong team length + commands buffer too small); press logic (opponents-with-possession + nearby defender within PressRadius presses ball; distant defender outside PressRadius holds shape); build-up logic (own-team-possession ball-carrier heads to opponent goal at `MaxSpeed × BuildupSpeedFactor`; other players hold formation); hold-shape neutral state (ball at centre, GK holds shape at jog); side mirroring (Away formation X-mirrored; Away ball-carrier heads to −X home goal); integration (BT + PlayerActuator end-to-end: BT emits commands → actuator advances → striker has +X velocity toward opponent goal, Y stays at 0 per pitch-plane invariant from prior Codex pass).
+
+**Cross-system integration verified:** the BT layer integrates cleanly with PlayerActuator (the integration test runs both end-to-end). Cross-references to Vector3Fixed Distance/DistanceSquared, PlayerKinematics.Phase3Defaults, and TeamSide validate the full Player + BT + Ball stack composes deterministically.
+
+**`fw verify` Tier-A umbrella green:** verify-docs + banned-terms + dotnet test (now 439 total tests; 397 prior + 42 new).
+
+**NOT in scope:** sequence/selector BT nodes (Phase 4 if observers find tactics too thin); per-player gene-driven kinematics (Phase 4); MatchState struct (emerges when match-loop layer needs it); roster / 22-player composition logic (downstream); kick-direction tactical decisions (currently kick = `new BallState(ball.Position, MaxSpeed-toward-goal-vector, Vector3Fixed.Zero)` is implicit in build-up; explicit kick-trigger BT nodes are Phase 4).
+
 ## 2026-04-27 (Codex review pass on `PlayerActuator` — pitch-plane invariant + identity validation)
 
 Review pass on `MatchSim/Sim/PlayerActuator.cs`, `MatchSim/Sim/PlayerState.cs`, and `MatchSim.Tests/Sim/PlayerActuatorTests.cs`.

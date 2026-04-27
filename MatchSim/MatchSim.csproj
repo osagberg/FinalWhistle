@@ -21,4 +21,16 @@
     <InternalsVisibleTo Include="FinalWhistle.MatchSim.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- YamlDotNet for behavior-tree archetype loading per CLAUDE.md tech
+         stack ("YAML for behavior-tree archetypes"). netstandard2.0-compatible
+         and Unity-friendly. The two Month-3 archetype YAMLs (direct-pressing,
+         low-block-counter) are embedded as resources below. -->
+    <PackageReference Include="YamlDotNet" Version="17.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Content/archetypes/*.yaml" />
+  </ItemGroup>
+
 </Project>

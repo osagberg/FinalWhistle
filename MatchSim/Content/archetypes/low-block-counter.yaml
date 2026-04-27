@@ -1,0 +1,34 @@
+# Low-Block + Counter manager archetype.
+#
+# Defensive shape held deep in own half; transitions are fast and direct
+# when the ball is won. Stays compact, denies space behind the back line.
+#
+# Authored 2026-04-27 in HOME orientation: own goal at X = -52.5; opponent
+# goal at X = +52.5. BehaviorTreeRunner mirrors X for Away usage.
+# Formation is a 4-5-1 (RosterSlot 1 = GK; 2-5 = back four; 6-10 = midfield
+# five; 11 = lone striker). Coordinate convention per match-engine.md.
+
+name: low-block-counter
+description: |
+  Low-block defensive archetype with quick counter-attack transitions.
+  Compact 4-5-1; back line drops deeper; midfield five fills the central
+  channels. Press radius is small — players only engage when the ball is
+  inside the defensive third. Build-up speed factor of 1.0 (full sprint)
+  reflects the counter-attack release: when the ball is won, the team
+  breaks fast.
+
+formation:
+  - { roster_slot: 1,  role: GK,  x: -48, z:   0 }
+  - { roster_slot: 2,  role: RB,  x: -40, z:  20 }
+  - { roster_slot: 3,  role: RCB, x: -42, z:   8 }
+  - { roster_slot: 4,  role: LCB, x: -42, z:  -8 }
+  - { roster_slot: 5,  role: LB,  x: -40, z: -20 }
+  - { roster_slot: 6,  role: RM,  x: -25, z:  22 }
+  - { roster_slot: 7,  role: RCM, x: -28, z:   8 }
+  - { roster_slot: 8,  role: CDM, x: -32, z:   0 }
+  - { roster_slot: 9,  role: LCM, x: -28, z:  -8 }
+  - { roster_slot: 10, role: LM,  x: -25, z: -22 }
+  - { roster_slot: 11, role: ST,  x:  10, z:   0 }
+
+press_radius_metres: 12
+buildup_speed_factor: 1.0
