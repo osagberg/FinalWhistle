@@ -80,15 +80,17 @@ public static class BehaviorTreeRunner
             throw new ArgumentOutOfRangeException(nameof(side), side, "TeamSide must be Home or Away.");
         }
 
+        Vector3Fixed ballPitchPosition = ProjectToPitchPlane(ball.Position);
+
         // Resolve possession: which team's nearest player is closer to the ball.
         Fixed pressRadiusSq = archetype.PressRadiusMetres * archetype.PressRadiusMetres;
-        bool ownTeamInPossession = ResolveOwnTeamInPossession(ball, ownTeam, opponents);
+        bool ownTeamInPossession = ResolveOwnTeamInPossession(ballPitchPosition, ownTeam, opponents);
 
         Vector3Fixed opponentGoal = OpponentGoalPosition(side);
 
         // Identify our own-team player nearest the ball — used for the
         // build-up "head to opponent goal" command.
-        int nearestToBallIndex = NearestPlayerIndex(ball.Position, ownTeam);
+        int nearestToBallIndex = NearestPlayerIndex(ballPitchPosition, ownTeam);
 
         for (int i = 0; i < 11; i++)
         {
@@ -98,13 +100,13 @@ public static class BehaviorTreeRunner
 
             // Press check: any opponent within PressRadius of this player AND
             // opponents have possession → press the ball.
-            Fixed distFromPlayerToBallSq = Vector3Fixed.DistanceSquared(player.Position, ball.Position);
+            Fixed distFromPlayerToBallSq = Vector3Fixed.DistanceSquared(player.Position, ballPitchPosition);
             bool inPressRange = distFromPlayerToBallSq <= pressRadiusSq;
 
             if (!ownTeamInPossession && inPressRange)
             {
                 // Press: head to ball at full speed.
-                commandsOut[i] = new PlayerCommand(ball.Position, kinematics.MaxSpeed);
+                commandsOut[i] = new PlayerCommand(ballPitchPosition, kinematics.MaxSpeed);
                 continue;
             }
 
@@ -128,12 +130,12 @@ public static class BehaviorTreeRunner
     /// more nuanced contest-resolution policy.
     /// </summary>
     private static bool ResolveOwnTeamInPossession(
-        BallState ball,
+        Vector3Fixed ballPosition,
         ReadOnlySpan<PlayerState> ownTeam,
         ReadOnlySpan<PlayerState> opponents)
     {
-        Fixed ownNearestSq = NearestDistanceSquared(ball.Position, ownTeam);
-        Fixed oppNearestSq = NearestDistanceSquared(ball.Position, opponents);
+        Fixed ownNearestSq = NearestDistanceSquared(ballPosition, ownTeam);
+        Fixed oppNearestSq = NearestDistanceSquared(ballPosition, opponents);
         return ownNearestSq < oppNearestSq;
     }
 
@@ -201,4 +203,7 @@ public static class BehaviorTreeRunner
         Fixed x = side == TeamSide.Home ? goalLine : -goalLine;
         return new Vector3Fixed(x, Fixed.Zero, Fixed.Zero);
     }
+
+    private static Vector3Fixed ProjectToPitchPlane(Vector3Fixed position)
+        => new(position.X, Fixed.Zero, position.Z);
 }

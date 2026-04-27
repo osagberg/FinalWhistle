@@ -127,6 +127,13 @@ public sealed class BehaviorTreeArchetypeTests
     }
 
     [Fact]
+    public void FormationSlot_NonZeroYBasePosition_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new FormationSlot(1, "GK", new Vector3Fixed(F(-45), F(1), Fixed.Zero)));
+    }
+
+    [Fact]
     public void FormationSlot_Equality_FieldwiseAndOrderInsensitive()
     {
         FormationSlot a = new(5, "MF", V3(1, 0, 2));
@@ -189,6 +196,32 @@ public sealed class BehaviorTreeArchetypeTests
     public void Parse_NullYaml_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => BehaviorTreeArchetypes.Parse(null!));
+    }
+
+    [Fact]
+    public void Parse_UnknownTopLevelField_Throws()
+    {
+        string yaml = """
+            name: unknown-field
+            description: ""
+            formation:
+              - { roster_slot: 1, role: GK, x: 0, z: 0 }
+              - { roster_slot: 2, role: RB, x: 0, z: 0 }
+              - { roster_slot: 3, role: RCB, x: 0, z: 0 }
+              - { roster_slot: 4, role: LCB, x: 0, z: 0 }
+              - { roster_slot: 5, role: LB, x: 0, z: 0 }
+              - { roster_slot: 6, role: RM, x: 0, z: 0 }
+              - { roster_slot: 7, role: RCM, x: 0, z: 0 }
+              - { roster_slot: 8, role: LCM, x: 0, z: 0 }
+              - { roster_slot: 9, role: LM, x: 0, z: 0 }
+              - { roster_slot: 10, role: RST, x: 0, z: 0 }
+              - { roster_slot: 11, role: LST, x: 0, z: 0 }
+            press_radius_metres: 25
+            buildup_speed_factor: 1
+            typo_knob: 99
+            """;
+
+        Assert.Throws<InvalidDataException>(() => BehaviorTreeArchetypes.Parse(yaml));
     }
 
     [Fact]
@@ -256,6 +289,37 @@ public sealed class BehaviorTreeArchetypeTests
             buildup_speed_factor: 1
             """;
         Assert.Throws<ArgumentException>(() => BehaviorTreeArchetypes.Parse(yaml));
+    }
+
+    [Theory]
+    [InlineData("x")]
+    [InlineData("z")]
+    public void Parse_MissingFormationCoordinate_Throws(string missingCoordinate)
+    {
+        string firstSlot = missingCoordinate == "x"
+            ? "{ roster_slot: 1, role: GK, z: 0 }"
+            : "{ roster_slot: 1, role: GK, x: 0 }";
+
+        string yaml = $$"""
+            name: missing-coordinate
+            description: ""
+            formation:
+              - {{firstSlot}}
+              - { roster_slot: 2, role: RB, x: 0, z: 0 }
+              - { roster_slot: 3, role: RCB, x: 0, z: 0 }
+              - { roster_slot: 4, role: LCB, x: 0, z: 0 }
+              - { roster_slot: 5, role: LB, x: 0, z: 0 }
+              - { roster_slot: 6, role: RM, x: 0, z: 0 }
+              - { roster_slot: 7, role: RCM, x: 0, z: 0 }
+              - { roster_slot: 8, role: LCM, x: 0, z: 0 }
+              - { roster_slot: 9, role: LM, x: 0, z: 0 }
+              - { roster_slot: 10, role: RST, x: 0, z: 0 }
+              - { roster_slot: 11, role: LST, x: 0, z: 0 }
+            press_radius_metres: 25
+            buildup_speed_factor: 1
+            """;
+
+        Assert.Throws<InvalidDataException>(() => BehaviorTreeArchetypes.Parse(yaml));
     }
 
     [Fact]

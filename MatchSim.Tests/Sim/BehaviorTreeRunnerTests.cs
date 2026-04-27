@@ -136,6 +136,24 @@ public sealed class BehaviorTreeRunnerTests
     }
 
     [Fact]
+    public void Tick_AirborneBall_UsesPitchProjectionForPressCommand()
+    {
+        BehaviorTreeArchetype archetype = BehaviorTreeArchetypes.Load("direct-pressing");
+        PlayerState[] home = TeamFromArchetype(archetype, TeamSide.Home);
+        PlayerState[] away = TeamFromArchetype(archetype, TeamSide.Away);
+
+        BallState ball = BallAt(new Vector3Fixed(F(-45), F(30), Fixed.Zero));
+        away[0] = new PlayerState(new Vector3Fixed(F(-45), Fixed.Zero, Fixed.Zero), Vector3Fixed.Zero, 1, TeamSide.Away);
+
+        PlayerCommand[] commands = new PlayerCommand[11];
+        BehaviorTreeRunner.Tick(ball, home, away, TeamSide.Home, archetype,
+            PlayerKinematics.Phase3Defaults, commands);
+
+        Assert.Equal(new Vector3Fixed(F(-45), Fixed.Zero, Fixed.Zero), commands[0].DesiredPosition);
+        Assert.Equal(PlayerKinematics.Phase3Defaults.MaxSpeed, commands[0].DesiredSpeed);
+    }
+
+    [Fact]
     public void Tick_OpponentsHavePossession_DistantDefenderHoldsShape()
     {
         // Setup: ball on far side of pitch, opponents have possession; a

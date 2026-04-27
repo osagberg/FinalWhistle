@@ -130,6 +130,10 @@ public readonly struct FormationSlot : IEquatable<FormationSlot>
         {
             throw new ArgumentOutOfRangeException(nameof(rosterSlot), rosterSlot, "RosterSlot must be in [1, 11].");
         }
+        if (homeBasePosition.Y != Fixed.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(homeBasePosition), homeBasePosition, "Formation base positions must be on the pitch plane (Y = 0).");
+        }
         RosterSlot = rosterSlot;
         Role = role ?? string.Empty;
         HomeBasePosition = homeBasePosition;

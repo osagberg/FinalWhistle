@@ -2,6 +2,17 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-27 (Codex review pass on BT archetypes — strict YAML + airborne-ball projection)
+
+Review pass on `BehaviorTreeArchetypes`, `BehaviorTreeRunner`, and the BT test suite.
+
+- Caught YAML validation drift: unknown fields were explicitly ignored and missing formation `x` / `z` coordinates defaulted to zero. Parser now rejects unsupported fields, invalid YAML, and missing required coordinates at the boundary.
+- Caught a pitch-plane command leak: press logic used the ball's full 3D position, so an airborne ball could fall outside PressRadius and/or emit a nonzero-Y press target. Runner now projects ball position to the pitch plane for possession, press-range checks, nearest-player selection, and press commands.
+- Formation base slots now reject nonzero Y positions so authored shapes cannot command ground players off the pitch.
+- Added red-first regression coverage for unknown YAML fields, missing coordinates, nonzero-Y formation slots, and airborne-ball press projection.
+
+Verification: targeted BT suites green (47 tests); full dotnet test green with **444 total tests**. Full `fw verify` green after doc sync.
+
 ## 2026-04-27 (Phase-3 Week-2 — 2 BT manager archetypes in YAML + 42 tests)
 
 `MatchSim/Content/archetypes/direct-pressing.yaml` + `low-block-counter.yaml` (embedded resources) + `MatchSim/Sim/PlayerCommand.cs` + `MatchSim/Sim/BehaviorTreeArchetype.cs` + `MatchSim/Sim/BehaviorTreeArchetypes.cs` + `MatchSim/Sim/BehaviorTreeRunner.cs` land. Pure-deterministic per-tick tactical-heuristic runner that converts a YAML-loaded archetype + match snapshot into 11 `PlayerCommand`s. YamlDotNet 17.0.1 added to MatchSim.csproj per CLAUDE.md tech-stack lock ("YAML for behavior-tree archetypes").
@@ -21,7 +32,7 @@ Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]
 
 **`BehaviorTreeArchetypes.cs` structure:**
 
-- `Parse(string yamlContent) → BehaviorTreeArchetype` — YamlDotNet `UnderscoredNamingConvention`; `IgnoreUnmatchedProperties` for forward-compat with future schema additions.
+- `Parse(string yamlContent) → BehaviorTreeArchetype` — YamlDotNet `UnderscoredNamingConvention`; strict schema mode rejects unknown fields, invalid YAML, missing required formation coordinates, and non-positive numeric fields.
 - `Load(string name) → BehaviorTreeArchetype` — reads embedded YAML resource, parses, caches by ordinal name. Repeat calls return same reference.
 - `BuiltInNames: IReadOnlyList<string>` — `["direct-pressing", "low-block-counter"]`.
 - Numeric fields parse via `Fixed.Parse` (canonical decimal form); rejects non-positive values.
@@ -31,10 +42,10 @@ Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]
 
 - `static Tick(BallState, ReadOnlySpan<PlayerState> ownTeam, ReadOnlySpan<PlayerState> opponents, TeamSide side, BehaviorTreeArchetype archetype, PlayerKinematics kinematics, Span<PlayerCommand> commandsOut)` — pure deterministic; allocation-free hot path; commands written into caller-provided buffer in own-team-index order.
 - **Three-mode heuristic:**
-  1. **Press** — opponents have possession AND own player within `PressRadius` of ball → command: head to ball at `MaxSpeed`.
+  1. **Press** — opponents have possession AND own player within `PressRadius` of the ball's pitch projection → command: head to pitch-projected ball at `MaxSpeed`.
   2. **Build-up** — own team has possession → ball-carrier (nearest own player to ball) heads to opponent goal at `MaxSpeed × BuildupSpeedFactor`; other players hold formation.
   3. **Hold shape** — otherwise, head to formation base position (mirrored if Away) at `MaxSpeed × 0.5` (jog).
-- **Possession resolution:** team whose nearest player is strictly closer to the ball; ties resolve to opponent (defensive default; conservative). Match-loop layers may eventually replace with a more nuanced contest-resolution policy.
+- **Possession resolution:** team whose nearest player is strictly closer to the ball's pitch projection; ties resolve to opponent (defensive default; conservative). Match-loop layers may eventually replace with a more nuanced contest-resolution policy.
 - **Coordinate convention:** pitch is 105m × 68m centred on origin; goal lines at X = ±52.5. Home defends −X, opponent goal at +X; Away defends +X, opponent goal at −X.
 
 **`direct-pressing.yaml` (4-4-2 high press):**
@@ -56,7 +67,7 @@ Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]
 
 **Cross-system integration verified:** the BT layer integrates cleanly with PlayerActuator (the integration test runs both end-to-end). Cross-references to Vector3Fixed Distance/DistanceSquared, PlayerKinematics.Phase3Defaults, and TeamSide validate the full Player + BT + Ball stack composes deterministically.
 
-**`fw verify` Tier-A umbrella green:** verify-docs + banned-terms + dotnet test (now 439 total tests; 397 prior + 42 new).
+**`fw verify` Tier-A umbrella green:** verify-docs + banned-terms + dotnet test (now 444 total tests after Codex hardening).
 
 **NOT in scope:** sequence/selector BT nodes (Phase 4 if observers find tactics too thin); per-player gene-driven kinematics (Phase 4); MatchState struct (emerges when match-loop layer needs it); roster / 22-player composition logic (downstream); kick-direction tactical decisions (currently kick = `new BallState(ball.Position, MaxSpeed-toward-goal-vector, Vector3Fixed.Zero)` is implicit in build-up; explicit kick-trigger BT nodes are Phase 4).
 

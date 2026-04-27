@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using YamlDotNet.Core;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -71,11 +72,18 @@ public static class BehaviorTreeArchetypes
 
         IDeserializer deserializer = new DeserializerBuilder()
             .WithNamingConvention(UnderscoredNamingConvention.Instance)
-            .IgnoreUnmatchedProperties()
             .Build();
 
-        ArchetypeYaml dto = deserializer.Deserialize<ArchetypeYaml>(yamlContent)
-            ?? throw new InvalidDataException("YAML deserialized to null — file is empty or unparseable.");
+        ArchetypeYaml dto;
+        try
+        {
+            dto = deserializer.Deserialize<ArchetypeYaml>(yamlContent)
+                ?? throw new InvalidDataException("YAML deserialized to null — file is empty or unparseable.");
+        }
+        catch (YamlException ex)
+        {
+            throw new InvalidDataException("Archetype YAML contains unsupported fields or invalid syntax.", ex);
+        }
 
         if (dto.Formation is null)
         {
@@ -86,13 +94,21 @@ public static class BehaviorTreeArchetypes
         for (int i = 0; i < dto.Formation.Count; i++)
         {
             FormationSlotYaml slotYaml = dto.Formation[i];
+            if (!slotYaml.X.HasValue)
+            {
+                throw new InvalidDataException($"Archetype '{dto.Name}' formation slot {i + 1} is missing required x coordinate.");
+            }
+            if (!slotYaml.Z.HasValue)
+            {
+                throw new InvalidDataException($"Archetype '{dto.Name}' formation slot {i + 1} is missing required z coordinate.");
+            }
             formation[i] = new FormationSlot(
                 rosterSlot:       slotYaml.RosterSlot,
                 role:             slotYaml.Role ?? string.Empty,
                 homeBasePosition: new Vector3Fixed(
-                    Fixed.FromInt(slotYaml.X),
+                    Fixed.FromInt(slotYaml.X.Value),
                     Fixed.Zero,                          // ground players; Y = 0 invariant
-                    Fixed.FromInt(slotYaml.Z))
+                    Fixed.FromInt(slotYaml.Z.Value))
             );
         }
 
@@ -161,8 +177,8 @@ public static class BehaviorTreeArchetypes
     {
         public byte RosterSlot { get; set; }
         public string? Role { get; set; }
-        public int X { get; set; }
-        public int Z { get; set; }
+        public int? X { get; set; }
+        public int? Z { get; set; }
     }
 
     #endregion
