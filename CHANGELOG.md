@@ -2,6 +2,51 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-27 (Phase-3 Week-2 — Cross-platform determinism gate + 10 tests)
+
+`MatchSim/Sim/MatchCanonicalState.cs` + `MatchSim.Tests/Sim/MatchDeterminismTests.cs` land. The cross-platform-determinism gate per `design/match-engine.md §Prototype gate`: same initial state + same N ticks → same SHA256 of canonical state on Win/Mac/Linux. Everything we've built since the start of Phase 3 (Fixed / Tick / Seed / Vector3Fixed / BallPhysics / PlayerActuator / BehaviorTreeRunner / SerializationContract / CanonicalEncoder) converges here.
+
+**`MatchCanonicalState.cs` structure:**
+
+- `static class MatchCanonicalState` with `Write(encoder, tick, ball, home, away)` and `ComputeHash(tick, ball, home, away)`.
+- **Encoding order locked at v1:** Tick (8B) → Ball (72B) → Home count = 11 (4B) → Home 11 PlayerStates (550B) → Away count = 11 (4B) → Away 11 PlayerStates (550B). Total: **1188 bytes per snapshot**.
+- Defensive count-prefixes for each side give adapter consumers an explicit per-side count, even though both sides are always 11 in the Month-3 slice (no substitutions per match-engine.md §Q4).
+- Adding any field is a corpus-fixture-invalidating change; handle via SerializationContract version bump.
+- Caller responsibility: roster order. Per ADR-0008 §Determinism contract ordering rules, the encoder does NOT sort. The match-loop layer is responsible for presenting players in a stable order (typically formation roster index).
+
+**`MatchSimulationState` (test helper) — composition pattern:**
+
+- Plain class with mutable `Tick CurrentTick`, `BallState Ball`, `PlayerState[11] HomeTeam`, `PlayerState[11] AwayTeam`. Loop overwrites in place to avoid per-tick allocations (per matchsim rules-file discipline).
+- `RunMatch(state, homeArch, awayArch, kinematics, ballCoeffs, ticks)` advances each tick in deterministic order:
+  1. **BT.Tick × 2** — emits 22 `PlayerCommand`s (home + away) into pre-allocated buffers
+  2. **PlayerActuator.Step × 22** — home roster 0..10 then away roster 0..10
+  3. **BallPhysics.Step** — ball advances after players (canonical match-loop order)
+- The Phase-4 match-loop will introduce a real `Match` struct when it exists; for Month-3 this composition lives in tests + the production helper provides only canonical-state hashing.
+
+**Pinned smoke-fixture hash:**
+
+```
+sha256:299cdb0cbbc9606e141db278a14585780d0e3b5dbfb8815f634af89be7f6118a
+```
+
+Computed on macOS 2026-04-27. Initial state: `direct-pressing` (Home) vs `low-block-counter` (Away) at their formation base positions; ball at centre at rest; 60 ticks (1 game-second). The Tier-A CI matrix will run this same test on Win + Linux runners (separate Phase-3 task to wire the matrix workflow); all three must produce the identical hash. Disagreement = real determinism leak.
+
+**Seed not included in canonical-state hash:** seed is an INPUT, not state. Current sim has no per-event randomness (BT + Player + Ball are pure-deterministic without RNG); when stochastic events land Phase-4+, they enter state through emitted events (not through the seed itself). The encoder doesn't need a `WriteSeed` call for snapshot hashing.
+
+**Test coverage** (10 new tests across 1 file):
+
+- **Pinned-hash bedrock (1):** `Match_SmokeFixture60Ticks_ProducesPinnedCanonicalStateHash` — uses `Assert.True` with full failure-message format so xUnit doesn't truncate the hash on mismatch (default `Assert.Equal` truncates at ~38 chars; we need full 64-char visibility for cross-platform debugging).
+- **Determinism (2):** 100 fresh identical runs → 1 distinct hash (catches Random / DateTime / static state / iteration order); tick-by-tick hashing every 10 ticks shows pair-wise stability across two independent runs (catches non-determinism that emerges only mid-match).
+- **Sensitivity (2):** different archetype assignments (direct-vs-lowblock vs lowblock-vs-direct) produce different hashes; ball nudged 1m off-centre produces different hash.
+- **Order-stability regression guards (2):** encoding home-before-away differs from away-before-home; tick-advance changes hash even when everything else is identical.
+- **MatchCanonicalState API surface (3):** Write produces exactly 1188 bytes for the smoke fixture; null-encoder throws ArgumentNullException; wrong-team-length throws ArgumentException.
+
+**Cross-system integration verified:** the determinism gate is the first test that exercises BT + Player + Ball + CanonicalEncoder all in the same pipeline. Pinned-hash test is the strongest end-to-end gate currently in the suite — any change anywhere in the stack that drifts byte-level determinism will trip this hash.
+
+**`fw verify` Tier-A umbrella green:** verify-docs + banned-terms + dotnet test (now 454 total tests; 444 prior + 10 new).
+
+**NOT in scope:** Win/Mac/Linux CI matrix activation (separate Phase-3 task — `unity-smoke.yml` workflow gains a `matrix.os` block once we have a 2nd platform's hash to verify against macOS); golden-replay-corpus fixture authoring (Week-3 task per `design/specs/golden-replay-corpus.md`; depends on this canonical-state test layer + the serialization contract that just landed).
+
 ## 2026-04-27 (Codex review pass on BT archetypes — strict YAML + airborne-ball projection)
 
 Review pass on `BehaviorTreeArchetypes`, `BehaviorTreeRunner`, and the BT test suite.
