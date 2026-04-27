@@ -2,6 +2,43 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-27 (Phase-3 Week-1 priority #5 — `SerializationContract` + `CanonicalEncoder` + 42 tests)
+
+`MatchSim/Sim/CanonicalEncoder.cs` + `MatchSim.Tests/Sim/SerializationContract.cs` land. The canonical byte-encoding contract for MatchSim state — locks the on-disk byte representation that `golden-replay-corpus.md` hashes depend on. Win/Mac/Linux byte-equality is the contract; this file proves it at the unit-test layer (CI matrix asserts the same hashes re-compute green on each OS in subsequent Phase-3 work).
+
+**`CanonicalEncoder.cs` structure:**
+
+- `sealed class CanonicalEncoder` over an internal `ArrayBufferWriter<byte>`. Allocation-aware: caller can call `Reset()` to reuse the same instance for multiple encodings without re-allocating. Default initial capacity 256 bytes.
+- **Primitive writes** (allocation-free hot path; `BinaryPrimitives.Write*LittleEndian` for platform-independent encoding — `BitConverter` is platform-dependent and forbidden):
+  - `WriteFixed(Fixed)` — 8 bytes LE over `RawValue`
+  - `WriteTick(Tick)` — 8 bytes LE over `Value`
+  - `WriteSeed(Seed)` — 8 bytes LE over `Value`
+  - `WriteInt32(int)` / `WriteUInt32(uint)` — 4 bytes LE
+  - `WriteInt64(long)` / `WriteUInt64(ulong)` — 8 bytes LE
+  - `WriteByte(byte)` — 1 byte
+  - `WriteBool(bool)` — 1 byte (0x00 / 0x01); no other byte values valid
+  - `WriteString(string)` — 4-byte LE byte-count prefix + UTF-8 bytes (byte count, NOT char count; `null` throws)
+  - `WriteCount(int)` — 4-byte LE non-negative int (negative throws); functionally identical to `WriteInt32` but documents intent
+- **Hashing:**
+  - `ComputeSha256Hex()` — instance method; returns `"sha256:<lowercase-hex>"` matching `golden-replay-corpus.md` hash format
+  - `ComputeSha256Hex(ReadOnlySpan<byte>)` — static helper for raw-bytes callers
+  - SHA256 computed via `SHA256.Create() + TryComputeHash` (allocation-free; netstandard2.1 compat); lowercase-hex via hand-rolled lookup (netstandard2.1 lacks `Convert.ToHexString`)
+- **Lifecycle:** `WrittenSpan` + `WrittenCount` expose buffer state; `Reset()` clears to empty without releasing capacity. `ComputeSha256Hex()` is non-mutating; safe to call repeatedly.
+
+**Caller responsibility:** per ADR-0008 §Determinism contract ordering rules, collection elements MUST be sorted by ordinal comparison (`StringComparer.Ordinal`) on a stable key BEFORE encoding. The encoder preserves write order; it never sorts. ViewerEvent stream order is `(StartTick, ViewerEventId)`; `PitchView.Players` ordinal-sorted by `(TeamSide, PlayerId)`; `MemoryHit.Slots` ordinal-sorted by `SlotName`.
+
+**Test coverage** (42 tests in `MatchSim.Tests/Sim/SerializationContract.cs`):
+
+- **Primitive byte-encoding rules** (17 tests): Each primitive write produces a literal expected `byte[]`. Fixed.Zero → 8 zeros; Fixed.One → `00 00 00 00 01 00 00 00`; Fixed.MaxValue → `ff ff ff ff ff ff ff 7f`; Fixed.MinValue → `00 00 00 00 00 00 00 80`; Tick.FromSeconds(1) → `3c 00 00 00 00 00 00 00`; Seed corpus-smoke `0xDEADBEEFDEADBEEF` → `ef be ad de ef be ad de`; Int32(-1) → `ff ff ff ff` (two's complement LE); WriteBool false+true → `00 01`; WriteString("café") → `05 00 00 00 63 61 66 c3 a9` (5 BYTES, not 4 chars); WriteCount(N) bytes-for-bytes equal to WriteInt32(N).
+- **Argument-validation contract** (4 tests): null string throws ArgumentNullException; negative count throws ArgumentOutOfRangeException; negative initial capacity throws; zero initial capacity does NOT throw (treated as "use minimal capacity").
+- **SHA256 reference-hash contract** (12 tests; cross-platform parity bedrock): Each pinned to a literal hex hash independently computed via openssl on 2026-04-27. Empty buffer = `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` (universal SHA256-of-empty constant); 8 zero bytes = `af5570f5...e83dfc` (Fixed.Zero, Tick.Zero, Seed.Zero all produce the same hash because the encoder is type-agnostic at byte level — only the underlying 64-bit value enters the hash); Fixed.One = `01acecb5...c76e9d`; Fixed.MaxValue = `6a69a6cc...0b3324`; Tick(1s) = `3fe8adee...5efd7c`; corpus smoke seed = `743c764e...e2b4a1`; canonical-triple zero (Fixed.Zero + Tick.Zero + Seed.Zero = 24 zero bytes) = `9d908ecf...20aa0`; "café" string write = `1e5349bb...064464`; empty string write (just 4-byte zero length prefix) = `df3f6198...4b8111`. Static + instance overloads agree. Output format is always `"sha256:" + 64 lowercase-hex chars`.
+- **Encoder lifecycle + composition** (7 tests): `WrittenCount` grows by expected size as writes happen; `Reset()` clears to empty + restores empty-buffer hash; reset-then-write produces hash identical to fresh-encoder-then-same-write; `ComputeSha256Hex` called twice returns same value without mutating buffer; order-matters (writing Fixed.One then Fixed.Zero produces a DIFFERENT hash than writing Fixed.Zero then Fixed.One — protects against accidental sort-on-write); count-and-elements composition matches manually-built byte concatenation.
+- **Determinism** (2 tests): 100 fresh encoders + same input → exactly 1 distinct hash; 1000 distinct seeds → 1000 distinct hashes (no collision in encode-then-SHA256).
+
+**`fw verify` Tier-A umbrella green:** verify-docs + banned-terms + dotnet test (now 276 total tests; 234 prior + 42 new). Win/Mac/Linux CI matrix verification deferred to a later Phase-3 task — the literal-pinned hashes already PROVE platform-independence at the unit-test layer because every multi-byte value goes through `BinaryPrimitives.Write*LittleEndian` (platform-independent by spec); the CI matrix verifies the spec holds in practice.
+
+**Phase-3 Week-2 golden-replay-corpus fixture authoring is now unblocked.** This was the gating task for the corpus spec's open question §1 ("Exact sim-state serialization order"). With encoder + hash format pinned, the first corpus fixture (Tier-A smoke seed `0xdeadbeefdeadbeef`) can be authored once Ball + Player + 2 BT archetypes can produce meaningful events (Phase-3 Week 2-3).
+
 ## 2026-04-27 (Phase-3 Week-1 priority #7 — ADR-0008 + ADR-0009 flipped Proposed → Accepted)
 
 After Codex review pass on the GPT-5.5 follow-up ("no remaining blocking findings"), both ADRs flip Proposed → Accepted. Cross-model rhythm complete: Claude drafted (2026-04-26) → GPT-5.5 reviewed (4 P1 + 4 P2 Concerns; applied 2026-04-27) → Codex hardened (stale-reference cleanup) → Accepted.
