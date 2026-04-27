@@ -2,6 +2,70 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-27 (Phase-3 Week-2 — `Player` state machine + `Fixed.Sqrt` + 56 tests)
+
+`MatchSim/Sim/TeamSide.cs` + `MatchSim/Sim/PlayerState.cs` + `MatchSim/Sim/PlayerActuator.cs` (with `PlayerKinematics` co-located) land. Pure-deterministic player kinematic actuator per `design/match-engine.md §Q3` steering-target-actuator spec. Q32.32 fixed-point throughout; semi-implicit Euler at 60Hz; one authority over a player's movement per tick (dual-authoritative movement is forbidden per design exit clause).
+
+**Pre-requisite: `Fixed.Sqrt`**
+
+- Newton's method on `BigInteger` for cross-platform deterministic integer-only iteration. Throws on negative input; returns zero for zero input.
+- For input `x` with raw `X = x · 2^32`, result raw is `floor(sqrt(X · 2^32))`. Intermediate `X · 2^32` is up to 96 bits — `BigInteger` handles exactly.
+- Newton's iteration on integers monotonically decreases until convergence (`(x + n/x)/2 >= x` triggers exit).
+- Initial guess via `BigInteger.GetByteCount() * 8` (netstandard2.1-compat; `BigInteger.Log2` / `GetBitLength` are .NET 5+ only).
+- Result is `floor(sqrt)` in exact integer math: `Sqrt(x) * Sqrt(x) <= x` always; equality only at perfect Q32.32 squares.
+
+**Vector3Fixed extensions:**
+
+- `Length()` — Euclidean magnitude via Sqrt; pay only when actual length is needed.
+- `Distance(a, b)` / `DistanceSquared(a, b)` — Sqrt-free DistanceSquared is preferred for radius/proximity comparisons.
+- `Normalize()` — unit vector in same direction; throws on zero vector.
+
+**`TeamSide` enum:**
+
+- Byte enum: `Home = 1`, `Away = 2`. Default `(byte)0` is intentionally NOT a valid side, so an uninitialized byte in serialized state is detectable as "unset". Identical to ADR-0008 `Viewer.Contracts.TeamSide`; this is the sim-side definition that the viewer-side enum will mirror.
+
+**`PlayerState.cs` structure:**
+
+- `readonly struct PlayerState` of (`Position`, `Velocity`, `JerseyNumber` byte, `Side` TeamSide).
+- Position + Velocity are `Vector3Fixed` for forward-compatibility with jumping headers / set-piece flight, but `Y = 0` invariant for ground players in the Month-3 slice (no jumping yet per match-engine.md §Q4).
+- `WriteCanonical` writes 50 bytes in locked order: P.X / P.Y / P.Z / V.X / V.Y / V.Z / JerseyNumber / Side. Adding a field = corpus-fixture invalidation (handle via SerializationContract version bump).
+
+**`PlayerActuator.cs` structure:**
+
+- `static class PlayerActuator.Step(state, desiredPosition, desiredSpeed, kinematics) → state` — pure deterministic function per design literal API.
+- Pre-computed `Dt = Fixed.FromInt(1) / Fixed.FromInt(60)` matches `BallPhysics`.
+- Step sequence:
+  1. Compute `toTarget = desiredPosition - currentPosition`.
+  2. If `toTarget` is exactly zero OR `desiredSpeed <= 0`: target velocity = `Vector3Fixed.Zero` (player wants to stop / is at target). Sqrt-free shortcut.
+  3. Else: target velocity = `Normalize(toTarget) * min(desiredSpeed, MaxSpeed)`. Pays one Sqrt for the normalize.
+  4. Velocity-delta = target velocity - current velocity. Clamp magnitude to `MaxAcceleration · dt` via `ClampMagnitude` (Sqrt + division). This naturally caps turn rate without an explicit angular cap — at high speed, direction changes need many ticks of deceleration-then-acceleration.
+  5. New velocity = current velocity + clamped delta. Defensive post-step `ClampMagnitude` to `MaxSpeed` (catches accumulated rounding).
+  6. New position = current position + new velocity × dt (semi-implicit Euler; matches BallPhysics).
+- `static PlayerActuator.HasPossession(player, ball, kinematics) → bool` — Sqrt-free `DistanceSquared` comparison against `Radius²`. Boundary inclusive: distance == radius counts as possession. Both team-mates and opponents independently report possession of the same ball — match loop resolves contests.
+- **No separate `Kick` API:** kick = `new BallState(ball.Position, kickVelocity, spin)` is trivial composition; integration test verifies the player-runs-to-ball-then-kicks loop end-to-end.
+
+**`PlayerKinematics.Phase3Defaults`:**
+
+- `MaxSpeed = 7 m/s` (sustained sprint for an outfield player).
+- `MaxAcceleration = 6 m/s²`.
+- `Radius = 0.5 m` (possession boundary).
+- Homogeneous across all 22 players in Month-3; per-player gene-driven tuning lands at Phase 4 with the physical-attribute model.
+
+**Test coverage** (56 new tests across 3 files):
+
+- **`FixedSqrtTests.cs` — 22 tests:** zero/one/negative-throws (3) / 8 perfect-square Theory (1×1, 4×2, 9×3, 16×4, 25×5, 100×10, 10k×100, 1M×1000) / quarter→half exact / 8 non-perfect-square Theory using floor-bound + closeness-margin invariant `(x - root²) ≤ 2·(root+1)·ε` / determinism 100x / 100-distinct-inputs distinct-outputs / MaxValue doesn't overflow / literal pinned values for Sqrt(2) = `0x16A09E664` raw / Sqrt(3) = `0x1BB67AE85` raw / Sqrt(5) = `0x23C6EF372` raw (Python `isqrt(N << 64)` oracle on 2026-04-27).
+- **`Vector3FixedTests.cs` extensions — 12 tests:** Length zero / unit-vectors / 3-4-5 Pythagorean / 3-4-12-13 quadruple in 3D / Distance commutativity / DistanceSquared = Distance² invariant / Normalize-of-zero throws / Normalize-of-unit-is-itself / Normalize preserves direction (cross product with input is zero) / Normalize length² close to 1 within 1e-6 tolerance.
+- **`PlayerActuatorTests.cs` — 22 tests:** PlayerState construct / equality / WriteCanonical 50-byte size / WriteCanonical locked order / TeamSide byte-pinning (1=Home, 2=Away, default reserved) / Phase3Defaults non-zero + matches authored values / Step determinism 100x / at-target velocity decays toward zero / desired_speed=0 stops the takeoff / from-rest acceleration toward target with structural-property bounds (along +X, ≤ MaxAccel·dt with ULP slack, within 1% of MaxAccel·dt, position = velocity × dt) / per-step velocity-delta-magnitude bounded by MaxAccel·dt over 30-tick run / never-exceeds-MaxSpeed over 600-tick run / diagonal target heading ratio = 4/3 within 0.001 / HasPossession ball-at-player → true / ball just outside radius → false / ball at exact radius → true (boundary inclusive) / multiple players reporting possession of same ball / integration test: player runs to ball over 10 game-seconds → gains possession → kicks ball with v=10 m/s → ball moves +Z.
+
+**Test-strategy lessons reapplied (matches BallPhysics):**
+
+- ClampMagnitude path goes through Sqrt + division; production-equivalent expected expressions don't compose cleanly across that path. Step tests use **bounded-property + close-to-target invariants** rather than exact-equality.
+- Floor-of-sqrt invariant in Q32.32 is `root² ≤ x` + `(x - root²) ≤ 2·(root+1)·ε`. The strict integer-floor `(root+1)² > x` is NOT a clean Fixed inequality because Q32.32 multiplication truncates after a 64-bit shift, which can collapse adjacent ULPs to identical Fixed-multiply outputs (verified: for sqrt(2), both root² and (root+1)² produce Fixed-mul outputs that round to the same Q32.32 value).
+
+**`fw verify` Tier-A umbrella green:** verify-docs + banned-terms + dotnet test (now 389 total tests; 333 prior + 56 new).
+
+**NOT in scope:** behavior-tree archetypes (separate SPEC task next); per-player gene-driven kinematics (Phase 4); roster / 22-player composition logic (downstream Match struct).
+
 ## 2026-04-27 (Codex review pass on `BallPhysics` — grounded-ball contact fix)
 
 Review pass on `MatchSim/Sim/BallPhysics.cs` + `MatchSim.Tests/Sim/BallPhysicsTests.cs`.

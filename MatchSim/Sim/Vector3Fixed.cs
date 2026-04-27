@@ -105,6 +105,47 @@ public readonly struct Vector3Fixed : IEquatable<Vector3Fixed>
     /// </summary>
     public Fixed LengthSquared() => Dot(this, this);
 
+    /// <summary>
+    /// Length (Euclidean magnitude). Uses <see cref="Fixed.Sqrt"/> — pay this
+    /// only when actual length is needed; prefer <see cref="LengthSquared"/>
+    /// for comparisons.
+    /// </summary>
+    public Fixed Length() => Fixed.Sqrt(LengthSquared());
+
+    /// <summary>
+    /// Distance between two vectors. <c>|a - b|</c>.
+    /// </summary>
+    public static Fixed Distance(Vector3Fixed a, Vector3Fixed b) => (a - b).Length();
+
+    /// <summary>
+    /// Distance-squared between two vectors. <c>|a - b|²</c>. Sqrt-free;
+    /// preferred for radius / proximity comparisons (compare against
+    /// <c>r²</c> instead of computing <see cref="Distance"/> and comparing
+    /// against <c>r</c>).
+    /// </summary>
+    public static Fixed DistanceSquared(Vector3Fixed a, Vector3Fixed b) => (a - b).LengthSquared();
+
+    /// <summary>
+    /// Unit vector in the same direction. Throws on zero vector (no defined
+    /// direction). Uses <see cref="Fixed.Sqrt"/>; the result is precise to
+    /// Q32.32 floor and may be off by a few ULP from a true unit vector
+    /// (verifying <c>Length(Normalize(v)) == 1</c> exactly is generally NOT
+    /// possible in fixed-point — expect &lt; 2 Q32.32 ULP drift).
+    /// </summary>
+    public Vector3Fixed Normalize()
+    {
+        Fixed lenSq = LengthSquared();
+        if (lenSq == Fixed.Zero)
+        {
+            throw new InvalidOperationException("Cannot normalize the zero vector.");
+        }
+        Fixed len = Fixed.Sqrt(lenSq);
+        // Divide each component by length. Fixed division uses BigInteger
+        // internally; for hot paths consider caching the inverse-length and
+        // multiplying instead.
+        return new Vector3Fixed(X / len, Y / len, Z / len);
+    }
+
     #endregion
 
     #region Equality + ToString

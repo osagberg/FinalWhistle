@@ -198,6 +198,68 @@ public readonly struct Fixed : IEquatable<Fixed>, IComparable<Fixed>, IComparabl
     /// <summary>Larger of two values.</summary>
     public static Fixed Max(Fixed a, Fixed b) => a._raw >= b._raw ? a : b;
 
+    /// <summary>
+    /// Non-negative square root. Throws on negative input. Uses Newton's
+    /// method on <see cref="BigInteger"/> for cross-platform deterministic
+    /// integer-only iteration. Result is the floor of the true Q32.32
+    /// square root: <c>Sqrt(x) * Sqrt(x) &lt;= x</c> by construction (with
+    /// equality only when <c>x</c> is a perfect Q32.32 square).
+    ///
+    /// <para>
+    /// Implementation: for input <c>x</c> with raw <c>X = x · 2^32</c>, the
+    /// result raw is <c>floor(sqrt(X · 2^32))</c>. The intermediate
+    /// <c>X · 2^32</c> is up to 96 bits — <see cref="BigInteger"/> handles
+    /// it exactly. Newton's iteration on integers is monotonically
+    /// decreasing once it crosses the root, so we terminate when the next
+    /// candidate is no longer smaller than the current.
+    /// </para>
+    /// </summary>
+    public static Fixed Sqrt(Fixed value)
+    {
+        if (value._raw < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(value), value, "Square root of a negative Fixed is undefined.");
+        }
+        if (value._raw == 0)
+        {
+            return Zero;
+        }
+
+        // n = X · 2^32; result raw = floor(sqrt(n)).
+        BigInteger n = (BigInteger)value._raw << FractionalBits;
+
+        // Newton-Raphson integer square root. Initial guess: bit-length-based
+        // over-estimate — for n with B bits, sqrt(n) has ceil(B/2) bits.
+        // BigInteger.Log2 / GetBitLength are .NET 5+ only; use byte-count
+        // (netstandard2.1-compatible) as a safe over-estimate. Byte count
+        // gives bits within ±8; over-estimating is fine since Newton's
+        // method on integers monotonically decreases until convergence.
+        int bits = n.GetByteCount() * 8;
+        BigInteger x = BigInteger.One << ((bits + 1) >> 1);
+
+        // Iterate. Newton's method on integers: x_{n+1} = (x_n + n/x_n) / 2.
+        // Once x_{n+1} >= x_n we've crossed the root and can stop.
+        while (true)
+        {
+            BigInteger y = (x + n / x) >> 1;
+            if (y >= x)
+            {
+                break;
+            }
+            x = y;
+        }
+
+        // x is now floor(sqrt(n)). Range-check (must fit in long; for
+        // Fixed.MaxValue the result is sqrt(2^31 - epsilon) ≈ 46340.95 in
+        // Q32.32 — well within long range, but the assertion guards against
+        // future precision-doubling shifts).
+        if (x > long.MaxValue)
+        {
+            throw new OverflowException("Sqrt result overflowed Q32.32 raw range.");
+        }
+        return new Fixed((long)x);
+    }
+
     public static Fixed operator +(Fixed left, Fixed right) =>
         new(checked(left._raw + right._raw));
 

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using FinalWhistle.MatchSim.Sim;
 using Xunit;
@@ -250,6 +251,115 @@ public sealed class Vector3FixedTests
         Vector3Fixed v = new(F(3), F(4), F(0));
 
         Assert.Equal(F(25), v.LengthSquared());
+    }
+
+    #endregion
+
+    #region Length / Distance / Normalize
+
+    [Fact]
+    public void Length_OfZero_IsZero()
+    {
+        Assert.Equal(Fixed.Zero, Vector3Fixed.Zero.Length());
+    }
+
+    [Fact]
+    public void Length_UnitVectors_IsOne()
+    {
+        Assert.Equal(Fixed.One, Vector3Fixed.UnitX.Length());
+        Assert.Equal(Fixed.One, Vector3Fixed.UnitY.Length());
+        Assert.Equal(Fixed.One, Vector3Fixed.UnitZ.Length());
+    }
+
+    [Fact]
+    public void Length_PythagoreanTriple345_IsFive()
+    {
+        // 3-4-5 right triangle in pitch plane: length is exactly 5.
+        Vector3Fixed v = new(F(3), F(4), Fixed.Zero);
+        Assert.Equal(F(5), v.Length());
+    }
+
+    [Fact]
+    public void Length_3D_3_4_12_Is13()
+    {
+        // 3-4-12-13 quadruple: 3² + 4² + 12² = 9 + 16 + 144 = 169 = 13².
+        Vector3Fixed v = new(F(3), F(4), F(12));
+        Assert.Equal(F(13), v.Length());
+    }
+
+    [Fact]
+    public void Distance_BetweenPoints_MatchesLengthOfDelta()
+    {
+        Vector3Fixed a = new(F(1), F(2), F(3));
+        Vector3Fixed b = new(F(4), F(6), F(15));
+        // Delta = (3, 4, 12); length = 13.
+        Assert.Equal(F(13), Vector3Fixed.Distance(a, b));
+    }
+
+    [Fact]
+    public void Distance_IsCommutative()
+    {
+        Vector3Fixed a = new(F(1), F(2), F(3));
+        Vector3Fixed b = new(F(4), F(6), F(15));
+        Assert.Equal(Vector3Fixed.Distance(a, b), Vector3Fixed.Distance(b, a));
+    }
+
+    [Fact]
+    public void DistanceSquared_SqrtFreeMatchesDistanceSquared()
+    {
+        // DistanceSquared(a, b) should equal Distance(a, b)² — useful invariant
+        // for radius / proximity comparisons that avoid Sqrt.
+        Vector3Fixed a = new(F(1), F(2), F(3));
+        Vector3Fixed b = new(F(4), F(6), F(15));
+        Fixed dist = Vector3Fixed.Distance(a, b);
+        Fixed distSq = Vector3Fixed.DistanceSquared(a, b);
+        Assert.Equal(dist * dist, distSq);
+    }
+
+    [Fact]
+    public void Normalize_OfZeroVector_Throws()
+    {
+        Assert.Throws<InvalidOperationException>(() => Vector3Fixed.Zero.Normalize());
+    }
+
+    [Fact]
+    public void Normalize_UnitVectorIsItself()
+    {
+        // UnitX normalized = UnitX (length is already 1; dividing by 1 is identity).
+        Assert.Equal(Vector3Fixed.UnitX, Vector3Fixed.UnitX.Normalize());
+        Assert.Equal(Vector3Fixed.UnitY, Vector3Fixed.UnitY.Normalize());
+        Assert.Equal(Vector3Fixed.UnitZ, Vector3Fixed.UnitZ.Normalize());
+    }
+
+    [Fact]
+    public void Normalize_PreservesDirection()
+    {
+        // (3, 4, 0) normalized → (0.6, 0.8, 0). Verify direction is preserved
+        // by checking the Cross product with the input is zero (parallel) and
+        // dot is positive.
+        Vector3Fixed v = new(F(3), F(4), Fixed.Zero);
+        Vector3Fixed normalized = v.Normalize();
+
+        // Parallel: cross is zero.
+        Assert.Equal(Vector3Fixed.Zero, Vector3Fixed.Cross(v, normalized));
+        // Same direction (not negated): dot is positive.
+        Assert.True(Vector3Fixed.Dot(v, normalized) > Fixed.Zero);
+    }
+
+    [Fact]
+    public void Normalize_LengthSquaredCloseToOne()
+    {
+        // Normalize should produce a vector with length ≈ 1. Fixed-point
+        // sqrt + division introduces a few ULPs of drift; we expect length²
+        // to be within a small margin (< 1e-6) of 1.
+        Vector3Fixed v = new(F(3), F(4), F(12));
+        Vector3Fixed n = v.Normalize();
+        Fixed lenSq = n.LengthSquared();
+
+        // Bound: |lenSq - 1| < 1e-6. Use Fixed math: epsilon = 0.000001.
+        Fixed epsilon = Fixed.One / Fixed.FromInt(1000000);
+        Fixed err = Fixed.Abs(lenSq - Fixed.One);
+        Assert.True(err < epsilon, $"Normalized length² should be ≈ 1; got {lenSq}, error {err}");
     }
 
     #endregion
