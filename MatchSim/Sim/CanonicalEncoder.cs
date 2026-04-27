@@ -27,7 +27,8 @@ namespace FinalWhistle.MatchSim.Sim;
 ///         caller-driven ordering.</description></item>
 ///   <item><description>Strings: 4-byte little-endian length prefix +
 ///         UTF-8-encoded bytes. Length is byte count, not char count. Empty
-///         string writes 4 zero bytes.</description></item>
+///         string writes 4 zero bytes. Malformed UTF-16 surrogate sequences
+///         throw instead of being replacement-encoded.</description></item>
 ///   <item><description>Counts (collection sizes): 4-byte little-endian
 ///         non-negative <see cref="int"/>. Negative values throw.</description></item>
 ///   <item><description>Booleans: 1 byte. <c>false</c> = <c>0x00</c>;
@@ -58,6 +59,8 @@ public sealed class CanonicalEncoder
 {
     private const int DefaultInitialCapacity = 256;
 
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     private readonly ArrayBufferWriter<byte> _buffer;
 
     /// <summary>Construct with default initial capacity (256 bytes; grows as needed).</summary>
@@ -75,7 +78,7 @@ public sealed class CanonicalEncoder
         _buffer = new ArrayBufferWriter<byte>(initialCapacity == 0 ? 1 : initialCapacity);
     }
 
-    /// <summary>The encoded bytes written so far. Slice owned by the encoder; do not retain across <see cref="Reset"/>.</summary>
+    /// <summary>The encoded bytes written so far. Slice owned by the encoder; do not retain across later writes or <see cref="Reset"/>.</summary>
     public ReadOnlySpan<byte> WrittenSpan => _buffer.WrittenSpan;
 
     /// <summary>Number of bytes written so far.</summary>
@@ -149,7 +152,8 @@ public sealed class CanonicalEncoder
 
     /// <summary>
     /// Write a UTF-8 string with 4-byte little-endian length prefix (byte
-    /// count, not char count). Empty string writes 4 zero bytes; null throws.
+    /// count, not char count). Empty string writes 4 zero bytes; null throws;
+    /// malformed UTF-16 surrogate sequences throw.
     /// </summary>
     public void WriteString(string value)
     {
@@ -158,8 +162,9 @@ public sealed class CanonicalEncoder
             throw new ArgumentNullException(nameof(value));
         }
 
-        // UTF-8 encode + length-prefix.
-        int byteCount = Encoding.UTF8.GetByteCount(value);
+        // UTF-8 encode + length-prefix. Strict encoder rejects malformed
+        // surrogate sequences instead of replacing them with U+FFFD.
+        int byteCount = StrictUtf8.GetByteCount(value);
         WriteInt32(byteCount);
         if (byteCount == 0)
         {
@@ -167,7 +172,7 @@ public sealed class CanonicalEncoder
         }
 
         Span<byte> dst = _buffer.GetSpan(byteCount);
-        int written = Encoding.UTF8.GetBytes(value.AsSpan(), dst);
+        int written = StrictUtf8.GetBytes(value.AsSpan(), dst);
         if (written != byteCount)
         {
             // Defensive: GetBytes-into-span should match GetByteCount exactly.

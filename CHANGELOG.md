@@ -2,6 +2,17 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-27 (Codex review pass on `CanonicalEncoder` — strict UTF-8 hardening)
+
+Review pass on `MatchSim/Sim/CanonicalEncoder.cs` + `MatchSim.Tests/Sim/SerializationContract.cs`.
+
+- Caught canonical-string edge case: default .NET `Encoding.UTF8` replacement-encodes malformed UTF-16 surrogate sequences as U+FFFD instead of rejecting them. For replay hashes, silent replacement is the wrong failure mode.
+- Added regression test `WriteString_UnpairedSurrogate_ThrowsEncoderFallbackException`; verified red first against `6605a36`, then green after the encoder change.
+- Switched `WriteString` to a strict `UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)` path for both byte-count calculation and byte writing.
+- Tightened `WrittenSpan` docs: the span is encoder-owned and must not be retained across later writes or `Reset()`.
+
+Verification: focused regression test green; full `fw verify` green with **277 total tests**.
+
 ## 2026-04-27 (Phase-3 Week-1 priority #5 — `SerializationContract` + `CanonicalEncoder` + 42 tests)
 
 `MatchSim/Sim/CanonicalEncoder.cs` + `MatchSim.Tests/Sim/SerializationContract.cs` land. The canonical byte-encoding contract for MatchSim state — locks the on-disk byte representation that `golden-replay-corpus.md` hashes depend on. Win/Mac/Linux byte-equality is the contract; this file proves it at the unit-test layer (CI matrix asserts the same hashes re-compute green on each OS in subsequent Phase-3 work).

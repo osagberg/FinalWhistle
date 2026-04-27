@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using FinalWhistle.MatchSim.Sim;
 using Xunit;
 
@@ -225,6 +226,17 @@ public sealed class SerializationContract
     {
         CanonicalEncoder enc = new();
         Assert.Throws<ArgumentNullException>(() => enc.WriteString(null!));
+    }
+
+    [Fact]
+    public void WriteString_UnpairedSurrogate_ThrowsEncoderFallbackException()
+    {
+        // Canonical replay strings must be valid UTF-16. The default .NET
+        // UTF8 encoder replaces malformed surrogate sequences with U+FFFD;
+        // that would silently hash corrupted content instead of rejecting it.
+        CanonicalEncoder enc = new();
+
+        Assert.Throws<EncoderFallbackException>(() => enc.WriteString("\uD800"));
     }
 
     [Fact]
