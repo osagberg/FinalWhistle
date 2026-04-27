@@ -2,6 +2,33 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-27 (Phase-3 Week-1 priority #7 — ADR-0008 + ADR-0009 flipped Proposed → Accepted)
+
+After Codex review pass on the GPT-5.5 follow-up ("no remaining blocking findings"), both ADRs flip Proposed → Accepted. Cross-model rhythm complete: Claude drafted (2026-04-26) → GPT-5.5 reviewed (4 P1 + 4 P2 Concerns; applied 2026-04-27) → Codex hardened (stale-reference cleanup) → Accepted.
+
+**Where it landed:**
+
+- `design/adr/adr-0008-shot-presentation-contract.md` — **Status: Accepted (2026-04-27)**. Append-only from this point; supersession only via new ADR.
+- `design/adr/adr-0009-dots-phase-render-adapter.md` — **Status: Accepted (2026-04-27)**. Append-only from this point; supersession only via new ADR.
+- `design/specs/artifact-retention-policy.md` + `design/accessibility.md` — flip-time stale-reference cleanup (singular `pass_activation_log_hash` → adapter-keyed `pass_activation_log_hashes`); two leftovers Codex's primary patch missed.
+- `SPEC.md` task #7 → `[x]` with completion note enumerating the GPT-5.5 + Codex review pass outcomes.
+
+**What's now locked in the contract:**
+
+- **Stable identity + ordering.** `ViewerEvent.ViewerEventId` (bridge-assigned monotonic per match) + `SourceEventId` + `SourceEventOrdinal`. Stream order is `(StartTick, ViewerEventId)`; adapters MUST iterate in supplied order.
+- **Bridge-resolves-once reduce-motion boundary.** `BaseShotTypeId` (authored) + `EffectiveShotTypeId` (post-substitution; what adapters render) + `ReduceMotionApplied` (bool record). Bridge substitutes `reduce_motion_variant` exactly once at emission time; adapters never re-substitute.
+- **`PitchView` + `ActiveViewerEvent` shapes.** Locked, not deferred. `PitchView` carries RenderTick + pitch dimensions + ball pos+vel + ball-carrier + ordinal-sorted PlayerSnapshots. `ActiveViewerEvent` wraps `ViewerEvent` + `Progress` (Q32.32 normalized [0,1]).
+- **Aftermath-freeze viewer-vs-sim time boundary.** Viewer holds rendered frame; canonical MatchSim time + event stream continue uninterrupted; on release, adapter accelerates playback or skips interpolation. Validation criterion: integration test asserts canonical-state hash + event-stream identical with-vs-without observer-side viewer attached.
+- **§Determinism contract ordering rules.** `StringComparer.Ordinal` everywhere; `CultureInfo.InvariantCulture` for `LiteralValue`; `EntityId` preferred over rendered names; `MemoryHit.Slots` ordinal-sorted by `SlotName`. Pass-activation trace fields enumerated; localized rendered prose excluded unless fixture sets explicit `locale_pin`.
+- **Corpus `pass_activation_log_hashes` adapter-keyed from v1.** No future schema migration; ADR-0010 (3D adapter) enters by adding `"celShaded3d"` entry.
+- **Operational observer-task rubric.** 6 binary tasks at the Month-3 gate (ball-carrier identification at 30s/90s/150s, pressing-team identification at 60s/120s, focal-player naming on player-isolation/pass-shot-impact, signature-fired identification, why-the-last-high-stakes-moment-mattered free-response with two-reviewer scoring, reduce-motion readability). Replaces "drama legible" vibe-check with falsifiable rubric. Each observer passes iff ≥5 of 6 tasks pass; ≥4 of 5 observers = gate green.
+- **Tier-A CI smoke split into synthetic + corpus fixtures.** Synthetic ViewerEvent fixture (Week 2; covers all 3 Week-2 shot types; non-empty trace guaranteed) lands FIRST. Corpus seed (Week 3+; end-to-end sim+adapter; lands once meaningful sim events are producible) lands SECOND. Either passing without the other is treated as signal-something-wrong, not "good enough."
+- **AdapterId code-owned registry.** Community / mod adapters are code plugins via trusted-build channel (Steam beta branch, signed sideload, etc.), NOT Workshop content packs. Workshop packs extend `ShotTypeSO` + content per ADR-0001 + `design/modding.md`; they cannot register a new `AdapterId`.
+
+**Validation:** `fw verify` Tier-A umbrella green — verify-docs clean, banned-terms clean, 234 dotnet tests passing.
+
+**What's unblocked:** Phase-3 Week-1 priority #5 (`SerializationContract.cs`) is now the top of the priority queue. Phase-3 Week-2 viewer authoring is pre-cleared on the contract side; the dots adapter implementation (separate Phase-3 task) consumes the now-Accepted contract.
+
 ## 2026-04-27 (GPT-5.5 review pass — ADR-0008/0009 + golden-replay-corpus.md)
 
 GPT-5.5 review of the Proposed-state ADR-0008 ShotPresentationContract + ADR-0009 dots-phase render adapter returned a Concerns verdict on each: 4 P1 + 4 P2 findings. All applied. Status remains Proposed; awaits Codex review pass before flipping to Accepted (per established cross-model rhythm).
@@ -311,7 +338,7 @@ Shipped `design/specs/artifact-retention-policy.md` — closes the "artifact ret
 **Key commitments:**
 
 - **Every RC tag permanently retains its full artifact bundle** as GitHub release-assets (minimum 10 items enumerated in spec). Loss of bundle = loss of build reproducibility; non-option. EA-build bundles additionally carry PEGI/ESRB submission PDFs + Steam store-page snapshot + launch-day replay capture
-- **Determinism-replay posture:** any historical shipped build reproducible from bundle + git tag. Archived per RC includes `content_pack_version` + `canonical_artifact_sha256` + full `key_event_hashes` + `final_canonical_state_hash` + `pass_activation_log_hash` (reduce-motion-variant-aware per `design/accessibility.md`) + Unity Editor + URP pins + `MatchSim.csproj` commit SHA. Per-release `determinism-replay-readme.txt` carries the reproduction procedure
+- **Determinism-replay posture:** any historical shipped build reproducible from bundle + git tag. Archived per RC includes `content_pack_version` + `canonical_artifact_sha256` + full `key_event_hashes` + `final_canonical_state_hash` + adapter-keyed `pass_activation_log_hashes` (reduce-motion-variant-aware per `design/accessibility.md`) + Unity Editor + URP pins + `MatchSim.csproj` commit SHA. Per-release `determinism-replay-readme.txt` carries the reproduction procedure
 - **Cost-discipline math projected to Phase 6:** Free 500MB cap comfortable at Phase 3; tight by Phase 6 (balance-harness + Tier-D dry-runs + ongoing Tier-A/B push ~500-700MB active). Decision point is Free→Pro upgrade ($4/mo) before rewriting retention math. Minutes unaffected
 - **Retention-days declared at workflow level for uploaded Actions artifacts** via GitHub Actions `retention-days:` attribute. Workflow logs use the repo/org Actions artifact-and-log retention setting and are reported, not forced into the artifact tier model. Release-tied bundles are GitHub release assets, not `upload-artifact` outputs. Phase-3 manual audit (`fw artifact-cleanup`); Phase-6 `fw workflow-audit` enforces uploaded-artifact tiers (`FW-WF-A-001`) and reports the repo/org Actions retention setting (`FW-WF-A-002`)
 - **Playtest bug-bundle policy:** `local-only` at MVP. Testers email zips; no cloud ingest; retained in gitignored `playtest-bundles/`; periodic manual prune when folder grows past ~1GB; tester-consent required for any sharing; deletion-on-request honored within 7 days. Respects `production-pipeline.md §Playtest ops` + `content_policy.md §Mod-pack content-safety` user-data posture
@@ -356,7 +383,7 @@ Shipped `design/accessibility.md` — five-item EA accessibility feature set per
 
 **Replay/viewer test expectations leverage existing `reduce_motion` corpus field:**
 
-- Phase 3: paired fixtures (`<seed>.json` + `<seed>.reduce-motion.json`); MatchSim canonical-state hash + `key_event_hashes` identical, `pass_activation_log_hash` may differ via variant substitution — both render-path hashes pinned
+- Phase 3: paired fixtures (`<seed>.json` + `<seed>.reduce-motion.json`); MatchSim canonical-state hash + `key_event_hashes` identical, adapter-keyed `pass_activation_log_hashes` may differ via variant substitution — both render-path hashes pinned
 - Phase 7 Tier-C: colorblind-mode + text-scale screenshot audit captures
 - Phase 6+: subtitle-toggle regression asserts zero MatchSim canonical-state hash coupling
 

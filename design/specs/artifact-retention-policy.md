@@ -166,7 +166,7 @@ Per `design/specs/golden-replay-corpus.md`, MatchSim determinism is verified cro
 Concretely, archived per RC:
 - `content_pack_version` + `canonical_artifact_sha256` for every pack loaded
 - Full `key_event_hashes` + `final_canonical_state_hash` for every corpus entry at that RC
-- `pass_activation_log_hash` per corpus entry (includes reduce-motion variant path per `design/accessibility.md §Replay / viewer test expectations`)
+- adapter-keyed `pass_activation_log_hashes` per corpus entry (one entry per compiled adapter; e.g. `{"dots": "..."}` initially, gains `"celShaded3d"` when ADR-0010 enters; includes reduce-motion variant path per `design/accessibility.md §Replay / viewer test expectations`)
 - Unity Editor version + URP package version pinned at RC
 - `MatchSim.csproj` commit SHA (should equal git tag)
 

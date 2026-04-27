@@ -6,7 +6,7 @@ description: ADR-0008 — ShotPresentationContract / ViewerEvent. Renderer-agnos
 
 ## Status
 
-**Proposed** — 2026-04-26. Per visual-target supersession decisions-log entry: ADR-0008 introduces the renderer-agnostic contract layer required to support multiple viewer adapters (dots-prototype Phase-3-onward; cel-shaded 3D shipping candidate gated on Phase-5/6 spike). Awaits user / GPT-5.5 review pass before flipping to Accepted.
+**Accepted** — 2026-04-27 after GPT-5.5 review pass (Concerns verdict; 4 P1 + 4 P2 findings applied) + Codex review pass (stale-reference cleanup; sign-off "no remaining blocking findings"). Originally Proposed 2026-04-26 per visual-target supersession decisions-log entry: ADR-0008 introduces the renderer-agnostic contract layer required to support multiple viewer adapters (dots-prototype Phase-3-onward; cel-shaded 3D shipping candidate gated on Phase-5/6 spike). Append-only from this point forward — supersession only via a new ADR.
 
 ## Date
 
@@ -364,7 +364,7 @@ Per-adapter contract versioning would let adapters evolve independently. Sounds 
 ### Neutral
 
 - **One new pure-C# contracts package.** `Viewer.Contracts` becomes the consumer-facing viewer schema package; `MatchSim.Contracts` remains canonical simulation schema only.
-- **Determinism story unchanged.** Same `Seed` derivation; same canonical-state hash; `pass_activation_log_hash` covers the active adapter's semantic pass-activation trace, not rendered pixels.
+- **Determinism story unchanged.** Same `Seed` derivation; same canonical-state hash; adapter-keyed `pass_activation_log_hashes` cover each compiled adapter's semantic pass-activation trace, not rendered pixels.
 
 ---
 
@@ -399,7 +399,7 @@ Per-adapter contract versioning would let adapters evolve independently. Sounds 
 
 - **2026-04-26 SPEC decisions-log entry** — visual-target supersession (this ADR's authority)
 - **`design/3d-pipeline.md`** — adapter-specific 3D pipeline + spike-gate criteria
-- **ADR-0001 ShotTypeSO** — shot identity referenced by `ViewerEvent.ShotTypeId`
+- **ADR-0001 ShotTypeSO** — shot identity referenced by `ViewerEvent.BaseShotTypeId` / `ViewerEvent.EffectiveShotTypeId`
 - **ADR-0002 (Superseded)** — original stylized-2D rendering pipeline; preserved for history
 - **ADR-0004 MemoryEvent** — `EventClass` + `CallbackTag` + `MemoryHit` source
 - **ADR-0005 SignatureSO** — signature-trigger event source
@@ -407,10 +407,11 @@ Per-adapter contract versioning would let adapters evolve independently. Sounds 
 - **ADR-0010 3D cel-shaded render adapter** (NOT pre-authored; conditional on Phase-5 spike)
 - **`design/semantic-cinema.md`** — 7-shot vocabulary; rendering implementation now adapter-specific
 - **`design/accessibility.md`** — reduce-motion adapter-aware contract
-- **`design/specs/golden-replay-corpus.md`** — `pass_activation_log_hash` is the active adapter's semantic pass-activation trace in schema v1; multi-adapter CI requires a future schema bump to adapter-keyed hashes; key_event_hashes are sim-side
+- **`design/specs/golden-replay-corpus.md`** — `pass_activation_log_hashes` is adapter-keyed from schema v1 (`"dots"` initially; `"celShaded3d"` when ADR-0010 enters); key_event_hashes are sim-side
 - **`design/specs/content-pack-validation-contract.md`** — `FW-VAL-D-011` (added at this supersession) covers 3D-asset commercial-rights for the eventual 3D adapter
 
 ## Changelog within this doc
 
 - **2026-04-26** — Authored as Proposed per visual-target supersession decisions-log entry. Supersedes ADR-0002. ViewerEvent + ShotPresentationContract schemas drafted. Post-review cleanup moved the contract into pure-C# `Viewer.Contracts` + `Viewer.EventBridge` so `MatchSim.Contracts` remains canonical-sim-only, replaced pre-rendered callback text with callback line IDs + deterministic slots, and clarified that pass-activation hashes cover semantic traces rather than rendered pixels. AdapterId enum reserves Dots=1 + CelShaded3d=2; future adapters require ADR + decisions-log entry. Five rejected alternatives captured. Four open questions for Phase-3 Week-1 resolution. Awaits user / GPT-5.5 review pass before flipping to Accepted.
 - **2026-04-27** — GPT-5.5 review pass landed (Concerns verdict; 4 P1 + 4 P2 findings). Applied: (P1-1) added `ViewerEventId` + `SourceEventId` + `SourceEventOrdinal` for stable identity + ordering; (P1-2) split `ShotTypeId` into `BaseShotTypeId` + `EffectiveShotTypeId` + `ReduceMotionApplied` so adapters render the bridge-resolved effective shot only; (P1-3) locked minimum `PitchView` (RenderTick / pitch dimensions / ball position+velocity / ball-carrier / sorted PlayerSnapshots) + `ActiveViewerEvent` (wraps ViewerEvent + Progress) shapes — they are now part of the contract, not deferred; (P1-4) aftermath-freeze sim-time-pause language was actually in ADR-0009 §7-shot-table, fixed there in companion edit. (P2-5) added §Determinism contract ordering rules: stream order is `(StartTick, ViewerEventId)`, PitchView.Players ordinal-sorted by `(TeamSide, PlayerId)`, MemoryHit.Slots ordinal-sorted by SlotName, LiteralValue formatted with InvariantCulture; pass-activation trace fields enumerated + locale-rendered prose explicitly excluded unless corpus pins a locale. (P2-6) corpus `pass_activation_log_hashes` is adapter-keyed from v1 (initially `{ "dots": "..." }`); `golden-replay-corpus.md` updated in companion edit; no future schema migration. (P2-8) synthetic ViewerEvent fixture posture added to validation criteria so the 60-tick smoke can't pass on an empty trace. AdapterId enum gained an explicit comment that the registry is code-owned: community/mod adapters are code plugins via trusted-build channel, NOT Workshop-style content packs. Open questions list reduced from 4 to 3 (CallbackLine shape narrowed, audio/debug deferred to v2 RFC if needed, polish-bar measurability cross-references ADR-0009). Status remains Proposed; awaits Codex review pass before flipping to Accepted.
+- **2026-04-27** — Codex review pass + Accept flip. Codex confirmed all eight GPT-5.5 findings landed correctly and applied stale-reference cleanup across `pass_activation_log_hash` (singular → adapter-keyed plural) in 4 docs (ADR-0008 §Consequences + §Cross-references; ADR-0009 §Cross-references; SPEC.md task-list note for golden-corpus spec; CHANGELOG.md two retroactive entries). Two additional stale references (`design/specs/artifact-retention-policy.md §Determinism-replay reproducibility-by-tag`, `design/accessibility.md §Replay/viewer test expectations`) caught at flip-time and cleaned. Codex sign-off: "no remaining blocking findings; ADR-0008 + ADR-0009 OK to flip Proposed → Accepted." Status now **Accepted**; append-only from this point forward.

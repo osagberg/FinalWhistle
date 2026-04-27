@@ -6,7 +6,7 @@ description: ADR-0009 — Dots-phase render adapter. Sprite-on-pitch + minimal o
 
 ## Status
 
-**Proposed** — 2026-04-26. Per visual-target supersession decisions-log entry: ADR-0009 is the first consumer of ADR-0008's ShotPresentationContract and the renderer for Phase-3-onward sim-validation. Awaits user / GPT-5.5 review pass before flipping to Accepted.
+**Accepted** — 2026-04-27 after GPT-5.5 review pass (Concerns verdict; one P1 + two P2 findings applied + cross-ADR P1 propagation from ADR-0008) + Codex review pass (stale-reference cleanup; sign-off "no remaining blocking findings"). Originally Proposed 2026-04-26 per visual-target supersession decisions-log entry: ADR-0009 is the first consumer of ADR-0008's ShotPresentationContract and the renderer for Phase-3-onward sim-validation. Append-only from this point forward — supersession only via a new ADR.
 
 ## Date
 
@@ -243,10 +243,11 @@ The "Alternative A" from `design/3d-pipeline.md §Alternatives if the spike fail
 - **`design/accessibility.md`** — reduce-motion adapter posture + subtitle integration
 - **`design/ui-vocabulary.md`** — overlay text discipline (banned-terms lint applies)
 - **`design/month-3-vertical-slice.md`** — gate criterion that this adapter is measured against
-- **`design/specs/golden-replay-corpus.md`** — paired fixtures + v1 active-adapter `pass_activation_log_hash`; multi-adapter CI requires a future adapter-keyed schema bump
+- **`design/specs/golden-replay-corpus.md`** — paired fixtures + v1 adapter-keyed `pass_activation_log_hashes`; dots reads/writes `pass_activation_log_hashes["dots"]`
 - **`design/3d-pipeline.md`** — sibling 3D adapter pipeline + spike-gate criteria
 
 ## Changelog within this doc
 
 - **2026-04-26** — Authored as Proposed per visual-target supersession decisions-log entry. First consumer of ADR-0008 ShotPresentationContract. Polish bar locked (10 criteria). 7-shot dots interpretation table. Reduce-motion adapter posture. Tier-A CI smoke wiring. Five rejected alternatives. Five open questions for Phase-3 Week-2/3 resolution. Awaits user / GPT-5.5 review pass before flipping to Accepted.
 - **2026-04-27** — GPT-5.5 review pass landed (Concerns verdict; one P1 + two P2 findings against this ADR + cross-ADR P1 propagation from ADR-0008). Applied: (P1-4) `aftermath-freeze` row in §7-shot interpretation table rewritten to lock the viewer-vs-sim time boundary — viewer holds the rendered frame; canonical MatchSim time + event stream continue uninterrupted; on release, adapter accelerates playback or skips interpolation. (P2-7) Polish bar gained an operational §Observer-task script: 6 binary tasks (ball-carrier identification at 30s/90s/150s, pressing-team identification at 60s/120s, focal-player naming on player-isolation/pass-shot-impact, signature-fired identification, why-the-last-high-stakes-moment-mattered free-response, reduce-motion readability) with explicit pass/fail criteria. Replaces "drama legible" vibe-check with falsifiable rubric. Each observer passes iff ≥5 of 6 tasks pass; ≥4 of 5 observers pass = gate green. (P2-8) §Tier-A CI integration split into two separate fixtures: synthetic ViewerEvent fixture (Week 2; covers all 3 shot types; non-empty trace guaranteed) lands FIRST; corpus seed (Week 3+; end-to-end sim+adapter; lands once meaningful sim events are producible) lands SECOND. Either passing without the other is treated as signal-something-wrong, not "good enough." §Validation criteria + §Cross-references updated to reflect adapter-keyed `pass_activation_log_hashes["dots"]` path from ADR-0008 v1 + sim-time-not-pausing integration test. Status remains Proposed; awaits Codex review pass before flipping to Accepted.
+- **2026-04-27** — Codex review pass + Accept flip. Codex confirmed all GPT-5.5 findings landed correctly + applied stale-reference cleanup on this ADR's §Cross-references (singular → adapter-keyed plural). Codex sign-off: "no remaining blocking findings; ADR-0008 + ADR-0009 OK to flip Proposed → Accepted." Status now **Accepted**; append-only from this point forward. ADR-0010 (3D adapter) remains NOT-pre-authored and conditional on Phase-5 spike outcome.
