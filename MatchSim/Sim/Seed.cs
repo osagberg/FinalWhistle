@@ -103,8 +103,8 @@ public readonly struct Seed : IEquatable<Seed>, IComparable<Seed>, IComparable
     }
 
     /// <summary>
-    /// Parse a canonical hex seed string. Accepts <c>0x</c> or <c>0X</c> prefix
-    /// (case-insensitive on the <c>x</c>); body is 1-16 hex digits.
+    /// Parse a hex seed string. Accepts an optional <c>0x</c> or <c>0X</c>
+    /// prefix (case-insensitive on the <c>x</c>); body is 1-16 hex digits.
     /// Throws <see cref="FormatException"/> on garbage,
     /// <see cref="ArgumentNullException"/> on null.
     /// </summary>
@@ -116,7 +116,7 @@ public readonly struct Seed : IEquatable<Seed>, IComparable<Seed>, IComparable
         }
         if (!TryParse(s, out Seed result))
         {
-            throw new FormatException($"Cannot parse '{s}' as Seed (expected 0x-prefixed 1-16 hex digits).");
+            throw new FormatException($"Cannot parse '{s}' as Seed (expected 1-16 hex digits with optional 0x prefix).");
         }
         return result;
     }

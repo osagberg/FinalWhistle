@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Numerics;
 using FinalWhistle.MatchSim.Sim;
 using Xunit;
 
@@ -77,10 +76,13 @@ public sealed class SeedTests
         // computed from (matchSeed=0xdeadbeefdeadbeef, tick=0, eventId=0)
         // — the corpus-spec smoke seed authoring it produces a stable value.
         Seed derived = Seed.Derive(0xDEADBEEFDEADBEEFUL, Tick.Zero, 0UL);
-        // First-run-derived value; if this changes, mixer or composition
-        // semantics changed — bump corpus + save fixtures via SPEC entry.
-        ulong locked = ComputeReferenceSplitMix64Triple(0xDEADBEEFDEADBEEFUL, 0UL, 0UL);
-        Assert.Equal(locked, derived.Value);
+        const ulong Locked = 0xDDAC907BB053EDBBUL;
+
+        // Keep both defenses: a literal corpus-lock value and an independent
+        // reference oracle. If either changes, mixer or composition semantics
+        // changed — bump corpus + save fixtures via SPEC entry.
+        Assert.Equal(Locked, ComputeReferenceSplitMix64Triple(0xDEADBEEFDEADBEEFUL, 0UL, 0UL));
+        Assert.Equal(Locked, derived.Value);
     }
 
     private static ulong ComputeReferenceSplitMix64Triple(ulong matchSeed, ulong tickValue, ulong eventId)

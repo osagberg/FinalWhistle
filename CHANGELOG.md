@@ -27,13 +27,13 @@ SplitMix64 is the well-known finalizer used by Java's `SplittableRandom` and rec
 
 **Test coverage** (45 tests in `MatchSim.Tests/Sim/SeedTests.cs`):
 
-- **Determinism:** same triple → same seed; pinned reference value via in-test SplitMix64 oracle so any future mixer or composition change trips the test (locks the cross-run determinism contract — failure here = replay determinism is broken); 100 repeated calls with same inputs all match
+- **Determinism:** same triple → same seed; literal pinned value `0xddac907bb053edbb` plus in-test SplitMix64 oracle so any future mixer or composition change trips the test (locks the cross-run determinism contract — failure here = replay determinism is broken); 100 repeated calls with same inputs all match
 - **Sensitivity:** different matchSeed / different tick / different eventId each produce different seeds; (matchSeed, eventId) order matters
 - **Avalanche:** flipping a single bit in any of the three inputs (matchSeed bit-0, tick 0→1, eventId 0→1) flips ≥16 of 64 output bits — catches outright passthrough or weak-mixer regressions
 - **Distribution:** 1000 sequential eventIds with same (matchSeed, tick) produce 1000 distinct seeds (HashSet test)
 - **Equality + Comparison:** operator/method agreement, hash stability, 5-element total-ordering, IComparable null + non-Seed handling
 - **ToString:** Zero → `"0x0000000000000000"`, corpus smoke seed `0xdeadbeefdeadbeef` matches spec, always 16 hex digits, always lowercase
-- **Parse:** 7 accepted forms (with/without prefix, lowercase/uppercase, padded/unpadded, MaxValue), 6 garbage-rejection cases (empty, bare prefix, 17 digits, decimal point, negative, non-hex), TryParse no-throw on null/empty/garbage
+- **Parse:** 8 accepted forms (with/without prefix, lowercase/uppercase, padded/unpadded, MaxValue), 6 garbage-rejection cases (empty, bare prefix, 17 digits, decimal point, negative, non-hex), TryParse no-throw on null/empty/garbage
 - **Round-trip:** spread of values ToString → Parse stable
 
 **`fw verify` Tier-A umbrella green:** verify-docs + banned-terms + dotnet test (now 234 total tests).
