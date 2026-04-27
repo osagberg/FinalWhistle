@@ -217,6 +217,35 @@ public sealed class SerializationContract
         Assert.Equal(b.WrittenSpan.ToArray(), a.WrittenSpan.ToArray());
     }
 
+    [Fact]
+    public void WriteVector3Fixed_Zero_Encodes24ZeroBytes()
+    {
+        // Vec3 = 3× Fixed.Zero = 24 zero bytes (Fixed is 8 bytes LE per primitive).
+        CanonicalEncoder enc = new();
+        enc.WriteVector3Fixed(Vector3Fixed.Zero);
+
+        AssertBytes(enc, expected: new byte[24]);
+    }
+
+    [Fact]
+    public void WriteVector3Fixed_OrderIsXThenYThenZ()
+    {
+        // Order locked at v1: WriteVector3Fixed must emit X bytes first,
+        // then Y bytes, then Z bytes — matching three sequential WriteFixed
+        // calls in that order.
+        Vector3Fixed v = new(Fixed.One, Fixed.MaxValue, Fixed.MinusOne);
+
+        CanonicalEncoder helper = new();
+        helper.WriteVector3Fixed(v);
+
+        CanonicalEncoder manual = new();
+        manual.WriteFixed(v.X);
+        manual.WriteFixed(v.Y);
+        manual.WriteFixed(v.Z);
+
+        Assert.Equal(manual.WrittenSpan.ToArray(), helper.WrittenSpan.ToArray());
+    }
+
     #endregion
 
     #region Argument-validation contract

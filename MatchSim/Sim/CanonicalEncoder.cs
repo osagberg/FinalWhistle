@@ -104,6 +104,19 @@ public sealed class CanonicalEncoder
         WriteUInt64(value.Value);
     }
 
+    /// <summary>
+    /// Write a <see cref="Vector3Fixed"/> as 24 bytes: <see cref="Vector3Fixed.X"/>,
+    /// <see cref="Vector3Fixed.Y"/>, <see cref="Vector3Fixed.Z"/> in that order
+    /// — each 8 bytes little-endian per <see cref="WriteFixed"/>. Convenience
+    /// helper; widely used by ball + player + future kinematic state.
+    /// </summary>
+    public void WriteVector3Fixed(Vector3Fixed value)
+    {
+        WriteFixed(value.X);
+        WriteFixed(value.Y);
+        WriteFixed(value.Z);
+    }
+
     /// <summary>Write a 4-byte little-endian <see cref="int"/>.</summary>
     public void WriteInt32(int value)
     {

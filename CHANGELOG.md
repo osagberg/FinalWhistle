@@ -2,6 +2,60 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-27 (Phase-3 Week-2 — `Ball` custom deterministic physics + `Vector3Fixed` + 54 tests)
+
+`MatchSim/Sim/Vector3Fixed.cs` + `MatchSim/Sim/BallState.cs` + `MatchSim/Sim/BallPhysics.cs` land. Pure-deterministic ball physics integrator per `design/match-engine.md §Q2` structure-locked spec. Q32.32 fixed-point throughout; semi-implicit Euler at fixed 60Hz step; gravity + linear drag + Magnus stub + ground bounce + rolling friction; all coefficients tunable via `BallPhysicsCoefficients`.
+
+**`Vector3Fixed.cs` structure:**
+
+- `readonly struct Vector3Fixed : IEquatable<Vector3Fixed>` over three `Fixed` components `(X, Y, Z)`.
+- **Coordinate convention** (locked at v1, matches match-engine.md §Q2): X + Z form the pitch plane; Y is altitude (gravity acts on -Y; ground = `Y <= 0`). Units: metres for position, m/s for velocity, rad/s for spin.
+- Constants: `Zero` / `UnitX` / `UnitY` / `UnitZ`.
+- Operators: `+ - unary- *` (vector-scalar both sides).
+- Algebra: `Dot(a, b)` / `Cross(a, b)` (used by Magnus) / `LengthSquared` (no sqrt; safe for hot path).
+- Equality is bitwise on each Fixed component (no epsilon — fixed-point arithmetic is exact within range; epsilon would mask determinism drift).
+- `ToString` uses `CultureInfo.InvariantCulture`.
+
+**`BallState.cs` structure:**
+
+- `readonly struct BallState` of (`Position`, `Velocity`, `Spin`) all Vector3Fixed.
+- Immutable — no behavior; all evolution through `BallPhysics.Step`.
+- `WriteCanonical(CanonicalEncoder)` writes 72 bytes in locked order (P.X / P.Y / P.Z / V.X / V.Y / V.Z / S.X / S.Y / S.Z) per the v1 contract. Changing this order = silent corpus-fixture invalidation.
+- `AtRest` = ball at origin with zero velocity + zero spin (pre-kick-off state).
+
+**`BallPhysics.cs` structure:**
+
+- `static class BallPhysics.Step(BallState, BallPhysicsCoefficients) → BallState` — pure deterministic function. Same input ⇒ same output across runs and platforms.
+- Pre-computed `Dt = Fixed.FromInt(1) / Fixed.FromInt(60)` so per-step hot path doesn't pay BigInteger division each call.
+- Step sequence (semi-implicit Euler):
+  1. **Gravity** (continuous SI): `v.Y -= Gravity * Dt` (g in m/s² scaled by dt).
+  2. **Linear drag** (per-step coefficient already absorbs dt): `v *= (Fixed.One - LinearDrag)`.
+  3. **Magnus** (per-step coefficient): if spin is exactly zero, skip the cross product (common case); otherwise `v += MagnusCoupling * Cross(spin, v)`.
+  4. **Position update**: `p += v * Dt` (semi-implicit — uses NEW velocity).
+  5. **Ground collision**: if `p.Y <= Fixed.Zero`:
+     - Was the ball falling (`v.Y < 0`)? Determines bounce vs. clamp-only.
+     - Clamp `p.Y` to exact zero (avoids subterranean drift over season-long replays).
+     - If was falling: `v.Y = -BounceRetention * v.Y` (flip + scale).
+     - Rolling friction applies only when ball is settled (post-bounce `v.Y <= 0`); skipped when ball is bouncing upward (rebounding). Avoids "rolling friction in the air" anti-pattern.
+- `BallPhysicsCoefficients` co-located: `Gravity` (m/s²) + `LinearDrag` + `MagnusCoupling` + `BounceRetention` + `RollingFriction`. Static factory `Phase3Seeds` returns the design-doc-locked Phase-3 starting tuning seeds (g=9.81, C_d=0.02, C_m=0.0004, e=0.55, μ=0.25).
+- **Magnus stub policy honored** per match-engine.md §Q2: structure stays even if `MagnusCoupling = Fixed.Zero` (gate-build escape clause if observers find curve-driven moments noisy).
+
+**`CanonicalEncoder.WriteVector3Fixed` extension:**
+
+- Writes 24 bytes (3 × 8-byte LE Fixed) in X/Y/Z order. Convenience helper that BallState.WriteCanonical depends on; saves 9 manual `WriteFixed` calls per ball state and locks the order at primitive-encoder level.
+
+**Test coverage** (54 new tests across 3 files):
+
+- **`Vector3FixedTests.cs` — 31 tests:** construction (3) / operators (7: +, -, unary-, vec*scalar both directions, *0, commutativity) / dot product (5: orthogonal=0, parallel, anti-parallel, general formula, commutativity) / cross product (6: i×j=k, j×k=i, k×i=j, anti-commutative, parallel→0, general formula, orthogonality verification) / LengthSquared (3) / equality + hashing (5) / ToString invariant-culture (2).
+- **`BallPhysicsTests.cs` — 21 tests:** **Determinism (2):** 100 fresh independent steps with same input → 1 distinct result; 60 sequential steps run twice → identical final state. **Gravity-only (2):** ball at rest accelerates downward at -g·dt per step; velocity accumulates linearly over N ticks. **Drag-only (2):** horizontal velocity decays geometrically; all components scale identically. **Magnus stub (3):** zero spin produces no curve (skip-branch); non-zero spin curves perpendicular to velocity (+Y spin × +X v gives -Z deflection per right-handed cross product); zero coefficient produces no curve (gate-build escape clause). **Bounce (4):** ball falling hits ground → vertical velocity flipped + scaled by e; ball at rest → no spurious bounce; e=1.0 → perfect elastic; e=0 → perfect inelastic. **Rolling friction (4):** on-ground horizontal decays per (1-μ); both X and Z components decay together; airborne ball gets NO friction; post-bounce upward-rebounding ball gets NO friction. **Combined sanity (2):** 45° kicked ball with Phase-3 seeds settles on ground within reasonable forward distance; dropped ball bounces and settles within 10 game-seconds. **Coefficient sanity (2):** Phase3Seeds non-zero + match design-doc table exactly.
+- **`SerializationContract.cs` additions — 2 tests:** `WriteVector3Fixed_Zero_Encodes24ZeroBytes`; `WriteVector3Fixed_OrderIsXThenYThenZ` (helper output equals manual sequential `WriteFixed` calls in X/Y/Z order).
+
+**Test-strategy note:** Fixed-point arithmetic is operation-order sensitive — different formulations of the same expression can differ by 1-5 ULP after Q32.32 rounding. Tests use **production-equivalent expressions** for expected-value computation (e.g., `Fixed.One - drag` not `F(98)/F(100)`), preserving exact-byte determinism comparison while still verifying the formula is right. Combined-trajectory tests (`KickedBall`, `DroppedBall`) serve as **independent oracles** — they assert structural properties (ball lands on ground; forward distance reasonable) without depending on production arithmetic, catching the "we encoded the wrong formula throughout" failure mode that exact-equality tests would miss.
+
+**`fw verify` Tier-A umbrella green:** verify-docs + banned-terms + dotnet test (now 331 total tests; 277 prior + 54 new).
+
+**NOT in scope:** Ball-Player kick API, goal-line detection, touchline transitions — those wait for Player + Pitch entities. The Ball is now ready to receive kicks once Player exists.
+
 ## 2026-04-27 (Codex review pass on `CanonicalEncoder` — strict UTF-8 hardening)
 
 Review pass on `MatchSim/Sim/CanonicalEncoder.cs` + `MatchSim.Tests/Sim/SerializationContract.cs`.
