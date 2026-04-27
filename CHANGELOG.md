@@ -2,6 +2,41 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-27 (GPT-5.5 review pass — ADR-0008/0009 + golden-replay-corpus.md)
+
+GPT-5.5 review of the Proposed-state ADR-0008 ShotPresentationContract + ADR-0009 dots-phase render adapter returned a Concerns verdict on each: 4 P1 + 4 P2 findings. All applied. Status remains Proposed; awaits Codex review pass before flipping to Accepted (per established cross-model rhythm).
+
+**Where it landed:**
+
+- `design/adr/adr-0008-shot-presentation-contract.md` — schema additions + locked types + ordering rules
+- `design/adr/adr-0009-dots-phase-render-adapter.md` — sim-time-not-pausing fix + observer-task script + split fixture posture
+- `design/specs/golden-replay-corpus.md` — `pass_activation_log_hashes` adapter-keyed from v1
+
+**P1 findings applied:**
+
+- **Stable event identity + ordering.** `ViewerEvent` gained `ViewerEventId` (bridge-assigned, monotonic per match), `SourceEventId`, `SourceEventOrdinal`. Stream order is `(StartTick, ViewerEventId)`; adapters MUST iterate in supplied order. Closes the door on adapter-local sort drift.
+- **Reduce-motion substitution boundary.** Split `ShotTypeId` into `BaseShotTypeId` (authored shot identity) + `EffectiveShotTypeId` (post-substitution; what adapters render) + `ReduceMotionApplied` (bool record). Bridge resolves the substitution exactly once at emission time; adapters do NOT re-substitute. Both base + effective + applied-flag enter the pass-activation trace.
+- **Lock minimum `PitchView` + `ActiveViewerEvent` shapes.** Both are now part of the contract, not deferred. `PitchView` carries `RenderTick`, pitch dimensions, ball position+velocity, ball-carrier, sorted PlayerSnapshots. `ActiveViewerEvent` wraps `ViewerEvent` + `Progress` (Q32.32 normalized [0,1]). The accepted ADR now actually locks the adapter contract.
+- **Aftermath-freeze must NOT pause canonical sim time.** ADR-0009 §7-shot-table `aftermath-freeze` row rewritten: viewer holds the rendered frame; canonical MatchSim time + event stream continue uninterrupted; on release, adapter accelerates playback or skips interpolation. Pause/resume is presentation-only. Validation criteria gained an integration test asserting canonical-state-hash + event-stream are identical with-vs-without observer-side viewer attached.
+
+**P2 findings applied:**
+
+- **Memory slot canonical ordering + locale rules.** ADR-0008 §Determinism contract gained explicit ordering rules: `MemoryHit.Slots` ordinal-sorted by `SlotName`; `CallbackSlotValue.LiteralValue` formatted with `CultureInfo.InvariantCulture` always; `EntityId` preferred over `LiteralValue` for player/club/signature slots; localized rendered text excluded from `pass_activation_log_hashes` unless fixture sets explicit `locale_pin`. PitchView.Players ordinal-sorted by `(TeamSide, PlayerId)`.
+- **Adapter-keyed pass hashes from v1.** No corpus fixtures have shipped yet; the migration cost was zero. `golden-replay-corpus.md` schema v1 stores `pass_activation_log_hashes` as an adapter-keyed object from day one (initially `{ "dots": "..." }`); adding the 3D adapter is `{ "dots": "...", "celShaded3d": "..." }` — same v1 schema. Eliminates a guaranteed v2 bump when ADR-0010 enters CI.
+- **Polish bar operational observer-task script.** ADR-0009 §Polish bar gained a falsifiable rubric: 6 binary tasks (ball-carrier identification at 30s/90s/150s, pressing-team identification at 60s/120s, focal-player naming on player-isolation/pass-shot-impact, signature-fired identification, why-the-last-high-stakes-moment-mattered free-response with two-reviewer scoring, reduce-motion readability) with explicit pass/fail per task. Observer passes iff ≥5 of 6 tasks pass; ≥4 of 5 observers pass = Month-3 gate green.
+- **CI smoke split into synthetic + corpus fixtures.** ADR-0009 §Tier-A CI integration now lands a hand-authored synthetic ViewerEvent fixture FIRST (Week 2; covers all 3 Week-2 shot types; non-empty trace guaranteed). Corpus seed (Week 3+) lands SECOND, once MatchSim ball + player + 2 BT archetypes can produce meaningful events. Either passing without the other is treated as signal-something-wrong, not "good enough." Closes the door on a 60-tick smoke seed silently passing on an empty trace.
+
+**Bonus clarification:** AdapterId enum gained an explicit comment stating the registry is code-owned: community/mod adapters are code plugins via trusted-build channel (Steam beta branch, signed sideload, etc.), NOT Workshop-style content packs. Workshop packs extend `ShotTypeSO` + content per ADR-0001 + `design/modding.md`; they cannot register a new `AdapterId`. Right boundary for EA.
+
+**Deferred (will not block Accept):**
+
+- ADR-0008 Open Question 1 (CallbackLine shape — multi-line / subtitle-specific variants) → narrowed; structural-vs-rendered hash treatment is now locked; line-asset structure resolves at Phase-3 when `MemoryEvent → MemoryHit` conversion is implemented.
+- ADR-0008 Open Question 2 (audio-cue hook + debug-overlay metadata) → deferred to v2 contract bump if Phase-3 Week-2 dots-adapter authoring surfaces a need. Default posture: don't add fields speculatively.
+
+**Validation:** `fw verify` Tier-A umbrella green — verify-docs clean, banned-terms clean, 234 dotnet tests passing.
+
+**Next step:** Codex review pass on ADR-0008/0009 + golden-replay-corpus.md before flipping ADR-0008 + ADR-0009 to Accepted (per cross-model rhythm: Claude drafts → GPT-5.5 reviews → Codex hardens → flip Accepted).
+
 ## 2026-04-27 (Phase-3 Week-1 priority #4 — `Seed` match + per-event derivation + 45 tests)
 
 `MatchSim/Sim/Seed.cs` lands. The canonical-triple per-event seed-derivation primitive per ADR-0001 forbidden-nondeterminism + ADR-0008 `ViewerEvent.Seed` + TECH_APPROACH §3.2. Same `(matchSeed, tick, eventId)` triple → same Seed, across runs and platforms. Replay determinism floor.

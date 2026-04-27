@@ -14,7 +14,7 @@ description: ADR-0009 — Dots-phase render adapter. Sprite-on-pitch + minimal o
 
 ## Last Verified
 
-2026-04-26
+2026-04-27
 
 ## Decision Makers
 
@@ -97,7 +97,7 @@ Each shot type from `design/semantic-cinema.md` renders dots-style:
 | `duel-panel` | Camera zooms onto two players in contention; both dots get duel-rings; UI-Toolkit split-overlay with their names side-by-side |
 | `pass-shot-impact` | Brief micro-zoom + flash on the ball-receiver dot or shot moment; UI-Toolkit overlay text ("Driven low across the box") |
 | `crowd-reaction` | Camera pulls slightly back; commentary-text overlay surges with crowd-audio subtitle (e.g. *"Stadium has erupted"*); kit colors briefly desaturate to background |
-| `aftermath-freeze` | Sim time pauses for 1.5-2.5s (per stakes); larger UI-Toolkit overlay text card (post-event prose); slight zoom on relevant dot |
+| `aftermath-freeze` | **Viewer playback holds the rendered frame for 1.5-2.5s** (per stakes); canonical MatchSim time and event stream continue uninterrupted. The viewer's render-tick lags real-time during the hold; on release, the adapter catches up by replaying buffered ViewerEvents at accelerated playback speed (or skipping interpolation directly to the current sim tick if the buffer overflowed). Larger UI-Toolkit overlay text card (post-event prose); slight zoom on relevant dot. Pause/resume here is a presentation-layer concept ONLY — sim never pauses. |
 
 Reduce-motion variants (per ADR-0001 `reduce_motion_variant`):
 - `pass-shot-impact` → flash collapses to brief overlay-text-only
@@ -121,6 +121,26 @@ Owed at Phase-3 Month-3 gate; verified by 5 cold observer test:
 
 If the polish bar is not hit at Month-3 gate, the project doesn't advance to Phase 4 — that's the gate's purpose per `design/month-3-vertical-slice.md`.
 
+#### Observer-task script (operationalizes the ≥4-of-5 cold-observer gate)
+
+The Month-3 gate runs each cold observer through the same scripted protocol. They watch a 3-minute dots-rendered match clip (single fixture seed; reduce-motion variant viewed last for the reduce-motion-readability task). After viewing, they answer six tasks. Each task has a binary pass/fail bar. The observer passes the gate iff they pass ≥5 of 6 tasks. The match passes the gate iff ≥4 of 5 observers pass.
+
+| # | Task | Pass criterion |
+|---|---|---|
+| 1 | **Identify ball carrier at the 30s, 90s, and 150s marks.** | ≥2 of 3 correct (visual-only — no scoreboard / commentary peek). |
+| 2 | **Identify which team is pressing high and which is sitting deep.** | Correct attribution at both 60s and 120s marks. Either team naming or kit-color naming OK. |
+| 3 | **Name the focal player when a `player-isolation` / `pass-shot-impact` shot fires.** | ≥1 of any focal-shot moments correctly named (jersey number OR name OR position-label all count). |
+| 4 | **Did a signature fire during this clip? If yes, which player?** | If a signature fired: correctly identifies it fired AND names the player. If no signature fired: correctly says no signature fired. |
+| 5 | **Why did the last high-stakes moment matter?** (Free response.) | Observer's answer references at least one of: scoreline / form-rising-or-falling / memory callback / signature / rivalry. Does not require football-domain vocabulary; "this guy hates that other guy because of last season" counts. |
+| 6 | **Reduce-motion readability.** Observer re-watches the same clip with reduce-motion ON. | Observer reports they could still follow the match. Optional follow-up: "Did you notice the difference?" — either yes or no answer is fine, the question is whether legibility held. |
+
+**Operationalization:**
+- Tasks 1 + 2 + 4 + 6 are binary by construction.
+- Task 3 is binary; the observer either named someone correctly or didn't.
+- Task 5 is the only judgment call. Two reviewers (project owner + one other) score independently; disagreement = observer fails task 5. If two-reviewer scoring is unavailable, default to project-owner-only scoring with a written note for each fail.
+
+This replaces "drama legible" as a vibe-check with a falsifiable rubric. Failure modes the rubric is designed to surface: dots-too-similar (task 1 fails), pressure-indicator-not-readable (task 2 fails), signature-presentation-cue-missed (task 4 fails), narrative-context-not-conveyed (task 5 fails).
+
 ### Scene-load-time + adapter selection
 
 - Settings panel shows adapter selection IF multiple adapters compiled into build. Phase-3 prototype builds dots-only; Phase-5 spike-green build can compile both.
@@ -129,7 +149,9 @@ If the polish bar is not hit at Month-3 gate, the project doesn't advance to Pha
 
 ### Tier-A CI integration
 
-- Phase-3 dots-adapter has a CI smoke seed: consume 60 sim ticks (1 game-second) headlessly, emit the dots adapter's semantic `pass_activation_log`, and compare that hash per ADR-0008. Fixture pinned in `MatchSim.Tests/fixtures/replay-corpus/0xdeadbeefdeadbeef.json` (already established as Tier-A smoke seed per `design/specs/golden-replay-corpus.md`). Visual smoke captures are separate artifacts, not cross-platform hash inputs.
+- **Phase-3 Week-2 synthetic fixture** (lands first; gates the corpus seed). A hand-authored `ViewerEvent` stream covers all three Week-2 shot types (`tactical-wide` + `diagonal-attack-lane` + `pass-shot-impact`) with explicit reduce-motion + non-reduce-motion variants. The dots adapter consumes this stream end-to-end and emits a non-empty pass-activation trace. Fixture pinned at `MatchSim.Tests/fixtures/synthetic/dots-three-shot-types.json`. This ensures the smoke test cannot pass on an empty trace — the canonical risk if a 60-tick sim seed produces no shot changes before the full sim loop exists.
+- **Phase-3 Week-3+ corpus seed** (lands once MatchSim ball + player + 2 BT archetypes can produce meaningful events). Consume 60 sim ticks (1 game-second) headlessly through `Viewer.EventBridge` + dots adapter, emit the dots adapter's semantic `pass_activation_log`, hash, compare via adapter-keyed `pass_activation_log_hashes["dots"]` per ADR-0008. Fixture pinned in `MatchSim.Tests/fixtures/replay-corpus/0xdeadbeefdeadbeef.json` (already established as Tier-A smoke seed per `design/specs/golden-replay-corpus.md`). Visual smoke captures are separate artifacts, not cross-platform hash inputs.
+- The two fixtures are kept separate forever: synthetic-fixture proves the adapter consumes the contract correctly; corpus seed proves end-to-end sim-+-adapter determinism. Either passing without the other = signal something is wrong, not "good enough."
 - `fw shader-audit` per Phase-3 SPEC task ensures no `_Time` references in dots-adapter shaders. Knowledge Risk LOW because dots adapter doesn't need custom HLSL — built on URP defaults + Sprite Renderer.
 
 ---
@@ -186,11 +208,13 @@ The "Alternative A" from `design/3d-pipeline.md §Alternatives if the spike fail
 ## Validation criteria
 
 - [ ] Phase-3 Week-2: `Viewer.Adapters.Dots` asmdef compiles + renders 3 shot types (`tactical-wide` + `diagonal-attack-lane` + `pass-shot-impact`) against `ViewerEvent` stream.
-- [ ] Phase-3 Week-3: paired corpus fixtures (`<seed>.json` + `<seed>.reduce-motion.json`) pass for the dots adapter.
+- [ ] Phase-3 Week-2: synthetic ViewerEvent fixture (`MatchSim.Tests/fixtures/synthetic/dots-three-shot-types.json`) consumed end-to-end produces a non-empty, deterministic pass-activation trace. Hashes match across Win/Mac/Linux.
+- [ ] Phase-3 Week-3: paired corpus fixtures (`<seed>.json` + `<seed>.reduce-motion.json`) pass for the dots adapter via adapter-keyed `pass_activation_log_hashes["dots"]`. Lands once MatchSim ball + player + 2 BT archetypes can produce meaningful events.
 - [ ] Phase-3 Week-4: signature trigger renders the polish-bar visual cue (dot-flash + selection-ring + overlay quote).
-- [ ] Phase-3 end-of-Month-3: 5 cold observers (per `design/month-3-vertical-slice.md`) confirm drama + identity legible through dots-only rendering. ≥4 pass.
+- [ ] Phase-3 end-of-Month-3: 5 cold observers (per `design/month-3-vertical-slice.md`) run through the §Polish bar > Observer-task script. ≥4 of 5 pass (each observer passes iff they pass ≥5 of 6 tasks).
 - [ ] No `_Time` references in dots adapter shaders per `fw shader-audit`.
-- [ ] Tier-A CI smoke (1-second sim) emits a deterministic dots pass-activation trace; `pass_activation_log_hash` matches pinned corpus value across Win/Mac/Linux. Rendered screenshot/video smoke is verified separately and not pixel-hashed.
+- [ ] Tier-A CI smoke (synthetic-fixture path Week-2; corpus-seed path Week-3+) emits a deterministic dots pass-activation trace; `pass_activation_log_hashes["dots"]` matches pinned corpus value across Win/Mac/Linux. Rendered screenshot/video smoke is verified separately and not pixel-hashed.
+- [ ] Aftermath-freeze viewer hold confirmed to NOT pause MatchSim canonical time: integration test runs a 5-second match clip with two aftermath-freeze events; canonical state hash + event stream are identical with-vs-without observer-side viewer attached.
 
 ---
 
@@ -225,3 +249,4 @@ The "Alternative A" from `design/3d-pipeline.md §Alternatives if the spike fail
 ## Changelog within this doc
 
 - **2026-04-26** — Authored as Proposed per visual-target supersession decisions-log entry. First consumer of ADR-0008 ShotPresentationContract. Polish bar locked (10 criteria). 7-shot dots interpretation table. Reduce-motion adapter posture. Tier-A CI smoke wiring. Five rejected alternatives. Five open questions for Phase-3 Week-2/3 resolution. Awaits user / GPT-5.5 review pass before flipping to Accepted.
+- **2026-04-27** — GPT-5.5 review pass landed (Concerns verdict; one P1 + two P2 findings against this ADR + cross-ADR P1 propagation from ADR-0008). Applied: (P1-4) `aftermath-freeze` row in §7-shot interpretation table rewritten to lock the viewer-vs-sim time boundary — viewer holds the rendered frame; canonical MatchSim time + event stream continue uninterrupted; on release, adapter accelerates playback or skips interpolation. (P2-7) Polish bar gained an operational §Observer-task script: 6 binary tasks (ball-carrier identification at 30s/90s/150s, pressing-team identification at 60s/120s, focal-player naming on player-isolation/pass-shot-impact, signature-fired identification, why-the-last-high-stakes-moment-mattered free-response, reduce-motion readability) with explicit pass/fail criteria. Replaces "drama legible" vibe-check with falsifiable rubric. Each observer passes iff ≥5 of 6 tasks pass; ≥4 of 5 observers pass = gate green. (P2-8) §Tier-A CI integration split into two separate fixtures: synthetic ViewerEvent fixture (Week 2; covers all 3 shot types; non-empty trace guaranteed) lands FIRST; corpus seed (Week 3+; end-to-end sim+adapter; lands once meaningful sim events are producible) lands SECOND. Either passing without the other is treated as signal-something-wrong, not "good enough." §Validation criteria + §Cross-references updated to reflect adapter-keyed `pass_activation_log_hashes["dots"]` path from ADR-0008 v1 + sim-time-not-pausing integration test. Status remains Proposed; awaits Codex review pass before flipping to Accepted.

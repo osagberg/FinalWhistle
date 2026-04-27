@@ -14,7 +14,7 @@ description: ADR-0008 — ShotPresentationContract / ViewerEvent. Renderer-agnos
 
 ## Last Verified
 
-2026-04-26
+2026-04-27
 
 ## Decision Makers
 
@@ -82,8 +82,24 @@ Introduce a `ShotPresentationContract` data layer + `ViewerEvent` stream in a ne
 ```csharp
 public sealed record ViewerEvent
 {
-    // Identity — what shot is this?
-    public ContentPackQualifiedId ShotTypeId;          // resolves to a ShotTypeSO per ADR-0001
+    // Stable identity + ordering. Bridge assigns ViewerEventId from canonical
+    // sim event order at emission time; once assigned, immutable. Pass-
+    // activation trace ordering is (StartTick, ViewerEventId) — never adapter-
+    // local sort. SourceEventId / SourceEventOrdinal carry the upstream sim
+    // event identity verbatim for provenance + replay debugging.
+    public ulong ViewerEventId;                        // bridge-assigned; monotonically increasing per match
+    public ulong SourceEventId;                        // canonical sim event id (ADR-0004)
+    public int   SourceEventOrdinal;                   // index of this ViewerEvent within the source event's emission burst (0 if 1:1)
+
+    // Shot identity — base is what was authored (ShotTypeSO.Id from ADR-0001);
+    // effective is what the bridge resolved AFTER reduce-motion substitution.
+    // Adapters render `EffectiveShotTypeId`. `BaseShotTypeId` is provenance —
+    // visible in pass-activation trace + debug overlay only.
+    public ContentPackQualifiedId BaseShotTypeId;      // pre-substitution shot identity
+    public ContentPackQualifiedId EffectiveShotTypeId; // post-substitution; adapters render THIS one
+    public bool ReduceMotionApplied;                   // true iff bridge substituted reduce_motion_variant
+
+    // Temporal window
     public Tick StartTick;                             // when in the sim this event begins
     public Tick EndTick;                               // when it ends; viewer interpolates between
     public Seed Seed;                                  // deterministic per (match, tick, event-id)
@@ -91,9 +107,9 @@ public sealed record ViewerEvent
     // Modulation parameters (adapter-agnostic; each adapter renders these per its style)
     public Fixed StakesNormalized;                     // [0,1] from competition + scoreline + ledger relevance
     public Fixed MemoryRelevance;                      // [0,1] memory-hit intensity for participants
+    public ContentPackQualifiedId? FocalSubject;       // explicit focal player; adapters use this for selection-ring / camera-target hints. Null if no single focal subject (e.g. tactical-wide).
     public ImmutableArray<ContentPackQualifiedId> ParticipantPlayerIds;
     public ImmutableArray<MemoryHit> MemoryHits;       // structured callbacks the adapter may surface
-    public bool ReduceMotion;                          // accessibility flag; bridge substitutes per ADR-0001 reduce_motion_variant
 
     // Event provenance (for replay determinism + adapter debugging)
     public EventClass SourceEventClass;                // ADR-0004 enum; the sim event that triggered this viewer event
@@ -111,9 +127,9 @@ public readonly struct MemoryHit
 
 public readonly struct CallbackSlotValue
 {
-    public string SlotName;                             // e.g. "player_name", "club_name", "minute"
-    public ContentPackQualifiedId? EntityId;            // preferred for player/club/signature slots
-    public string? LiteralValue;                        // fixed values only; never generated prose
+    public string SlotName;                             // e.g. "player_name", "club_name", "minute". Sorted ordinally — see Determinism contract §slot rules below.
+    public ContentPackQualifiedId? EntityId;            // PREFERRED for player/club/signature slots; resolves locale at adapter-render time
+    public string? LiteralValue;                        // fixed values only; never generated prose. Format with InvariantCulture; never with current-culture (locale drift would enter the trace).
 }
 
 public sealed record ShotTypeDefinition
@@ -150,11 +166,57 @@ public interface IShotPresentationAdapter
     void RenderFrame(PitchView pitchView, IReadOnlyList<ActiveViewerEvent> activeEvents);
 }
 
+public sealed record PitchView
+{
+    // Snapshot of the canonical sim state the adapter renders for this frame.
+    // Bridge produces this from MatchSim canonical state at the requested
+    // RenderTick; adapters MUST NOT read MatchSim state directly.
+    public Tick RenderTick;
+    public Fixed PitchLengthMetres;
+    public Fixed PitchWidthMetres;
+    public Vector2Fixed BallPosition;                  // Q32.32 fixed-point; (0,0) = pitch center
+    public Vector2Fixed BallVelocity;
+    public ContentPackQualifiedId? BallCarrierPlayerId; // null if loose ball
+
+    // Player snapshots sorted by (TeamSide, ContentPackQualifiedId) — ordinal
+    // string compare on the qualified id. Stable across runs and platforms.
+    public ImmutableArray<PlayerSnapshot> Players;
+}
+
+public readonly struct PlayerSnapshot
+{
+    public ContentPackQualifiedId PlayerId;
+    public TeamSide Side;                              // Home / Away
+    public Vector2Fixed Position;
+    public Vector2Fixed Velocity;
+    public byte JerseyNumber;
+}
+
+public sealed record ActiveViewerEvent
+{
+    public ViewerEvent Event;                          // the underlying ViewerEvent — full schema above
+    public Fixed Progress;                             // [0,1] = (RenderTick - StartTick) / (EndTick - StartTick); pinned at 1.0 once EndTick passed
+    // Active set ordered by (StartTick, ViewerEventId). Adapters MUST iterate
+    // in supplied order; they MUST NOT re-sort.
+}
+
 public enum AdapterId : ushort
 {
     Dots         = 1,                                  // ADR-0009
     CelShaded3d  = 2,                                  // ADR-0010 conditional on Phase-5 spike
-    // future adapters reserve IDs here; new adapters require ADR + decisions-log entry
+    // Future adapters reserve IDs here; new adapters require ADR +
+    // decisions-log entry. The registry is intentionally CODE-OWNED, not
+    // content-pack-loadable: a community / mod adapter is a code plugin
+    // shipped via trusted-build channel (separate Steam beta branch, signed
+    // sideload, etc.), NOT a normal Workshop-style content pack. Workshop
+    // packs extend ShotTypeSO + content per ADR-0001 + design/modding.md;
+    // they cannot register a new AdapterId.
+}
+
+public enum TeamSide : byte
+{
+    Home = 1,
+    Away = 2,
 }
 
 public enum ReduceMotionStrategy : byte
@@ -207,18 +269,53 @@ No live adapter swap mid-match. Switching adapters requires scene reload (consis
 
 ### Determinism contract
 
-ViewerEvent derivation by `Viewer.EventBridge` is deterministic per `Seed(match_seed, tick, event_id)`. Adapters MUST be deterministic at the semantic trace level given the same ViewerEvent stream input — this is what makes the golden-replay-corpus `pass_activation_log_hash` work (per `design/specs/golden-replay-corpus.md` + `design/accessibility.md` paired-fixture pattern). Pixel output is intentionally not hashed because cross-GPU / cross-driver differences are acceptable.
+ViewerEvent derivation by `Viewer.EventBridge` is deterministic per `Seed(match_seed, tick, event_id)`. Adapters MUST be deterministic at the semantic trace level given the same ViewerEvent stream input — this is what makes the golden-replay-corpus `pass_activation_log_hashes` work (per `design/specs/golden-replay-corpus.md` + `design/accessibility.md` paired-fixture pattern). Pixel output is intentionally not hashed because cross-GPU / cross-driver differences are acceptable.
 
 Adapter-side `_Time`-based shaders / `Random` calls / `DateTime.Now` etc. are forbidden in gameplay-affecting renders per ADR-0001 forbidden-nondeterminism + ADR-0002 (now superseded but rule preserved). Visual-only effects (pure cosmetic noise, decorative crowd ambient) are exempt; they don't enter the determinism log hash.
 
+#### Ordering rules (locked at v1)
+
+These rules are required to keep the pass-activation trace stable across machines, locales, and adapters:
+
+- **ViewerEvent stream order:** sorted by `(StartTick ascending, ViewerEventId ascending)`. `ViewerEventId` is bridge-assigned monotonically per match.
+- **PitchView.Players:** sorted by `(TeamSide ascending, PlayerId ordinal ascending)`. Ordinal compare via `StringComparer.Ordinal` — never `CurrentCulture`, never `InvariantCultureIgnoreCase` (case-folding is locale-tunable in some cultures).
+- **MemoryHit.Slots:** sorted by `SlotName` ordinal ascending. Bridge enforces this at emission time so adapters never need to re-sort.
+- **CallbackSlotValue.LiteralValue:** formatted with `CultureInfo.InvariantCulture` always. Numeric values use `ToString("R", InvariantCulture)` round-trippable form.
+
+#### Pass-activation trace fields (what enters the hash)
+
+The pass-activation trace is the deterministic semantic record per ViewerEvent. Each entry contains:
+
+- `ViewerEventId` (ordering)
+- `StartTick`
+- `BaseShotTypeId.AsCanonicalString()` (ordinal)
+- `EffectiveShotTypeId.AsCanonicalString()` (ordinal)
+- `ReduceMotionApplied` (bool)
+- `FocalSubject?.AsCanonicalString()` or empty
+- `SourceEventClass`
+- `SourceEventId`
+- adapter-declared feature-toggle states (each adapter exposes a stable list of toggle names + bool/byte values; adapters with NO toggles produce an empty section)
+
+What's deliberately EXCLUDED from the trace hash:
+
+- `MemoryHit.CallbackLineId` rendered prose — the line ID is included; the localized text is not. Locale-rendered text drifts across builds + locale packs without any bug; trapping it would create false-positive hash mismatches.
+- `MemoryHit.Slots[*].LiteralValue` rendered display — the structured value is included; any post-render display-formatting is not.
+
+If a future fixture pins a specific locale (e.g., `en_GB`), the rendered text MAY enter the trace for that fixture, but only via an explicit `locale_pin: "en_GB"` field on the corpus fixture (per `design/specs/golden-replay-corpus.md`).
+
 ### Reduce-motion adapter-awareness
 
-Per `design/accessibility.md`, reduce-motion is structurally scene-load-time. Each adapter implements its reduce-motion path independently:
+Per `design/accessibility.md`, reduce-motion is structurally scene-load-time. The substitution boundary is **locked at the bridge, not the adapter**:
 
-- **Dots adapter (ADR-0009):** reduce-motion may simplify camera transitions, disable trails-on-dots, slow shot transitions. Substitution of `reduce_motion_variant` ShotTypeSO.
-- **3D adapter (ADR-0010 conditional):** reduce-motion disables motion-line trails + impact-flash features at scene-load (inherits ADR-0002's specific intent in the 3D context); cel-shader stays static.
+- **`Viewer.EventBridge` performs the `reduce_motion_variant` substitution exactly once** per ViewerEvent, at emission time. The result is `EffectiveShotTypeId` (rendered) + `BaseShotTypeId` (provenance). `ReduceMotionApplied` records whether substitution actually happened (a shot may not have a `reduce_motion_variant` defined; in that case `EffectiveShotTypeId == BaseShotTypeId` and the flag is false).
+- **Adapters do NOT re-substitute.** Adapters render `EffectiveShotTypeId` verbatim. They MAY further disable adapter-specific features (motion-line trails, camera-rhythm easing curves, etc.) when `ReduceMotionApplied == true` — but those feature-toggle states must be declared in the adapter's pass-activation trace section so the trace remains stable.
 
-Both adapters honor `ViewerEvent.ReduceMotion` from the same flag; their interpretation differs. The corpus `reduce_motion` fixture field (per `design/specs/golden-replay-corpus.md`) tests reduce-motion paths produce stable pass-activation traces while sharing identical sim canonical-state and `key_event_hashes`. Corpus schema v1 has one active-adapter `pass_activation_log_hash`; before a second adapter enters CI, the corpus schema must bump to adapter-keyed pass-activation hashes.
+Each adapter declares its own reduce-motion feature-toggle list:
+
+- **Dots adapter (ADR-0009):** `dots.trails_enabled`, `dots.camera_rhythm_simplified`, `dots.shot_transition_speed_modifier` (Q32.32 fixed-point ratio).
+- **3D adapter (ADR-0010 conditional):** `3d.motion_lines_enabled`, `3d.impact_flash_enabled`, `3d.cel_shader_static` (inherits ADR-0002 specific intent in the 3D context).
+
+Both adapters consume the same bridge-resolved `EffectiveShotTypeId`; their adapter-specific toggle states differ and enter the pass-activation trace per the rules above. The corpus `reduce_motion` fixture field (per `design/specs/golden-replay-corpus.md`) tests reduce-motion paths produce stable pass-activation traces while sharing identical sim canonical-state and `key_event_hashes`. Corpus schema v1 stores `pass_activation_log_hashes` as an adapter-keyed object from day one (initially `{ "dots": "..." }`); adding the 3D adapter is `{ "dots": "...", "celShaded3d": "..." }` — same v1 schema, no migration.
 
 ---
 
@@ -253,7 +350,7 @@ Per-adapter contract versioning would let adapters evolve independently. Sounds 
 - **Renderer-agnostic.** Same sim works with dots, 3D, future adapters without sim-side changes.
 - **Reversible.** If 3D fails the spike, dots adapter remains shipping-quality without architecture rewrite. If dots is later replaced with stylized-2D-illustrated post-EA, that's a third adapter consuming the same contract.
 - **Mod-pack-friendly.** Mods reference `ShotTypeSO` per `ContentPackQualifiedId`; the contract resolves these adapter-agnostically.
-- **Test-friendly.** Adapter-determinism tests run independently of sim-determinism tests. Phase-3 corpus schema v1 records the active dots adapter's `pass_activation_log_hash`; multi-adapter CI requires a schema bump to adapter-keyed hashes before the 3D adapter enters the replay matrix.
+- **Test-friendly.** Adapter-determinism tests run independently of sim-determinism tests. Phase-3 corpus schema v1 stores `pass_activation_log_hashes` as an adapter-keyed object from day one (initially `{ "dots": "..." }`); the 3D adapter enters by adding `"celShaded3d": "..."` — same v1 schema, no migration required.
 - **Accessibility-clean.** `reduce_motion` flag flows through the contract; adapters interpret per their style; `golden-replay-corpus.md` paired-fixture pattern works for both.
 - **Memory-callback unified.** `MemoryHit` carries callback line IDs + deterministic slot values. Both adapters resolve the same localized, lint-scanned text (per accessibility + content-policy + ui-vocabulary discipline); only the visual presentation differs.
 
@@ -274,22 +371,27 @@ Per-adapter contract versioning would let adapters evolve independently. Sounds 
 ## Validation criteria
 
 - [ ] Phase-3 Week-2: dots adapter (ADR-0009) consumes `ViewerEvent`s end-to-end and produces a 3-shot-type prototype rendering. Confirms the contract is implementable.
-- [ ] Phase-3 Week-2: golden-replay-corpus paired fixtures (`<seed>.json` + `<seed>.reduce-motion.json`) pass for the dots adapter. Confirms adapter semantic-trace determinism.
-- [ ] Phase-3 Week-3: a synthetic "second adapter" stub (just logs `ViewerEvent`s to JSON, doesn't render) passes the same contract consumption tests. Confirms renderer-agnostic posture.
+- [ ] Phase-3 Week-2: golden-replay-corpus paired fixtures (`<seed>.json` + `<seed>.reduce-motion.json`) pass for the dots adapter via adapter-keyed `pass_activation_log_hashes["dots"]`. Confirms adapter semantic-trace determinism.
+- [ ] Phase-3 Week-2: synthetic ViewerEvent fixture (per ADR-0009 §Tier-A CI integration) covers all three Week-2 shot types; trace is non-empty + stable. Confirms the smoke test isn't passing on an empty trace.
+- [ ] Phase-3 Week-3: a synthetic "second adapter" stub (just logs `ViewerEvent`s to JSON, doesn't render) passes the same contract consumption tests + populates `pass_activation_log_hashes["stub"]`. Confirms renderer-agnostic posture + adapter-keyed corpus schema.
 - [ ] Phase-5: 3D-pipeline spike (per `design/3d-pipeline.md`) implements ADR-0010 against the same contract without sim-side changes. Confirms the contract holds across adapters.
 - [ ] No `_Time` / `Random` / `DateTime.Now` references in adapter renderers per `fw shader-audit` + asmdef-level lint. Confirms determinism preserved.
+- [ ] `Viewer.EventBridge` ordering tests: ViewerEventId monotonic per match; PitchView.Players ordinal-sorted; MemoryHit.Slots ordinal-sorted. Confirms ordering rules locked at v1.
 
 ---
 
 ## Open questions
 
-1. **Contract v1 completeness for Phase-3.** Is the `ViewerEvent` schema above sufficient for dots prototype + 3D spike, or are fields missing (camera-target hint, audio-cue hook, debug-overlay metadata)? Resolved at Phase-3 Week-1 dots-adapter authoring; if missing fields surface, contract v1 may need a minor bump before Week-2.
+1. **Callback line shape.** `MemoryHit.CallbackLineId` assumes one localized line asset + deterministic slots per callback. Multi-line / subtitle-specific variants / template-with-runtime-slots? Pairs with `design/event-sourced-memory.md` reader-side rendering. Resolve at Phase-3 when `MemoryEvent → MemoryHit` conversion is implemented. (NOTE: 2026-04-27 review pass locked the slot-ordering + locale-rendering rules in §Determinism contract; what remains open is the line-asset structure itself, not its hash treatment.)
 
-2. **Callback line shape.** `MemoryHit.CallbackLineId` assumes one localized line asset + deterministic slots per callback. Multi-line / subtitle-specific variants / template-with-runtime-slots? Pairs with `design/event-sourced-memory.md` reader-side rendering. Resolve at Phase-3 when MemoryEvent → MemoryHit conversion is implemented.
+2. **Audio-cue hook + debug-overlay metadata.** Deferred to a future v2 contract bump if Phase-3 Week-2 dots-adapter authoring surfaces a need. Audio is currently routed via FMOD-side event names tied to `EffectiveShotTypeId`; debug overlays consume the pass-activation trace directly. If neither is sufficient, file a contract v2 RFC with concrete fields. Default posture: don't add fields speculatively.
 
-3. **PitchView abstraction.** `IShotPresentationAdapter.RenderFrame` takes a `PitchView` parameter. What does that contain — pitch coordinates, player positions, ball position, camera target? Common-shape across dots + 3D adapters or adapter-specific? Resolve at Phase-3 Week-2.
+3. **Polish-bar measurability.** ADR-0009 §Polish bar locks the operational observer-task script; this ADR's role is structural only. If the observer-task pass/fail rates surface contract-level gaps (e.g., adapters can't communicate "signature fired" without an extra field), revisit here.
 
-4. **ActiveViewerEvent vs ViewerEvent.** The interface mentions `ActiveViewerEvent` (events currently in their `[StartTick, EndTick]` window) separately from `ViewerEvent` (the full stream). Is this a useful distinction or premature optimization? Resolve at Phase-3 Week-1.
+(2026-04-27 review pass closed the prior open questions:
+**Contract v1 completeness** — locked: `ViewerEventId`, `SourceEventId`, `SourceEventOrdinal`, `BaseShotTypeId`, `EffectiveShotTypeId`, `ReduceMotionApplied`, `FocalSubject` added.
+**PitchView abstraction** — locked minimum shape (RenderTick, pitch dimensions, ball position/velocity, ball-carrier, sorted PlayerSnapshots).
+**ActiveViewerEvent vs ViewerEvent** — locked: `ActiveViewerEvent` wraps `ViewerEvent` + `Progress`; ordered active set.)
 
 ---
 
@@ -311,3 +413,4 @@ Per-adapter contract versioning would let adapters evolve independently. Sounds 
 ## Changelog within this doc
 
 - **2026-04-26** — Authored as Proposed per visual-target supersession decisions-log entry. Supersedes ADR-0002. ViewerEvent + ShotPresentationContract schemas drafted. Post-review cleanup moved the contract into pure-C# `Viewer.Contracts` + `Viewer.EventBridge` so `MatchSim.Contracts` remains canonical-sim-only, replaced pre-rendered callback text with callback line IDs + deterministic slots, and clarified that pass-activation hashes cover semantic traces rather than rendered pixels. AdapterId enum reserves Dots=1 + CelShaded3d=2; future adapters require ADR + decisions-log entry. Five rejected alternatives captured. Four open questions for Phase-3 Week-1 resolution. Awaits user / GPT-5.5 review pass before flipping to Accepted.
+- **2026-04-27** — GPT-5.5 review pass landed (Concerns verdict; 4 P1 + 4 P2 findings). Applied: (P1-1) added `ViewerEventId` + `SourceEventId` + `SourceEventOrdinal` for stable identity + ordering; (P1-2) split `ShotTypeId` into `BaseShotTypeId` + `EffectiveShotTypeId` + `ReduceMotionApplied` so adapters render the bridge-resolved effective shot only; (P1-3) locked minimum `PitchView` (RenderTick / pitch dimensions / ball position+velocity / ball-carrier / sorted PlayerSnapshots) + `ActiveViewerEvent` (wraps ViewerEvent + Progress) shapes — they are now part of the contract, not deferred; (P1-4) aftermath-freeze sim-time-pause language was actually in ADR-0009 §7-shot-table, fixed there in companion edit. (P2-5) added §Determinism contract ordering rules: stream order is `(StartTick, ViewerEventId)`, PitchView.Players ordinal-sorted by `(TeamSide, PlayerId)`, MemoryHit.Slots ordinal-sorted by SlotName, LiteralValue formatted with InvariantCulture; pass-activation trace fields enumerated + locale-rendered prose explicitly excluded unless corpus pins a locale. (P2-6) corpus `pass_activation_log_hashes` is adapter-keyed from v1 (initially `{ "dots": "..." }`); `golden-replay-corpus.md` updated in companion edit; no future schema migration. (P2-8) synthetic ViewerEvent fixture posture added to validation criteria so the 60-tick smoke can't pass on an empty trace. AdapterId enum gained an explicit comment that the registry is code-owned: community/mod adapters are code plugins via trusted-build channel, NOT Workshop-style content packs. Open questions list reduced from 4 to 3 (CallbackLine shape narrowed, audio/debug deferred to v2 RFC if needed, polish-bar measurability cross-references ADR-0009). Status remains Proposed; awaits Codex review pass before flipping to Accepted.

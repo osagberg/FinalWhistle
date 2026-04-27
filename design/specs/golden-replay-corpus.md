@@ -1,6 +1,6 @@
 ---
 description: Golden replay corpus format specification. Canonical-seed match fixtures with expected hashes that protect MatchSim from regression across Win/Mac/Linux.
-last_verified: 2026-04-24
+last_verified: 2026-04-27
 status: Phase 2 spec — format locked; first corpus entries authored in Phase 3 Week 2
 ---
 
@@ -79,13 +79,31 @@ Filename MUST match the `match_seed` field. Rename = new fixture, not edit.
     // Q32.32 fixed-point state dump, serialized in a documented stable order.
     "final_canonical_state_hash": "sha256:...",
 
-    // Semantic pass-activation log from ADR-0008/ADR-0009. Empty until Phase 3 viewer lands;
-    // once populated, one entry per shot-change event, covering:
-    //   - active ShotTypeSO.Id
-    //   - reduce-motion variant active (bool)
-    //   - impact-flash fired (bool)
-    //   - render-feature toggle states
-    "pass_activation_log_hash": "sha256:..."
+    // Semantic pass-activation log from ADR-0008/ADR-0009 — ADAPTER-KEYED
+    // FROM v1. Map of AdapterId → sha256 hash of that adapter's pass-
+    // activation trace for this fixture. Initially { "dots": ... } once
+    // Phase 3 dots adapter lands. The 3D adapter (ADR-0010 conditional) adds
+    // "celShaded3d" entry without a schema bump. Per-entry trace covers:
+    //   - ViewerEventId (ordering)
+    //   - StartTick
+    //   - BaseShotTypeId (canonical string, ordinal)
+    //   - EffectiveShotTypeId (canonical string, ordinal)
+    //   - ReduceMotionApplied (bool)
+    //   - FocalSubject (canonical string or empty)
+    //   - SourceEventClass + SourceEventId
+    //   - adapter-declared feature-toggle states
+    // Localized rendered prose is excluded from the hash unless this fixture
+    // pins a locale via "locale_pin" (see below).
+    "pass_activation_log_hashes": {
+      "dots": "sha256:..."
+    },
+
+    // Optional: when set, pass-activation traces for this fixture INCLUDE
+    // rendered MemoryHit text in the locked locale. Default null = traces
+    // hash only structural fields (line IDs, slot values), never rendered
+    // prose. Set explicitly only for fixtures that intentionally validate
+    // localized rendering.
+    "locale_pin": null
   },
 
   // Authoring metadata — for humans reading the fixture in a PR review.
@@ -104,7 +122,7 @@ Filename MUST match the `match_seed` field. Rename = new fixture, not edit.
 }
 ```
 
-**2026-04-26 multi-adapter note:** schema v1 stores one `pass_activation_log_hash` for the active adapter's semantic pass-activation trace. Phase-3's active adapter is the dots adapter from ADR-0009. Before any second adapter enters CI, bump `corpus_schema_version` to v2 and replace this single field with adapter-keyed pass-activation hashes. Rendered frames, screenshots, and videos are visual QA artifacts, not cross-platform replay hashes.
+**2026-04-27 adapter-keyed note (supersedes 2026-04-26):** schema v1 stores `pass_activation_log_hashes` as an adapter-keyed object from day one — initially `{ "dots": "..." }`; the 3D adapter (per ADR-0010 conditional) enters by adding `"celShaded3d": "..."`. Same v1 schema; no migration. Per ADR-0008 §Determinism contract ordering rules, traces hash structural fields only (`ViewerEventId` + `BaseShotTypeId` + `EffectiveShotTypeId` + `ReduceMotionApplied` + `FocalSubject` + `SourceEventClass` + `SourceEventId` + adapter feature-toggle states); localized rendered prose is excluded unless `locale_pin` is set on the fixture. Rendered frames, screenshots, and videos are visual QA artifacts, not cross-platform replay hashes.
 
 ### Stable serialization rules
 
@@ -189,7 +207,7 @@ At Phase 8 EA: corpus is a release-gate artifact. Shipped fixture hashes accompa
 ## Open questions — dependencies tracked in SPEC, not this doc
 
 1. **Exact sim-state serialization order** — MUST land before first corpus fixture authors. Tracked as explicit **Phase-3 SPEC task** (`Author MatchSim.Tests/SerializationContract.cs — stable order for entities/events/Q32.32 fields`). The task gates Phase-3 Week-2 corpus work.
-2. **Pass-activation log field shape** — naturally tied to ADR-0008/ADR-0009 viewer implementation. Current spec reserves the v1 `pass_activation_log_hash` field for the active adapter's semantic trace; precise field enumeration lands when the ShotSelector + dots adapter are authored in Phase 3 Week 2-3. Multi-adapter CI requires a v2 schema bump to adapter-keyed hashes before the second adapter enters the replay matrix.
+2. **Pass-activation log field shape** — naturally tied to ADR-0008/ADR-0009 viewer implementation. Schema v1 stores `pass_activation_log_hashes` as an adapter-keyed object (initially `{ "dots": "..." }`); per-entry trace fields are enumerated in ADR-0008 §Determinism contract > Pass-activation trace fields. Precise field-list confirmation against actual implementation lands when the ShotSelector + dots adapter are authored in Phase 3 Week 2-3. Adding the 3D adapter (per ADR-0010 conditional) is `pass_activation_log_hashes["celShaded3d"] = "..."` — same v1 schema, no migration.
 
 ## Locked policy choices
 
