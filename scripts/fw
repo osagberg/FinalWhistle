@@ -137,6 +137,10 @@ EOF
         while IFS= read -r -d '' f; do
             case "$f" in
                 */.claude/bootstrap/*|*/.claude/session-snapshots/*|*/design-templates/*|*/node_modules/*) continue ;;
+                # Unity-generated dirs — never source-controlled, often contain
+                # third-party package docs with non-UTF8 encodings or legitimate
+                # Mustache-style template tokens that aren't ours. Always skip.
+                */unity-project/Library/*|*/unity-project/Temp/*|*/unity-project/Logs/*|*/unity-project/Obj/*|*/unity-project/UserSettings/*|*/unity-project/MemoryCaptures/*|*/unity-project/Build/*|*/unity-project/Builds/*) continue ;;
             esac
             # Strip sentinel-ignored regions, then check for placeholder tokens.
             filtered=$(awk '
@@ -147,7 +151,16 @@ EOF
             if echo "$filtered" | grep -q '{{[[:space:]]*[A-Z_]\+[[:space:]]*}}'; then
                 placeholder_hits="${placeholder_hits}${f}\n"
             fi
-        done < <(find "$ROOT" -type f \( -name '*.md' -o -name '*.sh' \) -print0 2>/dev/null)
+        done < <(find "$ROOT" -type f \( -name '*.md' -o -name '*.sh' \) \
+            -not -path '*/unity-project/Library/*' \
+            -not -path '*/unity-project/Temp/*' \
+            -not -path '*/unity-project/Logs/*' \
+            -not -path '*/unity-project/Obj/*' \
+            -not -path '*/unity-project/UserSettings/*' \
+            -not -path '*/unity-project/MemoryCaptures/*' \
+            -not -path '*/unity-project/Build/*' \
+            -not -path '*/unity-project/Builds/*' \
+            -print0 2>/dev/null)
 
         if [ -n "$placeholder_hits" ]; then
             echo "  FAIL: placeholder tokens found (outside sentinel blocks):"

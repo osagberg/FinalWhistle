@@ -153,9 +153,14 @@ EXCLUDE_DIR_FRAGMENTS = (
     "/design/brainstorm/",        # historical ideation archive; not binding spec
     "/design-templates/",         # literal templates
     "/node_modules/",
-    "/Library/",                  # Unity cache
-    "/Temp/",
-    "/Obj/",
+    "/Library/",                  # Unity package cache
+    "/Temp/",                     # Unity transient
+    "/Obj/",                      # Unity build intermediate
+    "/Logs/",                     # Unity logs
+    "/UserSettings/",             # Unity per-user editor state
+    "/MemoryCaptures/",           # Unity memory profiler dumps
+    "/Build/",                    # local Unity builds
+    "/Builds/",                   # local Unity builds (plural variant)
 )
 
 # File extensions in scope.

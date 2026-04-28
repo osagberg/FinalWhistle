@@ -238,7 +238,7 @@ For MatchSim work: verify via xUnit tests AND headless balance-harness sweep. Fl
 
 1. Read `CLAUDE.md` (this file) — **including §6.3 delegation discipline**. Subagent rotation is mandatory, not optional.
 2. Read `PROJECT_CONTEXT.md`, `STATUS.md`, `SPEC.md` current state block.
-3. Run `claude mcp list` via Bash — confirm installed MCPs match TOOLING.md catalog. If `unity-mcp` is supposed to be active for the current phase but disconnected, ask the user to start the Unity MCP server (`Window → MCP for Unity → Start Server`).
+3. Run `claude mcp list` via Bash — confirm installed MCPs match TOOLING.md catalog. The Phase-3-onward Unity MCP server registers as `UnityMCP` (Pascal); the underlying CoplayDev package is `com.coplaydev.unity-mcp` (UPM). If `UnityMCP` is supposed to be active for the current phase but disconnected, ask the user to start the Unity MCP server (`Window → MCP for Unity → Start Server`).
 4. Read `TOOLING.md` to confirm plugin / MCP / subagent / skill state. **If queued plugins aren't installed (`.claude/bootstrap/scripts/install-plugins.txt`), surface to user as a 2-min high-leverage install** — don't silently proceed without them. They include `feature-dev`, `pr-review-toolkit`, `hookify`.
 5. Skim `.claude/agents/` so subagent delegation is top-of-mind from turn 1.
 6. Check `git status` + `git log -3` for recent state.

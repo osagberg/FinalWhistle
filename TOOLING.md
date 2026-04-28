@@ -23,11 +23,11 @@
 | **chrome** | Claude Code has `WebSearch` + `WebFetch` tools natively. Redundant install. |
 | **desktop-commander** | Claude Code has `Read` / `Write` / `Edit` / `Bash` tools natively. Redundant install. |
 
-### Phase 3 — Unity-specific (deferred)
+### Phase 3 — Unity-specific
 
-| Server | Install | Purpose |
-|---|---|---|
-| **unity-mcp** (CoplayDev) | Package via `Packages/manifest.json` + `claude mcp add -s project unity-mcp <launcher>` | Edit scenes + read console + run tests from Claude. Install after Unity project exists. |
+| Server | Status | Install | Purpose |
+|---|---|---|---|
+| **UnityMCP** (CoplayDev `com.coplaydev.unity-mcp`) | ✅ active (2026-04-28) | Package via `unity-project/Packages/manifest.json` (pinned to commit SHA) + Unity-side `Window → MCP for Unity → Configure` writes the project-scoped `.mcp.json` entry as `UnityMCP` (Pascal case) on `http://localhost:8080/mcp`. CoplayDev distinguishes the npm/UPM package name (`com.coplaydev.unity-mcp`) from the MCP server registration name (`UnityMCP`); both refer to the same tool, in different contexts | Edit scenes + read console + drive Editor APIs + run tests from Claude. PostToolUse hook `.claude/hooks/refresh-unity-on-script.sh` matches `mcp__UnityMCP__manage_script` and posts to the same endpoint to auto-trigger AssetDatabase refresh after script edits |
 
 ### Deferred (trigger-based; Phase-5/6 3D spike or later fallback)
 
