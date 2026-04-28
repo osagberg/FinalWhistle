@@ -2,6 +2,43 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-28 (Phase-3 Codex audit pass — UnityMCP / Roslyn / URP / manifest hygiene)
+
+Codex review of commits `81bcf33 → abb10d0` (Unity bootstrap + URP activation + delegation discipline enforcement) returned **4 P1 + 3 P2 + 1 P3 findings**. All applied in commit `5f0bf06`. MatchSim core untouched; 457/457 tests still pass.
+
+**P1 findings — must-fix before next Unity viewer work:**
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | UnityMCP rename broke the refresh hook + port mismatch (`mcp__unity-mcp__manage_script` matcher vs `UnityMCP` server name; hook posted to `:6400` while server runs on `:8080`) | `.claude/settings.json` matcher renamed to `mcp__UnityMCP__manage_script`; `.claude/hooks/refresh-unity-on-script.sh` default endpoint moved to `http://localhost:8080/mcp`; `.mcp.json :: mcpServers.UnityMCP.url` is the single source of truth |
+| 2 | `activeInputHandler` committed as `0` (Old) with comment "Both" — Unity enum mismatch (0=Old, 1=New, 2=Both) | Already fixed in `7c72991` (working tree drift settled to `2`/Both after Editor first-open) |
+| 3 | Roslyn DLLs lacked Editor-only `PluginImporter` metadata (would inflate / break runtime player builds) | `git mv unity-project/Assets/Plugins/Roslyn/ → unity-project/Assets/Plugins/Editor/Roslyn/` — Unity convention auto-marks `Editor/` subdirs as Editor-only at import |
+| 4 | `UniversalRenderer.asset` raw-created via `ScriptableObject.CreateInstance<UniversalRendererData>()` left `postProcessData: {fileID: 0}` (URP package factory init was skipped) | New Editor menu item `Final Whistle → Setup → Repair URP Renderer` at `Assets/Scripts/Editor/Setup/RepairUniversalRenderer.cs` invokes URP's own `ResourceReloader.ReloadAllNullIn` pattern; idempotent, run-once after Editor next-open |
+
+**P2 findings:**
+
+| # | Finding | Resolution |
+|---|---|---|
+| 5 | `com.coplaydev.unity-mcp` manifest dependency floated on `#main` (silent re-resolves on package update) | Pinned to commit `b92c05a25820cfc9f59ce4094eb46aaec8632ea2` (the SHA in `packages-lock.json`); future bumps require explicit manifest edit |
+| 6 | URP manifest version `17.0.4` disagreed with resolved `17.4.0` from `packages-lock.json` | Aligned manifest to `17.4.0` (the actual builtin version Unity 6000.4 ships); cosmetic mismatch + future-churn risk eliminated |
+| 7 | ProBuilder + VisualEffectGraph as direct dependencies without scope (Phase-3 dots viewer doesn't need either; ProBuilder pulled older ShaderGraph 17.0.3 against URP's 17.4.0) | Both removed from manifest. Cinemachine 3.1.6 stays — needed for shot-framing in the dots viewer prototype |
+
+**P3 finding:**
+
+| # | Finding | Resolution |
+|---|---|---|
+| 8 | First-session plugin path in `CLAUDE.md` §8 referenced `bootstrap/scripts/install-plugins.txt` (dead path from repo root) | Corrected to `.claude/bootstrap/scripts/install-plugins.txt` — future tooling-sweep step won't dead-link |
+
+**Codex other-audit note → SPEC decisions-log entry:**
+
+Codex flagged that the `6000.4.4f1` tech-stream choice belonged in the append-only decisions log even though it's already documented in CHANGELOG / STATUS / SPEC task text. Appended a 2026-04-28 entry to `SPEC.md` decisions log with the trade-off rationale, the renderer-agnostic safety net (ADR-0008/0009 means engine-version is recoverable not load-bearing), and the Phase-7 LTS-migration trigger.
+
+**Verification:**
+
+- `fw verify`: green (verify-docs clean + banned-terms 0 violations + 457/457 dotnet tests pass)
+- All 4 P1s + 3 P2s + 1 P3 + 1 other-audit recommendation addressed in one commit
+- User-action follow-up: open Editor → run `Final Whistle → Setup → Repair URP Renderer` menu → commit the modified `UniversalRenderer.asset`
+
 ## 2026-04-28 (Phase-3 Week-2 — `unity-project/` created on Unity 6.4 tech stream)
 
 Phase 3's first pure-Unity deliverable. Default 3D project created headlessly via Editor CLI; `Packages/manifest.json` rewritten to pull URP + framework ecosystem; `.gitignore` already aligned from bootstrap.
