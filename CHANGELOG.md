@@ -2,6 +2,40 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-28 (Phase-3 Codex round-3 audit cycle CLOSED end-to-end)
+
+Final commit in the round-3 audit chain. Six commits total + three round-trip Codex re-verifications + one Editor user-action loop = audit cycle closed clean. 473/473 tests pass; `fw verify` green; working tree clean.
+
+**Commit chain (oldest → newest):**
+
+| SHA | Coverage |
+|---|---|
+| `47997fc` | Code fixes: P1-01 (Fixed.Ceiling/Round upper-Q32.32 overflow + 6 regression tests), P1-02 (URP repair script ResourceReloader namespace + direct compile-time call), P2-04 (MCP refresh hook removed as redundant — manage_script auto-imports), P3-01 (BallPhysicsCoefficients validation + 10 tests). +16 new tests. |
+| `e9d9656` | SPEC + STATUS + decisions-log: 5 dated 2026-04-28 entries appended (P1-04 Month-3 semantic-slice scope Option A, P1-05 PitchRules layer, P2-05 Forward renderer, P2-09 enforcement-skeleton rollout, P2-08 Tier-A CI carve-out). 8 new Phase-3 SPEC `[ ]` tasks added in foundation-first dependency order. 3 demonstrably-shipped Unity bootstrap tasks marked `[x]`. |
+| `771c9fe` | Doc-sync sweep across 12 design / ADR / TECH_APPROACH / pipeline files: P2-01 visual-target supersession completion, P2-05 Forward render mode, P2-06 Unity-version wording, P2-08 Tier-A CI carve-out, P2-10 accessibility ADR-0002→0008/0009 reframe, P2-11 branch-protection target-process language, P2-12 identity-compiler Month-3 fixture-vs-compiler, P2-13 ADR-0009 rating + TacticalPreset Phase-3 caveats, P3-03 link Month-3 high-level + 6-task rubrics, P3-04 phenotype-label drift, P3-05 ADR-Accepted-status. |
+| `61f9c86` | Codex round-2 verification follow-ups: validator Phase-6 deferral applied; save-migration Phase-3 placeholder applied; refresh-hook references removed from TOOLING; CLAUDE.md + SETUP.md MCP / version updates; ADR-0009 current-state cleanup; ADR-0008 Cross-references "(Proposed sibling)" → "(Accepted 2026-04-27)"; ADR-0008 changelog historical-snapshot framing; SPEC PitchRules task expanded with KickOff-immediate-respawn + MatchSimulationConfig + Seed (closes P2-03). |
+| `afd1c84` | Codex round-2 (sub-round) follow-ups: validator deferral fully applied at frontmatter + CI snippet + doc changelog; save-migration placeholder fully applied at frontmatter + Purpose + Tier-A header + open-questions; TOOLING hook count corrected (14→13; "9 more"→"11 more"); SPEC Phase-1 [x] task tech-stream wording (P3-1); ADR-0009 changelog historical-snapshot framing (P3-2). |
+| `de331f2` | Editor user-action closure (P1-02 + P1-03 end-to-end): `UniversalRenderer.asset` `postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}` (was `{fileID: 0}`) populated via `Final Whistle → Setup → Repair URP Renderer` menu; `packages-lock.json` unity-mcp `#main`→ SHA `b92c05a25820cfc9f59ce4094eb46aaec8632ea2`, ProBuilder + VFX Graph entries removed; 6 Unity-generated `.meta` files committed for Editor / Roslyn / Scripts / Editor / Setup paths. SPEC.md:121 P3 nit folded — `MatchSim.csproj` task description "Unity 6 LTS" → tech-stream wording. |
+| this cleanup | Temp Codex review files at `docs/reviews/` deleted. STATUS + CHANGELOG sync. |
+
+**Findings closure:**
+
+- **5 P1**: P1-01 (code fix), P1-02 (code + Editor), P1-03 (Editor + commits), P1-04 (decision + 5 SPEC tasks), P1-05 (decision + 1 SPEC task). All closed.
+- **13 P2**: P2-01 / P2-02 / P2-03 / P2-04 / P2-05 / P2-06 / P2-07 / P2-08 / P2-09 / P2-10 / P2-11 / P2-12 / P2-13. All closed (P2-03 folded into PitchRules SPEC task).
+- **5 P3**: P3-01 / P3-02 / P3-03 / P3-04 / P3-05. All closed (P3-02 deferred to viewer-authoring time per Codex's own framing).
+
+**Codex re-verification cycle:**
+
+- Round 1 (`docs/reviews/codex-verify-prompt-2026-04-28.md`) → Concerns; 4 P2 + 1 P3 doc-sync misses + 2 SPEC clarifications.
+- Round 2 (`codex-verify-prompt-2026-04-28-round2.md`) → Concerns; 3 P2 + 2 P3 follow-on misses (frontmatter / CI / hook count / SPEC LTS / ADR snapshot).
+- Round 3 (`codex-verify-prompt-2026-04-28-round3.md`) → Concerns initially; verified after `de331f2` final cleanup → **clean sign-off: 6 commits close the round-3 follow-ups + Unity user-action items**. Working tree clean except for the 4 temp review files (deleted in this commit).
+
+**Final state:**
+
+- `scripts/fw verify`: green (473/473 dotnet tests + verify-docs clean + banned-terms 0 violations across all platforms in `fast-pr-ci.yml`).
+- Phase-3 Unity bootstrap is now stable + reproducible; the foundation-first task ordering (consumption strategy → asmdef skeleton → PitchRules + MatchSimulationConfig + Seed → semantic slice → dots adapter) is captured in STATUS.md `Next /next picks up`.
+- Audit handoff file + 3 verify-prompt files removed from `docs/reviews/`.
+
 ## 2026-04-28 (Phase-3 Codex round-3 multi-agent audit — code fixes + Phase-3 scope decisions)
 
 Codex multi-agent thorough-review handoff arrived as `docs/reviews/DELETE_AFTER_CLAUDE_start_to_now_audit_2026-04-28.md` covering the full Phase-0-through-3 work surface: MatchSim core, Unity bootstrap, renderer pivot, SPEC + design-doc consistency. **5 P1 + 13 P2 + 5 P3 findings.** Code fixes shipped in commit `47997fc`; SPEC + STATUS + decisions-log sync in this commit. **473/473 tests pass.**
