@@ -39,7 +39,7 @@ Five tiers. Each tier has a trigger, a budget, and a scope. Higher tiers do not 
 ### Tier A — Fast PR CI
 
 **Trigger:** every PR to `develop`, every push to `develop` / `main`.
-**Runner:** GitHub-hosted Linux.
+**Runner:** GitHub-hosted Linux **for general checks**; cross-platform matrix (Ubuntu + Windows + macOS) **for the deterministic-core dotnet test suite** (carve-out per SPEC 2026-04-28 decisions log: cross-platform determinism is the floor invariant the entire game depends on, so `MatchSim.Tests` runs on all three platforms even at the Tier-A budget). Matrix expansion BEYOND `MatchSim.Tests` requires a new SPEC decision.
 **Budget:** ≤5 minutes per run. Must fit inside included-minutes envelope for typical solo-dev PR volume.
 **Scope:**
 <!-- ui-lint:ignore-start reason="meta-reference to placeholder tokens being lint-checked" -->
@@ -244,7 +244,11 @@ Named channels, separated from the commit graph. The same git SHA can produce di
 
 Channel-specific metadata is embedded in the build (`channel: "ea"`) for diagnostic reporting. A `dev` build never uploads to Steam; a `hotfix` build skips full content regression but requires explicit manual QA sign-off.
 
-## Branch protection + PR discipline (Phase 1)
+## Branch protection + PR discipline (target process — current posture is direct-to-main)
+
+> **Current posture (2026-04-26 onward):** direct-to-main solo-dev mode per CLAUDE.md §5.6. GitHub Free does not allow private-repo branch protection; until that constraint lifts, direct scoped commits to `main` are acceptable provided `scripts/fw verify` is green before each commit. The PR-only discipline below becomes active when (a) GitHub plan upgrade enables private-repo branch protection, OR (b) the user explicitly opts in to PR-only mode (e.g. when the first external collaborator joins). Migration runbook: `docs/ops/branch-protection.md` — flips the protections + the PR template when the trigger fires.
+
+**Target process (when branch protection becomes available):**
 
 - `main` protected: no direct pushes; PR + approval required.
 - `develop` protected: no force pushes; PR + Tier-A-green required.

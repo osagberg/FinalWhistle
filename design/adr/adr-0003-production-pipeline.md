@@ -24,7 +24,7 @@ osagberg (project owner), GPT-5.5 (planning author; 2026-04-24 production-pipeli
 
 ## Summary
 
-Solo-dev CI/CD as a 5-tier model: GitHub-hosted fast-PR checks (Linux-only, ≤5 min), manual-dispatch Unity smoke, local/self-hosted heavy-sim work, paid-GitHub-minutes release-candidate matrix, and manual-approval-gated Steam deploy. Five named build channels (`dev`, `tester-closed`, `demo`, `ea`, `hotfix`) carry validation-tier metadata. No paid pipeline services through MVP; macOS-hosted runner minutes reserved for release-candidate runs only; Steam deploys never auto-fire on tag push.
+Solo-dev CI/CD as a 5-tier model: GitHub-hosted fast-PR checks (Linux-only baseline ≤5 min, with an explicit cross-platform carve-out for the deterministic-core dotnet test suite per SPEC 2026-04-28 decisions log), manual-dispatch Unity smoke, local/self-hosted heavy-sim work, paid-GitHub-minutes release-candidate matrix, and manual-approval-gated Steam deploy. Five named build channels (`dev`, `tester-closed`, `demo`, `ea`, `hotfix`) carry validation-tier metadata. No paid pipeline services through MVP; macOS-hosted runner minutes reserved for release-candidate runs only; Steam deploys never auto-fire on tag push.
 
 ## Engine Compatibility
 
@@ -87,7 +87,7 @@ As of Phase 1 closure (2026-04-24):
 
 | Tier | Trigger | Runner | Budget | Scope |
 |---|---|---|---|---|
-| **A — Fast PR CI** | every PR + push to `main`/`develop` | GitHub-hosted Linux | ≤5 min | `scripts/fw verify` umbrella: docs + banned-terms now, `dotnet test` + determinism smoke + save-migration smoke Phase 3+, content-pack validator subset Phase 6+ |
+| **A — Fast PR CI** | every PR + push to `main`/`develop` | GitHub-hosted Linux for general checks; **cross-platform matrix (Ubuntu + Windows + macOS) for `MatchSim.Tests`** as explicit carve-out (per SPEC 2026-04-28 decisions log — cross-platform determinism is the floor invariant the entire game depends on; matrix expansion beyond `MatchSim.Tests` requires a new SPEC decision) | ≤5 min | `scripts/fw verify` umbrella: docs + banned-terms now, `dotnet test` + determinism smoke + save-migration smoke Phase 3+, content-pack validator subset Phase 6+ |
 | **B — Unity smoke** | manual dispatch / nightly (Phase 3+) | GitHub-hosted Win OR self-hosted | ≤30 min | Unity EditMode tests; one PlayMode subset; one build target; one viewer-capture smoke |
 | **C — Heavy local** | local dev command / self-hosted schedule (Phase 3+) | **Local or self-hosted — never GitHub-hosted** | uncapped (local electricity) | 10K-match sweeps; full-season sim; replay-corpus regen + diff; full Unity matrix builds; visual-regression capture batches |
 | **D — Release candidate** | tagged RC + manual dispatch (Phase 8) | GitHub-hosted (macOS acceptable here only) | willing to spend; quarterly-scale | Full `MatchSim.Tests` matrix; full Unity builds; content-pack validator full suite; save migration matrix; license audit; banned-term exemption audit |

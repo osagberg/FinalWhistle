@@ -18,7 +18,7 @@ See SPEC.md Phase 7 (2026-04-22): *"Accessibility: subtitles, colorblind, remapp
 
 **Cross-system hooks already seeded (synthesis):**
 
-- **Reduce-motion** — `ShotTypeSO.reduce_motion_variant` per ADR-0001; scene-load-time feature disable per ADR-0002 `ViewerState.ReduceMotion`; structural (not per-frame runtime-branch); `reduce_motion` field already in `golden-replay-corpus.md` JSON schema.
+- **Reduce-motion** — `ShotTypeSO.reduce_motion_variant` per ADR-0001 + `EffectiveShotTypeId` resolution per ADR-0008 (the bridge resolves `BaseShotTypeId` → `EffectiveShotTypeId` once at viewer-event derivation; the `ReduceMotionApplied` flag travels on the `ViewerEvent`). Adapter-owned presentation behavior decides what the substitution looks like (the dots-phase ADR-0009 adapter currently disables motion-line / impact-flash equivalents at scene-load; future 3D adapter would make its own choice). Canonical MatchSim hash + `key_event_hashes` are identical with/without reduce-motion (presentation-only); adapter-keyed `pass_activation_log_hashes` MAY differ. `reduce_motion` field already in `golden-replay-corpus.md` JSON schema. (Earlier ADR-0002 references in this doc are historical; ADR-0002 is superseded by ADR-0008/0009 per SPEC 2026-04-26 decisions log — old shot-effect examples below stay as examples, not implementation commitments.)
 - **Default-off advanced details** — ADR-0006 `§Q3` advanced tooltip opt-in; never exposes raw `InternalGeneSnapshot`; only category-level `GeneCategoryEstimate` ranges.
 - **Predictable vocabulary** — banned-terms lint Category A hard-ban + Category B audited exemption per `design/ui-vocabulary.md`; British-football vernacular default; no capitalized mystical state nouns.
 - **Typography readability** — Anton display / JetBrains Mono data / Rajdhani body per `design/semantic-cinema.md` 2026-04-24 resolution; scoreline uses Rajdhani SemiBold or JetBrains Mono (never Anton — Anton is decorative, not OCR-friendly).
@@ -43,10 +43,11 @@ Each feature below is IN at EA. Nothing listed under §MVP boundary or §Deferre
 
 | Subsystem | ON behavior | Source |
 |---|---|---|
-| Screen-tone pass | Static overlay at fixed intensity; `_Time`-driven hatching disabled | ADR-0002 `ViewerState.ReduceMotionStaticToneIntensity` |
-| Motion-line trails | Feature unregistered at scene-load; no per-player mesh | ADR-0002 `MotionLineTrailFeature.SetActive(false)` |
-| Impact flash | Feature unregistered at scene-load; no fullscreen white-flash pulse | ADR-0002 |
-| Shot-type selection | Loader substitutes `ShotTypeSO.reduce_motion_variant` when present | ADR-0001 §Schema + §Deterministic selection |
+| Shot-type resolution | Bridge resolves `BaseShotTypeId` → `EffectiveShotTypeId` once via `ShotTypeSO.reduce_motion_variant`; `ReduceMotionApplied` flag travels on the `ViewerEvent`; sim-side state untouched | ADR-0008 `ShotPresentationContract` + ADR-0001 §Schema + §Deterministic selection |
+| Adapter-owned motion-effects | Each renderer adapter decides what reduce-motion means for its presentation (e.g. dots-phase ADR-0009 disables motion-line / impact-flash equivalents at scene-load; 3D adapter would make its own choice). Old ADR-0002 examples below are illustrative, not implementation commitments | ADR-0009 §Polish-bar + adapter-specific config |
+| Screen-tone pass *(historical example, ADR-0002 superseded)* | Static overlay at fixed intensity; `_Time`-driven hatching disabled — illustrative of the kind of motion-effect an adapter might disable | (superseded — ADR-0002) |
+| Motion-line trails *(historical example, ADR-0002 superseded)* | Feature unregistered at scene-load; no per-player mesh — illustrative | (superseded — ADR-0002) |
+| Impact flash *(historical example, ADR-0002 superseded)* | Feature unregistered at scene-load; no fullscreen white-flash pulse — illustrative | (superseded — ADR-0002) |
 | `aftermath-freeze` holds | Extended hold duration (+30% at stakes=1.0) so the player has more time to read post-event text | new commitment |
 | Breakthrough cinema (3-5s) | Collapses to a static post-match surface: a stat-card entry with the same two-tier observational text; no mid-match cinematic | synthesis: `design/breakthrough-moments.md` resolution + reduce-motion variant rule |
 | `crowd-reaction` cutaways | Replaced with `aftermath-freeze` substitute shot (chained via `ShotTypeSO.reduce_motion_variant`) | ADR-0001 |
@@ -54,7 +55,7 @@ Each feature below is IN at EA. Nothing listed under §MVP boundary or §Deferre
 
 **Reduce-motion is NOT silent mode.** Game still plays; sim runs; match narrates via text + audio. What changes is the visual-motion surface.
 
-**Reduce-motion is scene-load-time, not per-frame.** Toggling mid-match requires scene reload to a match-viewer re-init; UI confirms (*"Change will apply on next match start"*). This is ADR-0002's structural posture; revisiting it for in-match toggling is deferred post-EA.
+**Reduce-motion is scene-load-time, not per-frame.** Toggling mid-match requires scene reload to a match-viewer re-init; UI confirms (*"Change will apply on next match start"*). The structural posture is owned by the active renderer adapter (ADR-0009 for dots; future 3D adapter would respect the same boundary); revisiting it for in-match toggling is deferred post-EA. (Historical: this discipline originated in ADR-0002, superseded by ADR-0008/0009.)
 
 **Validator invariant (owned by the Phase-6 content-pack validator):** any `ShotTypeSO` whose base variant uses an impact-flash or motion-line feature MUST declare a `reduce_motion_variant`. During Phase-3 shot authoring this may run as an authoring warning while the 7-shot vocabulary is still moving, but by Phase-6 content-pack v1 / EA lock it is a Tier-A blocking check (`FW-VAL-A-021`). Shipping content cannot omit reduce-motion coverage for impact-flash / motion-line shots.
 

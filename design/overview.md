@@ -16,7 +16,7 @@ See SPEC.md 2026-04-22 entries. Summary:
 
 - Football management RPG with RPG-depth player development + event-sourced career memory
 - Fully fictional football world, England-readable grammar
-- 2D stylized manga-broadcast match viewer (not 3D, not a waypoint to 3D)
+- Renderer-agnostic stylized match viewer per ADR-0008 `ShotPresentationContract`. Phase-3-onward dots-prototype (sprite-on-pitch via ADR-0009) is the validation visual + a candidate shipping layer; cel-shaded 3D is a candidate shipping layer gated on the Phase-5/6 production-feasibility spike per `design/3d-pipeline.md`. Visual choice is a renderer-adapter decision, not sim-bearing — see SPEC decisions log 2026-04-26 (visual-target supersession). The 2026-04-22 *"2D stylized manga-broadcast viewer (not a waypoint to 3D)"* framing is superseded.
 - Tone: Giant Killing + Aoashi + occasional anime exaggeration
 - No capitalized state nouns in player-facing UI
 - PEGI 12 / ESRB T; Steam PC only; Windows + Mac + Linux
@@ -78,6 +78,6 @@ See SPEC.md decisions log entry `2026-04-24 — Overview pillar questions resolv
 
 ## Prototype gate (for overall game feel)
 
-The Month-3 match-engine gate (see `month-3-vertical-slice.md`) is the first test of whether the three pillars are even plausible simultaneously. Gate criterion: *"A stranger watches a 2D match for three minutes and understands drama, momentum, and player identity without reading a design doc."*
+The Month-3 match-engine gate (see `month-3-vertical-slice.md`) is the first test of whether the three pillars are even plausible simultaneously. Gate criterion: *"A stranger watches a dots-phase match for three minutes and understands drama, momentum, and player identity without reading a design doc."* Operationalized as ADR-0009's 6-task observer rubric — that document holds the falsifiable per-task evaluation; this gate language is the high-level intent the rubric validates.
 
 If that fails, we re-scope or cut before scaling systems. Every later feature depends on this gate passing.

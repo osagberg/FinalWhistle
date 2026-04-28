@@ -10,7 +10,7 @@ status: Phase 0 open questions resolved; shot-count locked through Month-3 gate,
 
 ## Purpose
 
-Answer "how does a deterministic MatchSim event stream render as a watchable 2D match that reads as drama, not data?"
+Answer "how does a deterministic MatchSim event stream render as a watchable match that reads as drama, not data?" The shot vocabulary is renderer-agnostic per ADR-0008 `ShotPresentationContract`; same shot identities drive the dots adapter (Phase-3-onward, ADR-0009) and any future 3D adapter (conditional on the Phase-5/6 production-feasibility spike per `design/3d-pipeline.md`).
 
 ## Locked decisions
 

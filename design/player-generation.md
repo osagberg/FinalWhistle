@@ -167,9 +167,9 @@ See `design/worldbuilding.md` for cohort + cultural priors, and `TECH_APPROACH.m
 
 ## MVP boundary
 
-At Month 3 slice: Identity Packets for 22 players hand-compiled or compiled via AI Content Compiler with user-review step. Compiler pipeline demonstrated end-to-end on at least 22 players.
+At Month 3 slice: **22 hand-authored compiler-shaped IdentityPacket JSON fixtures** (one per player on the two Month-3 archetype rosters) — round-tripped through the validator; sufficient to exercise scout-prose templates + signature-affinity reads. **The full AI Content Compiler pipeline lands Phase 4** per ADR-0006 + SPEC 2026-04-28 semantic-slice scope decision; Month-3 fixtures are NOT compiler output, just compiler-shaped JSON the compiler will eventually produce. (Earlier draft language *"Compiler pipeline demonstrated end-to-end on at least 22 players"* is superseded — that demonstration is Phase 4.)
 
-At Month 12 EA: full content pack v1 compiled (~2000-2400 players across 96 clubs); all pipeline lints green; sim sanity check on 10K-match sweep.
+At Month 12 EA: full content pack v1 compiled (~2000-2400 players across 96 clubs) via the actual Phase-4 AI Content Compiler; all pipeline lints green; sim sanity check on 10K-match sweep.
 
 ## Deferred
 

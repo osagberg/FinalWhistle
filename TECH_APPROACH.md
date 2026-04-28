@@ -10,9 +10,9 @@
 
 | Concern | Choice | Rationale |
 |---|---|---|
-| Engine | **Unity 6 LTS** (pin at Phase 3) | Solo-dev cross-platform; Mac Editor strong; URP supports dots-phase and cel-shaded adapter candidates; Steam deploys clean |
-| Render pipeline | **URP 17.x** | Lightweight, customizable, fits sprite-on-pitch now and cel-shader/outline spike later; Apple Silicon + Steam Deck friendly |
-| Render mode | **ForwardPlus** | Tile-based clustering; optimal for Apple Silicon TBDR and desktop |
+| Engine | **Unity 6**, currently pinned to tech-stream `6000.4.4f1` (per SPEC 2026-04-28 decisions-log entry; LTS migration re-evaluated at Phase 7 polish when next 6000.0.x LTS lands) | Solo-dev cross-platform; Mac Editor strong; URP supports dots-phase and cel-shaded adapter candidates; Steam deploys clean. Renderer-agnostic ADR-0008 architecture decouples engine version from sim correctness |
+| Render pipeline | **URP 17.4.0** (Unity 6000.4 builtin) | Lightweight, customizable, fits sprite-on-pitch now and cel-shader/outline spike later; Apple Silicon + Steam Deck friendly |
+| Render mode | **Forward** locked for the dots adapter (per SPEC 2026-04-28 decisions-log entry — dots-phase doesn't need many-light clustered shading). **Forward+** stays a candidate for the cel-shaded 3D adapter, conditional on the Phase-5/6 production-feasibility spike succeeding AND the lighting model needing many-light support; renderer-agnostic ADR-0008 contract supports per-adapter pipeline configurations | Forward is the right Phase-3 default for sprite-on-pitch + minimal lighting; Forward+ adds clustered shading useful only for many-light 3D scenes |
 | Color space | **Linear** | Required for stylized post-processing passes + colour-grading cinema |
 | **Canonical match sim** | **`MatchSim.csproj` — pure C#, zero-Unity, Q32.32 fixed-point arithmetic** | Headless balance harness; cross-platform deterministic replay; xUnit-testable |
 | **Ball physics** | **Custom deterministic sim** (not Unity PhysX) | Rocket League lesson; lockstep with MatchSim; controlled Magnus force / air drag |
@@ -303,7 +303,7 @@ PHASE 0 — KICKOFF (ACTIVE)
 └─ gate: all design-doc open questions resolved; Month-3 slice spec reviewed
 
 PHASE 1 — SETUP
-├─ Unity 6 LTS pinned
+├─ Unity 6 pinned (tech-stream `6000.4.4f1`; LTS migration Phase 7)
 ├─ gh remote created + first push
 ├─ CI stub (GitHub Actions: build + MatchSim.Tests on 3 platforms)
 └─ gate: `git log -3` shows setup commits; CI green on empty stub

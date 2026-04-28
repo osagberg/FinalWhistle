@@ -13,7 +13,7 @@ GPT-5.5's Phase-C correction: the seven-item Product MVP is only legitimate if w
 ## Locked decisions
 
 - A **Month-3 gate** exists and blocks progression. See SPEC.md Phase 3 gate.
-- The gate criterion is external-observer legibility: *"A stranger watches a dots-phase match for three minutes and understands drama, momentum, and player identity without reading a design doc."*
+- The gate criterion is external-observer legibility: *"A stranger watches a dots-phase match for three minutes and understands drama, momentum, and player identity without reading a design doc."* Operationalized as **ADR-0009's 6-task observer rubric** — that document holds the falsifiable per-task evaluation (ball-carrier identification, pressing-vs-sitting attribution, focal-player naming, signature recognition, narrative-context free response, reduce-motion readability). This gate language is the high-level intent the rubric validates; the rubric is the binding contract for pass/fail.
 - Failure to pass the gate means "extend Phase 3 by one cycle; do not proceed."
 
 ## The brutal slice — what exists at Month 3

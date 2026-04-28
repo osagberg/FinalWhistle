@@ -30,7 +30,7 @@ Sprite-on-pitch dots adapter implementing `IShotPresentationAdapter` (per ADR-00
 
 | Field | Value |
 |---|---|
-| Engine | Unity 6 LTS + URP 17+; minimal URP feature surface (no custom HLSL passes) |
+| Engine | Unity 6, currently pinned to tech-stream `6000.4.4f1` (LTS migration re-evaluated at Phase 7 per SPEC 2026-04-28 decisions log); URP 17.4.0; minimal URP feature surface (no custom HLSL passes) |
 | Domain | Rendering / Viewer adapter | <!-- ui-lint:allow term="domain" reason="ADR template canonical field name for engine-compat area" reviewer="osagberg" -->
 | Knowledge Risk | LOW — sprite-on-pitch is well-trodden pattern; 2D Toolkit + Sprite Renderer + UI Toolkit overlays. No new engine APIs. |
 | References Consulted | 2026-04-26 visual-target supersession entry, ADR-0008 ShotPresentationContract, `design/semantic-cinema.md` 7-shot vocabulary (interpreted dots-style), `design/accessibility.md` reduce-motion adapter posture, `design/3d-pipeline.md` (sibling adapter) |
@@ -116,7 +116,7 @@ Owed at Phase-3 Month-3 gate; verified by 5 cold observer test:
 6. **Camera rhythm.** Camera transitions between shot types are smooth (eased), not jump-cut. Routine play uses tactical-wide; signature / shot / goal punches in; aftermath holds and releases. Match feels watched, not surveilled.
 7. **Commentary integration.** UI-Toolkit overlay text is timed with `ViewerEvent` start-tick; never lags by visible amount. Reads as commentary, not subtitles to a video.
 8. **Crowd-audio subtitle integration.** Subtitle toggle (per `design/accessibility.md`) surfaces `(Stadium hush)` / `(Home crowd erupts)` overlays at salience-gated moments.
-9. **Post-match summary.** Post-match screen surfaces ratings, key events, scout-readable phenotype updates per `design/player-generation.md`. Players who stepped away during the match can reconstruct the story.
+9. **Post-match summary.** Post-match screen surfaces ratings (Phase-3: **debug / placeholder** display only — the centered-5.0 rating system is a Phase-4 deliverable per SPEC 2026-04-25 decisions log), key events, scout-readable phenotype updates per `design/player-generation.md`. Players who stepped away during the match can reconstruct the story. **TacticalPreset is NOT required for the Month-3 viewer** (Phase-4 system per SPEC 2026-04-25 decisions log); observer-rubric tasks 2 and 5 use simpler inputs (pressing-vs-sitting kit-color identification and free-response narrative reads) until rating + TacticalPreset designs are accepted.
 10. **Reduce-motion polish.** Reduce-motion path is tested + visually verified to work at the Month-3 gate (paired corpus fixture per `design/specs/golden-replay-corpus.md`).
 
 If the polish bar is not hit at Month-3 gate, the project doesn't advance to Phase 4 — that's the gate's purpose per `design/month-3-vertical-slice.md`.
@@ -129,7 +129,7 @@ The Month-3 gate runs each cold observer through the same scripted protocol. The
 |---|---|---|
 | 1 | **Identify ball carrier at the 30s, 90s, and 150s marks.** | ≥2 of 3 correct (visual-only — no scoreboard / commentary peek). |
 | 2 | **Identify which team is pressing high and which is sitting deep.** | Correct attribution at both 60s and 120s marks. Either team naming or kit-color naming OK. |
-| 3 | **Name the focal player when a `player-isolation` / `pass-shot-impact` shot fires.** | ≥1 of any focal-shot moments correctly named (jersey number OR name OR position-label all count). |
+| 3 | **Name the focal player when a `player-isolation` / `pass-shot-impact` shot fires.** | ≥1 of any focal-shot moments correctly named (jersey number OR name OR position-label all count). Phase-3 viewer surfaces jersey number + position-label via the IdentityPacket fixtures + Viewer.EventBridge per SPEC 2026-04-28 semantic-slice scope; rating numbers in the identity overlay are debug/placeholder until Phase-4 rating system lands. |
 | 4 | **Did a signature fire during this clip? If yes, which player?** | If a signature fired: correctly identifies it fired AND names the player. If no signature fired: correctly says no signature fired. |
 | 5 | **Why did the last high-stakes moment matter?** (Free response.) | Observer's answer references at least one of: scoreline / form-rising-or-falling / memory callback / signature / rivalry. Does not require football-domain vocabulary; "this guy hates that other guy because of last season" counts. |
 | 6 | **Reduce-motion readability.** Observer re-watches the same clip with reduce-motion ON. | Observer reports they could still follow the match. Optional follow-up: "Did you notice the difference?" — either yes or no answer is fine, the question is whether legibility held. |

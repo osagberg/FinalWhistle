@@ -130,8 +130,8 @@ Captured 2026-04-26; resolved at Phase-5 spike kickoff or sooner if pressure sur
 ## Cross-references
 
 - **2026-04-26 SPEC decisions-log entry** — visual-target supersession (this doc's authority)
-- **ADR-0008 ShotPresentationContract** (owed) — renderer-agnostic contract this adapter consumes
-- **ADR-0009 dots-phase render adapter** (owed) — sibling adapter that ships as Phase-3 prototype + EA fallback
+- **ADR-0008 ShotPresentationContract** (Accepted 2026-04-27) — renderer-agnostic contract this adapter consumes
+- **ADR-0009 dots-phase render adapter** (Accepted 2026-04-27) — sibling adapter that ships as Phase-3 prototype + EA fallback
 - **ADR-0002 (Superseded)** — original viewer rendering pipeline; preserved for history per append-only ADR discipline
 - **`design/signatures.md`** — 24-signature catalog; animations authored against this catalog at Phase-5/6
 - **`design/semantic-cinema.md`** — 7-shot vocabulary applies to ALL adapters (rendered differently per adapter)

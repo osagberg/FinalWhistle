@@ -30,7 +30,7 @@ Decouple MatchSim from any specific renderer by introducing a pure-C# `ShotPrese
 
 | Field | Value |
 |---|---|
-| Engine | Unity 6 LTS (exact patch pinned at Phase 3 kickoff); contract itself is pure-C# inside `Viewer.Contracts` (Unity-free) |
+| Engine | Unity 6, currently pinned to tech-stream `6000.4.4f1` (LTS migration re-evaluated at Phase 7 per SPEC 2026-04-28 decisions log); contract itself is pure-C# inside `Viewer.Contracts` (Unity-free) so engine version is irrelevant to contract correctness |
 | Domain | Architecture / Viewer interface | <!-- ui-lint:allow term="domain" reason="ADR template canonical field name for engine-compat area" reviewer="osagberg" -->
 | Knowledge Risk | LOW — pure-C# data records + simple event stream; no engine APIs in the contract layer |
 | References Consulted | 2026-04-26 visual-target supersession decisions-log entry, ADR-0001 ShotTypeSO, ADR-0002 (Superseded), `design/semantic-cinema.md`, `design/3d-pipeline.md` placeholder, GPT-5.5 review P1 finding |
