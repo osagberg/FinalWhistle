@@ -2,6 +2,29 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-28 (Phase-3 Week-1 priority #6 — `scripts/fw shader-audit` shipped)
+
+Adapter validation criterion *"no `_Time` references in viewer shaders"* per ADR-0008/0009 determinism discipline (inherited from superseded ADR-0002). The match-replay corpus pins adapter-keyed pass-activation hashes per seed; if a viewer adapter shader reads a frame-time intrinsic (`_Time` / `_SinTime` / `_CosTime` / `_DeltaTime` / `_TimeParameters`), rendered output drifts per playback even when canonical MatchSim state is byte-identical. That breaks the replay contract. The audit catches the violation at author time.
+
+**`scripts/fw shader-audit`:**
+
+- **Scan scope**: `unity-project/Assets/**/*.{shader,hlsl,cginc,shadergraph,subshader}`, with `*/Plugins/*` excluded (third-party shaders aren't in the canonical viewer adapter path; URP package shaders live under the gitignored `Library/PackageCache/` and aren't scanned at all).
+- **Banned patterns**: HLSL globals `_Time` / `_SinTime` / `_CosTime` / `_DeltaTime` / `_TimeParameters` + ShaderGraph `TimeNode` (matches the JSON-serialized graph node).
+- **Regex**: `_(Time|SinTime|CosTime|DeltaTime|TimeParameters)([^A-Za-z0-9_]|$)|TimeNode`. The trailing `[^A-Za-z0-9_]|$` is a POSIX-portable word-boundary substitute — BSD `grep -E` on macOS doesn't support `\b`. Catches `_Time.y` / `_Time;` / `_Time)` etc. while excluding false-positives like `_TimeOfDay`.
+- **Phase-3 stub-active mode**: when no FW-authored shader files exist (current state — `Assets/` has no `.shader` / `.hlsl` / `.shadergraph` yet), exits 0 with a friendly *"no viewer shaders to audit yet"* message. Same skeleton-stub pattern as `fw save-migration-test` per the 2026-04-28 enforcement-skeleton-rollout decision. Real catch begins automatically the moment the dots adapter (per ADR-0009) authors its first shader.
+- **Wired into `fw verify` umbrella**: between `banned-terms` and `test`. Tier-A CI (`fast-pr-ci.yml` on Ubuntu + Windows + macOS) picks it up automatically; future `_Time` leaks fail the PR job.
+- **On hit**: emits `<file>:<line>: <matched-line>` for every offence + non-zero exit. CLI also prints the remediation hint: *"remove _Time-driven visuals from viewer adapter shaders, or move the shader to a non-viewer-adapter path (UI / debug / non-replay-capture)."*
+- **Help text + STATUS.md milestone**: `shader-audit` moved from "stubbed" to "implemented" in `scripts/fw help`; STATUS milestone records the no-shader / positive-test / false-positive smoke-test results.
+
+**Verification:**
+
+- No-shader path (current state): `fw shader-audit` → exit 0, "no FW-authored shader files under unity-project/Assets/ yet" message.
+- Positive-test path (planted `banned.shader` with `_Time.y` + `_SinTime.x` on the same line): `fw shader-audit` → exit 1, single-line FAIL with `file:line: <text>` for both intrinsic refs.
+- False-positive path (planted shader with `_TimeOfDay` + `_MyTimer` properties): silent (correctly excluded by trailing-boundary regex).
+- `fw verify`: green (verify-docs clean + banned-terms 0 violations + shader-audit clean stub + 473/473 dotnet tests pass).
+
+**Closes** the explicit *"Gates adapter validation criterion 'no `_Time` references in viewer shaders'"* SPEC bullet. Phase-3 Week-1 priority list now has only #5 SerializationContract (shipped 2026-04-27 in `33...` chain) + #6 shader-audit as live deliverables; everything else has either shipped or moved to its dependency-ordered Phase-3 task ladder per STATUS.md "Next /next picks up".
+
 ## 2026-04-28 (Phase-3 Codex round-3 audit cycle CLOSED end-to-end)
 
 Final commit in the round-3 audit chain. Six commits total + three round-trip Codex re-verifications + one Editor user-action loop = audit cycle closed clean. 473/473 tests pass; `fw verify` green; working tree clean.

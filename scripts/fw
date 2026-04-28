@@ -48,6 +48,8 @@ COMMANDS (implemented)
     banned-terms    Category-A + Category-B banned-vocabulary lint
     banned-terms --report
                     Emit JSON of active Category-B exemptions (EA/RC audit)
+    shader-audit    Grep authored viewer shaders for banned _Time refs
+                    (ADR-0008/0009 determinism — replays must be pixel-stable)
     test            dotnet test against FinalWhistle.slnx (MatchSim + tests)
 
 COMMANDS (stubbed — land when their phase trigger hits)
@@ -66,9 +68,10 @@ EOF
         # design/production-pipeline.md §workflow-tiers Tier A).
         "$0" verify-docs
         "$0" banned-terms
+        "$0" shader-audit
         "$0" test
         # Future additions: determinism smoke / corpus replay (Phase 3),
-        # content-lint (Phase 6), shader-audit (Phase 3 once viewer code lands).
+        # content-lint (Phase 6).
         ;;
 
     banned-terms)
@@ -184,6 +187,103 @@ EOF
             echo "verify-docs found issues; see above"
         fi
         exit "$exit_code"
+        ;;
+
+    shader-audit)
+        # Phase-3 Week-1 priority #6 — author-side determinism gate.
+        #
+        # ADR-0008 ShotPresentationContract + ADR-0009 dots-phase render adapter
+        # both inherit ADR-0002's discipline that VIEWER ADAPTER shaders must
+        # not read frame-time intrinsics. The match-replay corpus pins
+        # adapter-keyed pass-activation hashes per seed; if a shader uses
+        # _Time / _SinTime / _CosTime / _DeltaTime / _TimeParameters, the
+        # rendered output drifts per playback even though the canonical
+        # MatchSim state is byte-identical. That breaks the replay contract.
+        #
+        # Scope: FW-authored shaders only. URP / third-party packages have
+        # legitimate _Time uses (post-process / animation noise / etc.) that
+        # we don't ship in the canonical viewer adapter path. So we scan
+        # unity-project/Assets/ but explicitly skip Plugins/ (third-party DLLs
+        # / shaders bundled into the project) + the URP package cache (lives
+        # under unity-project/Library/PackageCache/, gitignored).
+        #
+        # Phase-3-skeleton mode: if no FW-authored shader files exist yet
+        # (Assets/Shaders/ doesn't exist + nothing matches the glob), the
+        # script exits 0 with a friendly "no viewer shaders to audit yet"
+        # message — same skeleton-stub pattern as `fw save-migration-test`
+        # per the 2026-04-28 enforcement-skeleton-rollout decisions entry.
+        # Real catch begins automatically the moment the dots adapter
+        # authors its first shader.
+        #
+        # On hit: prints `<file>:<line>: <matched-line>` for every offence
+        # and exits non-zero. CI surfaces the failure via the existing
+        # fast-pr-ci.yml `fw verify` umbrella.
+        echo "=== Final Whistle — shader-audit ==="
+        echo
+        unity_assets="$ROOT/unity-project/Assets"
+        if [ ! -d "$unity_assets" ]; then
+            echo "OK: unity-project/Assets/ doesn't exist yet — no viewer shaders to audit."
+            echo "(Phase-3 stub-active mode; first FW-authored shader trips real catch.)"
+            exit 0
+        fi
+
+        # Collect FW-authored shader-family files. Skip third-party Plugins
+        # and gitignored Library / Temp / Obj caches.
+        shader_files=$(find "$unity_assets" \
+            -type f \
+            \( -name '*.shader' -o -name '*.hlsl' -o -name '*.cginc' -o -name '*.shadergraph' -o -name '*.subshader' \) \
+            -not -path '*/Plugins/*' \
+            2>/dev/null)
+
+        if [ -z "$shader_files" ]; then
+            echo "OK: no FW-authored shader files under unity-project/Assets/ yet."
+            echo "(Phase-3 stub-active mode; first FW-authored shader trips real catch.)"
+            exit 0
+        fi
+
+        # Banned shader-time intrinsic names. Trailing-boundary anchor uses a
+        # POSIX-portable negative bracket class instead of `\b` (which is NOT
+        # supported by BSD `grep -E` on macOS). The trailing `[^A-Za-z0-9_]`
+        # excludes false-positives like `_TimeOfDay` while still catching
+        # `_Time.y` / `_Time;` / `_Time,` / `_Time)` etc. — the dot,
+        # semicolon, comma, paren are all non-identifier chars. The `|$`
+        # branch handles end-of-line / end-of-file occurrences.
+        # Patterns:
+        #   _Time, _SinTime, _CosTime, _DeltaTime, _TimeParameters — HLSL globals
+        #   `TimeNode` — appears in .shadergraph JSON as e.g.
+        #     `"m_Type": "UnityEditor.ShaderGraph.TimeNode"`
+        banned_pattern='_(Time|SinTime|CosTime|DeltaTime|TimeParameters)([^A-Za-z0-9_]|$)|TimeNode'
+
+        echo "Scanning FW-authored shader files for banned _Time refs..."
+        echo "$shader_files" | sed "s|^$ROOT/||" | sort | sed 's/^/  /'
+        echo
+
+        hits=0
+        while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            # `grep -nE` prints `<line>:<text>`; we prefix with the file path.
+            file_hits=$(grep -nE "$banned_pattern" "$f" 2>/dev/null || true)
+            if [ -n "$file_hits" ]; then
+                rel="${f#$ROOT/}"
+                echo "  FAIL: $rel"
+                printf '%s\n' "$file_hits" | sed "s|^|    |"
+                hits=$((hits + 1))
+            fi
+        done <<EOF
+$shader_files
+EOF
+
+        if [ "$hits" -eq 0 ]; then
+            echo "OK: shader-audit clean — no banned _Time refs in FW-authored shaders."
+            exit 0
+        fi
+
+        echo
+        echo "shader-audit FAIL: $hits file(s) reference banned _Time intrinsics."
+        echo "  Replays must be pixel-stable per ADR-0008/0009; remove _Time-driven"
+        echo "  visuals from viewer adapter shaders, or move the shader to a"
+        echo "  non-viewer-adapter path (UI / debug / non-replay-capture)."
+        exit 1
         ;;
 
     test)
