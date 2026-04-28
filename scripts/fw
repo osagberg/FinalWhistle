@@ -48,8 +48,9 @@ COMMANDS (implemented)
     banned-terms    Category-A + Category-B banned-vocabulary lint
     banned-terms --report
                     Emit JSON of active Category-B exemptions (EA/RC audit)
-    shader-audit    Grep authored viewer shaders for banned _Time refs
-                    (ADR-0008/0009 determinism — replays must be pixel-stable)
+    shader-audit    Grep viewer-adapter shaders (Assets/Viewer/) for banned
+                    _Time refs per ADR-0008/0009 determinism contract.
+                    UI / debug / loading-screen shaders are out of scope.
     test            dotnet test against FinalWhistle.slnx (MatchSim + tests)
 
 COMMANDS (stubbed — land when their phase trigger hits)
@@ -195,49 +196,66 @@ EOF
         # ADR-0008 ShotPresentationContract + ADR-0009 dots-phase render adapter
         # both inherit ADR-0002's discipline that VIEWER ADAPTER shaders must
         # not read frame-time intrinsics. The match-replay corpus pins
-        # adapter-keyed pass-activation hashes per seed; if a shader uses
-        # _Time / _SinTime / _CosTime / _DeltaTime / _TimeParameters, the
-        # rendered output drifts per playback even though the canonical
-        # MatchSim state is byte-identical. That breaks the replay contract.
+        # adapter-keyed pass-activation hashes per seed; if a viewer-adapter
+        # shader uses _Time / _SinTime / _CosTime / _DeltaTime /
+        # _TimeParameters, the rendered output drifts per playback even
+        # though the canonical MatchSim state is byte-identical. That
+        # breaks the replay contract.
         #
-        # Scope: FW-authored shaders only. URP / third-party packages have
-        # legitimate _Time uses (post-process / animation noise / etc.) that
-        # we don't ship in the canonical viewer adapter path. So we scan
-        # unity-project/Assets/ but explicitly skip Plugins/ (third-party DLLs
-        # / shaders bundled into the project) + the URP package cache (lives
-        # under unity-project/Library/PackageCache/, gitignored).
+        # Scope: VIEWER-ADAPTER shaders only.
         #
-        # Phase-3-skeleton mode: if no FW-authored shader files exist yet
-        # (Assets/Shaders/ doesn't exist + nothing matches the glob), the
-        # script exits 0 with a friendly "no viewer shaders to audit yet"
-        # message — same skeleton-stub pattern as `fw save-migration-test`
+        # ADR-0008 explicitly exempts visual-only effects from the
+        # determinism hash — meaning UI / debug / menu / loading-screen
+        # shaders may legitimately use _Time (breathing-glow on selected
+        # items, blinking cursors, animated loading indicators, etc.).
+        # Those are NOT in the determinism path. Auditing them would
+        # produce false-positives that block legitimate work.
+        #
+        # The audit therefore scans only the canonical viewer-adapter
+        # tree: `unity-project/Assets/Viewer/` (the asmdef-rooted folder
+        # for `Viewer.Contracts` / `Viewer.Core` / `Viewer.Adapters.Dots`
+        # per ADR-0008/0009 asmdef plan). Shaders authored elsewhere in
+        # the project — UI, debug, editor tools, post-match-screens — are
+        # outside the determinism contract and intentionally not scanned.
+        #
+        # If a shader sits in `Assets/Viewer/` but legitimately needs
+        # _Time (e.g., a non-replay-captured overlay rendered separately
+        # from the viewer-adapter path), move it to a non-`Viewer/` path
+        # OR raise an ADR that revisits the contract — don't suppress the
+        # check inline.
+        #
+        # Phase-3-skeleton mode: when `Assets/Viewer/` doesn't exist yet
+        # (current state — asmdef skeleton task hasn't landed), the script
+        # exits 0 with a friendly "no viewer shaders to audit yet"
+        # message. Same skeleton-stub pattern as `fw save-migration-test`
         # per the 2026-04-28 enforcement-skeleton-rollout decisions entry.
         # Real catch begins automatically the moment the dots adapter
-        # authors its first shader.
+        # authors its first shader under the viewer tree.
         #
         # On hit: prints `<file>:<line>: <matched-line>` for every offence
         # and exits non-zero. CI surfaces the failure via the existing
         # fast-pr-ci.yml `fw verify` umbrella.
         echo "=== Final Whistle — shader-audit ==="
         echo
-        unity_assets="$ROOT/unity-project/Assets"
-        if [ ! -d "$unity_assets" ]; then
-            echo "OK: unity-project/Assets/ doesn't exist yet — no viewer shaders to audit."
-            echo "(Phase-3 stub-active mode; first FW-authored shader trips real catch.)"
+        viewer_root="$ROOT/unity-project/Assets/Viewer"
+        if [ ! -d "$viewer_root" ]; then
+            echo "OK: unity-project/Assets/Viewer/ doesn't exist yet — no viewer-adapter shaders to audit."
+            echo "(Phase-3 stub-active mode; first viewer-adapter shader under that tree trips real catch.)"
             exit 0
         fi
 
-        # Collect FW-authored shader-family files. Skip third-party Plugins
-        # and gitignored Library / Temp / Obj caches.
-        shader_files=$(find "$unity_assets" \
+        # Collect viewer-adapter shader-family files. Scope is the
+        # asmdef-rooted Viewer/ tree per ADR-0008/0009 — UI / debug /
+        # editor / loading-screen shaders elsewhere in Assets/ are
+        # intentionally outside this audit.
+        shader_files=$(find "$viewer_root" \
             -type f \
             \( -name '*.shader' -o -name '*.hlsl' -o -name '*.cginc' -o -name '*.shadergraph' -o -name '*.subshader' \) \
-            -not -path '*/Plugins/*' \
             2>/dev/null)
 
         if [ -z "$shader_files" ]; then
-            echo "OK: no FW-authored shader files under unity-project/Assets/ yet."
-            echo "(Phase-3 stub-active mode; first FW-authored shader trips real catch.)"
+            echo "OK: no viewer-adapter shader files under unity-project/Assets/Viewer/ yet."
+            echo "(Phase-3 stub-active mode; first viewer-adapter shader under that tree trips real catch.)"
             exit 0
         fi
 
@@ -254,7 +272,7 @@ EOF
         #     `"m_Type": "UnityEditor.ShaderGraph.TimeNode"`
         banned_pattern='_(Time|SinTime|CosTime|DeltaTime|TimeParameters)([^A-Za-z0-9_]|$)|TimeNode'
 
-        echo "Scanning FW-authored shader files for banned _Time refs..."
+        echo "Scanning viewer-adapter shader files (Assets/Viewer/) for banned _Time refs..."
         echo "$shader_files" | sed "s|^$ROOT/||" | sort | sed 's/^/  /'
         echo
 
@@ -274,15 +292,18 @@ $shader_files
 EOF
 
         if [ "$hits" -eq 0 ]; then
-            echo "OK: shader-audit clean — no banned _Time refs in FW-authored shaders."
+            echo "OK: shader-audit clean — no banned _Time refs in viewer-adapter shaders."
             exit 0
         fi
 
         echo
-        echo "shader-audit FAIL: $hits file(s) reference banned _Time intrinsics."
-        echo "  Replays must be pixel-stable per ADR-0008/0009; remove _Time-driven"
-        echo "  visuals from viewer adapter shaders, or move the shader to a"
-        echo "  non-viewer-adapter path (UI / debug / non-replay-capture)."
+        echo "shader-audit FAIL: $hits file(s) under Assets/Viewer/ reference banned _Time intrinsics."
+        echo "  Replays must be pixel-stable per ADR-0008/0009. Resolution:"
+        echo "    - Remove the _Time-driven visual from the shader, OR"
+        echo "    - Move the shader OUT of Assets/Viewer/ if it's actually a UI /"
+        echo "      debug / loading / non-replay-captured surface (those paths are"
+        echo "      not in the determinism hash and are not audited)."
+        echo "  If neither resolution fits, raise an ADR that revisits the contract."
         exit 1
         ;;
 
