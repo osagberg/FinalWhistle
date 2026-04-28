@@ -2,6 +2,74 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-28 (Phase-3 Week-2 — `unity-project/` created on Unity 6.4 tech stream)
+
+Phase 3's first pure-Unity deliverable. Default 3D project created headlessly via Editor CLI; `Packages/manifest.json` rewritten to pull URP + framework ecosystem; `.gitignore` already aligned from bootstrap.
+
+**Unity version pinned: `6000.4.4f1`** (tech-stream, not strict LTS).
+
+**Version-track decision** (logged in this entry; not appended to SPEC.md decisions log because the choice is reversible and the lock is the `ProjectVersion.txt` file itself):
+
+- Tech-stream 6000.4 chosen over strict LTS 6000.0
+- Trade-off: shorter Unity-side patch-support window (tech versions get patches until next minor releases ~6 months) for latest editor UX + faster URP cadence
+- Defensible because renderer-agnostic architecture per ADR-0008 decouples engine version from sim correctness — MatchSim's determinism contract is byte-equality of Q32.32 state, not engine-version-dependent
+- Re-evaluate when Unity's next LTS lands (likely Q4 2026 / early 2027 — coincident with our Phase 7 pre-1.0 polish; natural migration window)
+- If we hit a tech-stream regression that breaks our determinism contract during Phase 3-6, we migrate to LTS at that point (cost: one Editor reinstall + project upgrade; benefit: stable 2-year support window)
+
+**Project creation:**
+
+```bash
+Unity.app/Contents/MacOS/Unity -createProject unity-project/ -batchmode -quit -nographics
+```
+
+Headless creation produced default 3D project at `/Users/vibelogic/dev/football/unity-project/` with `Assets/`, `Library/`, `Packages/`, `ProjectSettings/`, `UserSettings/`, `Logs/`. `ProjectVersion.txt` correctly pins `6000.4.4f1`.
+
+**Why default 3D + manifest rewrite, not URP template:**
+
+URP isn't directly creatable via CLI — the URP template is a Unity Hub UI feature only. The pragmatic equivalent is "default 3D + add URP packages to manifest + run URP-conversion wizard on first Editor open." That's the workflow we picked.
+
+**`Packages/manifest.json` framework packages added:**
+
+| Package | Version | Purpose |
+|---|---|---|
+| `com.unity.render-pipelines.universal` | 17.0.4 | URP per CLAUDE.md tech-stack lock |
+| `com.cysharp.unitask` | 2.5.10 (OpenUPM) | Async per CLAUDE.md tech-stack lock |
+| `com.unity.addressables` | 2.3.16 | Asset loading per CLAUDE.md |
+| `com.unity.recorder` | 5.1.2 | Devlog clips + match-replay capture |
+| `com.unity.inputsystem` | 1.13.1 | Modern input |
+| `com.unity.localization` | 1.5.5 | Subtitles + overlay text per accessibility.md |
+| `com.unity.timeline` | 1.8.7 | Cinematic camera (Phase-4+ usage) |
+| `com.unity.ugui` | 2.0.0 | UGUI fallback (UI Toolkit is primary, but UGUI useful for some HUD elements) |
+
+OpenUPM scoped registry added for UniTask. Modules removed from default manifest: `vr`, `xr`, `wind`, `vehicles`, `terrain` + `terrainphysics`, `cloth`, `androidjni`, `unityanalytics`, 4 unitywebrequest sub-modules. Kept: physics, animation, audio, particlesystem, video, vectorgraphics, ui, uielements, screencapture, imageconversion, tilemap, jsonserialize, imgui, ai, director, assetbundle, umbra, accessibility, adaptiveperformance, multiplayer.center.
+
+**`.gitignore` already aligned from bootstrap** (lines 1-30 of root `.gitignore` cover `unity-project/Library/`, `Temp/`, `Obj/`, `Build/`, `Builds/`, `Logs/`, `MemoryCaptures/`, `UserSettings/`, auto-generated `*.csproj` / `*.sln`, crash reports).
+
+**First-open ritual required (user-action):**
+
+1. Open Editor: `open -a "Unity" /Users/vibelogic/dev/football/unity-project` (or via Unity Hub)
+2. Wait for package resolution (1-3 min for fresh URP install + OpenUPM UniTask resolution)
+3. Edit → Render Pipeline → Universal → Convert built-in to URP — runs the URP wizard which creates `Assets/Settings/UniversalRenderPipelineAsset.asset` + assigns it to `GraphicsSettings`
+4. Verify: `Edit → Project Settings → Graphics → Scriptable Render Pipeline Settings` shows the URP asset
+5. Save → close → commit any new `Assets/Settings/` files that Unity generates
+
+After that, the "Install Unity packages: UniTask, Addressables, Recorder, Input System, Localization, UI Toolkit (built-in)" SPEC task auto-completes (manifest.json already declares all of them; resolution happens on first open).
+
+**Open architectural questions deferred to next /next:**
+
+1. **MatchSim consumption strategy** — how does `unity-project/` get the MatchSim sim-core code?
+   - **(i) DLL drop**: `MatchSim/bin/Release/netstandard2.1/FinalWhistle.MatchSim.dll` + `YamlDotNet.dll` copied to `unity-project/Assets/Plugins/MatchSim/`. Pros: simple; YamlDotNet rides along. Cons: explicit rebuild step; less ergonomic dev loop.
+   - **(ii) UPM local package**: `MatchSim/` becomes a UPM-compatible package via a `package.json`; manifest references `"com.finalwhistle.matchsim": "file:../../MatchSim"`. Pros: hot-reload; clean. Cons: YamlDotNet still needs separate handling (NuGetForUnity OR vendored source).
+   - Recommendation: (i) for Phase 3 simplicity; revisit at Phase 4 if dev-loop friction emerges.
+
+2. **Assembly Definitions skeleton** — separate SPEC task; not pulled forward. Lands when the Sim ↔ Viewer.Contracts ↔ Viewer.Core ↔ Viewer.Adapters.Dots split is authored per ADR-0008/0009.
+
+3. **Boot.unity + MatchViewer.unity scenes** — separate SPEC task; not pulled forward. Easier to author via Editor than via raw YAML.
+
+**`fw verify` Tier-A umbrella green:** 457 total tests still passing — MatchSim core untouched.
+
+**Phase-3 Week-2 milestone:** the pure-C# core is feature-complete + deterministic-gate-locked; the Unity shell now exists. From here, every Phase-3 task involves Unity content (asmdefs / packages / scenes / dots adapter / match-replay skill). The architecture's renderer-agnostic ADR-0008/0009 split begins paying dividends.
+
 ## 2026-04-27 (Codex review pass on determinism gate — production loop + CI matrix)
 
 Review pass on `1cacb46` caught two real contract mismatches before the Unity pivot:
