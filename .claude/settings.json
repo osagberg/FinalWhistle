@@ -119,7 +119,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "mcp__unity-mcp__manage_script",
+        "matcher": "mcp__UnityMCP__manage_script",
         "hooks": [
           {
             "type": "command",
