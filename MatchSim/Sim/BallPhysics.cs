@@ -131,7 +131,24 @@ public readonly struct BallPhysicsCoefficients
     /// <summary>Rolling friction, per-step coefficient applied when ball is on ground. <c>v.{X,Z}_new = v.{X,Z} * (1 - RollingFriction)</c>.</summary>
     public readonly Fixed RollingFriction;
 
-    /// <summary>Construct from explicit values. Use <see cref="Phase3Seeds"/> for the design-doc defaults.</summary>
+    /// <summary>
+    /// Construct from explicit values. Use <see cref="Phase3Seeds"/> for the
+    /// design-doc defaults.
+    /// </summary>
+    /// <remarks>
+    /// Validation guards (added per Codex audit 2026-04-28 P3-01) reject
+    /// nonphysical inputs that would silently destabilize the integrator:
+    /// <list type="bullet">
+    /// <item><description><see cref="Gravity"/> must be ≥ 0 (negative gravity flips the integrator's signed convention).</description></item>
+    /// <item><description><see cref="LinearDrag"/>, <see cref="BounceRetention"/>, <see cref="RollingFriction"/> must be in <c>[0, 1]</c> (per-step retention coefficients; values outside the unit interval either amplify motion every tick or invert it).</description></item>
+    /// <item><description><see cref="MagnusCoupling"/> must be ≥ 0 (Phase-3 stub policy allows zero; future tuning may need a sign decision but for Month-3 the coefficient stays non-negative).</description></item>
+    /// </list>
+    /// Match-engine.md §Q2 documents these as tuning seeds, not physical
+    /// truth — but the seed table values all sit comfortably inside these
+    /// bounds, so a constructor failure here always indicates either
+    /// out-of-range tuning or a serialization bug, not a legitimate physics
+    /// model the integrator should accept.
+    /// </remarks>
     public BallPhysicsCoefficients(
         Fixed gravity,
         Fixed linearDrag,
@@ -139,6 +156,37 @@ public readonly struct BallPhysicsCoefficients
         Fixed bounceRetention,
         Fixed rollingFriction)
     {
+        if (gravity < Fixed.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(gravity), gravity,
+                "Gravity must be non-negative (m/s²).");
+        }
+        if (linearDrag < Fixed.Zero || linearDrag > Fixed.One)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(linearDrag), linearDrag,
+                "LinearDrag is a per-step retention coefficient and must be in [0, 1].");
+        }
+        if (magnusCoupling < Fixed.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(magnusCoupling), magnusCoupling,
+                "MagnusCoupling must be non-negative for Phase 3 (stub policy allows zero).");
+        }
+        if (bounceRetention < Fixed.Zero || bounceRetention > Fixed.One)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(bounceRetention), bounceRetention,
+                "BounceRetention (e) is a coefficient and must be in [0, 1].");
+        }
+        if (rollingFriction < Fixed.Zero || rollingFriction > Fixed.One)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(rollingFriction), rollingFriction,
+                "RollingFriction is a per-step retention coefficient and must be in [0, 1].");
+        }
+
         Gravity = gravity;
         LinearDrag = linearDrag;
         MagnusCoupling = magnusCoupling;

@@ -393,17 +393,53 @@ public readonly struct Fixed : IEquatable<Fixed>, IComparable<Fixed>, IComparabl
 
     #region Rounding
 
+    /// <summary>
+    /// Build a <see cref="Fixed"/> from a candidate integer-part value, raising
+    /// <see cref="OverflowException"/> if the result would not be representable
+    /// in Q32.32. The C# left-shift operator is NOT subject to <c>checked</c>
+    /// arithmetic, so callers that compute a candidate via addition (e.g.
+    /// rounding-up) cannot rely on <c>checked(intPart &lt;&lt; FractionalBits)</c>
+    /// to catch upper-boundary overflow — it silently wraps to
+    /// <see cref="MinValue"/>'s raw bit pattern. Use this helper everywhere a
+    /// rounding/whole-part conversion is built up by integer arithmetic.
+    /// </summary>
+    /// <remarks>
+    /// Q32.32's representable integer-part range is exactly
+    /// <c>[<see cref="int.MinValue"/>, <see cref="int.MaxValue"/>]</c> (i.e.
+    /// <c>[-2_147_483_648, 2_147_483_647]</c>). Any whole-number candidate
+    /// outside that range cannot be a valid <see cref="Fixed"/> integer.
+    /// </remarks>
+    private static Fixed FromIntegerPart(long candidateIntegerPart)
+    {
+        if (candidateIntegerPart < int.MinValue || candidateIntegerPart > int.MaxValue)
+        {
+            throw new OverflowException(
+                $"Fixed integer part {candidateIntegerPart} outside Q32.32 representable range " +
+                "[-2147483648, 2147483647]; round-up would overflow Fixed.MaxValue.");
+        }
+
+        return new(candidateIntegerPart << FractionalBits);
+    }
+
     /// <summary>Largest <see cref="Fixed"/> with zero fractional part that is ≤ <paramref name="value"/>.</summary>
     public static Fixed Floor(Fixed value) => new((value._raw >> FractionalBits) << FractionalBits);
 
     /// <summary>Smallest <see cref="Fixed"/> with zero fractional part that is ≥ <paramref name="value"/>.</summary>
+    /// <exception cref="OverflowException">
+    /// Thrown when <paramref name="value"/> has a fractional part and rounding
+    /// it up would exceed <see cref="MaxValue"/>. Per <see cref="FromIntegerPart"/>,
+    /// the upper Q32.32 boundary is enforced — never silently wraps.
+    /// </exception>
     public static Fixed Ceiling(Fixed value)
     {
         if ((value._raw & FractionalMask) == 0L)
         {
             return value;
         }
-        return new(checked(((value._raw >> FractionalBits) + 1L) << FractionalBits));
+
+        // Arithmetic right-shift gives floor(raw/2^32) for both positive and
+        // negative values. Adding 1 is the ceiling for any non-integer value.
+        return FromIntegerPart((value._raw >> FractionalBits) + 1L);
     }
 
     /// <summary>Round toward zero — drop the fractional part.</summary>
@@ -430,16 +466,23 @@ public readonly struct Fixed : IEquatable<Fixed>, IComparable<Fixed>, IComparabl
 
         if (frac < half)
         {
+            // Round-down: intPart is already in [int.MinValue, int.MaxValue]
+            // because it came from an arithmetic right-shift on a valid raw,
+            // so we can shift directly without overflow.
             return new(intPart << FractionalBits);
         }
         if (frac > half)
         {
-            return new(checked((intPart + 1L) << FractionalBits));
+            // Round-up: candidate intPart+1 may exceed int.MaxValue at the
+            // upper boundary; FromIntegerPart enforces the range and throws
+            // OverflowException rather than silently wrapping to MinValue.
+            return FromIntegerPart(intPart + 1L);
         }
-        // Exactly half: round-to-even.
+        // Exactly half: round-to-even (banker's). Same range discipline:
+        // FromIntegerPart on the round-up branch keeps the upper boundary safe.
         return (intPart & 1L) == 0L
             ? new(intPart << FractionalBits)
-            : new(checked((intPart + 1L) << FractionalBits));
+            : FromIntegerPart(intPart + 1L);
     }
 
     #endregion

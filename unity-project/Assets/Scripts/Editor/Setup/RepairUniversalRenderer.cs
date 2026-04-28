@@ -16,9 +16,9 @@
 // post-repair-commit, then committed alongside the updated UniversalRenderer.asset.
 
 #if UNITY_EDITOR
-using System.Linq;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityObject = UnityEngine.Object;
 
@@ -45,7 +45,8 @@ namespace FinalWhistle.Editor.Setup
 
             // PostProcessData is internal — resolve its System.Type via reflection
             // on the URP runtime assembly so we can use the non-generic
-            // AssetDatabase.LoadAssetAtPath(string, Type) overload.
+            // AssetDatabase.LoadAssetAtPath(string, Type) overload to load the
+            // package-default asset URP itself ships at the well-known path.
             var urpRuntimeAssembly = typeof(UniversalRendererData).Assembly;
             var postProcessDataType = urpRuntimeAssembly.GetType("UnityEngine.Rendering.Universal.PostProcessData");
             if (postProcessDataType == null)
@@ -58,27 +59,6 @@ namespace FinalWhistle.Editor.Setup
             if (defaultPostProcessData == null)
             {
                 Debug.LogError($"[RepairUniversalRenderer] Default PostProcessData asset not found at {PostProcessDataAssetPath}. Is the URP package installed?");
-                return;
-            }
-
-            // ResourceReloader is internal in URP — invoke via reflection
-            // (Unity package internals are stable across the 17.x line; if
-            // this breaks at a URP major version bump, the menu surfaces
-            // an explicit error instead of a silent no-op).
-            var coreUtilsAssembly = typeof(UnityEngine.Rendering.CoreUtils).Assembly;
-            var reloaderType = coreUtilsAssembly.GetType("UnityEditor.Rendering.ResourceReloader");
-            if (reloaderType == null)
-            {
-                Debug.LogError("[RepairUniversalRenderer] UnityEditor.Rendering.ResourceReloader not found — URP package layout changed.");
-                return;
-            }
-
-            var reloadMethod = reloaderType.GetMethods()
-                .FirstOrDefault(m => m.Name == "ReloadAllNullIn"
-                                     && m.GetParameters().Length == 2);
-            if (reloadMethod == null)
-            {
-                Debug.LogError("[RepairUniversalRenderer] ResourceReloader.ReloadAllNullIn(object, string) signature not found.");
                 return;
             }
 
@@ -111,7 +91,11 @@ namespace FinalWhistle.Editor.Setup
 
                 // Step 2: reload remaining null package resources (debugShaders /
                 // probeVolumeResources / etc.) via URP's own ResourceReloader.
-                reloadMethod.Invoke(null, new object[] { data, UrpPackageRoot });
+                // ResourceReloader is a public static class in the
+                // UnityEngine.Rendering namespace (NOT UnityEditor.Rendering as
+                // an earlier draft of this script assumed) and is gated behind
+                // UNITY_EDITOR, so a direct compile-time call works.
+                ResourceReloader.ReloadAllNullIn(data, UrpPackageRoot);
 
                 EditorUtility.SetDirty(data);
                 repaired++;

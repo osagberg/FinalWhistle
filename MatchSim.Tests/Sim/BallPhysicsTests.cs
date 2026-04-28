@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using FinalWhistle.MatchSim.Sim;
 using Xunit;
@@ -567,6 +568,127 @@ public sealed class BallPhysicsTests
         Assert.Equal(F(4) / F(10000), k.MagnusCoupling);            // 0.0004
         Assert.Equal(F(55) / F(100), k.BounceRetention);            // 0.55
         Assert.Equal(F(25) / F(100), k.RollingFriction);            // 0.25
+    }
+
+    #endregion
+
+    #region Constructor validation (Codex audit P3-01)
+
+    // Tuning-seed bounds are enforced at construction so nonphysical values
+    // can't silently destabilize the integrator. Phase-3 stub policy:
+    // gravity ≥ 0; per-step retention coefficients in [0, 1]; Magnus ≥ 0.
+
+    [Fact]
+    public void Constructor_NegativeGravity_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new BallPhysicsCoefficients(
+            gravity:         Fixed.FromInt(-1),
+            linearDrag:      F(2) / F(100),
+            magnusCoupling:  Fixed.Zero,
+            bounceRetention: F(55) / F(100),
+            rollingFriction: F(25) / F(100)));
+    }
+
+    [Fact]
+    public void Constructor_LinearDragBelowZero_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new BallPhysicsCoefficients(
+            gravity:         F(981) / F(100),
+            linearDrag:      Fixed.FromInt(-1) / Fixed.FromInt(100),  // -0.01
+            magnusCoupling:  Fixed.Zero,
+            bounceRetention: F(55) / F(100),
+            rollingFriction: F(25) / F(100)));
+    }
+
+    [Fact]
+    public void Constructor_LinearDragAboveOne_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new BallPhysicsCoefficients(
+            gravity:         F(981) / F(100),
+            linearDrag:      Fixed.FromInt(2),                        // 2.0 — silently inverts velocity
+            magnusCoupling:  Fixed.Zero,
+            bounceRetention: F(55) / F(100),
+            rollingFriction: F(25) / F(100)));
+    }
+
+    [Fact]
+    public void Constructor_NegativeMagnusCoupling_Throws()
+    {
+        // Phase-3 stub policy: zero allowed (disables Magnus); negative is not.
+        Assert.Throws<ArgumentOutOfRangeException>(() => new BallPhysicsCoefficients(
+            gravity:         F(981) / F(100),
+            linearDrag:      F(2) / F(100),
+            magnusCoupling:  Fixed.FromInt(-1) / Fixed.FromInt(10000),
+            bounceRetention: F(55) / F(100),
+            rollingFriction: F(25) / F(100)));
+    }
+
+    [Fact]
+    public void Constructor_BounceRetentionAboveOne_Throws()
+    {
+        // > 1 means the ball gains energy on every bounce — silent escalation.
+        Assert.Throws<ArgumentOutOfRangeException>(() => new BallPhysicsCoefficients(
+            gravity:         F(981) / F(100),
+            linearDrag:      F(2) / F(100),
+            magnusCoupling:  Fixed.Zero,
+            bounceRetention: Fixed.FromInt(2),
+            rollingFriction: F(25) / F(100)));
+    }
+
+    [Fact]
+    public void Constructor_BounceRetentionBelowZero_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new BallPhysicsCoefficients(
+            gravity:         F(981) / F(100),
+            linearDrag:      F(2) / F(100),
+            magnusCoupling:  Fixed.Zero,
+            bounceRetention: Fixed.FromInt(-1) / Fixed.FromInt(100),
+            rollingFriction: F(25) / F(100)));
+    }
+
+    [Fact]
+    public void Constructor_RollingFrictionAboveOne_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new BallPhysicsCoefficients(
+            gravity:         F(981) / F(100),
+            linearDrag:      F(2) / F(100),
+            magnusCoupling:  Fixed.Zero,
+            bounceRetention: F(55) / F(100),
+            rollingFriction: Fixed.FromInt(2)));
+    }
+
+    [Fact]
+    public void Constructor_RollingFrictionBelowZero_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new BallPhysicsCoefficients(
+            gravity:         F(981) / F(100),
+            linearDrag:      F(2) / F(100),
+            magnusCoupling:  Fixed.Zero,
+            bounceRetention: F(55) / F(100),
+            rollingFriction: Fixed.FromInt(-1) / Fixed.FromInt(100)));
+    }
+
+    [Fact]
+    public void Constructor_BoundaryValues_DoNotThrow()
+    {
+        // Edge cases: 0 and 1 are both valid for retention coefficients.
+        // Critical regression: must NOT over-throw legitimate boundary values.
+        var ex = Record.Exception(() => new BallPhysicsCoefficients(
+            gravity:         Fixed.Zero,         // 0 gravity = floating-ball world; valid
+            linearDrag:      Fixed.Zero,         // 0 = no drag
+            magnusCoupling:  Fixed.Zero,         // 0 = Magnus disabled (stub policy)
+            bounceRetention: Fixed.One,          // 1 = elastic bounce
+            rollingFriction: Fixed.One));        // 1 = rolling stops instantly each tick
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void Phase3Seeds_AlwaysConstructible()
+    {
+        // Sanity: the cached Phase3Seeds singleton initialized successfully —
+        // proves the design-doc seed values pass validation.
+        var ex = Record.Exception(() => _ = BallPhysicsCoefficients.Phase3Seeds);
+        Assert.Null(ex);
     }
 
     #endregion

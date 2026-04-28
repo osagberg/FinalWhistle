@@ -117,18 +117,7 @@
         ]
       }
     ],
-    "PostToolUse": [
-      {
-        "matcher": "mcp__UnityMCP__manage_script",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/refresh-unity-on-script.sh",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
+    "PostToolUse": [],
     "PreCompact": [
       {
         "hooks": [
