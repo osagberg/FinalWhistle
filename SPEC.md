@@ -44,7 +44,7 @@
 ### Phase 1 — Setup ✅ COMPLETE (2026-04-24)
 **Goal**: machine ready, accounts ready, harness wired, first commit + remote pushed.
 
-- [x] Install Unity 6 LTS (pin version at Phase 3 kickoff) via Unity Hub with Mac + Win + Linux Build Support
+- [x] Install Unity 6 (currently pinned to tech-stream `6000.4.4f1` per SPEC 2026-04-28 decisions-log entry; LTS migration re-evaluated at Phase 7) via Unity Hub with Mac + Win + Linux Build Support
 - [ ] Install Blender (deferred-3D pipeline ready)
 - [ ] Install VS Code with C# extension (or Rider)
 - [x] Account prerequisites: GitHub (exists), Steam Direct deferred to Phase 8 (2026-04-24 — GitHub remote created `osagberg/FinalWhistle` private; Steam Direct $100 tracked in SETUP.md §10 trigger table for Phase 8)

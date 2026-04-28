@@ -1,7 +1,7 @@
 ---
 description: Content-pack validator surface specification. Tier-A fast checks + Tier-D full checks + red-team fixtures + failure-message convention + ownership boundaries. Turns modding.md §12 into an enforceable CI contract.
 last_verified: 2026-04-24
-status: Phase 2 spec — surface locked; implementation tiers land Phase 3 (Tier-A skeleton) + Phase 6 (full Tier-D). Red-team fixture set grows with each new registry-backed ID class.
+status: Phase 2 spec — surface locked; implementation deferred to Phase 6 per SPEC 2026-04-28 enforcement-skeleton-rollout decisions-log entry (no Phase-3 content authoring → no Phase-3 validator runtime need). Phase 6 ships the full Tier-A + Tier-D surface together. Red-team fixture set grows with each new registry-backed ID class.
 ---
 
 # Content-Pack Validation Contract — specification
@@ -184,7 +184,8 @@ When a mod pack introduces a new signature that references an unknown `EventClas
 ### Tier A — every PR
 
 ```yaml
-# .github/workflows/fast-pr-ci.yml (snippet — actual wiring lands Phase 3)
+# .github/workflows/fast-pr-ci.yml (snippet — actual wiring lands Phase 6 per
+# SPEC 2026-04-28 enforcement-skeleton-rollout decisions-log entry)
 - name: Content-pack validation (Tier A)
   run: ./scripts/fw content-lint --tier=a --scope=ci --pack=fwh.core
 ```
@@ -256,5 +257,6 @@ This is the Phase-6 integration test for the full modding contract (`design/modd
 
 ## Changelog within this doc
 
-- **2026-04-24** — Authored as Phase-2 spec. 21 Tier-A checks + `FW-VAL-D-001..010` catalogued with IDs, owners, red-team fixtures, failure-message templates. Ownership decentralized across 5 validator asmdefs. Failure-message convention binding. JSON output shape pinned. Phase-6 synthetic thin-mod-pack fixture owed as new SPEC task. CI wiring sketched (full wiring lands Phase 3 via `fw content-lint` + Phase 8 RC workflow). Red-team self-check discipline locked: every new check ships with its fixture in the same PR.
+- **2026-04-24** — Authored as Phase-2 spec. 21 Tier-A checks + `FW-VAL-D-001..010` catalogued with IDs, owners, red-team fixtures, failure-message templates. Ownership decentralized across 5 validator asmdefs. Failure-message convention binding. JSON output shape pinned. Phase-6 synthetic thin-mod-pack fixture owed as new SPEC task. CI wiring sketched (originally targeted Phase 3 via `fw content-lint` + Phase 8 RC workflow — superseded by 2026-04-28 enforcement-skeleton-rollout entry below). Red-team self-check discipline locked: every new check ships with its fixture in the same PR.
 - **2026-04-26** — Added `FW-VAL-D-011` 3D-asset commercial-rights manifest check per visual-target supersession. Tier-D catalog now has 11 checks; the check is required whenever AI-generated 3D assets enter an RC bundle.
+- **2026-04-28** — Implementation deferred to Phase 6 per SPEC 2026-04-28 enforcement-skeleton-rollout decisions-log entry. Phase 3 doesn't author content packs (24 signatures + 50 phenotype labels + Month-3 IdentityPacket fixtures all live in MatchSim code/JSON, not a Workshop-style external pack), so there's no Phase-3 runtime need for the validator. Validator asmdef skeletons + `fw content-lint --tier=a` wiring + the Tier-A check surface all land together in Phase 6 alongside the Phase-6 synthetic thin-mod-pack fixture. Contract spec itself unchanged (check IDs / ownership / failure-message convention / JSON output shape / red-team fixture discipline are stable artefacts from 2026-04-24 + 2026-04-26 that the Phase-6 implementation will satisfy). Frontmatter `status` + Phase-rollout table + CI snippet comment all updated to match.

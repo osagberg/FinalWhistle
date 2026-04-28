@@ -116,16 +116,16 @@ See `.claude/commands/` for full manifest.
 
 ## 5. Hooks
 
-At `.claude/hooks/` (14 installed):
+At `.claude/hooks/` (13 installed):
 
 | Hook | Event | Purpose |
 |---|---|---|
 | `protect-decisions-log.sh` | PreToolUse (Edit/Write) | Enforce SPEC.md decisions log append-only |
 | `update-status-timestamp.sh` | Stop | Rewrite STATUS.md "Last updated" |
-| Plus 9 more shipped with blueprint v2 (session, validation, cross-platform) | | |
+| Plus 11 more shipped with blueprint v2 (session, validation, cross-platform) | | |
 
-Phase 3 activation note:
-- `refresh-unity-on-script.sh` already exists, but only becomes useful after Unity MCP is installed and the Unity project exists.
+UnityMCP refresh — handled by the tool itself, not a hook:
+- The previous `refresh-unity-on-script.sh` PostToolUse hook (matched `mcp__UnityMCP__manage_script`) was removed in commit `47997fc` per Codex audit P2-04. CoplayDev's `manage_script` tool already calls `AssetDatabase.ImportAsset(... ForceSynchronousImport | ForceUpdate)` + `CompilationPipeline.RequestScriptCompilation()` internally on every script edit, so the hook was redundant. No PostToolUse refresh wiring is needed.
 
 ---
 

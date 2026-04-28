@@ -1,14 +1,14 @@
 ---
 description: Save migration fixture policy specification. Per-schema-bump fixture + migration-test + callback-preservation + forward-incompat-failure. Prevents schema drift before first save surfaces land.
 last_verified: 2026-04-24
-status: Phase 2 spec — policy locked; first fixtures authored when first schema version ships (Phase 3 for MemoryEvent minimum, Phase 6 for save-schema v2)
+status: Phase 2 spec — policy locked; Phase 3 ships placeholder-only skeleton (directory + sentinel + `fw save-migration-test` CLI stub) per SPEC 2026-04-28 enforcement-skeleton-rollout decisions-log entry. First REAL fixture lands when the first subject schema actually ships (most likely `MemoryEvent` v1 in Phase 4 alongside the first reader callback per the 2026-04-28 semantic-slice scope decision); Phase 6 brings save-schema v2 + the full migration matrix.
 ---
 
 # Save Migration Fixtures — policy specification
 
 ## Purpose
 
-Every schema bump — `MemoryEvent`, `IdentityPacket`, `SignatureSO`, `ShotTypeSO`, content-pack manifest, save-file envelope — ships with a checked-in fixture from the **previous** version plus four tests proving the migration works. The fixtures accumulate forever. Never deleted. The Phase-6 schema-v1-to-v2 save migration proves itself against a save fixture generated in Phase 3.
+Every schema bump — `MemoryEvent`, `IdentityPacket`, `SignatureSO`, `ShotTypeSO`, content-pack manifest, save-file envelope — ships with a checked-in fixture from the **previous** version plus four tests proving the migration works. The fixtures accumulate forever. Never deleted. The Phase-6 schema-v1-to-v2 save migration proves itself against a save fixture generated when the first subject schema actually ships (Phase 4 most likely, per SPEC 2026-04-28 enforcement-skeleton-rollout — Phase 3 ships only the placeholder directory + CLI stub, no real fixtures yet).
 
 Without this discipline, silent save-corruption becomes the failure mode nobody catches until Phase 8 when the first EA tester loses their 20-hour career.
 
@@ -132,9 +132,9 @@ public void MemoryEventV2_RoundTripsByteIdentical()
 
 ## CI contract
 
-### Tier A (Phase 3+)
+### Tier A (active once first real fixture lands — Phase 4+ per SPEC 2026-04-28 enforcement-skeleton-rollout)
 
-One **smoke** fixture per active subject schema runs in `fw verify`. Covers the most-recent forward-migration + round-trip.
+Phase 3 ships the placeholder skeleton + `fw save-migration-test` CLI stub only (exits 0 when no fixtures present). Once the first real fixture lands (most likely `MemoryEvent` v1 in Phase 4): one **smoke** fixture per active subject schema runs in `fw verify`. Covers the most-recent forward-migration + round-trip.
 
 ```
 fw verify → fw save-migration-smoke
@@ -206,4 +206,4 @@ At Phase 8 EA: release-gate artifact. Shipped build ships with a fixture set acc
 ## Open questions — dependencies tracked in SPEC, not this doc
 
 1. **Binary vs JSON save serialization** — ruled out in favor of JSON at Phase 3 per `design/event-sourced-memory.md`; revisit at Phase 6 if save size requires it. When flipped, fixture format gains a variant field. Not blocking at this spec level.
-2. **Synthetic fixture generator tooling** — Phase-6 `fw save-fixture` subcommand; at Phase 3 Month-3 slice, initial fixtures can be hand-authored against the schema.
+2. **Synthetic fixture generator tooling** — Phase-6 `fw save-fixture` subcommand; when the first real fixture lands in Phase 4 (per SPEC 2026-04-28 enforcement-skeleton-rollout), it can be hand-authored against the schema until the Phase-6 generator exists.
