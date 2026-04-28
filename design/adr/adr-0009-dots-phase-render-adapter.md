@@ -55,10 +55,12 @@ The 2026-04-26 visual-target supersession says dots-prototype is the Phase-3-onw
 
 ### Current state
 
-- No Unity project exists yet; Phase-3 Week-2 creates it.
-- ADR-0008 Proposed defines the contract this adapter consumes.
+- Unity project exists at `unity-project/` (created 2026-04-28 on Unity 6 tech-stream `6000.4.4f1`); URP 17.4.0 active; UnityMCP (CoplayDev) connected for Editor automation.
+- ADR-0008 **Accepted** 2026-04-27; defines the contract this adapter consumes.
+- This ADR (ADR-0009) **Accepted** 2026-04-27 alongside ADR-0008.
 - `design/semantic-cinema.md` 7-shot vocabulary is renderer-agnostic; this ADR specifies how each shot type renders in dots-mode.
 - `design/3d-pipeline.md` placeholder defines the parallel 3D adapter; this ADR is its sibling.
+- Implementation pending — Phase-3 Week-2/3 work; foundation-first task ordering per STATUS.md (asmdef skeleton + MatchSim consumption strategy + PitchRules + semantic slice → THEN dots adapter prototype).
 
 ### Constraints
 

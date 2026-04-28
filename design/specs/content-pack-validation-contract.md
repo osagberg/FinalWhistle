@@ -239,9 +239,9 @@ This is the Phase-6 integration test for the full modding contract (`design/modd
 
 | Phase | Deliverable |
 |---|---|
-| Phase 3 | `Content.Validator` + `Memory.Validator` + `MatchSim.Validator` + `Scouting.Validator` + `Viewer.Cinema.Validator` asmdef skeletons with 5-8 Tier-A checks live (the ID-format + registry-backed-ID family). `fw content-lint --tier=a` wired into `fw verify`. Red-team fixtures for every implemented check. |
-| Phase 4 | Checks added as scout-disagreement prototype + first signatures land (FW-VAL-A-014 / A-020). |
-| Phase 6 | Full Tier-A surface (all 21 `FW-VAL-A-*`) complete. Synthetic thin-mod-pack fixture lands. Tier-D `FW-VAL-D-004` / D-006 / D-007 / D-009 live. |
+| Phase 3 | **Validator-skeleton work deferred to Phase 6 per SPEC 2026-04-28 enforcement-skeleton-rollout decisions-log entry.** Rationale: Phase 3 doesn't author content packs (24 signatures + 50 phenotype labels + Month-3 IdentityPacket fixtures all live in MatchSim code/JSON, not a Workshop-style external pack), so there's no Phase-3 runtime need for the validator. The accepted contract spec in this file (check IDs, ownership, failure-message convention, JSON output shape, red-team fixture discipline) stays unchanged; only the implementation timeline shifts. (Earlier draft language committed Phase-3 asmdef skeletons + 5-8 Tier-A checks + `fw content-lint --tier=a` wired into `fw verify`; superseded by the 2026-04-28 enforcement-skeleton-rollout decision.) |
+| Phase 4 | Checks added as scout-disagreement prototype + first signatures land (FW-VAL-A-014 / A-020) — but only if Phase-4 content authoring actually exercises content-pack discipline. Otherwise the full validator surface waits for Phase 6 alongside the rest of the Tier-A work. |
+| Phase 6 | **Full validator implementation lands here.** Validator asmdef skeletons (`Content.Validator` / `Memory.Validator` / `MatchSim.Validator` / `Scouting.Validator` / `Viewer.Cinema.Validator`) authored. Full Tier-A surface (all 21 `FW-VAL-A-*`) complete. `fw content-lint --tier=a` wired into `fw verify`. Synthetic thin-mod-pack fixture lands. Tier-D `FW-VAL-D-004` / D-006 / D-007 / D-009 live. Red-team fixtures for every implemented check. |
 | Phase 7 | Tier-D `FW-VAL-D-001` / D-002 / D-003 (locale coverage matured as localization pass completes). |
 | Phase 8 | Full Tier-D (`FW-VAL-D-005` AI-content disclosure, `FW-VAL-D-008` asset-licensing, `FW-VAL-D-010` Category-B exemption audit, `FW-VAL-D-011` 3D-asset commercial-rights manifest if 3D assets enter the RC bundle). RC workflow wired. |
 

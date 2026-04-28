@@ -183,7 +183,9 @@ Tier D matrix across Win/Mac/Linux — identical expected-hashes on every platfo
 
 ## MVP boundary
 
-At Phase 3 Week 2: one fixture — `0xdeadbeefdeadbeef.json` — authored from the Month-3 slice opening-day scenario. Tier-A smoke runs it on every push. Other fixtures stub with `verification_scope: archive` until Phase 6 corpus expansion.
+At Phase 3 Week 2 (per ADR-0009 §Polish-bar observer rubric + SPEC 2026-04-28 enforcement-skeleton-rollout): **synthetic ViewerEvent fixture lands first** — a hand-authored ViewerEvent stream sufficient to exercise the Viewer.EventBridge + adapter pass without depending on a fully-corpus-driven sim. This decouples viewer-side validation from MatchSim-side stochastic-event landings.
+
+At Phase 3 Week 3+ (per ADR-0009 + corpus spec): the first real corpus fixture — `0xdeadbeefdeadbeef.json` — authored from the Month-3 slice opening-day scenario once `fw replay <seed>` exists per the 2026-04-28 enforcement-skeleton-rollout SPEC bullet. Tier-A smoke runs it on every push. Other fixtures stub with `verification_scope: archive` until Phase 6 corpus expansion.
 
 At Phase 6: 20-50 fixtures; Tier-C local regen; Tier-D full matrix.
 

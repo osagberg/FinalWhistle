@@ -166,8 +166,9 @@ Expected runtime: seconds to low-minutes per subject schema; scales with schema-
 
 ### Fixture-count budget
 
-- Phase 3 Month-3 slice ends: ~5 fixtures (MemoryEvent v1, one IdentityPacket variant, SignatureSO v1, ShotTypeSO v1, save-envelope v1).
-- Phase 6 save-schema v2 bump: ~10 fixtures total.
+- **Phase 3** (per SPEC 2026-04-28 enforcement-skeleton-rollout decisions-log entry): **placeholder-only** — directory + sentinel + `fw save-migration-test` CLI stub that exits 0 when no fixtures present. **No real fixtures yet.** First real fixture lands the moment any subject schema actually ships in Phase 4 (most likely candidate: `MemoryEvent` v1 when the first reader callback is implemented per the 2026-04-28 semantic-slice scope decision).
+- Phase 4: 1 fixture per subject schema actually used in the slice (likely `MemoryEvent`, possibly `IdentityPacket` subset if its compiler-shaped JSON gets a schema bump). Fixture authoring proceeds per the 4-test discipline (forward migration + callback-preservation + forward-incompat + round-trip) starting from this point.
+- Phase 6 save-schema v2 bump: ~10 fixtures total (the previous "Phase 3 ends with ~5 fixtures" target is superseded; the count grows as schemas actually bump).
 - Phase 8 EA: ~15 fixtures.
 - Ceiling signal: if fixture count climbs past 50 before Phase 8, fixtures have become too granular — evaluate consolidation (NOT deletion).
 
@@ -181,7 +182,7 @@ Expected runtime: seconds to low-minutes per subject schema; scales with schema-
 
 ## MVP boundary
 
-At Phase 3 Week 4 (Month-3 slice): 1 fixture per subject schema exists for the schemas actually used in the slice (`MemoryEvent`, `IdentityPacket` subset, `SignatureSO`, `ShotTypeSO`). Tier-A smoke runs forward-migration + round-trip on each.
+At Phase 3 (per SPEC 2026-04-28 enforcement-skeleton-rollout decisions-log entry): **placeholder skeleton only** — fixture directory + `fw save-migration-test` CLI stub. The first real fixture lands when the first subject schema actually ships in Phase 4 (most likely `MemoryEvent` v1 when the first reader callback is implemented). Earlier draft language *"At Phase 3 Week 4: 1 fixture per subject schema for schemas actually used in the slice"* is superseded — Phase-3 schemas are MatchSim-internal canonical-state encoding (locked, not save-bearing) + the IdentityPacket fixtures (compiler-shaped JSON, validator round-trip only); no save-envelope schema bump yet.
 
 At Phase 6 save-schema v2: full migration matrix Tier-D operational. `fw verify` absorbs the Tier-A subset without busting the 5-minute budget.
 

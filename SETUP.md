@@ -124,8 +124,8 @@ blender-mcp    ✓ already present
 - `chrome` — Claude Code has WebSearch + WebFetch; no genuine gap
 - `desktop-commander` — Claude Code has Read/Write/Edit/Bash; no genuine gap
 
-**Deferred to Phase 3:**
-- `unity-mcp` (CoplayDev) — project-scoped; install after Unity project exists via `Packages/manifest.json` + `claude mcp add -s project unity-mcp <launcher-command>`
+**Phase 3 — installed 2026-04-28:**
+- `UnityMCP` (CoplayDev `com.coplaydev.unity-mcp`) — project-scoped; installed via `unity-project/Packages/manifest.json` (pinned to commit SHA) + Unity-side `Window → MCP for Unity → Configure` writes the `UnityMCP` (Pascal) entry to `.mcp.json` on `http://localhost:8080/mcp`. CoplayDev's `manage_script` tool already calls `AssetDatabase.ImportAsset` + `RequestScriptCompilation` internally, so no PostToolUse refresh hook is needed (the previous `refresh-unity-on-script.sh` was removed in commit `47997fc`).
 
 Verify current state: `claude mcp list` — all three baseline MCPs green.
 
