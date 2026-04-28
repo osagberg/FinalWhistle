@@ -2,6 +2,40 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-28 (Phase-3 Codex round-3 multi-agent audit — code fixes + Phase-3 scope decisions)
+
+Codex multi-agent thorough-review handoff arrived as `docs/reviews/DELETE_AFTER_CLAUDE_start_to_now_audit_2026-04-28.md` covering the full Phase-0-through-3 work surface: MatchSim core, Unity bootstrap, renderer pivot, SPEC + design-doc consistency. **5 P1 + 13 P2 + 5 P3 findings.** Code fixes shipped in commit `47997fc`; SPEC + STATUS + decisions-log sync in this commit. **473/473 tests pass.**
+
+### Code fixes (commit `47997fc`)
+
+| Finding | Resolution |
+|---|---|
+| **P1-01** `Fixed.Ceiling` / `Fixed.Round` could wrap `MaxValue` → `MinValue` at the upper Q32.32 boundary | Root cause: C# `<<` operator is NOT subject to checked arithmetic, so the previous `checked((intPart + 1L) << FractionalBits)` pattern silently wrapped. New private `Fixed.FromIntegerPart(long)` helper range-checks the candidate against `[int.MinValue, int.MaxValue]` and throws `OverflowException` before the shift. `Ceiling` + the round-up branches of `Round` now use it. **6 boundary regression tests** (3 throws at MaxInt.5/.6, 1 round-down at MaxInt.4 NOT wrapping, 2 in-range sanity). |
+| **P1-02** URP repair script targeted `UnityEditor.Rendering.ResourceReloader` (wrong namespace) | Codex inspected the local URP package cache: type lives in `UnityEngine.Rendering`, is `public static`, gated on `UNITY_EDITOR` — direct compile-time call works. Replaced the reflection lookup with `ResourceReloader.ReloadAllNullIn(data, urpRoot)`. Step 1 (`postProcessData` SerializedProperty assignment) unchanged. |
+| **P2-04** MCP refresh hook posted unsupported `manage_editor:refresh` action | CoplayDev exposes `refresh_unity` as a separate registered tool; meanwhile `manage_script` already calls `AssetDatabase.ImportAsset` + `RequestScriptCompilation` internally. Hook was redundant. Removed both the PostToolUse entry from `.claude/settings.json` and the `refresh-unity-on-script.sh` script. |
+| **P3-01** `BallPhysicsCoefficients` accepted nonphysical ranges | Constructor now rejects negative gravity, retention coefficients outside `[0, 1]`, and negative Magnus coupling. **10 validation tests** (8 throws + 2 boundary-passes + 1 `Phase3Seeds` always-constructible guard). |
+
+### Architectural decisions captured in append-only decisions log
+
+| Finding | Decision (full text in `SPEC.md` decisions log under date `2026-04-28`) |
+|---|---|
+| **P1-04** Phase-3 path satisfied kinematic but not narrative legibility | Month-3 gate language stays as locked; Phase-3 SPEC gains 5 fixture-driven semantic-slice tasks (22 `IdentityPacket` JSON fixtures + 3 active signatures from the locked catalog + 1 `MemoryEvent` reader callback + 1 persistent development event + minimum `Viewer.EventBridge` impl). Scope explicitly fixture-driven, not full Phase-4 systems. Option B (narrow the gate) rejected. |
+| **P1-05** Score + out-of-play + key events absent from canonical state | Phase-3 minimal `PitchRules` / `MatchRules` layer authorized: field bounds, deterministic goal-plane detection, `OutOfPlay` enum, score state, append-only `KeyEvent` record stream, `MatchRules.Step` orchestrator. Canonical-state encoding extends; pinned 60-tick smoke hash re-baselines intentionally as part of the delta. Out-of-scope items pinned (offside / set-piece taker / fouls / cards / subs / stoppage all stay Phase 4+). |
+| **P2-05** TECH_APPROACH locked Forward+ but renderer YAML had Forward (`m_RenderingMode = 0`) | Forward locked for the dots adapter; Forward+ stays a 3D-spike-conditional decision and gets locked only if the Phase-5 production-feasibility spike succeeds AND the cel-shaded 3D adapter needs many-light support. Renderer-agnostic ADR-0008 contract supports per-adapter pipeline configurations. `TECH_APPROACH.md` to be amended. |
+| **P2-09** Spec-text Phase-3 enforcement obligations vs SPEC/`fw` stub reality | Rollout matches actual Phase-3 content-authoring need: `fw replay <seed>` Phase-3, save-migration fixture skeleton Phase-3 (real fixture lands when `MemoryEvent` ships Phase 4), content-pack validator stays Phase 6 (no Phase-3 content-pack authoring need). |
+| **P2-08** Tier-A CI Linux-only baseline vs Win/Mac/Linux dotnet matrix | Carve-out clarified: baseline general checks remain Linux-only ≤5 min; deterministic-core dotnet test suite (`MatchSim.Tests`) runs cross-platform as explicit carve-out (cross-platform determinism is the floor invariant). Matrix expansion beyond `MatchSim.Tests` requires new SPEC decision. ADR-0003 + `production-pipeline.md` to be amended. |
+
+### SPEC task list updates
+
+- **Marked `[x]`** (work demonstrably shipped): Install Unity packages; Install CoplayDev unity-mcp via Packages/manifest.json; Unity MCP handshake verified.
+- **Added 8 new task bullets** ordered by foundation-first dependency: Repair URP renderer + commit lock + .meta files; MatchSim consumption strategy decision + implementation; Assembly Definitions skeleton (delegate to `unity-specialist`); PitchRules/MatchRules layer; 22 IdentityPacket JSON fixtures; 3 active signatures end-to-end; 1 MemoryEvent reader callback; 1 persistent development event; Viewer.EventBridge minimum impl; Phase-3 enforcement skeletons.
+
+### Pending follow-up
+
+- **User-action**: open Unity → `Window → Package Manager → Refresh` → run `Final Whistle → Setup → Repair URP Renderer` menu → commit regenerated `packages-lock.json` + repaired `UniversalRenderer.asset` + Unity-generated `.meta` files. Closes Codex P1-02 + P1-03 end-to-end.
+- **Doc sync**: P2-01 (overview.md + semantic-cinema.md visual-target supersession completion); P2-06 (TECH_APPROACH + ADR-0009 Unity-version wording); P2-10 (accessibility.md ADR-0002 → ADR-0008/0009 reframe); P2-11 (production-pipeline.md branch-protection wording); P2-12 (player-generation.md Month-3 fixture-vs-compiler clarification); P2-13 (ADR-0009 rating/TacticalPreset caveats); P3-03 (link Month-3 high-level rubric to ADR-0009 6-task operational rubric); P3-04 (content_policy.md phenotype label drift); P3-05 (design index/3d-pipeline cleanup). Following commits.
+- **`docs/reviews/DELETE_AFTER_CLAUDE_*.md`**: delete only after all findings closed (code + SPEC done; doc-sync pending; user-action pending).
+
 ## 2026-04-28 (Phase-3 Codex audit pass — UnityMCP / Roslyn / URP / manifest hygiene)
 
 Codex review of commits `81bcf33 → abb10d0` (Unity bootstrap + URP activation + delegation discipline enforcement) returned **4 P1 + 3 P2 + 1 P3 findings**. All applied in commit `5f0bf06`. MatchSim core untouched; 457/457 tests still pass.
