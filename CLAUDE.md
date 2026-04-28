@@ -172,11 +172,43 @@ available or the user asks for PR mode.
 - `Explore` subagent for codebase research >3 queries deep.
 - Verify before recommending from memory — check current state before acting.
 
-### 6.3 Risky actions — confirm first
+### 6.3 Delegation discipline (subagents are not optional)
+
+Solo-dev project; the main thread's context window is precious. Use subagents for substantial work; the main thread does coordination + multi-file orchestration only. Catalogued in `TOOLING.md §3` + `.claude/agents/` (15 project-specialized agents).
+
+**MUST delegate to a subagent (do NOT do these in the main thread):**
+
+- Substantial code authoring (>200 LoC of new code in one area) — match the subagent's specialty:
+  - `gameplay-programmer` — match-sim, signatures, player systems
+  - `engine-programmer` — performance-critical hot paths, MatchSim primitive math
+  - `unity-specialist` — Unity-side asmdefs, Addressables, package decisions, Editor-API scripts
+  - `unity-ui-specialist` — UI Toolkit UXML/USS, management screens
+  - `ui-programmer` — HUD, menu frameworks
+  - `narrative-director` — memory templates, salience scoring, callback prose
+  - `systems-designer` — economy, progression, balance formulas
+- Code review on uncommitted changes — `lead-programmer` for architecture; `feature-dev:code-reviewer` for general quality; `pr-review-toolkit:silent-failure-hunter` + `pr-review-toolkit:type-design-analyzer` for invariant audits.
+- Codebase exploration spanning >3 queries — `feature-dev:code-explorer` (or built-in `Explore`).
+- Feature design before implementation — `feature-dev:code-architect` (returns blueprint with files-to-create / data-flows / build-sequence).
+- New ADR / GDD authoring — match-specialty director (`technical-director` / `game-designer` / `narrative-director` / `art-director`).
+- Cross-discipline coordination at phase boundaries — `producer`.
+
+**MAY stay in the main thread:**
+
+- Single-file edits ≤100 LoC.
+- SPEC / STATUS / CHANGELOG sync after `/done`.
+- Multi-file orchestration where the main thread holds the cross-file context.
+- Driving MCP tools (Unity / GitHub / blender) directly when the action is one logical operation.
+- Reading + summarizing subagent reports.
+
+**Smell test:** if you're about to do >30 minutes of focused work in one area, that's a subagent. The main thread should be reading subagent reports, not authoring lines.
+
+**Established cross-model rhythm** (separate from subagent delegation): Claude drafts → external Codex review pass → user pastes findings back → Claude applies → flip Accepted. Codex consistently catches edge cases + invariant violations Claude misses. Do not skip this cycle on architecturally load-bearing work (ADRs, primitives, contracts, decisions-log entries).
+
+### 6.4 Risky actions — confirm first
 
 Destructive / shared-state / third-party-upload actions need user confirmation. Examples: `rm -rf`, `git reset --hard`, `git push --force`, Steam uploads, public posts. Auto mode shifts default to execute-without-asking but does NOT waive safety rules.
 
-### 6.4 UI / feature verification
+### 6.5 UI / feature verification
 
 For dots/viewer work: run in Unity Editor, verify frame-accurate rendering + determinism replay via seed. Don't claim viewer work succeeds without a scene-capture.
 
@@ -204,12 +236,16 @@ For MatchSim work: verify via xUnit tests AND headless balance-harness sweep. Fl
 
 ## 8. First-session directive (fresh Claude Code session in this folder)
 
-1. Read `CLAUDE.md` (this file).
+1. Read `CLAUDE.md` (this file) — **including §6.3 delegation discipline**. Subagent rotation is mandatory, not optional.
 2. Read `PROJECT_CONTEXT.md`, `STATUS.md`, `SPEC.md` current state block.
-3. Run `claude mcp list` via Bash — confirm installed MCPs.
-4. Check `git status` + `git log -3` for recent state.
-5. Report current phase + active task + blockers.
-6. Wait for user instruction OR auto-run `/next` if auto mode active.
+3. Run `claude mcp list` via Bash — confirm installed MCPs match TOOLING.md catalog. If `unity-mcp` is supposed to be active for the current phase but disconnected, ask the user to start the Unity MCP server (`Window → MCP for Unity → Start Server`).
+4. Read `TOOLING.md` to confirm plugin / MCP / subagent / skill state. **If queued plugins aren't installed (`bootstrap/scripts/install-plugins.txt`), surface to user as a 2-min high-leverage install** — don't silently proceed without them. They include `feature-dev`, `pr-review-toolkit`, `hookify`.
+5. Skim `.claude/agents/` so subagent delegation is top-of-mind from turn 1.
+6. Check `git status` + `git log -3` for recent state.
+7. Report current phase + active task + blockers + any TOOLING.md gaps.
+8. Wait for user instruction OR auto-run `/next` if auto mode active.
+
+**Anti-pattern to avoid** (logged 2026-04-28): running multiple Phase-3 sessions doing Unity work without realizing `unity-mcp` was queued in TOOLING.md but never installed. Cost: weeks of "describe menu paths to user" instead of driving the Editor directly. Do not repeat by skipping step 4.
 
 ---
 
