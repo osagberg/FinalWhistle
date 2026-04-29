@@ -17,39 +17,64 @@
     <Description>Pure-C# canonical match simulation. Q32.32 fixed-point determinism. Zero UnityEngine references per TECH_APPROACH.md §3.</Description>
 
     <!-- Reproducible build per `scripts/fw build-unity-plugins` SPEC 2026-04-29
-         decisions-log §6 idempotency claim. The canonical .NET reproducible-
-         builds recipe is two MSBuild properties working together:
+         decisions-log §6 idempotency claim. Three properties working together
+         to produce bit-identical DLL/PDB outputs across machines + git
+         commits + working-directory paths:
 
-           Deterministic=true              — Roslyn emits MVID from a stable
-                                             hash of source + resources +
-                                             references, not a timestamp.
-                                             Fixes intra-machine churn.
+           Deterministic=true   — Roslyn emits MVID from a stable hash of
+                                  source + resources + references, not a
+                                  build timestamp. Fixes intra-machine
+                                  rebuild churn.
 
-           ContinuousIntegrationBuild=true — paths embedded in the PDB (and in
-                                             debug-info-bearing portions of the
-                                             PE header) are normalized via
-                                             PathMap-style canonicalization.
-                                             Fixes cross-machine churn —
-                                             without this, my machine's
-                                             /Users/vibelogic/dev/football/...
-                                             paths differ from CI's
-                                             /github/workspace/... paths,
-                                             producing different SHA256 even
-                                             when source is identical.
+           PathMap=...          — Compiler-level path remapping. Embedded
+                                  source paths show as `/_/MatchSim/...`
+                                  not `/Users/.../MatchSim/...`. Fixes
+                                  cross-machine path-prefix churn.
 
-         Without ContinuousIntegrationBuild=true, b8bff55 fixed the local-
-         rebuild churn case but Codex's verification on a different machine
-         still produced a different SHA256 (P1 finding 2026-04-29).
+           SourceControlInformationFeatureSupported=false
+                                — Disables the SDK's git-HEAD-SHA +
+                                  remote-URL extraction pipeline that
+                                  would otherwise embed the current
+                                  commit SHA into the PDB's sourcelink.json
+                                  payload. Without this, every commit
+                                  produces different PDB bytes even when
+                                  source is identical, because the embedded
+                                  SHA references the "to-be-committed"
+                                  commit (a chicken-and-egg by definition:
+                                  the build can't know its own commit SHA
+                                  until after the commit lands).
 
-         Trade-off accepted: local devs lose absolute-path navigation from
-         compiled-DLL stack traces (paths show as /_/MatchSim/... rather than
-         /Users/.../MatchSim/...). For Final Whistle that's fine — debugging
-         happens against MatchSim source, not against the consumed-by-Unity
-         DLL. The reproducibility win (committed DLLs round-trip cleanly
-         from any machine + ANY future fresh-clone CI check is trivially
-         correct) outweighs the minor IDE convenience. -->
+         Earlier iterations:
+           caa278f — original ship; non-deterministic MVID → daily churn
+           b8bff55 — Deterministic=true → fixed same-machine MVID churn
+           ea9fd56 — +ContinuousIntegrationBuild=true → fixed paths but
+                     pulled in SDK-level Source Link auto-generation as
+                     a side-effect. Source Link embedded the git HEAD
+                     SHA into the PDB, producing per-commit drift Codex
+                     caught (P1 round-3, 2026-04-29).
+           THIS  — replace ContinuousIntegrationBuild with the more
+                   surgical PathMap + SourceControl-disable pair.
+                   Same path-normalization win, no git-SHA stamping.
+
+         EmbedUntrackedSources=false belt-and-suspenders: even if some
+         downstream pipeline reactivates Source Link, untracked-file
+         embedding stays off, so a dirty working tree can't sneak
+         build-machine-specific source bytes into the PDB.
+
+         Trade-off accepted: PDB stack traces show `/_/MatchSim/...`
+         paths instead of absolute. Local IDE debugging still works
+         because debugger resolves source via the side-by-side
+         convention (PDB next to DLL → IDE walks up to find source).
+         The reproducibility win (committed DLLs round-trip cleanly
+         from any machine + any commit + ANY future fresh-clone CI
+         check trivially correct) outweighs the IDE convenience. -->
     <Deterministic>true</Deterministic>
-    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <PathMap>$(MSBuildProjectDirectory)=/_/MatchSim</PathMap>
+    <SourceControlInformationFeatureSupported>false</SourceControlInformationFeatureSupported>
+    <EnableSourceLink>false</EnableSourceLink>
+    <SuppressImplicitSourceLink>true</SuppressImplicitSourceLink>
+    <EmbedUntrackedSources>false</EmbedUntrackedSources>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
