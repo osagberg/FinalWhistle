@@ -40,15 +40,15 @@
 
 ---
 
-## 2. Claude Code plugins (queued for install)
+## 2. Claude Code plugins (installed)
 
-Install via `/plugin install <name>` inside a fresh Claude Code session opened in the project folder.
+Verified at `~/.claude/plugins/installed_plugins.json` 2026-04-30. Slash commands + subagents are live in every Claude Code session opened in this project folder.
 
-| Plugin | Purpose | Why for this project |
-|---|---|---|
-| **feature-dev** | code-architect + code-explorer + code-reviewer subagents | MatchSim + viewer are non-trivial systems; subagents essential |
-| **pr-review-toolkit** | code-reviewer, silent-failure-hunter, type-design-analyzer, pr-test-analyzer, comment-analyzer, code-simplifier | Pre-merge QA; MatchSim determinism needs type-design rigor |
-| **hookify** | Create hooks from unwanted-behavior analysis | When conversation mistakes should become hooks |
+| Plugin | Status | Purpose | Why for this project |
+|---|---|---|---|
+| **feature-dev** | ✅ active | code-architect + code-explorer + code-reviewer subagents | MatchSim + viewer are non-trivial systems; subagents essential |
+| **pr-review-toolkit** | ✅ active | code-reviewer, silent-failure-hunter, type-design-analyzer, pr-test-analyzer, comment-analyzer, code-simplifier | Pre-merge QA; mandated by CLAUDE.md §6.3 on substantial code commits; reminded by `.claude/hooks/pr-review-reminder.sh` (non-blocking) |
+| **hookify** | ✅ active | Create hooks from unwanted-behavior analysis | Used 2026-04-30 to author the `pr-review-reminder.sh` enforcement reminder pattern |
 
 ### Evaluated and skipped
 

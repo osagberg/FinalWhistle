@@ -1,7 +1,7 @@
 ---
 paths:
-  - "UnityProject/Assets/_Project/Scripts/Memory/**"
-  - "UnityProject/Assets/_Project/Memory/**"
+  - "unity-project/Assets/Scripts/Memory/**"
+  - "unity-project/Assets/Memory/**"
 ---
 
 <!-- Rules auto-read by Claude when editing files in this path scope. -->

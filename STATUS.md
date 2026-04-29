@@ -23,7 +23,7 @@ Phase 2 shipped 15 design docs + 4 specs + 7 ADRs; `/audit` green; bundle commit
 
 ## Blockers
 
-- None currently blocking Phase 3. User-action triggers now firing per `SETUP.md §10 trigger table`: Blender install (was Phase-3 trigger), VS Code / Rider editor install, CoplayDev unity-mcp install post-Unity-project-creation. Fresh-session project-scoped `.claude/` activation + plugin install via `.claude/bootstrap/scripts/install-plugins.txt` still Phase-1 carryover. None gate Week-1 pure-C# MatchSim work; Blender + Unity Hub become actual gates at Week-2 when Unity project creation begins.
+- None currently blocking Phase 3. User-action triggers now firing per `SETUP.md §10 trigger table`: Blender install (was Phase-3 trigger), VS Code / Rider editor install, CoplayDev unity-mcp install post-Unity-project-creation. **Plugin install ✅ verified 2026-04-30** — `feature-dev`, `pr-review-toolkit`, `hookify` all active at `~/.claude/plugins/installed_plugins.json`; CLAUDE.md §6.3 mandates the toolkit on substantial code commits + `pr-review-reminder.sh` reminds at PreToolUse-on-git-commit time. None gate ongoing Phase-3 MatchSim/viewer work.
 
 ## Pending async
 
@@ -71,7 +71,7 @@ Phase 1 closed 2026-04-24 with these items intentionally open. None gate Phase 2
 - Actions $0 spending cap (1-min GH UI step; runbook at `docs/ops/actions-budget.md §2b`). Recommended soon; not urgent
 - Blender install (Phase-3 explicit trigger per `SETUP.md §4`)
 - VS Code / Rider (user editor preference)
-- Slash-command smoke + plugin install — `.claude/bootstrap/scripts/install-plugins.txt` (next fresh Claude session)
+- ~~Slash-command smoke + plugin install~~ ✅ closed 2026-04-30 — `feature-dev` / `pr-review-toolkit` / `hookify` verified active at `~/.claude/plugins/installed_plugins.json`; CLAUDE.md §6.3 + `pr-review-reminder.sh` operationalize them.
 - Branch protection (blocked on plan upgrade — GitHub Free constraint; revisit Phase 4 closed-itch OR Phase 8 EA)
 
 ## Recent milestones

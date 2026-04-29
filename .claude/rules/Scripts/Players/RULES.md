@@ -1,7 +1,7 @@
 ---
 paths:
-  - "UnityProject/Assets/_Project/Scripts/Players/**"
-  - "UnityProject/Assets/_Project/Players/**"
+  - "unity-project/Assets/Scripts/Players/**"
+  - "unity-project/Assets/Players/**"
 ---
 
 <!-- Rules auto-read by Claude when editing files in this path scope. -->

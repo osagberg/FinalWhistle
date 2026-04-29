@@ -97,10 +97,10 @@ Intentionally skipped:
 - `chrome` — WebSearch/WebFetch cover web needs
 - `desktop-commander` — Read/Write/Edit/Bash cover filesystem + process
 
-Queued plugins (user pastes into fresh session):
-- `/plugin install feature-dev`
-- `/plugin install pr-review-toolkit`
-- `/plugin install hookify`
+Plugins (verified installed 2026-04-30 at `~/.claude/plugins/installed_plugins.json`):
+- `feature-dev` — code-architect / code-explorer / code-reviewer subagents
+- `pr-review-toolkit` — silent-failure-hunter / type-design-analyzer / code-reviewer / pr-test-analyzer / comment-analyzer / code-simplifier (mandated by §6.3 on substantial code commits)
+- `hookify` — used to author `pr-review-reminder.sh`; available for future hook-from-conversation work
 
 Phase-3-day-1 adoption:
 - CoplayDev `unity-mcp` (project-scoped, post-Unity-project-creation)
@@ -135,7 +135,7 @@ Project-scoped:
 At `.claude/hooks/`:
 - `protect-decisions-log.sh` (PreToolUse on SPEC.md) — append-only enforcement
 - `update-status-timestamp.sh` (Stop) — rewrites STATUS.md timestamp
-- `pr-review-reminder.sh` (PreToolUse on `Bash(git commit*)`) — soft-reminds Claude to run pr-review-toolkit subagents on substantial code commits (≥100 insertions touching `.cs` / `.py` / `.sh` / shader / asmdef / csproj). Non-blocking; visible-via-stderr. See §6.3 delegation discipline for the binding rule.
+- `pr-review-reminder.sh` (PreToolUse on `Bash(git commit*)`) — soft-reminds Claude to run pr-review-toolkit subagents on substantial code commits (≥100 insertions touching `.cs` / `.py` / `.sh` / shader / asmdef / csproj). **Non-blocking; reminder-only.** Cannot prove subagents actually ran. The §6.3 mandate is the binding rule; this hook only reduces the "I forgot" failure mode.
 
 ### 5.6 Git workflow
 
@@ -187,7 +187,7 @@ Solo-dev project; the main thread's context window is precious. Use subagents fo
   - `ui-programmer` — HUD, menu frameworks
   - `narrative-director` — memory templates, salience scoring, callback prose
   - `systems-designer` — economy, progression, balance formulas
-- **Code review on uncommitted changes ≥100 LoC of code, BEFORE commit** — run all three: `pr-review-toolkit:silent-failure-hunter` (catches try/catch suppression / fallback-on-error / silent failure paths) + `pr-review-toolkit:type-design-analyzer` (audits new types for invariant strength + encapsulation) + `feature-dev:code-reviewer` (general bugs / logic / security / convention drift). Optionally `lead-programmer` for architecture-bearing changes. **Hook-enforced**: `.claude/hooks/pr-review-reminder.sh` fires PreToolUse on `git commit` and emits a soft reminder when the staged diff exceeds the threshold + touches code files. The reminder is non-blocking — Claude can override if the toolkit was already run this commit cycle, or with explicit user direction. Rationale: across the 2026-04-28 → 2026-04-30 audit cycles Codex consistently caught issues these subagents would have caught first locally. Running them before Codex review tightens the loop and makes Codex's review focus on the cross-model insights (different-bones-different-blindspots) rather than the kind of issue any code reviewer would flag.
+- **Code review on uncommitted changes ≥100 LoC of code, BEFORE commit** — run all three: `pr-review-toolkit:silent-failure-hunter` (catches try/catch suppression / fallback-on-error / silent failure paths) + `pr-review-toolkit:type-design-analyzer` (audits new types for invariant strength + encapsulation) + `feature-dev:code-reviewer` (general bugs / logic / security / convention drift). Optionally `lead-programmer` for architecture-bearing changes. **Hook-reminded, not hook-enforced**: `.claude/hooks/pr-review-reminder.sh` fires PreToolUse on `git commit` and emits a soft stderr reminder when the staged diff exceeds the threshold + touches code files. The hook is non-blocking by design — it does NOT prove the subagents actually ran; it only flags that they should have. Honest framing per Codex audit 2026-04-30: this is process discipline reinforced by a reminder, not enforcement. The mandate (this bullet) is the binding rule; the hook reduces the "I forgot" failure mode but cannot replace running the subagents. If you skip them, document the reason in the commit body. Rationale: across the 2026-04-28 → 2026-04-30 audit cycles Codex consistently caught issues these subagents would have caught first locally. Running them before Codex review tightens the loop and makes Codex's review focus on the cross-model insights (different-bones-different-blindspots) rather than the kind of issue any code reviewer would flag.
 - Codebase exploration spanning >3 queries — `feature-dev:code-explorer` (or built-in `Explore`).
 - Feature design before implementation — `feature-dev:code-architect` (returns blueprint with files-to-create / data-flows / build-sequence).
 - New ADR / GDD authoring — match-specialty director (`technical-director` / `game-designer` / `narrative-director` / `art-director`).
@@ -240,7 +240,7 @@ For MatchSim work: verify via xUnit tests AND headless balance-harness sweep. Fl
 1. Read `CLAUDE.md` (this file) — **including §6.3 delegation discipline**. Subagent rotation is mandatory, not optional.
 2. Read `PROJECT_CONTEXT.md`, `STATUS.md`, `SPEC.md` current state block.
 3. Run `claude mcp list` via Bash — confirm installed MCPs match TOOLING.md catalog. The Phase-3-onward Unity MCP server registers as `UnityMCP` (Pascal); the underlying CoplayDev package is `com.coplaydev.unity-mcp` (UPM). If `UnityMCP` is supposed to be active for the current phase but disconnected, ask the user to start the Unity MCP server (`Window → MCP for Unity → Start Server`).
-4. Read `TOOLING.md` to confirm plugin / MCP / subagent / skill state. **If queued plugins aren't installed (`.claude/bootstrap/scripts/install-plugins.txt`), surface to user as a 2-min high-leverage install** — don't silently proceed without them. They include `feature-dev`, `pr-review-toolkit`, `hookify`.
+4. Read `TOOLING.md` to confirm plugin / MCP / subagent / skill state. **`feature-dev`, `pr-review-toolkit`, `hookify` are all installed at user-scope (verified 2026-04-30)** — if a fresh-Claude-session lookup at `~/.claude/plugins/installed_plugins.json` shows any are missing, surface to user as a 2-min high-leverage install before continuing.
 5. Skim `.claude/agents/` so subagent delegation is top-of-mind from turn 1.
 6. Check `git status` + `git log -3` for recent state.
 7. Report current phase + active task + blockers + any TOOLING.md gaps.

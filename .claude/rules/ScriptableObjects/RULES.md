@@ -1,7 +1,7 @@
 ---
 paths:
-  - "Assets/_Project/ScriptableObjects/**"
-  - "Assets/_Project/Scripts/**/*SO.cs"
+  - "unity-project/Assets/ScriptableObjects/**"
+  - "unity-project/Assets/Scripts/**/*SO.cs"
 ---
 
 <!-- Rules auto-read by Claude when editing files in this path scope. -->

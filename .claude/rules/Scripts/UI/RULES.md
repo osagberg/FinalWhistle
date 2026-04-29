@@ -1,6 +1,6 @@
 ---
 paths:
-  - "Assets/_Project/Scripts/UI/**"
+  - "unity-project/Assets/Scripts/UI/**"
 ---
 
 <!-- Rules auto-read by Claude when editing files in this path scope. -->

@@ -1,7 +1,7 @@
 ---
 paths:
-  - "Assets/_Project/Scripts/**/*.cs"
-  - "Assets/_Project/Editor/**"
+  - "unity-project/Assets/Scripts/**/*.cs"
+  - "unity-project/Assets/Editor/**"
   - "Assets/AddressableAssetsData/**"
 ---
 

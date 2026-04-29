@@ -1,6 +1,6 @@
 ---
 paths:
-  - "Assets/_Project/Scripts/Debug/**"
+  - "unity-project/Assets/Scripts/Debug/**"
 ---
 
 <!-- Rules auto-read by Claude when editing files in this path scope. -->
@@ -20,7 +20,7 @@ Dev-only tooling. Must compile out of Release builds cleanly.
 ## SHOULD
 
 - State dumps produce deterministic, diffable text (sorted keys, stable newlines, no timestamps inline).
-- Cheat flags live on a `DebugConfigSO` under `Assets/_Project/ScriptableObjects/Debug/` — gitignored or a separate asset.
+- Cheat flags live on a `DebugConfigSO` under `unity-project/Assets/ScriptableObjects/Debug/` — gitignored or a separate asset.
 - Replay / rewind tooling uses the event bus, not direct state mutation.
 - Playtest capture writes to a gitignored `Captures/` folder, never into `_Project/`.
 

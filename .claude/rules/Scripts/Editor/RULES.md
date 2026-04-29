@@ -1,7 +1,7 @@
 ---
 paths:
-  - "Assets/_Project/Scripts/Editor/**"
-  - "Assets/_Project/Editor/**"
+  - "unity-project/Assets/Scripts/Editor/**"
+  - "unity-project/Assets/Editor/**"
 ---
 
 <!-- Rules auto-read by Claude when editing files in this path scope. -->

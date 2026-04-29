@@ -1,9 +1,7 @@
 ---
 paths:
   - "MatchSim/**"
-  - "MatchSim.csproj"
-  - "MatchSim.Tests.csproj"
-  - "UnityProject/Assets/_Project/Scripts/MatchSim/**"
+  - "MatchSim.Tests/**"
 ---
 
 <!-- Rules auto-read by Claude when editing files in this path scope. -->

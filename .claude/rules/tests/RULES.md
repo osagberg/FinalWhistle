@@ -1,6 +1,9 @@
 ---
 paths:
-  - "Assets/_Project/Tests/**/*.cs"
+  - "MatchSim.Tests/**/*.cs"
+  - "unity-project/Assets/**/Tests/**/*.cs"
+  - "unity-project/Assets/**/*Tests.cs"
+  - "unity-project/Assets/**/*Test.cs"
 ---
 
 <!-- Rules auto-read by Claude when editing files in this path scope. -->
@@ -11,7 +14,8 @@ Unity Test Framework. Tests are documentation that runs; keep them honest.
 
 ## MUST
 
-- EditMode tests live under `Assets/_Project/Tests/EditMode/<System>/`. PlayMode tests under `Assets/_Project/Tests/PlayMode/<System>/`. Performance tests under `Assets/_Project/Tests/Performance/<System>/`. Never intermix.
+- **MatchSim pure-C# tests** live under `MatchSim.Tests/<System>/` (xUnit; runs via `dotnet test FinalWhistle.slnx`; no Unity Test Framework). The cross-platform-determinism gate runs there per CI matrix in `fast-pr-ci.yml`.
+- **Unity Test Framework tests** (when Phase-4+ Unity-side tests land): EditMode under `unity-project/Assets/<System>/Tests/EditMode/`. PlayMode under `unity-project/Assets/<System>/Tests/PlayMode/`. Performance under `unity-project/Assets/<System>/Tests/Performance/`. Never intermix.
 - Test file name: `<Feature>Test.cs` (or `<Feature>Tests.cs`). Test class name matches file. Test method name: `<WhatIsBeingTested>_<Condition>_<Expected>`.
 - EditMode for pure-logic tests — no MonoBehaviour, no scene, no coroutines. If the test needs `[UnityTest]` or `yield return`, it belongs in PlayMode.
 - PlayMode tests use `[UnityTest]` + `yield return null` (or `UniTask.Yield()`), never `Thread.Sleep`, never `System.Threading.Tasks.Task.Delay`.

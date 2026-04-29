@@ -1,7 +1,7 @@
 ---
 paths:
-  - "Assets/_Project/**/*.asmdef"
-  - "Assets/_Project/**/*.asmref"
+  - "unity-project/Assets/**/*.asmdef"
+  - "unity-project/Assets/**/*.asmref"
 ---
 
 <!-- Rules auto-read by Claude when editing files in this path scope. -->

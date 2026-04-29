@@ -1,7 +1,7 @@
 ---
 paths:
-  - "UnityProject/Assets/_Project/Scripts/Signatures/**"
-  - "UnityProject/Assets/_Project/Signatures/**"
+  - "unity-project/Assets/Scripts/Signatures/**"
+  - "unity-project/Assets/Signatures/**"
   - "content-packs/**/signatures/**"
 ---
 

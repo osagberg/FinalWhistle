@@ -1,6 +1,6 @@
 ---
 paths:
-  - "UnityProject/Assets/_Project/Scripts/Pipeline/**"
+  - "unity-project/Assets/Scripts/Pipeline/**"
   - "content-packs/**"
   - "tools/content-compiler/**"
 ---

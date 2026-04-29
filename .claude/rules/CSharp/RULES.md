@@ -1,6 +1,6 @@
 ---
 paths:
-  - "Assets/_Project/**/*.cs"
+  - "unity-project/Assets/**/*.cs"
 ---
 
 <!-- Rules auto-read by Claude when editing files in this path scope. -->
