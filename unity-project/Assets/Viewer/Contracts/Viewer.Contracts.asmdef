@@ -1,0 +1,16 @@
+{
+    "name": "FinalWhistle.Viewer.Contracts",
+    "rootNamespace": "FinalWhistle.Viewer.Contracts",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "FinalWhistle.MatchSim.dll"
+    ],
+    "autoReferencedPackages": [],
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

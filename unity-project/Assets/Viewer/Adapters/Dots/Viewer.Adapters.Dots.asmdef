@@ -1,0 +1,18 @@
+{
+    "name": "FinalWhistle.Viewer.Adapters.Dots",
+    "rootNamespace": "FinalWhistle.Viewer.Adapters.Dots",
+    "references": [
+        "FinalWhistle.Viewer.Core",
+        "FinalWhistle.Viewer.Contracts",
+        "Unity.RenderPipelines.Universal.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferencedPackages": [],
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

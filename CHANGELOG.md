@@ -2,6 +2,47 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-29 (Phase-3 foundation-first task #2 — Assembly Definitions skeleton)
+
+Three asmdefs per ADR-0008 (ShotPresentationContract) + ADR-0009 (dots-phase render adapter). Foundation for all subsequent viewer code.
+
+**Reference graph:** `Viewer.Adapters.Dots` → `Viewer.Core` → `Viewer.Contracts` (one-way; Contracts is the apex; URP runtime asmdef sits beside Adapters.Dots).
+
+**Layer responsibilities (skeleton-only at this commit; real impls in later SPEC tasks):**
+
+| asmdef | Path | UnityEngine? | References | Will host (later tasks) |
+|---|---|---|---|---|
+| `FinalWhistle.Viewer.Contracts` | `Assets/Viewer/Contracts/` | NO (`noEngineReferences: true`) | `FinalWhistle.MatchSim.dll` only | Pure-C# DTOs: ViewerEvent / ShotTypeDefinition / PitchView / ActiveViewerEvent / MemoryHit |
+| `FinalWhistle.Viewer.Core` | `Assets/Viewer/Core/` | yes | Contracts + MatchSim DLL + UnityEngine | Adapter registry; Viewer.EventBridge; ShotTypeSO → ShotTypeDefinition projection |
+| `FinalWhistle.Viewer.Adapters.Dots` | `Assets/Viewer/Adapters/Dots/` | yes | Core + Contracts + `Unity.RenderPipelines.Universal.Runtime` | Sprite-on-pitch + 7-shot vocabulary + reduce-motion variant + UI-Toolkit overlays per ADR-0009 |
+
+**Asmdef config notes:**
+
+- `Viewer.Contracts.asmdef` has `noEngineReferences: true`. Same architectural posture MatchSim follows (`MatchSim.csproj` zero `UnityEngine` refs per `.claude/rules/Scripts/MatchSim/RULES.md`), now applied at the renderer-agnostic contract layer. A stray `using UnityEngine` in `Assets/Viewer/Contracts/*.cs` would FAIL compilation, surfacing the architectural violation at edit time.
+- Both `Viewer.Contracts` and `Viewer.Core` use `overrideReferences: true` + `precompiledReferences: ["FinalWhistle.MatchSim.dll"]` to consume the MatchSim DLL by filename (Unity resolves via the `.meta` GUID at `Assets/Plugins/MatchSim/FinalWhistle.MatchSim.dll.meta`).
+- URP runtime asmdef name verified against the actual package cache: `Unity.RenderPipelines.Universal.Runtime` (URP 17.4.0 at `Library/PackageCache/com.unity.render-pipelines.universal@18d0e59f18f1/Runtime/`).
+
+**Skeleton stubs:**
+
+Each asmdef ships a single `*AssemblyMarker.cs` proving (a) the asmdef compiles cleanly + (b) downstream asmdefs can resolve types across the boundary. The chain is:
+
+- `ViewerContractsAssemblyMarker.AssemblyMarkerVersion` (public const string)
+- `ViewerCoreAssemblyMarker.ContractsMarker` reads it via fully-qualified `FinalWhistle.Viewer.Contracts.ViewerContractsAssemblyMarker.AssemblyMarkerVersion`
+- `ViewerAdaptersDotsAssemblyMarker.CoreMarker` + `.ContractsMarker` similarly verify the Dots → Core and Dots → Contracts references
+
+If any asmdef reference is wired wrong, the chain fails at compile time rather than at scene-load. Real schema (ViewerEvent / ShotTypeSO / Viewer.EventBridge / dots adapter) lands in subsequent SPEC tasks.
+
+**Cross-asmdef visibility decision** (caught during compile verification): marker classes are `public`. First attempt made them `internal` with `public const` members — that fails with `CS0122 inaccessible due to its protection level` from outside the assembly even though the const itself is public. Internal class hides public members across assemblies. Decision documented in SPEC `[x]` task note.
+
+**Compile verification:**
+
+- UnityMCP `refresh_unity` force scripts + compile=request
+- UnityMCP `read_console` after compile complete: **zero errors, zero warnings**
+- Unity auto-generated 17 `.meta` files (5 folder + 3 asmdef + 3 cs + 3 stub-cs + 3 asmdefs themselves were authored)
+- `scripts/fw verify`: green (verify-docs clean + banned-terms 0 violations + shader-audit clean stub + 473/473 dotnet tests pass)
+
+**Closes** SPEC Phase-3 foundation-first task #2. Foundation #3 (PitchRules / MatchRules layer per Codex P1-05 closure) becomes the next /next.
+
 ## 2026-04-29 (Phase-3 foundation-first task #1 — MatchSim consumption strategy locked + `scripts/fw build-unity-plugins` shipped)
 
 Closes the open architectural question that surfaced when `unity-project/` was created on 2026-04-28: how do Unity-side scripts reference MatchSim types? Decision logged in SPEC 2026-04-29 decisions-log entry; implementation follows in the same commit.
