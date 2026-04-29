@@ -38,8 +38,17 @@ public sealed class MatchDeterminismTests
     private static Fixed F(int n) => Fixed.FromInt(n);
     private static Vector3Fixed V3(int x, int y, int z) => new(F(x), F(y), F(z));
 
-    /// <summary>Pinned smoke-seed reference value (computed on macOS 2026-04-27 via the test below; CI matrix verifies Win/Mac/Linux match).</summary>
-    private const string SmokeSeed60TickHash = "sha256:299cdb0cbbc9606e141db278a14585780d0e3b5dbfb8815f634af89be7f6118a";
+    /// <summary>
+    /// Pinned smoke-seed reference value. Re-baselined 2026-04-30 for the v1
+    /// canonical-state schema bump that added score (2 bytes) + OutOfPlay
+    /// (1 byte) + KeyEvent count (4 bytes) per SPEC 2026-04-28 PitchRules
+    /// decisions-log entry. v0 hash was
+    /// <c>sha256:299cdb0cbbc9606e141db278a14585780d0e3b5dbfb8815f634af89be7f6118a</c>
+    /// (computed macOS 2026-04-27); v0 is no longer reachable from production
+    /// code because <c>MatchCanonicalState.Write</c> now emits the v1 layout.
+    /// CI matrix on Win/Mac/Linux verifies the v1 hash holds across platforms.
+    /// </summary>
+    private const string SmokeSeed60TickHash = "sha256:7e851976f6a5eea467797e90400ca030c6ab955e21c2f92466cffa00c880f50e";
 
     #region Composition helper — runs the full BT + Player + Ball stack
 
@@ -75,6 +84,7 @@ public sealed class MatchDeterminismTests
         MatchSimulationRunner.RunTicks(state, direct, lowBlock,
             PlayerKinematics.Phase3Defaults,
             BallPhysicsCoefficients.Phase3Seeds,
+            MatchSimulationConfig.Default,
             ticks: 60);
 
         string hash = MatchCanonicalState.ComputeHash(state);
@@ -105,6 +115,7 @@ public sealed class MatchDeterminismTests
             MatchSimulationRunner.RunTicks(state, direct, lowBlock,
                 PlayerKinematics.Phase3Defaults,
                 BallPhysicsCoefficients.Phase3Seeds,
+                MatchSimulationConfig.Default,
                 ticks: 60);
             distinctHashes.Add(MatchCanonicalState.ComputeHash(state));
         }
@@ -132,9 +143,9 @@ public sealed class MatchDeterminismTests
         for (int s = 0; s < Samples; s++)
         {
             MatchSimulationRunner.RunTicks(a, direct, lowBlock, PlayerKinematics.Phase3Defaults,
-                BallPhysicsCoefficients.Phase3Seeds, ticks: 10);
+                BallPhysicsCoefficients.Phase3Seeds, MatchSimulationConfig.Default, ticks: 10);
             MatchSimulationRunner.RunTicks(b, direct, lowBlock, PlayerKinematics.Phase3Defaults,
-                BallPhysicsCoefficients.Phase3Seeds, ticks: 10);
+                BallPhysicsCoefficients.Phase3Seeds, MatchSimulationConfig.Default, ticks: 10);
 
             runA[s] = MatchCanonicalState.ComputeHash(a);
             runB[s] = MatchCanonicalState.ComputeHash(b);
@@ -160,9 +171,9 @@ public sealed class MatchDeterminismTests
         MatchSimulationState b = BuildSmokeFixture(lowBlock, direct);
 
         MatchSimulationRunner.RunTicks(a, direct, lowBlock, PlayerKinematics.Phase3Defaults,
-            BallPhysicsCoefficients.Phase3Seeds, ticks: 60);
+            BallPhysicsCoefficients.Phase3Seeds, MatchSimulationConfig.Default, ticks: 60);
         MatchSimulationRunner.RunTicks(b, lowBlock, direct, PlayerKinematics.Phase3Defaults,
-            BallPhysicsCoefficients.Phase3Seeds, ticks: 60);
+            BallPhysicsCoefficients.Phase3Seeds, MatchSimulationConfig.Default, ticks: 60);
 
         string hashA = MatchCanonicalState.ComputeHash(a);
         string hashB = MatchCanonicalState.ComputeHash(b);
@@ -182,9 +193,9 @@ public sealed class MatchDeterminismTests
         b.Ball = new BallState(V3(1, 0, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
 
         MatchSimulationRunner.RunTicks(a, direct, lowBlock, PlayerKinematics.Phase3Defaults,
-            BallPhysicsCoefficients.Phase3Seeds, ticks: 60);
+            BallPhysicsCoefficients.Phase3Seeds, MatchSimulationConfig.Default, ticks: 60);
         MatchSimulationRunner.RunTicks(b, direct, lowBlock, PlayerKinematics.Phase3Defaults,
-            BallPhysicsCoefficients.Phase3Seeds, ticks: 60);
+            BallPhysicsCoefficients.Phase3Seeds, MatchSimulationConfig.Default, ticks: 60);
 
         string hashA = MatchCanonicalState.ComputeHash(a);
         string hashB = MatchCanonicalState.ComputeHash(b);
@@ -242,16 +253,19 @@ public sealed class MatchDeterminismTests
     public void Write_ProducesExpectedByteCount()
     {
         // 8 (Tick) + 72 (Ball) + 4 (home count) + 11×50 (home players) +
-        // 4 (away count) + 11×50 (away players) = 1188 bytes.
+        // 4 (away count) + 11×50 (away players) + 1 (HomeScore) + 1 (AwayScore)
+        // + 1 (OutOfPlay) + 4 (KeyEvent count) = 1195 bytes (the v1 base width
+        // post-PitchRules schema bump). Smoke fixture has 0 KeyEvents so total
+        // = base.
         BehaviorTreeArchetype direct = BehaviorTreeArchetypes.Load("direct-pressing");
         BehaviorTreeArchetype lowBlock = BehaviorTreeArchetypes.Load("low-block-counter");
         MatchSimulationState state = BuildSmokeFixture(direct, lowBlock);
 
         CanonicalEncoder encoder = new();
-        MatchCanonicalState.Write(encoder, state.CurrentTick, state.Ball,
-            state.HomeTeam, state.AwayTeam);
+        MatchCanonicalState.Write(encoder, state);
 
-        Assert.Equal(MatchCanonicalState.EncodedByteCount, encoder.WrittenCount);
+        Assert.Equal(MatchCanonicalState.EncodedBaseByteCount, encoder.WrittenCount);
+        Assert.Equal(1195, MatchCanonicalState.EncodedBaseByteCount);
     }
 
     [Fact]
@@ -350,6 +364,7 @@ public sealed class MatchDeterminismTests
             MatchSimulationRunner.RunTicks(state, direct, lowBlock,
                 PlayerKinematics.Phase3Defaults,
                 BallPhysicsCoefficients.Phase3Seeds,
+                MatchSimulationConfig.Default,
                 ticks: -1));
     }
 

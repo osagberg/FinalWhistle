@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace FinalWhistle.MatchSim.Sim;
 
@@ -6,6 +7,16 @@ namespace FinalWhistle.MatchSim.Sim;
 /// Mutable production state for the Phase-3 deterministic match loop. The
 /// arrays are intentionally mutable because the runner overwrites player
 /// snapshots in place each tick; callers must preserve roster order.
+///
+/// <para>
+/// <strong>Phase-3 PitchRules extensions</strong> per SPEC 2026-04-28
+/// PitchRules decisions-log entry: <see cref="HomeScore"/> /
+/// <see cref="AwayScore"/> (byte; capacity for any realistic Phase-3 match),
+/// <see cref="OutOfPlay"/> (per-tick transient flag), and
+/// <see cref="KeyEvents"/> (append-only stream of significant events
+/// canonically encoded for replay-corpus hashing). All four fields are
+/// canonical state — see <c>MatchCanonicalState.Write</c>.
+/// </para>
 /// </summary>
 public sealed class MatchSimulationState
 {
@@ -21,6 +32,37 @@ public sealed class MatchSimulationState
     /// <summary>Away players in stable roster order, length 11.</summary>
     public PlayerState[] AwayTeam { get; }
 
+    /// <summary>
+    /// Home team score (number of goals scored). byte capacity = 0-255;
+    /// the realistic Phase-3 ceiling is ~10-15 per side. <see cref="MatchRules.Step"/>
+    /// throws if this would overflow rather than silently wrap.
+    /// </summary>
+    public byte HomeScore { get; set; }
+
+    /// <summary>Away team score. Same byte-capacity / overflow contract as <see cref="HomeScore"/>.</summary>
+    public byte AwayScore { get; set; }
+
+    /// <summary>
+    /// Per-tick transient flag set by <see cref="MatchRules.Step"/> when an
+    /// out-of-play event fires THIS tick. Reset to <see cref="OutOfPlay.InPlay"/>
+    /// at the start of every <see cref="MatchRules.Step"/> call. The
+    /// persistent record of "what restarts have happened" lives in
+    /// <see cref="KeyEvents"/>; this flag exists for tick-local consumers
+    /// (the dots viewer adapter overlays the restart marker on the tick the
+    /// event fires).
+    /// </summary>
+    public OutOfPlay OutOfPlay { get; set; }
+
+    /// <summary>
+    /// Append-only stream of significant match events: goals + restart
+    /// emissions. Entries are written in canonical order during
+    /// <see cref="MatchRules.Step"/>; never removed or reordered. The
+    /// golden-replay-corpus spec's <c>key_event_hashes</c> field hashes the
+    /// canonical encoding of this list per replay seed for Tier-A
+    /// verification.
+    /// </summary>
+    public List<KeyEvent> KeyEvents { get; }
+
     public MatchSimulationState(
         Tick currentTick,
         BallState ball,
@@ -31,6 +73,10 @@ public sealed class MatchSimulationState
         AwayTeam = CopyAndValidateTeam(awayTeam, nameof(awayTeam));
         CurrentTick = currentTick;
         Ball = ball;
+        HomeScore = 0;
+        AwayScore = 0;
+        OutOfPlay = OutOfPlay.InPlay;
+        KeyEvents = new List<KeyEvent>();
     }
 
     /// <summary>

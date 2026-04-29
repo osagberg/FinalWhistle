@@ -2,6 +2,67 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Phase-3 foundation-first task #3 — `PitchRules` / `MatchRules` layer)
+
+Closes Codex audit P1-05 (score + out-of-play + key-events absent from canonical state) + folds in P2-03 (seed-input refactor) per the 2026-04-28 PitchRules decisions-log entry. **Schema bump v0 → v1 for `MatchCanonicalState`**: pinned smoke-fixture hash re-baselined (intentional, per the decisions-log entry).
+
+**New types** (`MatchSim/Sim/`):
+
+| File | Role |
+|---|---|
+| `OutOfPlay.cs` | byte enum `{InPlay=0, GoalKick=1, ThrowIn=2, CornerKick=3}`. Per-tick transient flag set by `MatchRules.Step` when an out-of-play event fires; reset to `InPlay` at the start of every Step call |
+| `KeyEventKind.cs` | byte enum `{None=0 (sentinel), Goal=1, GoalKickRestart=2, ThrowInRestart=3, CornerKickRestart=4}`. Pinned numeric values; never reuse |
+| `KeyEvent.cs` | readonly struct: Tick (8) + Kind (1) + Side (1) + JerseyNumber (1) + Position Vector3Fixed (24) = **35 bytes locked v1**. Constructor rejects `None` kind, invalid TeamSide, jerseyNumber>99 |
+| `MatchSimulationConfig.cs` | readonly struct carrying `Seed MatchSeed` per Codex P2-03. Phase-3 code doesn't consume it yet (no stochastic events); seed travels through runner so corpus fixtures record it + Phase-4 stochastic events derive RNG via `Seed.Derive` |
+| `MatchRules.cs` | Phase-3 orchestrator. PitchBounds constants (`GoalLineX=52.5`, `TouchlineZ=34`, `CrossbarHeight=2.44`, `PostHalfWidthZ=3.66`). Linear-interp Q32.32 crossing detection between pre-step and post-step ball positions. Per-side goal classification (Home attacks +X). HomeScore overflow guard (`InvalidOperationException` if would wrap byte) |
+
+**Modified types**:
+
+- `MatchSimulationState.cs` — added `byte HomeScore`, `byte AwayScore`, `OutOfPlay OutOfPlay`, `List<KeyEvent> KeyEvents` (append-only). Constructor initializes all to default. Existing player-array invariants preserved.
+- `MatchSimulationRunner.cs` — accepts `MatchSimulationConfig config` parameter. Caches `preStepBall` before `BallPhysics.Step`. Runs `MatchRules.Step(state, preStepBall)` after `BallPhysics.Step` each tick. Canonical step order: BT.Tick × 2 → PlayerActuator.Step × 22 → BallPhysics.Step → **MatchRules.Step (NEW)** → Tick+1.
+- `MatchCanonicalState.cs` — encoding extends with HomeScore (1) + AwayScore (1) + OutOfPlay (1) + KeyEvent count (4) + variable KeyEvent body. `EncodedByteCount` renamed `EncodedBaseByteCount = 1195`. Added `EncodedByteCountFor(state)` for variable total. Added convenience overloads defaulting score=0/OutOfPlay=InPlay/empty KeyEvents so existing call sites keep working.
+
+**Phase-3 simplifications** (per decisions-log entry; documented in code comments):
+
+- **No last-touched-by tracking.** GoalKick / CornerKick disambiguation requires it; Phase 3 emits `GoalKickRestart` for all non-goal goal-line crossings. Phase 4+ activates the distinction.
+- **No restart-taker behavior.** Ball respawns at canonical restart spot with zero velocity; players continue normal BTs.
+- **OutOfPlay is a per-tick flag.** Set on the tick the event fires; reset to `InPlay` each Step call. Persistent record lives in `KeyEvents`.
+- **`KeyEvent.JerseyNumber=0` for all Phase-3 emissions.** No scorer/last-toucher attribution; Phase 4+ populates real player IDs.
+- **Goal restarts are immediate respawn.** No `KickOff` / `CenterRestart` enum value (per the locked decision); the 1-tick transition is implicit. If observers find that gamey, a future SPEC decision adds the value.
+
+**Pinned smoke-fixture hash re-baselined**:
+
+- v0 (pre-PitchRules): `sha256:299cdb0cbbc9606e141db278a14585780d0e3b5dbfb8815f634af89be7f6118a` (computed macOS 2026-04-27)
+- v1 (post-PitchRules): `sha256:7e851976f6a5eea467797e90400ca030c6ab955e21c2f92466cffa00c880f50e` (computed macOS 2026-04-30)
+- Tier-A CI matrix on Win/Mac/Linux verifies v1 holds across platforms. v0 preserved in test-doc comment for traceability.
+
+**22 new tests** in `MatchSim.Tests/Sim/MatchRulesTests.cs`:
+
+- Goal-mouth detection per side (Home / Away)
+- Goal-line crossings outside mouth → GoalKickRestart (above crossbar / wide of post)
+- Touchline crossings → ThrowInRestart (each axis)
+- Non-events (ball stays in-field; pre-out / post-out short-circuit; null-state argument validation)
+- OutOfPlay per-tick reset (set last tick → reset to InPlay this tick if no event)
+- KeyEvent ordering across multi-tick scenarios
+- Canonical-encoding includes KeyEvents (different KeyEvents = different hash)
+- `EncodedByteCountFor` accounts for variable KeyEvent body
+- HomeScore overflow throws (byte cap = 255)
+- `MatchSimulationConfig.Default` has `Seed.Zero`; round-trips Seed
+- Runner accepts config; canonical hash unchanged when only seed differs (locks "seed is fixture input not canonical state" invariant)
+- KeyEvent canonical encoding 35-byte width
+- KeyEvent rejects `None` kind / invalid side / jersey > 99; allows jersey=0 (unspecified)
+
+**Test totals**: 495 passing (was 473; +22 new for this layer).
+
+**MatchSim DLL republished**:
+
+- `scripts/fw build-unity-plugins` produced: DLL `005d6b5c70881a07cd2b370638384e5deac8e8febaffe5a1579789aa012be7a1`, PDB `489a00f5ba540cb94ad7a65e6b80c149499b15f20b48cd62012c7601428bfc4e`.
+- Unity-side asmdef skeleton (foundation #2) recompiled cleanly against the new symbols. UnityMCP `read_console` reports **zero errors / zero warnings**.
+
+**`fw verify`**: green (verify-docs clean + banned-terms 0 violations + shader-audit clean stub + 495/495 dotnet tests pass).
+
+**Closes**: SPEC Phase-3 foundation-first task #3. Foundation #4 (Phase-3 semantic slice — 22 IdentityPacket fixtures + 3 signatures + 1 MemoryEvent reader + 1 development event + Viewer.EventBridge stub) becomes the next /next.
+
 ## 2026-04-29 (Phase-3 foundation-first task #2 — Assembly Definitions skeleton)
 
 Three asmdefs per ADR-0008 (ShotPresentationContract) + ADR-0009 (dots-phase render adapter). Foundation for all subsequent viewer code.

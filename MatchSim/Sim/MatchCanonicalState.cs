@@ -1,12 +1,15 @@
 using System;
+using System.Collections.Generic;
 
 namespace FinalWhistle.MatchSim.Sim;
 
 /// <summary>
 /// Canonical-state encoder for a single MatchSim snapshot. Writes (Tick +
-/// Ball + 22 PlayerStates) in locked order to a <see cref="CanonicalEncoder"/>;
-/// composes the existing <see cref="Tick"/>, <see cref="BallState.WriteCanonical"/>,
-/// and <see cref="PlayerState.WriteCanonical"/> primitives.
+/// Ball + 22 PlayerStates + score + OutOfPlay + KeyEvents) in locked order
+/// to a <see cref="CanonicalEncoder"/>; composes the existing
+/// <see cref="Tick"/>, <see cref="BallState.WriteCanonical"/>,
+/// <see cref="PlayerState.WriteCanonical"/>, and
+/// <see cref="KeyEvent.WriteCanonical"/> primitives.
 ///
 /// <para>
 /// This is the bedrock of cross-platform determinism per
@@ -19,7 +22,7 @@ namespace FinalWhistle.MatchSim.Sim;
 /// </para>
 ///
 /// <para>
-/// <strong>Encoding order (locked at v1):</strong>
+/// <strong>Encoding order (locked at v1)</strong>:
 /// </para>
 /// <list type="number">
 ///   <item><description><see cref="Tick"/> — 8 bytes LE.</description></item>
@@ -28,12 +31,26 @@ namespace FinalWhistle.MatchSim.Sim;
 ///   <item><description>Home team's 11 <see cref="PlayerState"/>s in roster order (50 bytes each = 550 bytes).</description></item>
 ///   <item><description>Away team count = 11 (4-byte LE int).</description></item>
 ///   <item><description>Away team's 11 <see cref="PlayerState"/>s in roster order (550 bytes).</description></item>
+///   <item><description>Home score (1 byte).</description></item>
+///   <item><description>Away score (1 byte).</description></item>
+///   <item><description><see cref="OutOfPlay"/> flag (1 byte).</description></item>
+///   <item><description>KeyEvent count (4-byte LE int).</description></item>
+///   <item><description>KeyEvents in append order (35 bytes each).</description></item>
 /// </list>
 ///
 /// <para>
-/// Total per snapshot: 8 + 72 + 4 + 550 + 4 + 550 = 1188 bytes. Adding any
-/// field is a corpus-fixture-invalidating change; handle via SerializationContract
-/// version bump.
+/// <strong>Base width</strong>: 8 + 72 + 4 + 550 + 4 + 550 + 1 + 1 + 1 + 4 = 1195
+/// bytes. Each <see cref="KeyEvent"/> adds 35 bytes (variable on top of
+/// base). Adding any field is a corpus-fixture-invalidating change; handle
+/// via SerializationContract version bump.
+/// </para>
+///
+/// <para>
+/// <strong>v0 → v1 schema bump</strong>: 2026-04-30 PitchRules layer ship
+/// per SPEC 2026-04-28 PitchRules decisions-log entry. v0 was 1188 bytes
+/// (Tick + Ball + 22 PlayerStates only); v1 adds 7 base bytes + variable
+/// KeyEvent body. Pinned smoke-fixture hash re-baselines as part of this
+/// schema bump (intentional, per the decisions-log entry).
 /// </para>
 ///
 /// <para>
@@ -42,7 +59,8 @@ namespace FinalWhistle.MatchSim.Sim;
 /// rules, the caller MUST present players in a stable order (typically the
 /// formation roster index, NOT jersey number which can collide across teams).
 /// Mid-match swaps are not a concern at Month-3 (no substitutions per
-/// <c>match-engine.md §Q4</c>).
+/// <c>match-engine.md §Q4</c>). KeyEvents are append-only and stable in
+/// emission order from <see cref="MatchRules.Step"/>.
 /// </para>
 /// </summary>
 public static class MatchCanonicalState
@@ -51,10 +69,26 @@ public static class MatchCanonicalState
     public const int PlayersPerTeam = 11;
 
     /// <summary>
-    /// Canonical v1 snapshot width in bytes:
-    /// Tick (8) + Ball (72) + two count headers (8) + 22 PlayerStates (22×50).
+    /// Base canonical-snapshot width in bytes for v1 schema (no KeyEvents):
+    /// Tick (8) + Ball (72) + two count headers (8) + 22 PlayerStates (22×50) +
+    /// HomeScore (1) + AwayScore (1) + OutOfPlay (1) + KeyEvent count (4)
+    /// = 1195 bytes. The total snapshot width is
+    /// <c>EncodedBaseByteCount + state.KeyEvents.Count * KeyEvent.EncodedByteCount</c>.
     /// </summary>
-    public const int EncodedByteCount = 1188;
+    public const int EncodedBaseByteCount = 1195;
+
+    /// <summary>
+    /// Compute the exact canonical-snapshot width in bytes for the given
+    /// state, including the variable KeyEvent body.
+    /// </summary>
+    public static int EncodedByteCountFor(MatchSimulationState state)
+    {
+        if (state is null)
+        {
+            throw new ArgumentNullException(nameof(state));
+        }
+        return EncodedBaseByteCount + state.KeyEvents.Count * KeyEvent.EncodedByteCount;
+    }
 
     /// <summary>
     /// Write the canonical state of a match snapshot to the encoder. Bytes
@@ -66,7 +100,11 @@ public static class MatchCanonicalState
         Tick currentTick,
         BallState ball,
         ReadOnlySpan<PlayerState> homeTeam,
-        ReadOnlySpan<PlayerState> awayTeam)
+        ReadOnlySpan<PlayerState> awayTeam,
+        byte homeScore,
+        byte awayScore,
+        OutOfPlay outOfPlay,
+        IReadOnlyList<KeyEvent> keyEvents)
     {
         if (encoder is null)
         {
@@ -79,6 +117,10 @@ public static class MatchCanonicalState
         if (awayTeam.Length != PlayersPerTeam)
         {
             throw new ArgumentException($"awayTeam must contain exactly {PlayersPerTeam} players; got {awayTeam.Length}.", nameof(awayTeam));
+        }
+        if (keyEvents is null)
+        {
+            throw new ArgumentNullException(nameof(keyEvents));
         }
 
         // 1. Tick.
@@ -100,6 +142,20 @@ public static class MatchCanonicalState
         {
             awayTeam[i].WriteCanonical(encoder);
         }
+
+        // 7-8. Score.
+        encoder.WriteByte(homeScore);
+        encoder.WriteByte(awayScore);
+
+        // 9. OutOfPlay flag.
+        encoder.WriteByte((byte)outOfPlay);
+
+        // 10-11. KeyEvents (count + entries in append order).
+        encoder.WriteCount(keyEvents.Count);
+        for (int i = 0; i < keyEvents.Count; i++)
+        {
+            keyEvents[i].WriteCanonical(encoder);
+        }
     }
 
     /// <summary>
@@ -112,7 +168,12 @@ public static class MatchCanonicalState
             throw new ArgumentNullException(nameof(state));
         }
 
-        Write(encoder, state.CurrentTick, state.Ball, state.HomeTeam, state.AwayTeam);
+        Write(encoder,
+            state.CurrentTick, state.Ball,
+            state.HomeTeam, state.AwayTeam,
+            state.HomeScore, state.AwayScore,
+            state.OutOfPlay,
+            state.KeyEvents);
     }
 
     /// <summary>
@@ -124,10 +185,15 @@ public static class MatchCanonicalState
         Tick currentTick,
         BallState ball,
         ReadOnlySpan<PlayerState> homeTeam,
-        ReadOnlySpan<PlayerState> awayTeam)
+        ReadOnlySpan<PlayerState> awayTeam,
+        byte homeScore,
+        byte awayScore,
+        OutOfPlay outOfPlay,
+        IReadOnlyList<KeyEvent> keyEvents)
     {
-        CanonicalEncoder encoder = new(initialCapacity: EncodedByteCount);
-        Write(encoder, currentTick, ball, homeTeam, awayTeam);
+        int capacityHint = EncodedBaseByteCount + keyEvents.Count * KeyEvent.EncodedByteCount;
+        CanonicalEncoder encoder = new(initialCapacity: capacityHint);
+        Write(encoder, currentTick, ball, homeTeam, awayTeam, homeScore, awayScore, outOfPlay, keyEvents);
         return encoder.ComputeSha256Hex();
     }
 
@@ -137,8 +203,50 @@ public static class MatchCanonicalState
     /// </summary>
     public static string ComputeHash(MatchSimulationState state)
     {
-        CanonicalEncoder encoder = new(initialCapacity: EncodedByteCount);
+        CanonicalEncoder encoder = new(initialCapacity: EncodedByteCountFor(state));
         Write(encoder, state);
         return encoder.ComputeSha256Hex();
     }
+
+    #region Convenience overloads — score=0 / OutOfPlay=InPlay / empty KeyEvents
+
+    /// <summary>
+    /// Convenience overload that defaults score to (0, 0), OutOfPlay to
+    /// <see cref="OutOfPlay.InPlay"/>, and KeyEvents to an empty list.
+    /// Useful for tests + initial-state hashing where the new PitchRules
+    /// fields haven't accumulated any non-default values yet. Output bytes
+    /// are still the v1 canonical layout (<see cref="EncodedBaseByteCount"/>
+    /// total) — defaulting fields does NOT skip them in the encoding.
+    /// </summary>
+    public static void Write(
+        CanonicalEncoder encoder,
+        Tick currentTick,
+        BallState ball,
+        ReadOnlySpan<PlayerState> homeTeam,
+        ReadOnlySpan<PlayerState> awayTeam)
+    {
+        Write(encoder, currentTick, ball, homeTeam, awayTeam,
+            homeScore: 0,
+            awayScore: 0,
+            outOfPlay: OutOfPlay.InPlay,
+            keyEvents: EmptyKeyEvents);
+    }
+
+    /// <summary>Convenience: SHA256 with score=0, OutOfPlay=InPlay, empty KeyEvents.</summary>
+    public static string ComputeHash(
+        Tick currentTick,
+        BallState ball,
+        ReadOnlySpan<PlayerState> homeTeam,
+        ReadOnlySpan<PlayerState> awayTeam)
+    {
+        return ComputeHash(currentTick, ball, homeTeam, awayTeam,
+            homeScore: 0,
+            awayScore: 0,
+            outOfPlay: OutOfPlay.InPlay,
+            keyEvents: EmptyKeyEvents);
+    }
+
+    private static readonly KeyEvent[] EmptyKeyEvents = Array.Empty<KeyEvent>();
+
+    #endregion
 }

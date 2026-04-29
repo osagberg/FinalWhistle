@@ -1,0 +1,394 @@
+using System;
+using FinalWhistle.MatchSim.Sim;
+using Xunit;
+
+namespace FinalWhistle.MatchSim.Tests.Sim;
+
+/// <summary>
+/// Phase-3 PitchRules unit tests per SPEC 2026-04-28 PitchRules decisions-log
+/// entry. Direct unit-test against <c>MatchRules.Step</c> — exercises the
+/// orchestrator with crafted pre/post ball states. Determinism + integration
+/// coverage already lives in <see cref="MatchDeterminismTests"/>; this file
+/// focuses on the rules-layer contract.
+/// </summary>
+public sealed class MatchRulesTests
+{
+    private static Fixed F(int n) => Fixed.FromInt(n);
+    private static Fixed Half => Fixed.Half;
+    private static Vector3Fixed V3(int x, int y, int z) => new(F(x), F(y), F(z));
+
+    /// <summary>Build a minimum-viable state. 22 players at origin (irrelevant for rules tests; rules don't read player positions).</summary>
+    private static MatchSimulationState BuildState(BallState ball)
+    {
+        PlayerState[] home = new PlayerState[MatchCanonicalState.PlayersPerTeam];
+        PlayerState[] away = new PlayerState[MatchCanonicalState.PlayersPerTeam];
+        for (byte i = 1; i <= 11; i++)
+        {
+            home[i - 1] = new PlayerState(Vector3Fixed.Zero, Vector3Fixed.Zero, i, TeamSide.Home);
+            away[i - 1] = new PlayerState(Vector3Fixed.Zero, Vector3Fixed.Zero, i, TeamSide.Away);
+        }
+        return new MatchSimulationState(Tick.Zero, ball, home, away);
+    }
+
+    #region Goal detection — in-goal-mouth crossings
+
+    [Fact]
+    public void Step_BallCrossesPositiveGoalLineInMouth_EmitsGoal_HomeScores()
+    {
+        // Pre-step ball at (50, 1, 0) — in-field. Post-step at (53, 1, 0) —
+        // crossed +X goal line (52.5) at Y=1 (under 2.44 crossbar) and Z=0
+        // (within ±3.66 posts). Home attacks +X; goal counts for Home.
+        BallState pre = new(V3(50, 1, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(53, 1, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+
+        MatchRules.Step(state, pre);
+
+        Assert.Equal(1, state.HomeScore);
+        Assert.Equal(0, state.AwayScore);
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.Goal, state.KeyEvents[0].Kind);
+        Assert.Equal(TeamSide.Home, state.KeyEvents[0].Side);
+        // Ball respawned at center for immediate restart.
+        Assert.Equal(Vector3Fixed.Zero, state.Ball.Position);
+        Assert.Equal(Vector3Fixed.Zero, state.Ball.Velocity);
+        // OutOfPlay stays InPlay (immediate respawn — no celebration tick range).
+        Assert.Equal(OutOfPlay.InPlay, state.OutOfPlay);
+    }
+
+    [Fact]
+    public void Step_BallCrossesNegativeGoalLineInMouth_EmitsGoal_AwayScores()
+    {
+        // Mirror of the home goal: ball crosses -X goal line; Away scores.
+        BallState pre = new(V3(-50, 1, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(-53, 1, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+
+        MatchRules.Step(state, pre);
+
+        Assert.Equal(0, state.HomeScore);
+        Assert.Equal(1, state.AwayScore);
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.Goal, state.KeyEvents[0].Kind);
+        Assert.Equal(TeamSide.Away, state.KeyEvents[0].Side);
+    }
+
+    #endregion
+
+    #region Goal-line crossings outside the mouth — GoalKick
+
+    [Fact]
+    public void Step_BallCrossesPositiveGoalLineAboveCrossbar_EmitsGoalKick_NotGoal()
+    {
+        // Ball crosses +X goal line at Y=3 (above 2.44 crossbar). NOT a goal.
+        BallState pre = new(V3(50, 3, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(53, 3, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+
+        MatchRules.Step(state, pre);
+
+        Assert.Equal(0, state.HomeScore);
+        Assert.Equal(0, state.AwayScore);
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.GoalKickRestart, state.KeyEvents[0].Kind);
+        Assert.Equal(OutOfPlay.GoalKick, state.OutOfPlay);
+        // Ball respawns at goal-line center on the conceding side.
+        Assert.Equal(MatchRules.GoalLineX, state.Ball.Position.X);
+        Assert.Equal(Fixed.Zero, state.Ball.Position.Y);
+        Assert.Equal(Fixed.Zero, state.Ball.Position.Z);
+    }
+
+    [Fact]
+    public void Step_BallCrossesPositiveGoalLineWideOfPost_EmitsGoalKick()
+    {
+        // Ball crosses +X goal line at Z=10 (wider than 3.66 post-half-width).
+        BallState pre = new(V3(50, 1, 10), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(53, 1, 10), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+
+        MatchRules.Step(state, pre);
+
+        Assert.Equal(0, state.HomeScore);
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.GoalKickRestart, state.KeyEvents[0].Kind);
+        Assert.Equal(OutOfPlay.GoalKick, state.OutOfPlay);
+    }
+
+    #endregion
+
+    #region Touchline crossings — ThrowIn
+
+    [Fact]
+    public void Step_BallCrossesPositiveTouchline_EmitsThrowIn()
+    {
+        // Ball crosses +Z touchline (at Z=34). Phase-3 always classifies as
+        // ThrowIn with Home side (no last-touched tracking).
+        BallState pre = new(V3(0, 0, 33), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(0, 0, 35), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+
+        MatchRules.Step(state, pre);
+
+        Assert.Equal(0, state.HomeScore);
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.ThrowInRestart, state.KeyEvents[0].Kind);
+        Assert.Equal(OutOfPlay.ThrowIn, state.OutOfPlay);
+        // Ball respawns at touchline at the X-coordinate of the crossing.
+        Assert.Equal(MatchRules.TouchlineZ, state.Ball.Position.Z);
+    }
+
+    [Fact]
+    public void Step_BallCrossesNegativeTouchline_EmitsThrowIn()
+    {
+        BallState pre = new(V3(0, 0, -33), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(0, 0, -35), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+
+        MatchRules.Step(state, pre);
+
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.ThrowInRestart, state.KeyEvents[0].Kind);
+        Assert.Equal(OutOfPlay.ThrowIn, state.OutOfPlay);
+        Assert.Equal(-MatchRules.TouchlineZ, state.Ball.Position.Z);
+    }
+
+    #endregion
+
+    #region Non-events
+
+    [Fact]
+    public void Step_BallStaysInField_NoEventEmitted()
+    {
+        BallState pre = new(V3(10, 0, 5), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(11, 0, 5), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+
+        MatchRules.Step(state, pre);
+
+        Assert.Empty(state.KeyEvents);
+        Assert.Equal(OutOfPlay.InPlay, state.OutOfPlay);
+        Assert.Equal(0, state.HomeScore);
+        Assert.Equal(0, state.AwayScore);
+    }
+
+    [Fact]
+    public void Step_BallAlreadyOutOfField_NoNewEvent()
+    {
+        // Pre-step OUT, post-step also OUT. The crossing already happened
+        // a previous tick; no new event fires this tick.
+        BallState pre = new(V3(53, 0, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(54, 0, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+
+        MatchRules.Step(state, pre);
+
+        Assert.Empty(state.KeyEvents);
+        Assert.Equal(OutOfPlay.InPlay, state.OutOfPlay);
+    }
+
+    [Fact]
+    public void Step_NullState_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            MatchRules.Step(null!, BallState.AtRest));
+    }
+
+    #endregion
+
+    #region OutOfPlay is per-tick transient
+
+    [Fact]
+    public void Step_PreviousTickThrowIn_ResetsToInPlay_ThenStaysInPlayIfNoEventThisTick()
+    {
+        // Manually set OutOfPlay = ThrowIn on the state, then call Step
+        // with no crossing event. Step should reset to InPlay.
+        BallState pre = new(V3(0, 0, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(1, 0, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+        state.OutOfPlay = OutOfPlay.ThrowIn;
+
+        MatchRules.Step(state, pre);
+
+        Assert.Equal(OutOfPlay.InPlay, state.OutOfPlay);
+        Assert.Empty(state.KeyEvents);
+    }
+
+    #endregion
+
+    #region KeyEvent ordering + canonical encoding
+
+    [Fact]
+    public void KeyEvent_AppendOrderPreserved_AcrossMultipleTicks()
+    {
+        // Tick 1: goal. Tick 2: out-of-play (after manually re-positioning ball).
+        MatchSimulationState state = BuildState(new BallState(V3(53, 1, 0), Vector3Fixed.Zero, Vector3Fixed.Zero));
+        state.CurrentTick = Tick.FromSeconds(1);
+
+        BallState pre1 = new(V3(50, 1, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchRules.Step(state, pre1);
+
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.Goal, state.KeyEvents[0].Kind);
+
+        // Now move ball to trigger a touchline-out the next tick.
+        state.CurrentTick = state.CurrentTick + 1L;
+        state.Ball = new BallState(V3(0, 0, 35), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState pre2 = new(V3(0, 0, 33), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchRules.Step(state, pre2);
+
+        Assert.Equal(2, state.KeyEvents.Count);
+        Assert.Equal(KeyEventKind.Goal, state.KeyEvents[0].Kind);
+        Assert.Equal(KeyEventKind.ThrowInRestart, state.KeyEvents[1].Kind);
+        // Tick ordering preserved.
+        Assert.True(state.KeyEvents[0].Tick.CompareTo(state.KeyEvents[1].Tick) < 0);
+    }
+
+    [Fact]
+    public void CanonicalEncoding_KeyEventsChangeHash()
+    {
+        // Same canonical state except one has an empty KeyEvents list and
+        // the other has a single Goal entry. Hashes must differ — proves
+        // KeyEvents are part of the canonical encoding.
+        MatchSimulationState empty = BuildState(BallState.AtRest);
+        MatchSimulationState withGoal = BuildState(BallState.AtRest);
+        withGoal.KeyEvents.Add(new KeyEvent(
+            tick: Tick.FromSeconds(1),
+            kind: KeyEventKind.Goal,
+            side: TeamSide.Home,
+            jerseyNumber: 0,
+            position: V3(52, 1, 0)));
+        withGoal.HomeScore = 1;
+
+        string emptyHash = MatchCanonicalState.ComputeHash(empty);
+        string withGoalHash = MatchCanonicalState.ComputeHash(withGoal);
+
+        Assert.NotEqual(emptyHash, withGoalHash);
+    }
+
+    [Fact]
+    public void EncodedByteCountFor_AccountsForKeyEvents()
+    {
+        MatchSimulationState empty = BuildState(BallState.AtRest);
+        MatchSimulationState withTwoEvents = BuildState(BallState.AtRest);
+        withTwoEvents.KeyEvents.Add(new KeyEvent(Tick.Zero, KeyEventKind.Goal, TeamSide.Home, 0, Vector3Fixed.Zero));
+        withTwoEvents.KeyEvents.Add(new KeyEvent(Tick.One, KeyEventKind.ThrowInRestart, TeamSide.Away, 0, Vector3Fixed.Zero));
+
+        Assert.Equal(MatchCanonicalState.EncodedBaseByteCount, MatchCanonicalState.EncodedByteCountFor(empty));
+        Assert.Equal(
+            MatchCanonicalState.EncodedBaseByteCount + 2 * KeyEvent.EncodedByteCount,
+            MatchCanonicalState.EncodedByteCountFor(withTwoEvents));
+    }
+
+    #endregion
+
+    #region Score overflow
+
+    [Fact]
+    public void Step_HomeScoreAtMaxValue_GoalWouldOverflow_Throws()
+    {
+        BallState pre = new(V3(50, 1, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(53, 1, 0), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+        state.HomeScore = byte.MaxValue;
+
+        Assert.Throws<InvalidOperationException>(() => MatchRules.Step(state, pre));
+    }
+
+    #endregion
+
+    #region MatchSimulationConfig
+
+    [Fact]
+    public void MatchSimulationConfig_Default_HasZeroSeed()
+    {
+        Assert.Equal(Seed.Zero, MatchSimulationConfig.Default.MatchSeed);
+    }
+
+    [Fact]
+    public void MatchSimulationConfig_RoundTripsSeed()
+    {
+        Seed seed = Seed.FromUInt64(0xdeadbeefdeadbeefUL);
+        MatchSimulationConfig config = new(seed);
+
+        Assert.Equal(seed, config.MatchSeed);
+    }
+
+    [Fact]
+    public void MatchSimulationRunner_AcceptsConfig_DoesNotChangeCanonicalHash()
+    {
+        // Seed is fixture input, not canonical state. Two runs with different
+        // seeds (but otherwise identical state) must produce identical
+        // canonical hashes. When stochastic events land Phase 4+, this test
+        // updates to require different hashes; until then it locks the
+        // "seed is not canonical state" invariant.
+        BehaviorTreeArchetype direct = BehaviorTreeArchetypes.Load("direct-pressing");
+        BehaviorTreeArchetype lowBlock = BehaviorTreeArchetypes.Load("low-block-counter");
+
+        MatchSimulationState a = MatchSimulationState.FromArchetypeFormations(
+            Tick.Zero, BallState.AtRest, direct, lowBlock);
+        MatchSimulationState b = MatchSimulationState.FromArchetypeFormations(
+            Tick.Zero, BallState.AtRest, direct, lowBlock);
+
+        MatchSimulationRunner.RunTicks(a, direct, lowBlock,
+            PlayerKinematics.Phase3Defaults,
+            BallPhysicsCoefficients.Phase3Seeds,
+            new MatchSimulationConfig(Seed.Zero),
+            ticks: 60);
+        MatchSimulationRunner.RunTicks(b, direct, lowBlock,
+            PlayerKinematics.Phase3Defaults,
+            BallPhysicsCoefficients.Phase3Seeds,
+            new MatchSimulationConfig(Seed.FromUInt64(0xdeadbeefdeadbeefUL)),
+            ticks: 60);
+
+        Assert.Equal(MatchCanonicalState.ComputeHash(a), MatchCanonicalState.ComputeHash(b));
+    }
+
+    #endregion
+
+    #region KeyEvent canonical encoding regression
+
+    [Fact]
+    public void KeyEvent_WriteCanonical_Produces35Bytes()
+    {
+        CanonicalEncoder encoder = new();
+        KeyEvent ev = new(Tick.Zero, KeyEventKind.Goal, TeamSide.Home, 7, V3(50, 1, 0));
+
+        ev.WriteCanonical(encoder);
+
+        Assert.Equal(KeyEvent.EncodedByteCount, encoder.WrittenCount);
+        Assert.Equal(35, KeyEvent.EncodedByteCount);
+    }
+
+    [Fact]
+    public void KeyEvent_RejectsNoneKind()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new KeyEvent(Tick.Zero, KeyEventKind.None, TeamSide.Home, 0, Vector3Fixed.Zero));
+    }
+
+    [Fact]
+    public void KeyEvent_RejectsInvalidSide()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new KeyEvent(Tick.Zero, KeyEventKind.Goal, default, 0, Vector3Fixed.Zero));
+    }
+
+    [Fact]
+    public void KeyEvent_RejectsJerseyAbove99()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new KeyEvent(Tick.Zero, KeyEventKind.Goal, TeamSide.Home, 100, Vector3Fixed.Zero));
+    }
+
+    [Fact]
+    public void KeyEvent_AllowsJerseyZero_ForUnspecified()
+    {
+        // jerseyNumber 0 IS valid — Phase-3 emits 0 when scorer/last-toucher
+        // unknown (no possession tracking yet).
+        var ex = Record.Exception(() =>
+            new KeyEvent(Tick.Zero, KeyEventKind.Goal, TeamSide.Home, 0, Vector3Fixed.Zero));
+        Assert.Null(ex);
+    }
+
+    #endregion
+}
