@@ -16,21 +16,40 @@
     <ProductName>Final Whistle MatchSim</ProductName>
     <Description>Pure-C# canonical match simulation. Q32.32 fixed-point determinism. Zero UnityEngine references per TECH_APPROACH.md §3.</Description>
 
-    <!-- Deterministic build per `scripts/fw build-unity-plugins` SPEC 2026-04-29
-         decisions-log §6 idempotency claim. Default Roslyn behavior embeds a
-         build-timestamp + non-deterministic MVID into the PE header of the
-         output DLL, which makes byte-equivalent recompilations produce
-         byte-different binaries — and that breaks the "idempotent re-run = no
-         git churn" promise of the DLL-drop strategy. With Deterministic=true,
-         the compiler emits an MVID derived from a stable hash of source +
-         resources + references. Same source ⇒ same DLL bytes ⇒ no churn.
+    <!-- Reproducible build per `scripts/fw build-unity-plugins` SPEC 2026-04-29
+         decisions-log §6 idempotency claim. The canonical .NET reproducible-
+         builds recipe is two MSBuild properties working together:
 
-         Required for the consumption-strategy contract: every committed DLL
-         under `unity-project/Assets/Plugins/MatchSim/` must round-trip cleanly
-         through `dotnet publish` without producing a diff. Phase-4 freshness
-         check (deferred per SPEC decisions log §6) becomes trivially correct
-         with this property in place. -->
+           Deterministic=true              — Roslyn emits MVID from a stable
+                                             hash of source + resources +
+                                             references, not a timestamp.
+                                             Fixes intra-machine churn.
+
+           ContinuousIntegrationBuild=true — paths embedded in the PDB (and in
+                                             debug-info-bearing portions of the
+                                             PE header) are normalized via
+                                             PathMap-style canonicalization.
+                                             Fixes cross-machine churn —
+                                             without this, my machine's
+                                             /Users/vibelogic/dev/football/...
+                                             paths differ from CI's
+                                             /github/workspace/... paths,
+                                             producing different SHA256 even
+                                             when source is identical.
+
+         Without ContinuousIntegrationBuild=true, b8bff55 fixed the local-
+         rebuild churn case but Codex's verification on a different machine
+         still produced a different SHA256 (P1 finding 2026-04-29).
+
+         Trade-off accepted: local devs lose absolute-path navigation from
+         compiled-DLL stack traces (paths show as /_/MatchSim/... rather than
+         /Users/.../MatchSim/...). For Final Whistle that's fine — debugging
+         happens against MatchSim source, not against the consumed-by-Unity
+         DLL. The reproducibility win (committed DLLs round-trip cleanly
+         from any machine + ANY future fresh-clone CI check is trivially
+         correct) outweighs the minor IDE convenience. -->
     <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
   <ItemGroup>
