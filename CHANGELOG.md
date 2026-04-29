@@ -2,6 +2,43 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-29 (Phase-3 foundation-first task #1 — MatchSim consumption strategy locked + `scripts/fw build-unity-plugins` shipped)
+
+Closes the open architectural question that surfaced when `unity-project/` was created on 2026-04-28: how do Unity-side scripts reference MatchSim types? Decision logged in SPEC 2026-04-29 decisions-log entry; implementation follows in the same commit.
+
+**Decision: DLL drop into `unity-project/Assets/Plugins/MatchSim/`** (not UPM local package).
+
+Reasoning, full rationale in SPEC 2026-04-29 decisions log:
+
+| Aspect | Decision |
+|---|---|
+| **Mechanism** | `dotnet publish MatchSim/MatchSim.csproj -c Release` → copy DLLs into `unity-project/Assets/Plugins/MatchSim/` |
+| **Files copied** | `FinalWhistle.MatchSim.dll` (42K) + `FinalWhistle.MatchSim.pdb` (22K, managed-PDB for stack traces) + `YamlDotNet.dll` (295K, NuGet transitive — required for BT-archetype YAML loaders at runtime) |
+| **Files skipped from publish output** | `.deps.json` (runtime-host manifest; Unity ignores) + `.xml` doc-comments (~87K, no current Editor benefit) |
+| **`.meta` ownership** | Unity owns GUID stability; the script NEVER overwrites existing `.meta` files. First-run user-action: open Editor → generate `.meta` → commit alongside DLLs. |
+| **Git posture** | DLLs check IN. Reproducibility floor — fresh clones can open Unity without `dotnet` available. Matches the existing `Assets/Plugins/Editor/Roslyn/` pattern (third-party DLLs we vendor, also committed). |
+| **Phase-4 revisit trigger** | Pivot to UPM local package (`unity-project/Packages/manifest.json` + `MatchSim/package.json`) if dev-loop friction emerges (forgot-to-rebuild before commit, CI surface mismatch). |
+| **Tier-A freshness check** | Deferred to Phase 4. Phase-3 solo-dev relies on `scripts/fw build-unity-plugins` as the explicit rebuild gate. |
+
+**`scripts/fw build-unity-plugins`:**
+
+- **Pipeline**: `dotnet publish` to `mktemp -d` staging → verify expected files arrived → copy three DLLs to plugin folder. Bash `trap` cleans the staging dir on any exit (success or failure).
+- **Idempotent**: re-runs are no-ops at the dotnet-publish layer (incremental build) + cp overwrites bytes only on diff, so git won't see a churn-diff if MatchSim source is unchanged.
+- **First-run guidance**: prints a friendly note when any plugin DLL lacks a `.meta` file, telling the user to open Unity once + commit the generated `.meta`s. Subsequent runs (after `.meta`s exist) skip the note.
+- **Wired into `scripts/fw help`** "implemented" command list.
+- **Not wired into `fw verify` umbrella** — the freshness check is Phase 4 (see SPEC decisions log §6); Phase-3 solo-dev relies on the explicit rebuild gate.
+
+**Smoke tests:**
+
+- First-run: `fw build-unity-plugins` → 3 files (FinalWhistle.MatchSim.dll 42K + FinalWhistle.MatchSim.pdb 22K + YamlDotNet.dll 295K) land at `unity-project/Assets/Plugins/MatchSim/`; first-run note correctly identifies 2 DLLs lack `.meta` (the PDB doesn't need one — Unity treats PDBs as adjacency artifacts of the parent DLL's .meta).
+- Idempotency re-run: same output; no churn.
+- `git check-ignore`: confirms none of the three plugin files are gitignored (`unity-project/*.pdb` in .gitignore is a top-level pattern; nested-path PDBs are tracked).
+- `fw verify`: green (verify-docs clean + banned-terms 0 violations + shader-audit clean stub + 473/473 dotnet tests pass).
+
+**First-run user-action pending after this commit ships:**
+
+Same pattern as the round-3 audit-cycle Editor user-action: open Unity → wait for package import → Editor generates `.meta` files for `FinalWhistle.MatchSim.dll` + `YamlDotNet.dll` → commit those `.meta` files. After that, the DLL drop is fully reproducible from any fresh clone + `scripts/fw build-unity-plugins`.
+
 ## 2026-04-28 (Phase-3 Week-1 priority #6 — `scripts/fw shader-audit` shipped)
 
 Adapter validation criterion *"no `_Time` references in viewer shaders"* per ADR-0008/0009 determinism discipline (inherited from superseded ADR-0002). The match-replay corpus pins adapter-keyed pass-activation hashes per seed; if a viewer-adapter shader reads a frame-time intrinsic (`_Time` / `_SinTime` / `_CosTime` / `_DeltaTime` / `_TimeParameters`), rendered output drifts per playback even when canonical MatchSim state is byte-identical. That breaks the replay contract. The audit catches the violation at author time.

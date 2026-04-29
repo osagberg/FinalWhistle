@@ -51,6 +51,11 @@ COMMANDS (implemented)
     shader-audit    Grep viewer-adapter shaders (Assets/Viewer/) for banned
                     _Time refs per ADR-0008/0009 determinism contract.
                     UI / debug / loading-screen shaders are out of scope.
+    build-unity-plugins
+                    dotnet publish MatchSim + drop the DLLs into
+                    unity-project/Assets/Plugins/MatchSim/ for Unity-side
+                    consumption (per SPEC 2026-04-29 decisions log).
+                    Run after every MatchSim source change before commit.
     test            dotnet test against FinalWhistle.slnx (MatchSim + tests)
 
 COMMANDS (stubbed — land when their phase trigger hits)
@@ -305,6 +310,104 @@ EOF
         echo "      not in the determinism hash and are not audited)."
         echo "  If neither resolution fits, raise an ADR that revisits the contract."
         exit 1
+        ;;
+
+    build-unity-plugins)
+        # MatchSim → Unity DLL-drop bundler (per SPEC 2026-04-29 decisions log
+        # — MatchSim consumption strategy = checked-in DLL drop with this
+        # script as the explicit rebuild gate).
+        #
+        # Pipeline:
+        #   1. `dotnet publish MatchSim/MatchSim.csproj -c Release` — required
+        #      (NOT `dotnet build`, which doesn't copy transitive NuGet deps
+        #      for class libraries). Publish puts `FinalWhistle.MatchSim.dll`
+        #      + `FinalWhistle.MatchSim.pdb` + `YamlDotNet.dll` together.
+        #   2. Copy the three files into `unity-project/Assets/Plugins/MatchSim/`.
+        #      Skipped: `.deps.json` (runtime-host manifest; Unity ignores it)
+        #      + `.xml` doc-comment file (~87KB, no Editor benefit yet).
+        #   3. Existing `.meta` files are NEVER overwritten — Unity owns GUID
+        #      stability for these DLLs, and the .meta survives across runs
+        #      so existing Unity scenes / asmdef references stay valid.
+        #
+        # First-run user-action: after the script runs the first time, open
+        # Unity once so it generates `.meta` files for the new DLLs, then
+        # commit those .meta files. Subsequent runs only refresh the DLL
+        # bytes; .meta stability is preserved.
+        #
+        # Idempotency: re-running with no MatchSim source change is a no-op
+        # at the dotnet-publish layer (incremental build) + the cp layer
+        # overwrites bytes only if they differ.
+        echo "=== Final Whistle — build-unity-plugins ==="
+        echo
+        if ! command -v dotnet >/dev/null 2>&1; then
+            echo "FAIL: dotnet SDK not found on PATH." >&2
+            echo "Install .NET 10+ SDK; see SETUP.md §4." >&2
+            exit 2
+        fi
+
+        matchsim_proj="$ROOT/MatchSim/MatchSim.csproj"
+        if [ ! -f "$matchsim_proj" ]; then
+            echo "FAIL: $matchsim_proj missing." >&2
+            exit 2
+        fi
+
+        target_dir="$ROOT/unity-project/Assets/Plugins/MatchSim"
+        publish_tmp=$(mktemp -d -t fw-build-unity-plugins.XXXXXX)
+        # Bash trap to remove the temp dir even on failure mid-script.
+        trap 'rm -rf "$publish_tmp"' EXIT
+
+        echo "Publishing MatchSim (Release, netstandard2.1) to staging…"
+        dotnet publish "$matchsim_proj" \
+            -c Release \
+            --nologo \
+            -o "$publish_tmp" \
+            >/dev/null
+
+        # Verify the expected files arrived.
+        for required in FinalWhistle.MatchSim.dll YamlDotNet.dll; do
+            if [ ! -f "$publish_tmp/$required" ]; then
+                echo "FAIL: $required missing from publish output ($publish_tmp)." >&2
+                exit 2
+            fi
+        done
+
+        echo "Staging DLLs in $target_dir…"
+        mkdir -p "$target_dir"
+
+        # Copy ONLY the files Unity actually needs. .deps.json + .xml stay
+        # in the staging dir (will be cleaned by the trap). PDB is included
+        # because Unity uses managed-PDBs for real stack traces in the Editor.
+        copied=0
+        for f in FinalWhistle.MatchSim.dll FinalWhistle.MatchSim.pdb YamlDotNet.dll; do
+            if [ ! -f "$publish_tmp/$f" ]; then
+                # PDB may not exist on Release; that's OK, just skip it.
+                if [ "$f" = "FinalWhistle.MatchSim.pdb" ]; then
+                    continue
+                fi
+                echo "FAIL: $f missing from publish output." >&2
+                exit 2
+            fi
+            cp "$publish_tmp/$f" "$target_dir/$f"
+            copied=$((copied + 1))
+        done
+
+        echo
+        echo "OK: copied $copied file(s) to $target_dir"
+
+        # First-run guidance — only mention if any plugin .meta file is missing.
+        missing_metas=0
+        for f in "$target_dir/FinalWhistle.MatchSim.dll" "$target_dir/YamlDotNet.dll"; do
+            if [ -f "$f" ] && [ ! -f "$f.meta" ]; then
+                missing_metas=$((missing_metas + 1))
+            fi
+        done
+        if [ "$missing_metas" -gt 0 ]; then
+            echo
+            echo "First-run note: $missing_metas DLL(s) lack .meta files."
+            echo "  Open Unity once so the Editor generates .meta files for the new"
+            echo "  plugins, then commit them alongside the DLLs. After that, future"
+            echo "  runs of this command preserve .meta stability automatically."
+        fi
         ;;
 
     test)
