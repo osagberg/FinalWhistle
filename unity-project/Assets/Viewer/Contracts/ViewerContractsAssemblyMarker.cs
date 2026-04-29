@@ -29,5 +29,39 @@ namespace FinalWhistle.Viewer.Contracts
         /// assemblies even with `public const` modifier.
         /// </summary>
         public const string AssemblyMarkerVersion = "Phase3-skeleton-v1";
+
+        /// <summary>
+        /// Compile-time + load-time proof that the MatchSim DLL drop is
+        /// actually consumable across the asmdef precompiled-reference
+        /// boundary. The asmdef declaring `precompiledReferences:
+        /// ["FinalWhistle.MatchSim.dll"]` is necessary but not sufficient —
+        /// without an actual symbol read, Unity can resolve the asmdef
+        /// without ever loading or linking against the DLL, leaving the
+        /// claimed consumption boundary unverified.
+        ///
+        /// Reading <see cref="FinalWhistle.MatchSim.MatchSimAssemblyMarker.AssemblyMarkerVersion"/>
+        /// here makes the DLL boundary load-bearing: Contracts won't compile
+        /// if the MatchSim DLL isn't resolvable, and won't run if the runtime
+        /// loader can't find it. This is the same pattern downstream Viewer.
+        /// EventBridge (Phase-3 semantic-slice task) will use to derive
+        /// `ViewerEvent`s from MatchSim's canonical event stream.
+        ///
+        /// Property-style accessor (not <c>public const</c>) so the linkage
+        /// is dynamic — a const string from another assembly would be
+        /// baked in at compile time and exercise nothing at run time.
+        /// </summary>
+        public static string MatchSimVersionStamp
+            => FinalWhistle.MatchSim.MatchSimAssemblyMarker.AssemblyMarkerVersion;
+
+        /// <summary>
+        /// Compile-time proof that types in the <c>FinalWhistle.MatchSim.Sim</c>
+        /// namespace (the canonical-state primitives — Tick / Fixed / Seed /
+        /// BallState / etc.) are reachable from the renderer-agnostic Contracts
+        /// layer. Reading <see cref="FinalWhistle.MatchSim.Sim.Tick.TicksPerSecond"/>
+        /// (the locked 60Hz canonical-tick rate per ADR-0008 + match-engine.md
+        /// §Q1) anchors the most-frequently-consumed Sim symbol in this proof.
+        /// </summary>
+        public static int MatchSimTicksPerSecond
+            => FinalWhistle.MatchSim.Sim.Tick.TicksPerSecond;
     }
 }
