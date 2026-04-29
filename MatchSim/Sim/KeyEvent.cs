@@ -37,6 +37,15 @@ public readonly struct KeyEvent : IEquatable<KeyEvent>
     /// <summary>Canonical byte width per <see cref="KeyEvent"/> on disk. Locked v1.</summary>
     public const int EncodedByteCount = 35;
 
+    /// <summary>
+    /// Sentinel value for <see cref="JerseyNumber"/> meaning "scorer /
+    /// last-toucher unknown" — used by Phase-3 emissions where MatchSim
+    /// does not yet track possession or last-touched-by. Phase-4+ replaces
+    /// this with real player attribution. Grep-able via this name; literal
+    /// <c>0</c> at the call site is discouraged.
+    /// </summary>
+    public const byte JerseyUnspecified = 0;
+
     /// <summary>Tick at which the event occurred.</summary>
     public readonly Tick Tick;
 

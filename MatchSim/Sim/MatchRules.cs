@@ -108,22 +108,130 @@ public static class MatchRules
             return;
         }
 
-        // A crossing happened this tick. Decide which kind.
-        bool crossedGoalLine = AbsFixed(post.X) >= GoalLineX;
-        bool crossedTouchline = AbsFixed(post.Z) >= TouchlineZ;
+        // A crossing happened this tick. There may be MULTIPLE candidate
+        // crossings (goal-line + touchline) for fast diagonal trajectories
+        // — a ball that exits near a corner can be beyond both planes at
+        // post-step. Football-rule correctness: the boundary the ball
+        // crossed FIRST in time-order determines the restart. Compute the
+        // parametric t for each candidate plane crossing in pre→post; the
+        // smallest in-range t wins.
+        //
+        // (Codex audit 2026-04-30 caught the prior implementation, which
+        // checked goal-line vs touchline by post-position only and always
+        // preferred goal-line — incorrectly classifying touchline-first-
+        // then-also-past-goal-line trajectories as GoalKickRestart.)
+        Fixed? tGoal = ComputeGoalLineCrossingT(pre, post);
+        Fixed? tTouch = ComputeTouchlineCrossingT(pre, post);
 
-        if (crossedGoalLine)
+        if (!tGoal.HasValue && !tTouch.HasValue)
+        {
+            // Pre is in-field + post is out-of-field, yet neither plane
+            // crossing resolved a t in [0,1]. Geometrically unreachable —
+            // any in→out transition MUST cross at least one of the two
+            // planes between pre and post — but per the silent-failure-
+            // hunter audit (2026-04-30), if a future refactor of
+            // IsInField / ComputeXxxCrossingT changes the invariant, a
+            // silent return would corrupt canonical state without trace.
+            // Throw loudly so the determinism harness fails the run
+            // rather than continuing with "ball is out, no event recorded."
+            throw new InvalidOperationException(
+                $"MatchRules.Step: ball transitioned in→out but no plane " +
+                $"crossing resolved. pre={pre} post={post}. Likely a " +
+                $"refactor that desynced IsInField from the helper guards.");
+        }
+
+        // Earliest crossing wins. Tie-break: prefer goal-line.
+        // Rationale for the tie-break: when the ball exits exactly through
+        // a corner (tGoal == tTouch geometrically), it's a corner-kick
+        // restart in real football. Phase-3 omits CornerKick activation
+        // (no last-touched tracking yet) and emits GoalKickRestart for
+        // all non-goal goal-line crossings, so preferring goal-line on
+        // tie matches Phase-3 simplification policy. Phase 4+ revisits
+        // when last-touched tracking lands.
+        bool goalLineFirst = tGoal.HasValue
+            && (!tTouch.HasValue || tGoal.Value.CompareTo(tTouch.Value) <= 0);
+
+        if (goalLineFirst)
         {
             HandleGoalLineCrossing(state, pre, post);
         }
-        else if (crossedTouchline)
+        else
         {
             HandleTouchlineCrossing(state, pre, post);
         }
-        // else: ball is out-of-field via some path neither goal-line nor
-        // touchline. Geometrically only possible if pitch corners aren't
-        // closed, which they always are here — so this branch is
-        // unreachable for any realistic ball trajectory. Defensive no-op.
+    }
+
+    /// <summary>
+    /// Compute the parametric crossing point on the goal-line plane (X = ±GoalLineX)
+    /// between pre→post. Returns null if no goal-line crossing happened in [0,1]:
+    /// post is still in-field on X, or pre and post are on the same side
+    /// of the plane, or the ball didn't move on X.
+    /// </summary>
+    private static Fixed? ComputeGoalLineCrossingT(Vector3Fixed pre, Vector3Fixed post)
+    {
+        if (AbsFixed(post.X) < GoalLineX)
+        {
+            return null;
+        }
+
+        Fixed crossingX = post.X > Fixed.Zero ? GoalLineX : -GoalLineX;
+        Fixed deltaX = post.X - pre.X;
+        if (deltaX == Fixed.Zero)
+        {
+            // Caller invariant per Step's pre/post field check: if pre is
+            // in-field on X (|pre.X| < GoalLineX) and post is past the
+            // goal line (|post.X| >= GoalLineX), deltaX cannot be zero.
+            // Per the silent-failure-hunter audit (2026-04-30), this is a
+            // hidden invariant violation rather than a recoverable
+            // condition — throw loudly so a future caller-refactor that
+            // breaks the invariant fails the determinism harness instead
+            // of silently dropping the crossing.
+            throw new InvalidOperationException(
+                $"ComputeGoalLineCrossingT: post is past the goal line on X " +
+                $"({post.X}) but deltaX is zero. pre={pre} post={post}. " +
+                $"This is a caller-invariant violation — Step should have " +
+                $"rejected this case earlier.");
+        }
+
+        Fixed t = (crossingX - pre.X) / deltaX;
+        if (t < Fixed.Zero || t > Fixed.One)
+        {
+            return null;
+        }
+        return t;
+    }
+
+    /// <summary>
+    /// Compute the parametric crossing point on the touchline plane (Z = ±TouchlineZ)
+    /// between pre→post. Returns null if no touchline crossing happened in [0,1].
+    /// </summary>
+    private static Fixed? ComputeTouchlineCrossingT(Vector3Fixed pre, Vector3Fixed post)
+    {
+        if (AbsFixed(post.Z) < TouchlineZ)
+        {
+            return null;
+        }
+
+        Fixed crossingZ = post.Z > Fixed.Zero ? TouchlineZ : -TouchlineZ;
+        Fixed deltaZ = post.Z - pre.Z;
+        if (deltaZ == Fixed.Zero)
+        {
+            // Same caller-invariant rationale as ComputeGoalLineCrossingT:
+            // pre in-field on Z + post past touchline implies deltaZ != 0.
+            // Throw on violation rather than silently drop the crossing
+            // (silent-failure-hunter audit 2026-04-30).
+            throw new InvalidOperationException(
+                $"ComputeTouchlineCrossingT: post is past the touchline on Z " +
+                $"({post.Z}) but deltaZ is zero. pre={pre} post={post}. " +
+                $"Caller-invariant violation.");
+        }
+
+        Fixed t = (crossingZ - pre.Z) / deltaZ;
+        if (t < Fixed.Zero || t > Fixed.One)
+        {
+            return null;
+        }
+        return t;
     }
 
     private static bool IsInField(Vector3Fixed position)
@@ -183,7 +291,7 @@ public static class MatchRules
                 tick: state.CurrentTick,
                 kind: KeyEventKind.Goal,
                 side: scoringSide,
-                jerseyNumber: 0,
+                jerseyNumber: KeyEvent.JerseyUnspecified,
                 position: crossingPosition));
 
             // Immediate respawn at center per the 2026-04-28 decisions-log
@@ -207,7 +315,7 @@ public static class MatchRules
                 tick: state.CurrentTick,
                 kind: KeyEventKind.GoalKickRestart,
                 side: restartSide,
-                jerseyNumber: 0,
+                jerseyNumber: KeyEvent.JerseyUnspecified,
                 position: crossingPosition));
             state.Ball = new BallState(restartPosition, Vector3Fixed.Zero, Vector3Fixed.Zero);
         }

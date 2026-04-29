@@ -154,6 +154,119 @@ public sealed class MatchRulesTests
 
     #endregion
 
+    #region Diagonal corner-adjacent trajectories (Codex audit 2026-04-30)
+
+    // Regression coverage for the boundary-priority bug Codex caught: a
+    // fast diagonal ball can be beyond BOTH the goal line AND a touchline
+    // at post-step. The earliest crossing in time-order determines the
+    // restart per football rules. Prior implementation always preferred
+    // goal-line by post-position only, mis-classifying touchline-first
+    // trajectories as GoalKickRestart.
+
+    [Fact]
+    public void Step_DiagonalTouchlineFirstThenGoalLine_EmitsThrowIn()
+    {
+        // Pre-step: ball at (51, 0, 33) — in-field but close to both
+        // touchline (Z=34) and goal line (X=52.5).
+        // Post-step: ball at (53, 0, 36) — past both.
+        // ΔX = +2 → crosses X=52.5 at t = 1.5/2 = 0.75
+        // ΔZ = +3 → crosses Z=34   at t = 1/3 ≈ 0.333
+        // Touchline crosses earlier; restart should be ThrowIn.
+        BallState pre = new(V3(51, 0, 33), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(53, 0, 36), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+
+        MatchRules.Step(state, pre);
+
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.ThrowInRestart, state.KeyEvents[0].Kind);
+        Assert.Equal(OutOfPlay.ThrowIn, state.OutOfPlay);
+    }
+
+    [Fact]
+    public void Step_DiagonalCornerTie_GoalLineWinsByTieBreak()
+    {
+        // Tie case: tGoal = tTouch = 0.5 (ball crosses both planes at the
+        // exact same parametric instant). Phase-3 policy in MatchRules.Step
+        // tie-breaks to goal-line (`tGoal.Value <= tTouch.Value`).
+        // Pre (51, 0, 33), post (54, 0, 35):
+        //   ΔX = +3 → tGoal  = 1.5/3 = 0.5
+        //   ΔZ = +2 → tTouch = 1/2   = 0.5
+        // This test pins the tie-break direction.
+        BallState pre = new(V3(51, 0, 33), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(54, 0, 35), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+
+        MatchRules.Step(state, pre);
+
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.GoalKickRestart, state.KeyEvents[0].Kind);
+        Assert.Equal(OutOfPlay.GoalKick, state.OutOfPlay);
+    }
+
+    [Fact]
+    public void Step_DiagonalTouchlineFirst_NegativeCorner_EmitsThrowIn()
+    {
+        // Mirror across the -X / -Z corner: Away-side defending corner.
+        // Pre (-51, 0, -33), post (-53, 0, -36).
+        // ΔX = -2 → crosses X=-52.5 at t = (-1.5)/(-2) = 0.75
+        // ΔZ = -3 → crosses Z=-34   at t = (-1)/(-3)   ≈ 0.333
+        // Touchline first → ThrowIn.
+        BallState pre = new(V3(-51, 0, -33), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(-53, 0, -36), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+
+        MatchRules.Step(state, pre);
+
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.ThrowInRestart, state.KeyEvents[0].Kind);
+        Assert.Equal(OutOfPlay.ThrowIn, state.OutOfPlay);
+    }
+
+    [Fact]
+    public void Step_DiagonalCornerTie_NegativeCorner_GoalLineWinsByTieBreak()
+    {
+        // Mirror tie case at the -X / +Z corner.
+        // Pre (-51, 0, 33), post (-54, 0, 35):
+        //   ΔX = -3 → tGoal  = (-1.5)/(-3) = 0.5
+        //   ΔZ = +2 → tTouch = 1/2         = 0.5
+        // Tie-break prefers goal-line. Pinned for the mirror direction.
+        BallState pre = new(V3(-51, 0, 33), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(-54, 0, 35), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+
+        MatchRules.Step(state, pre);
+
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.GoalKickRestart, state.KeyEvents[0].Kind);
+        Assert.Equal(OutOfPlay.GoalKick, state.OutOfPlay);
+    }
+
+    [Fact]
+    public void Step_DiagonalTouchlineFirstAtGoalMouthHeight_StillEmitsThrowIn()
+    {
+        // The boundary-priority fix must apply even when the ball-Y at the
+        // goal-line plane WOULD have been a goal — touchline crossed first
+        // means the ball was already out-of-play before reaching the goal
+        // line, so it can't score.
+        // Pre (51, 1, 33), post (53, 1, 36).
+        // tGoal = 1.5/2 = 0.75, tTouch = 1/3 ≈ 0.333. Touch wins.
+        // Y at goal-line is 1 (under 2.44 crossbar), Z at goal-line is
+        // 33 + 0.75 * 3 = 35.25 — but we never reach goal-line in time.
+        BallState pre = new(V3(51, 1, 33), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        BallState post = new(V3(53, 1, 36), Vector3Fixed.Zero, Vector3Fixed.Zero);
+        MatchSimulationState state = BuildState(post);
+
+        MatchRules.Step(state, pre);
+
+        Assert.Equal(0, state.HomeScore);
+        Assert.Equal(0, state.AwayScore);
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.ThrowInRestart, state.KeyEvents[0].Kind);
+    }
+
+    #endregion
+
     #region Non-events
 
     [Fact]

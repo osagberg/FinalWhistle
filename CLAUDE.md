@@ -135,6 +135,7 @@ Project-scoped:
 At `.claude/hooks/`:
 - `protect-decisions-log.sh` (PreToolUse on SPEC.md) — append-only enforcement
 - `update-status-timestamp.sh` (Stop) — rewrites STATUS.md timestamp
+- `pr-review-reminder.sh` (PreToolUse on `Bash(git commit*)`) — soft-reminds Claude to run pr-review-toolkit subagents on substantial code commits (≥100 insertions touching `.cs` / `.py` / `.sh` / shader / asmdef / csproj). Non-blocking; visible-via-stderr. See §6.3 delegation discipline for the binding rule.
 
 ### 5.6 Git workflow
 
@@ -186,7 +187,7 @@ Solo-dev project; the main thread's context window is precious. Use subagents fo
   - `ui-programmer` — HUD, menu frameworks
   - `narrative-director` — memory templates, salience scoring, callback prose
   - `systems-designer` — economy, progression, balance formulas
-- Code review on uncommitted changes — `lead-programmer` for architecture; `feature-dev:code-reviewer` for general quality; `pr-review-toolkit:silent-failure-hunter` + `pr-review-toolkit:type-design-analyzer` for invariant audits.
+- **Code review on uncommitted changes ≥100 LoC of code, BEFORE commit** — run all three: `pr-review-toolkit:silent-failure-hunter` (catches try/catch suppression / fallback-on-error / silent failure paths) + `pr-review-toolkit:type-design-analyzer` (audits new types for invariant strength + encapsulation) + `feature-dev:code-reviewer` (general bugs / logic / security / convention drift). Optionally `lead-programmer` for architecture-bearing changes. **Hook-enforced**: `.claude/hooks/pr-review-reminder.sh` fires PreToolUse on `git commit` and emits a soft reminder when the staged diff exceeds the threshold + touches code files. The reminder is non-blocking — Claude can override if the toolkit was already run this commit cycle, or with explicit user direction. Rationale: across the 2026-04-28 → 2026-04-30 audit cycles Codex consistently caught issues these subagents would have caught first locally. Running them before Codex review tightens the loop and makes Codex's review focus on the cross-model insights (different-bones-different-blindspots) rather than the kind of issue any code reviewer would flag.
 - Codebase exploration spanning >3 queries — `feature-dev:code-explorer` (or built-in `Explore`).
 - Feature design before implementation — `feature-dev:code-architect` (returns blueprint with files-to-create / data-flows / build-sequence).
 - New ADR / GDD authoring — match-specialty director (`technical-director` / `game-designer` / `narrative-director` / `art-director`).
