@@ -356,7 +356,7 @@ EOF
         # Bash trap to remove the temp dir even on failure mid-script.
         trap 'rm -rf "$publish_tmp"' EXIT
 
-        echo "Publishing MatchSim (Release, netstandard2.1) to staging…"
+        echo "Publishing MatchSim (Release, netstandard2.1) to staging..."
         dotnet publish "$matchsim_proj" \
             -c Release \
             --nologo \
@@ -371,7 +371,7 @@ EOF
             fi
         done
 
-        echo "Staging DLLs in $target_dir…"
+        echo "Staging DLLs in ${target_dir}..."
         mkdir -p "$target_dir"
 
         # Copy ONLY the files Unity actually needs. .deps.json + .xml stay
