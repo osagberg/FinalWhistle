@@ -1,0 +1,49 @@
+# Final Whistle — git attributes
+#
+# The whitespace exemption below is the load-bearing line: Unity serializes
+# `.asset` / `.meta` YAML with trailing spaces on blank fields (e.g. empty
+# `userData: ` / `assetBundleName: ` / `assetBundleVariant: `), as a
+# documented Unity convention. Functional Unity import is unaffected, but
+# `git diff --check` / `git show --check` flag the trailing whitespace and
+# break the repo's clean-hygiene-check habit. Codex round-5 review
+# (2026-04-30) caught this on the Addressables-init commit `0f420d7`.
+#
+# Setting `whitespace=-trailing-space` on Unity-generated paths exempts
+# them from the trailing-space check WITHOUT disabling the check globally,
+# so source files (.cs, .py, .sh, .md) still surface trailing-whitespace
+# regressions normally.
+
+# Unity-serialized asset + meta files everywhere they live.
+unity-project/Assets/**/*.asset    whitespace=-trailing-space
+unity-project/Assets/**/*.meta     whitespace=-trailing-space
+unity-project/ProjectSettings/*.asset    whitespace=-trailing-space
+unity-project/ProjectSettings/*.meta     whitespace=-trailing-space
+unity-project/Packages/*.json      whitespace=-trailing-space
+
+# Treat Unity-serialized YAML as text on Windows (CRLF/LF discipline). Unity
+# always writes LF; let git pass them through unchanged regardless of the
+# core.autocrlf setting on the developer machine.
+*.asset    text eol=lf
+*.meta     text eol=lf
+*.unity    text eol=lf
+*.prefab   text eol=lf
+*.mat      text eol=lf
+*.shadergraph    text eol=lf
+*.subshader      text eol=lf
+*.controller     text eol=lf
+
+# Source files under explicit LF discipline so we don't depend on per-machine
+# git config. Matches the cross-platform CI matrix (ubuntu / windows / macos
+# all run `bash ./scripts/fw verify` with `shell: bash`).
+*.cs       text eol=lf
+*.csproj   text eol=lf
+*.slnx     text eol=lf
+*.json     text eol=lf
+*.yaml     text eol=lf
+*.yml      text eol=lf
+*.md       text eol=lf
+*.sh       text eol=lf
+*.py       text eol=lf
+*.shader   text eol=lf
+*.hlsl     text eol=lf
+*.cginc    text eol=lf

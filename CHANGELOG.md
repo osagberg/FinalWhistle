@@ -16,7 +16,7 @@ Ran `AddressableAssetSettingsDefaultObject.GetSettings(true)` via UnityMCP `exec
 - `DataBuilders/BuildScriptPackedMode.asset`
 - `DataBuilders/BuildScriptPackedPlayMode.asset`
 
-11 .asset files + 11 .meta files = 22 net-new tracked paths.
+9 .asset files + 14 .meta files = 23 net-new tracked paths in this commit (corrected from initial inaccurate "11/11=22" wording per Codex round-5 review). The .meta count exceeds .asset because Unity emits one .meta per content .asset PLUS one per directory: 5 directory metas (`AddressableAssetsData.meta` sibling at `Assets/AddressableAssetsData.meta` + `AssetGroupTemplates.meta` + `AssetGroups.meta` + `AssetGroups/Schemas.meta` + `DataBuilders.meta`) + 9 content-asset metas = 14.
 
 Phase-3 minimum scope only — no custom group naming, no preview cache configuration, no schema authoring beyond the two Unity auto-creates. Phase-4+ trigger when content packs (IdentityPackets / ShotTypeSO / SignatureSO) start landing as Addressables-loaded content.
 
@@ -28,7 +28,11 @@ Verification:
 - `fw verify` 503/503 green.
 - Pinned 60-tick determinism hash sha256:7e851976...50e unchanged (no MatchSim source touched).
 
-Sequence: first /next pickup after the round-4 hardening sequence completed. Still 6 Phase-3 tasks remaining before the semantic slice (foundation #4) work begins: scenes (Boot.unity / MatchViewer.unity), the 22 IdentityPacket fixtures, 3 active signatures, MemoryEvent reader, dev event, observer-pool recruitment (user-action), Viewer.EventBridge, dots adapter, devlog clips. Match-replay skill end-to-end is a meta-task that lands once the dots adapter ships its 3 of 7 shot types.
+Sequence: first /next pickup after the round-4 hardening sequence completed. Phase-3 next-task ladder ahead is **(a) bootstrap → (b) semantic slice → (c) viewer + meta**:
+
+- **(a) Bootstrap remaining**: first scenes — `Boot.unity` + `MatchViewer.unity` (SPEC line 139). One Unity-side task left in pure bootstrap.
+- **(b) Semantic slice (foundation #4)**: 22 IdentityPacket fixtures + 3 active signatures (#13, #20, #22) + 1 MemoryEvent reader callback + 1 persistent development event + Viewer.EventBridge minimum implementation. The five SPEC items that together satisfy the Month-3 narrative-legibility rubric.
+- **(c) Viewer + meta**: dots-phase render adapter prototype + match-replay skill end-to-end (gated on dots adapter shipping 3 of 7 shot types) + devlog clips. Plus observer-pool recruitment (user-action) which can recruit in parallel; `design/progression.md` is Phase-4-owed, not Phase-3.
 
 ## 2026-04-30 (Process discipline — CLAUDE.md §6.3 mandatory rotation table + /next gate)
 
