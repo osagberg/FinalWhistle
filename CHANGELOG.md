@@ -6,8 +6,8 @@ Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]
 
 SPEC.md Phase-3 line 139 closed. Created the two Phase-3 scenes via UnityMCP and registered them in `EditorBuildSettings.m_Scenes`.
 
-- `unity-project/Assets/Scenes/Boot.unity` — start scene (build index 0). Default Camera + Directional Light from the `3d_basic` template.
-- `unity-project/Assets/Scenes/MatchViewer.unity` — dots-prototype rendering scene (build index 1). Same default Camera + Directional Light.
+- `unity-project/Assets/Scenes/Boot.unity` — start scene (build index 0). Three root objects from the `3d_basic` template: `Main Camera` (tagged MainCamera) + `Directional Light` + `Ground` (default plane).
+- `unity-project/Assets/Scenes/MatchViewer.unity` — dots-prototype rendering scene (build index 1). Same three root objects: `Main Camera` + `Directional Light` + `Ground`. The `Ground` plane is template default; Phase-3 dots adapter authoring will replace it with the deterministic-pitch geometry per ADR-0009.
 
 Both registered as enabled in `EditorBuildSettings.m_Scenes`. `AssetDatabase.SaveAssets()` triggered explicitly so the build-settings change persists to disk — the in-memory `manage_build action=scenes` write doesn't auto-flush; caught + handled.
 
@@ -16,7 +16,7 @@ Phase-3 minimum scope only — no transition logic, no AppState singleton, no sc
 Subagent rotation note (CLAUDE.md §6.3): this task's class is "Unity / Viewer" → required agent `unity-specialist` per the rotation table. Skipped delegation directly to main-thread MCP-driving per the §6.3 MAY-list ("Driving MCP tools directly when the action is one logical operation") because the prior /next (Addressables init, commit `0f420d7`) had `unity-specialist` returning narrated success with `tool_uses: 0` — the same project-subagent invocation issue logged in the prior compaction notes. Both /next pickups since the rotation table shipped (b221d90) have hit this fallback path; worth surfacing as a process-discipline gap that may need its own follow-up (the rotation-table mandate cannot fire if the project subagents don't reliably execute).
 
 Verification:
-- UnityMCP `manage_scene action=create template=3d_basic` succeeded for both scenes (`rootObjectCount=3` per scene — Camera + Light + Sun-equivalent).
+- UnityMCP `manage_scene action=create template=3d_basic` succeeded for both scenes (`rootObjectCount=3` per scene — `Main Camera` + `Directional Light` + `Ground`; correction per Codex round-6 review of `e93f138`).
 - UnityMCP `manage_build action=scenes`: 2 entries enabled.
 - UnityMCP `execute_code` flushed `AssetDatabase.SaveAssets()` and verified `EditorBuildSettings.scenes.Length == 2` with both enabled.
 - UnityMCP `refresh_unity force/all/compile=request`: completed.
@@ -25,7 +25,9 @@ Verification:
 - `git diff --check`: clean (the .gitattributes exemption from b7af083 silences Unity-emitted trailing-whitespace on .unity / .meta paths).
 - Pinned 60-tick determinism hash unchanged.
 
-Commit shape: 4 net-new files (2 .unity + 2 .meta) + 2 modified (CHANGELOG.md, SPEC.md, EditorBuildSettings.asset).
+Commit shape: **6 net-new files + 3 modified** (corrected from initial inaccurate "4+2" wording per Codex round-6 review of `e93f138`).
+- Net-new (6): `Assets/Scenes.meta` (parent-folder meta) + `Assets/Scenes/Boot.unity` + `Boot.unity.meta` + `MatchViewer.unity` + `MatchViewer.unity.meta` + `ProjectSettings/SceneTemplateSettings.json` (Unity 6 default scene-template-system state file, auto-generated when `manage_scene` first ran).
+- Modified (3): `CHANGELOG.md` + `SPEC.md` + `unity-project/ProjectSettings/EditorBuildSettings.asset` (the m_Scenes registration).
 
 Phase-3 next-task ladder: **bootstrap is complete** (Addressables ✓ + scenes ✓). The semantic slice (foundation #4) is unblocked — next /next picks up the 22 IdentityPacket fixtures.
 
