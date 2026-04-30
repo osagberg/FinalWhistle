@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using FinalWhistle.MatchSim.Sim;
 
@@ -127,13 +128,15 @@ public readonly struct MemoryEvent : IEquatable<MemoryEvent>
         Tick = tick;
         CareerDate = careerDate;
         Emitter = emitter;
-        // Defensive copy per pr-review-toolkit:type-design-analyzer round-1
-        // finding 1: callers passing a List<Participant> retained a mutation
-        // handle to ledger state. ToArray gives the readonly struct an
-        // immutable backing T[] regardless of caller's underlying type. One
-        // allocation per emission — negligible vs the ledger's lifetime
-        // (Phase-3 ledger volume: hundreds of events per season at most).
-        Participants = participants.ToArray();
+        // Defensive copy + ReadOnlyCollection wrap per pr-review-toolkit
+        // round-1 P2 (Codex): a raw T[] cast back to Participant[] would
+        // let any consumer mutate an emitted ledger event. ReadOnlyCollection
+        // wraps the array as IList<T> behind a non-cast-back-able façade,
+        // giving the readonly struct a true immutable view regardless of
+        // caller's underlying type. Cost: one extra wrapper allocation per
+        // emission — negligible vs the ledger's lifetime (Phase-3 ledger
+        // volume: hundreds of events per season at most).
+        Participants = new ReadOnlyCollection<Participant>(participants.ToArray());
         What = what;
         Stakes = stakes;
         Emotion = emotion;

@@ -286,4 +286,184 @@ public sealed class PressFanReaderEndToEndTests
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             EventClassRegistry.BaseWeightFor(EventClass.None));
     }
+
+    // ============================================================
+    // Codex round-1 P1: registry-boundary enforcement
+    // ============================================================
+
+    [Fact]
+    public void PressFanReader_Query_ScoringMilestoneIdViaPressFanReader_Throws()
+    {
+        // Codex round-1 P1: PressFanReader is registered as a consumer
+        // of press-fan only; querying ScoringMilestoneId via this reader
+        // must fail loud at the registry boundary, not silently return
+        // press-fan templates.
+        Ledger ledger = new();
+        IReadOnlyList<KeyEvent> keyEvents = new[]
+        {
+            BuildSyntheticGoal(tickValue: 100, TeamSide.Home, jersey: KeyEvent.JerseyUnspecified),
+        };
+        foreach (var e in MemoryEmissionRules.EmitForKeyEvents(
+            keyEvents, "0xtest", 1, new CareerDate(1, 1, 1),
+            SalienceWeights.Phase3Defaults))
+        {
+            ledger.Emit(e);
+        }
+
+        PressFanReader reader = new(ledger);
+        ReaderQuery wrongReaderQuery = new(
+            tagId: CallbackTagRegistry.ScoringMilestoneId,
+            fromSeason: 0, toSeason: 1, currentSeason: 1,
+            minBand: SalienceBand.Notable);
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            reader.Query(wrongReaderQuery).GetEnumerator().MoveNext());
+        Assert.Contains("not a registered consumer", ex.Message);
+        Assert.Contains(CallbackTagRegistry.ScoringMilestoneId, ex.Message);
+    }
+
+    [Fact]
+    public void PressFanReader_Query_UnknownTagId_Throws()
+    {
+        Ledger ledger = new();
+        PressFanReader reader = new(ledger);
+        ReaderQuery unknownTagQuery = new(
+            tagId: "fwh.core:tag.does-not-exist",
+            fromSeason: 0, toSeason: 1, currentSeason: 1,
+            minBand: SalienceBand.Notable);
+
+        Assert.Throws<ArgumentException>(() =>
+            reader.Query(unknownTagQuery).GetEnumerator().MoveNext());
+    }
+
+    [Fact]
+    public void PressFanReader_Query_ExpiredEvent_FilteredOut()
+    {
+        // PressFan tag has Expiry = Seasons(3). An event from season 1
+        // queried at currentSeason=5 is expired (5 > 1+3).
+        Ledger ledger = new();
+        IReadOnlyList<KeyEvent> keyEvents = new[]
+        {
+            BuildSyntheticGoal(tickValue: 100, TeamSide.Home, jersey: KeyEvent.JerseyUnspecified),
+        };
+        foreach (var e in MemoryEmissionRules.EmitForKeyEvents(
+            keyEvents, "0xtest", season: 1, new CareerDate(1, 1, 1),
+            SalienceWeights.Phase3Defaults))
+        {
+            ledger.Emit(e);
+        }
+
+        PressFanReader reader = new(ledger);
+        ReaderQuery expiredWindowQuery = new(
+            tagId: CallbackTagRegistry.PressFanId,
+            fromSeason: 0, toSeason: 5, currentSeason: 5,
+            minBand: SalienceBand.Notable);
+        List<CallbackCandidate> candidates = reader.Query(expiredWindowQuery).ToList();
+        Assert.Empty(candidates);
+    }
+
+    [Fact]
+    public void PressFanReader_Query_TightenedMinBandHonored_BeyondTagFloor()
+    {
+        // Effective MinBand is max(query.MinBand, tag.MinBand). Querying
+        // with MinBand=SeasonDefining tightens past the tag's Notable
+        // floor — Phase-3 GoalScored events sit in Notable, so they're
+        // filtered out.
+        Ledger ledger = new();
+        IReadOnlyList<KeyEvent> keyEvents = new[]
+        {
+            BuildSyntheticGoal(tickValue: 100, TeamSide.Home, jersey: KeyEvent.JerseyUnspecified),
+        };
+        foreach (var e in MemoryEmissionRules.EmitForKeyEvents(
+            keyEvents, "0xtest", 1, new CareerDate(1, 1, 1),
+            SalienceWeights.Phase3Defaults))
+        {
+            ledger.Emit(e);
+        }
+
+        PressFanReader reader = new(ledger);
+        ReaderQuery seasonDefiningQuery = new(
+            tagId: CallbackTagRegistry.PressFanId,
+            fromSeason: 0, toSeason: 1, currentSeason: 1,
+            minBand: SalienceBand.SeasonDefining);
+        List<CallbackCandidate> candidates = reader.Query(seasonDefiningQuery).ToList();
+        Assert.Empty(candidates);
+    }
+
+    // ============================================================
+    // Codex round-1 P2: cast-back immutability + stable ordering
+    // ============================================================
+
+    [Fact]
+    public void MemoryEvent_Participants_CastToArray_ReturnsNullPreventingMutation()
+    {
+        // ReadOnlyCollection<T> wrap per round-1 P2: caller cannot cast
+        // back to Participant[] and mutate the persisted event. C# 'as'
+        // returns null when the cast is invalid (ROC<T> is not Participant[]).
+        IReadOnlyList<KeyEvent> keyEvents = new[]
+        {
+            BuildSyntheticGoal(tickValue: 100, TeamSide.Home, jersey: KeyEvent.JerseyUnspecified),
+        };
+        IReadOnlyList<MemoryEvent> events = MemoryEmissionRules.EmitForKeyEvents(
+            keyEvents, "0xtest", 1, new CareerDate(1, 1, 1),
+            SalienceWeights.Phase3Defaults);
+        MemoryEvent ev = events[0];
+
+        Participant[]? leakedArray = ev.Participants as Participant[];
+        Assert.Null(leakedArray);
+    }
+
+    [Fact]
+    public void CallbackTag_ConsumingReaders_CastToArray_ReturnsNullPreventingMutation()
+    {
+        ReaderId[]? leakedArray = CallbackTagRegistry.PressFan.ConsumingReaders as ReaderId[];
+        Assert.Null(leakedArray);
+    }
+
+    [Fact]
+    public void EventClassRegistry_TagsFor_CastToArray_ReturnsNullPreventingMutation()
+    {
+        IReadOnlyList<string> tags = EventClassRegistry.TagsFor(EventClass.GoalScored);
+        string[]? leakedArray = tags as string[];
+        Assert.Null(leakedArray);
+    }
+
+    [Fact]
+    public void PressFanReader_Query_EqualSalienceCandidates_OrderedByLedgerInsertionIndex()
+    {
+        // Codex round-1 P2: List<T>.Sort is not stable, and Phase-3
+        // GoalScored events all share the same placeholder salience, so
+        // order could drift across platforms / .NET versions. The
+        // explicit secondary key (ledger insertion index ascending)
+        // pins the ordering deterministically.
+        Ledger ledger = new();
+        // Three same-season goals at distinct ticks — same salience,
+        // same emission season. Ledger insertion order: 100, 200, 300.
+        for (uint tick = 100; tick <= 300; tick += 100)
+        {
+            IReadOnlyList<KeyEvent> keyEvents = new[]
+            {
+                BuildSyntheticGoal(tickValue: tick, TeamSide.Home, jersey: KeyEvent.JerseyUnspecified),
+            };
+            foreach (var e in MemoryEmissionRules.EmitForKeyEvents(
+                keyEvents, "0xtest", 1, new CareerDate(1, 1, 1),
+                SalienceWeights.Phase3Defaults,
+                eventSeqStart: ledger.Count))
+            {
+                ledger.Emit(e);
+            }
+        }
+        Assert.Equal(3, ledger.Count);
+
+        PressFanReader reader = new(ledger);
+        List<CallbackCandidate> candidates = reader.QueryForSeason(1).ToList();
+        Assert.Equal(3, candidates.Count);
+
+        // All three share the same emission salience (Phase-3 placeholders
+        // produce the same scalar). Order MUST be by ledger insertion
+        // index ascending — i.e., Tick 100, 200, 300.
+        Assert.Equal((uint)100, candidates[0].Source.Tick);
+        Assert.Equal((uint)200, candidates[1].Source.Tick);
+        Assert.Equal((uint)300, candidates[2].Source.Tick);
+    }
 }

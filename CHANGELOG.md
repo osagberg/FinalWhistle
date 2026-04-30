@@ -2,6 +2,24 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Codex round-1 follow-up — MemoryEvent reader-callback registry-boundary fixes)
+
+Codex review pass against `6c68e48` flagged one P1 + two P2 findings. All three closed with regression tests:
+
+- **P1 — `PressFanReader` violated the tag-registry boundary.** `Query` only checked tag-attachment on `EventClass`; never verified `CallbackTag.ConsumingReaders` includes `PressFanReader.Id`, never applied the tag's `MinBand` floor, never enforced `ExpiryPolicy`. Codex's Unity repro: querying `PressFanReader` with `ScoringMilestoneId` returned a press-fan template candidate even though `ScoringMilestone` is registered to `scoring-milestone-reader`, not `press-fan-reader`. **Fix**: `Query` resolves `CallbackTagRegistry.TryGet(q.TagId)` at entry; throws `InvalidOperationException` when the reader is not a listed consumer; effective MinBand is `max(query.MinBand, tag.MinBand)`; `ExpiryPolicy.Seasons(N)` enforced (event expired if `currentSeason > eventSeason + N`); `ExpiryPolicy.Never` always eligible; `ExpiryPolicy.OnEvent` Phase-4+ deferral throws `NotSupportedException` rather than silently passing expired events through.
+
+- **P2 — Read-only list properties exposed mutable backing arrays.** `participants.ToArray()` was a defensive copy from the caller, but assigning the raw `T[]` to `IReadOnlyList<T>` allowed any consumer to cast back to `Participant[]` and mutate an emitted ledger event. Same pattern on `CallbackTag.ConsumingReaders` + `EventClassRegistry` tag arrays. **Fix**: wrap arrays in `System.Collections.ObjectModel.ReadOnlyCollection<T>` at construction. The cast `as Participant[]` now returns null. Three regression tests verify mutation by cast is impossible across all three surfaces.
+
+- **P2 — Equal-salience callbacks lost insertion order.** `List<T>.Sort` is not stable, and Phase-3 `GoalScored` events all share the same placeholder salience scalar, so callback ordering could drift across platforms / .NET versions / sort-impl changes. **Fix**: capture original ledger insertion index alongside each candidate during the filter loop; sort by `(SurfacingSalience desc, LedgerIndex asc)` with explicit secondary key. Regression test pins three same-salience events sort to ledger insertion order (Tick 100, 200, 300).
+
+**New tests**: 8 (round-1 P1 boundary: 3 — wrong-reader / unknown-tag / expired-event; round-1 P1 MinBand-tightening: 1; round-1 P2 cast-back: 3 — `MemoryEvent.Participants` / `CallbackTag.ConsumingReaders` / `EventClassRegistry` tag arrays; round-1 P2 stable-order: 1).
+
+**Total tests: 622 passing** (was 614; +8).
+
+**Pinned 60-tick MatchCanonicalState determinism hash `sha256:7e851976...50e` UNCHANGED**. All three fixes are in the Memory layer (non-canonical); no MatchSim canonical paths touched.
+
+**Unity Mono repro verified fixed via UnityMCP `execute_code`**: `OK-THROWS: PressFanReader (Id=press-fan-reader) is not a registered consumer of tag 'fwh.co...'`.
+
 ## 2026-04-30 (Phase-3 semantic slice #3 of 5 — 1 MemoryEvent reader callback end-to-end)
 
 SPEC.md Phase-3 line 144 closed. Third of five semantic-slice deliverables shipped end-to-end: a synthetic goal `KeyEvent` flows through `MemoryEmissionRules` → `Ledger.Emit` → `PressFanReader.QueryForSeason` and surfaces as a `CallbackCandidate` carrying the `fwh.core:callback_template.goal_press_fan_milestone` template ID at Notable band. Verified end-to-end inside Unity Mono via UnityMCP `execute_code`.

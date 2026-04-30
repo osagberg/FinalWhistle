@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using FinalWhistle.MatchSim.Memory.Contracts;
 using FinalWhistle.MatchSim.Sim;
 
@@ -32,13 +33,16 @@ public static class EventClassRegistry
         {
             [EventClass.GoalScored] = GoalScoredBaseWeight,
         };
+        // ReadOnlyCollection wrap per pr-review-toolkit round-1 P2:
+        // a raw T[] cast back to string[] would let consumers mutate
+        // the registry tag-attachments at runtime.
         _tags = new Dictionary<EventClass, IReadOnlyList<string>>
         {
-            [EventClass.GoalScored] = new[]
+            [EventClass.GoalScored] = new ReadOnlyCollection<string>(new[]
             {
                 CallbackTagRegistry.PressFanId,
                 CallbackTagRegistry.ScoringMilestoneId,
-            },
+            }),
         };
     }
 

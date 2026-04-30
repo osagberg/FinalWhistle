@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 namespace FinalWhistle.MatchSim.Memory.Contracts;
 
@@ -117,16 +118,16 @@ public sealed class CallbackTag
         }
 
         Id = id;
-        // Defensive copy: caller-provided IReadOnlyList may be a mutable
-        // List<ReaderId>; freezing into a T[] keeps the registry tag
-        // immutable regardless of what the caller does to their input
-        // afterward.
+        // Defensive copy + ReadOnlyCollection wrap per pr-review-toolkit
+        // round-1 P2: a raw T[] cast back to ReaderId[] would let any
+        // consumer mutate registry tags after static-init. ReadOnlyCollection
+        // forbids the cast-back path.
         ReaderId[] copy = new ReaderId[consumingReaders.Count];
         for (int i = 0; i < consumingReaders.Count; i++)
         {
             copy[i] = consumingReaders[i];
         }
-        ConsumingReaders = copy;
+        ConsumingReaders = new ReadOnlyCollection<ReaderId>(copy);
         MinBand = minBand;
         Expiry = expiry;
     }
