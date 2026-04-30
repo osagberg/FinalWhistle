@@ -3,7 +3,8 @@
     "rootNamespace": "FinalWhistle.Viewer.Tests.EditMode",
     "references": [
         "FinalWhistle.Viewer.Contracts",
-        "FinalWhistle.Viewer.Core"
+        "FinalWhistle.Viewer.Core",
+        "FinalWhistle.Viewer.Adapters.Dots"
     ],
     "includePlatforms": [
         "Editor"
