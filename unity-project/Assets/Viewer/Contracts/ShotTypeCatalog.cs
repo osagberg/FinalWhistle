@@ -34,6 +34,7 @@ namespace FinalWhistle.Viewer.Contracts
         // error on the other (the validator can lint cross-doc identity).
 
         public const string ShotTacticalWide = "fwh.core:shot.tactical-wide";
+        public const string ShotDiagonalAttackLane = "fwh.core:shot.diagonal-attack-lane";
         public const string ShotPlayerIsolation = "fwh.core:shot.player-isolation";
         public const string ShotPassShotImpact = "fwh.core:shot.pass-shot-impact";
         public const string ShotAftermathFreeze = "fwh.core:shot.aftermath-freeze";
@@ -61,6 +62,19 @@ namespace FinalWhistle.Viewer.Contracts
                 category: ShotCategory.TacticalWide,
                 durationTicks: Duration3s);
 
+            // Slice-4 dots-adapter blueprint Q2 closure: register the
+            // diagonal-attack-lane shot type so the Viewer.Adapters.Dots
+            // ShotTypeSO assets can resolve through the same catalog
+            // lookup path as the other shot types. Phase-3 the bridge
+            // does NOT emit DiagonalAttackLane events (per blueprint
+            // Decision 3 — adapter-local heuristic only); the catalog
+            // entry exists so Phase-4+ can flip to bridge-emitted without
+            // a schema bump.
+            ShotTypeDefinition diagonalAttackLane = new(
+                id: ShotDiagonalAttackLane,
+                category: ShotCategory.DiagonalAttackLane,
+                durationTicks: Duration3s);
+
             ShotTypeDefinition playerIsolation = new(
                 id: ShotPlayerIsolation,
                 category: ShotCategory.PlayerIsolation,
@@ -85,6 +99,7 @@ namespace FinalWhistle.Viewer.Contracts
             _byId = new Dictionary<string, ShotTypeDefinition>(StringComparer.Ordinal)
             {
                 [tacticalWide.Id] = tacticalWide,
+                [diagonalAttackLane.Id] = diagonalAttackLane,
                 [playerIsolation.Id] = playerIsolation,
                 [playerIsolationReduceMotion.Id] = playerIsolationReduceMotion,
                 [passShotImpact.Id] = passShotImpact,

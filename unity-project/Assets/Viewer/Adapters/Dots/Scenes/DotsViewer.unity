@@ -148,6 +148,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3020a42f0a6954e598a905a85615cc55, type: 3}
   m_Name: 
   m_EditorClassIdentifier: FinalWhistle.Viewer.Adapters.Dots::FinalWhistle.Viewer.Adapters.Dots.DotsAdapterRoot
+  shotCamera: {fileID: 1834011687}
+  shotCatalog:
+  - {fileID: 11400000, guid: f7e4ac61b1e604d55893e2434cfafd01, type: 2}
+  - {fileID: 11400000, guid: 82de0bfd479c4481e823af6e1838766f, type: 2}
+  - {fileID: 11400000, guid: eef487dee635c4fd695dcfbb78bc9f9d, type: 2}
 --- !u!4 &506074322
 Transform:
   m_ObjectHideFlags: 0
@@ -422,6 +427,7 @@ GameObject:
   - component: {fileID: 1834011686}
   - component: {fileID: 1834011685}
   - component: {fileID: 1834011684}
+  - component: {fileID: 1834011687}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -503,6 +509,21 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1834011687
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1834011683}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 80c20846daba84e4595dd8071dabd559, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: FinalWhistle.Viewer.Adapters.Dots::FinalWhistle.Viewer.Adapters.Dots.ShotCamera
+  targetCamera: {fileID: 1834011685}
+  dotPool: {fileID: 814866445}
+  defaultShot: {fileID: 11400000, guid: f7e4ac61b1e604d55893e2434cfafd01, type: 2}
 --- !u!1 &2056766041
 GameObject:
   m_ObjectHideFlags: 0
@@ -535,11 +556,11 @@ MonoBehaviour:
   dotPool: {fileID: 814866445}
   pitchQuad: {fileID: 965759333}
   adapterRoot: {fileID: 506074321}
+  shotCamera: {fileID: 1834011687}
   homeArchetypeName: direct-pressing
   awayArchetypeName: low-block-counter
   matchSeedHex: 0xdeadbeefdeadbeef
   driveSim: 1
-  fixedDeltaTimeOverride: 0.016666668
 --- !u!4 &2056766043
 Transform:
   m_ObjectHideFlags: 0

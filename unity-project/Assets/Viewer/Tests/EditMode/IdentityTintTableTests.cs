@@ -2,6 +2,7 @@ using System;
 using FinalWhistle.MatchSim.Content;
 using FinalWhistle.MatchSim.Sim;
 using FinalWhistle.Viewer.Adapters.Dots;
+using FinalWhistle.Viewer.Contracts;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -144,6 +145,27 @@ namespace FinalWhistle.Viewer.Tests.EditMode
                 () => ArchetypeRoleParser.RoleFamilyForLabel(""));
             Assert.Throws<ArgumentException>(
                 () => ArchetypeRoleParser.RoleFamilyForLabel("   "));
+        }
+
+        // ----- ShotTypeCatalog Slice-4 additions -----
+
+        [Test]
+        public void ShotTypeCatalog_DiagonalAttackLane_IsRegistered()
+        {
+            // Slice-4 dots-adapter blueprint Q2 closure: the catalog gains
+            // a `diagonal-attack-lane` entry so the dots-adapter ShotTypeSO
+            // assets resolve through the same catalog lookup as the other
+            // shot types. Pinned here so a Phase-4+ author who removes the
+            // entry without thinking trips this regression.
+            ShotTypeDefinition def = ShotTypeCatalog.Get(ShotTypeCatalog.ShotDiagonalAttackLane);
+            Assert.That(def, Is.Not.Null);
+            Assert.That(def.Category, Is.EqualTo(ShotCategory.DiagonalAttackLane));
+            Assert.That(def.Id, Is.EqualTo("fwh.core:shot.diagonal-attack-lane"));
+            // Phase-3 duration: 3s = 180 ticks at 60Hz canonical (matches
+            // tactical-wide). Phase-4+ may tune.
+            Assert.That(def.DurationTicks, Is.EqualTo(180));
+            // No reduce-motion variant at Phase-3.
+            Assert.That(def.ReduceMotionVariantId, Is.Null);
         }
     }
 }

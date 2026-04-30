@@ -288,6 +288,66 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             }
         }
 
+        /// <summary>
+        /// Current ball world-space position — the INTERPOLATED frame-time
+        /// position the dot is rendered at, per pr-review-toolkit
+        /// feature-dev:code-reviewer Slice-4 P1.1 closure. The prior draft
+        /// returned the post-tick snapshot from <c>currentPositions</c>;
+        /// the camera consumed this in LateUpdate and the framing visibly
+        /// led the rendered ball by up to one tick at zoomed framings
+        /// (orthoSize=12 pass-shot-impact saw the ball off-target by
+        /// ~16ms-of-travel). Reading <c>transform.position</c> reuses
+        /// Update's already-interpolated value — same frame, same dot,
+        /// same position the camera should track.
+        /// </summary>
+        public Vector3 BallWorldPosition
+        {
+            get
+            {
+                EnsureInitialized();
+                return dots[BallIndex].transform.position;
+            }
+        }
+
+        // Telemetry: one-shot warning the first time a non-null
+        // focal-subject is passed in but TryGetFocalWorldPosition misses.
+        // Per pr-review-toolkit silent-failure-hunter Slice-4 P1-B: the
+        // doc-comment promised loud-fail when callers pass a non-null
+        // focal but the lookup fails; the prior implementation silently
+        // returned false, masking Slice-7 observer reports of
+        // "camera centred on ball, not focal player."
+        private bool warnedFocalSubjectStubbed;
+
+        /// <summary>
+        /// Resolve a focal-subject string (<c>"viewer.focal:home.06"</c>
+        /// per blueprint Q3) to a world-space position. Phase-3 stub:
+        /// always returns false; the camera falls back to ball-tracking
+        /// per the SO's <c>BallFocalMidpoint</c> /
+        /// <see cref="ShotTypeSO.TargetAnchor.FocalSubject"/> contracts.
+        /// Phase-4+ IdentityPacket-driven roster work surfaces the
+        /// jersey ↔ dot mapping needed for a real lookup. The first
+        /// non-null focal-subject miss logs a one-shot warning so a
+        /// Slice-7 observer reporting "camera not following the focal
+        /// player" sees the stubbed-ness in the Console without bisecting
+        /// through the camera + bridge stack.
+        /// </summary>
+        public bool TryGetFocalWorldPosition(string focalSubject, out Vector3 worldPos)
+        {
+            EnsureInitialized();
+            if (!string.IsNullOrEmpty(focalSubject) && !warnedFocalSubjectStubbed)
+            {
+                Debug.LogWarning(
+                    $"{nameof(DotPool)}.{nameof(TryGetFocalWorldPosition)}: focal-subject " +
+                    $"'{focalSubject}' is non-null but Phase-3 stub returns false — camera " +
+                    "falls back to ball-tracking. This message logs once per session; " +
+                    "Phase-4+ IdentityPacket-driven roster lands the real jersey↔dot lookup.",
+                    this);
+                warnedFocalSubjectStubbed = true;
+            }
+            worldPos = default;
+            return false;
+        }
+
         private void EnsureInitialized()
         {
             if (dots == null)

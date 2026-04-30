@@ -50,6 +50,7 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         [SerializeField] private DotPool dotPool;
         [SerializeField] private PitchQuad pitchQuad;
         [SerializeField] private DotsAdapterRoot adapterRoot;
+        [SerializeField] private ShotCamera shotCamera;
 
         [Tooltip("Archetype slug for the home side; matches a YAML file stem in MatchSim/Content/archetypes/.")]
         [SerializeField] private string homeArchetypeName = "direct-pressing";
@@ -62,6 +63,9 @@ namespace FinalWhistle.Viewer.Adapters.Dots
 
         [Tooltip("If true, RunTicks runs every FixedUpdate. Toggle off for static-formation Slice-2-style debugging.")]
         [SerializeField] private bool driveSim = true;
+
+        [Tooltip("Ball Z-velocity (m/s) magnitude above which the diagonal-attack-lane heuristic transitions framing. Default 8 m/s ≈ sustained-pace cross-pitch ball travel.")]
+        [SerializeField, Min(0f)] private float diagonalAttackLaneZVelocityThreshold = 8f;
 
         // Canonical sim tick rate per `Tick.TicksPerSecond`. Hard-coded
         // (NOT a [SerializeField]) per Codex round-1 P2 follow-up against
@@ -137,6 +141,20 @@ namespace FinalWhistle.Viewer.Adapters.Dots
                     $"{nameof(PitchQuad)} reference missing on {nameof(DotsMatchDirector)}; " +
                     "assign in the scene inspector.");
             }
+            // shotCamera is REQUIRED at Slice-4 — PresentShot needs it to
+            // dispatch shot framings + the diagonal-attack-lane heuristic
+            // needs it to apply transitions. The Slice-3 null-prop chain
+            // was incoherent with the loud-fail discipline this director
+            // declares (per pr-review-toolkit silent-failure-hunter Slice-4
+            // P1-A: a missing reference produced a half-built scene whose
+            // wiring bug only surfaced at the first ViewerEvent — sometimes
+            // never, on smoke-fixture runs).
+            if (shotCamera == null)
+            {
+                throw new InvalidOperationException(
+                    $"{nameof(ShotCamera)} reference missing on {nameof(DotsMatchDirector)}; " +
+                    "assign in the scene inspector.");
+            }
             // adapterRoot is intentionally optional at Phase-3 — Slice-3 still
             // works without it (PresentShot is no-op anyway). FixedUpdate
             // emits a one-shot warning if the bridge ever produces events
@@ -148,6 +166,7 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             pitchQuad.Initialize(pitchView);
             dotPool.Initialize(pitchView);
             adapterRoot?.Initialize(pitchView);
+            shotCamera.Initialize(pitchView);
 
             homeArchetype = BehaviorTreeArchetypes.Load(homeArchetypeName);
             awayArchetype = BehaviorTreeArchetypes.Load(awayArchetypeName);
@@ -241,7 +260,47 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             // up-to-date even if the bridge throws on a malformed event.
             dotPool.PushTickSnapshot(state.HomeTeam, state.AwayTeam, state.Ball);
 
+            // Notify ShotCamera so it can auto-return to the default
+            // framing when the active shot's duration envelope expires.
+            shotCamera.OnSimTick(state.CurrentTick);
+
             DispatchNewViewerEvents(preAdvanceTick);
+
+            // Slice-4 adapter-local heuristic per blueprint Decision 3:
+            // diagonal-attack-lane is NOT bridge-emitted at Phase-3 — the
+            // adapter watches ball Z-velocity and transitions framing
+            // when wide ball motion suggests an attacking lane is opening.
+            // Phase-4+ may flip this to bridge-emitted (KeyEventKind.ThroughBallLaunched);
+            // until then it's a presentation-only heuristic that the
+            // ShotCamera ignores when an event-driven shot is active
+            // (BeginAdapterShot bails on hasActiveShot=true).
+            CheckDiagonalAttackLaneHeuristic();
+        }
+
+        private void CheckDiagonalAttackLaneHeuristic()
+        {
+            if (adapterRoot == null)
+            {
+                return;
+            }
+            // diagonalAttackLaneZVelocityThreshold is now a SerializeField
+            // (per pr-review-toolkit silent-failure-hunter Slice-4 P2-C):
+            // Phase-3 observer feedback can tune the cutoff via inspector
+            // without a code edit + recompile cycle. Default 8 m/s
+            // ≈ sustained-pace cross-pitch ball travel. The conversion
+            // from float → Fixed happens once per FixedUpdate; cheap.
+            Fixed threshold = Fixed.FromRaw(
+                (long)(diagonalAttackLaneZVelocityThreshold * Fixed.OneRaw));
+            // Fixed.Abs handles the negation correctly (no Fixed.Zero - x
+            // pattern that would silently overflow at Fixed.MinValue —
+            // unreachable at Phase-3 ball speeds but worth using the
+            // canonical helper for clarity per pr-review-toolkit
+            // feature-dev:code-reviewer Slice-4 P2.4).
+            if (Fixed.Abs(state.Ball.Velocity.Z) > threshold)
+            {
+                ShotTypeSO diagonalLane = adapterRoot.ResolveShot(ShotCategory.DiagonalAttackLane);
+                shotCamera.BeginAdapterShot(diagonalLane);
+            }
         }
 
         private void DispatchNewViewerEvents(long preAdvanceTick)
