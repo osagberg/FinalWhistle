@@ -1,6 +1,6 @@
 # Status
 
-**Last updated**: 2026-04-30 (Phase 3 🟡 ACTIVE — pure-C# MatchSim core feature-complete + deterministic-gate-locked; `unity-project/` shell created on Unity 6.4 tech-stream `6000.4.4f1`; semantic-slice 5/5 shipped + hardened across 4 Codex rounds; **dots-phase render adapter Slice 1 of 7 shipped** today — IShotPresentationAdapter + PitchView + ActiveViewerEvent contracts in Viewer.Core per `docs/plans/dots-adapter-blueprint.md` 7-slice ladder; 60/60 EditMode tests; pinned 60-tick MatchCanonicalState hash unchanged.)
+**Last updated**: 2026-04-30 (Phase 3 🟡 ACTIVE — pure-C# MatchSim core feature-complete + deterministic-gate-locked; `unity-project/` shell created on Unity 6.4 tech-stream `6000.4.4f1`; semantic-slice 5/5 shipped + hardened across 4 Codex rounds; **dots-phase render adapter Slice 1 of 7 shipped + Codex round-1 hardened** today — IShotPresentationAdapter + PitchView + ActiveViewerEvent contracts in Viewer.Core per `docs/plans/dots-adapter-blueprint.md` 7-slice ladder; round-1 P2 closed by renaming `MetersPerUnit` → `WorldUnitsPerMeter` (the math multiplies, which is units-per-metre semantics; original name would have inverted Phase-4 non-default scales), round-1 P3 closed by rewording ElapsedTicks doc as director-owned with Slice-3 DotsMatchDirector test owed; 61/61 EditMode tests; pinned 60-tick MatchCanonicalState hash unchanged.)
 
 ## Currently working on
 

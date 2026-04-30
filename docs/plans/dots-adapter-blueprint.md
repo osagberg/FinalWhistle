@@ -122,9 +122,13 @@ public sealed class PitchView
     public float PitchLengthMeters { get; }   // 105f
     public float PitchWidthMeters { get; }    // 68f
     public Vector3 Origin { get; }            // world-space centre of pitch quad
-    public float MetersPerUnit { get; }       // 1f (1 Unity unit = 1 metre)
+    public float WorldUnitsPerMeter { get; }  // 1f default; 1 metre → 1 Unity unit
     public Vector3 FixedToWorld(Vector3Fixed pos);
 }
+// Note: Codex round-1 follow-up against b8d400f renamed the original
+// MetersPerUnit field — the math multiplied (units-per-metre semantics) but
+// the name read like a divisor, so a non-default scale would have inverted
+// the world. WorldUnitsPerMeter is the canonical name + matches the multiply.
 
 // Viewer.Core / ActiveViewerEvent.cs
 public sealed class ActiveViewerEvent

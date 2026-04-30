@@ -51,10 +51,24 @@ namespace FinalWhistle.Viewer.Core
         public float StakesFloat { get; }
 
         /// <summary>
-        /// Ticks elapsed since <see cref="ViewerEvent.StartTick"/>. Driver
-        /// updates this each tick the event remains active. Always
-        /// non-negative; saturates at the shot duration when the director
-        /// retires the event.
+        /// Ticks elapsed since <see cref="ViewerEvent.StartTick"/>. Always
+        /// non-negative (constructor rejects negatives).
+        ///
+        /// <para>
+        /// <strong>Director-owned upper bound (Codex round-1 follow-up
+        /// against <c>b8d400f</c> — P3):</strong> the scene director (Slice
+        /// 3 <c>DotsMatchDirector</c>) is responsible for retiring the
+        /// active event when <c>ElapsedTicks</c> reaches
+        /// <see cref="ShotDef"/>.<c>DurationTicks</c>. <c>ActiveViewerEvent</c>
+        /// does NOT clamp or reject values above the duration at construction
+        /// — the director's retirement boundary is the single source of truth
+        /// so the contract stays renderer-agnostic (a 3D adapter may want
+        /// different overrun behaviour than the dots adapter). Slice 3 ships
+        /// a director test pinning the saturation contract directly. If
+        /// adapter-side progress derivations land before Slice 3, treat
+        /// <c>ElapsedTicks &gt; DurationTicks</c> as a director bug and surface
+        /// loudly rather than silently clamping.
+        /// </para>
         /// </summary>
         public int ElapsedTicks { get; }
 

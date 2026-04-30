@@ -27,7 +27,7 @@ namespace FinalWhistle.Viewer.Tests.EditMode
             PitchView pitch = new();
             Assert.That(pitch.PitchLengthMeters, Is.EqualTo(PitchView.DefaultPitchLengthMeters));
             Assert.That(pitch.PitchWidthMeters, Is.EqualTo(PitchView.DefaultPitchWidthMeters));
-            Assert.That(pitch.MetersPerUnit, Is.EqualTo(PitchView.DefaultMetersPerUnit));
+            Assert.That(pitch.WorldUnitsPerMeter, Is.EqualTo(PitchView.DefaultWorldUnitsPerMeter));
             Assert.That(pitch.Origin, Is.EqualTo(Vector3.zero));
         }
 
@@ -58,12 +58,12 @@ namespace FinalWhistle.Viewer.Tests.EditMode
         }
 
         [Test]
-        public void PitchView_NonPositiveMetersPerUnit_Throws()
+        public void PitchView_NonPositiveWorldUnitsPerMeter_Throws()
         {
             Assert.Throws<ArgumentOutOfRangeException>(
-                () => _ = new PitchView(metersPerUnit: 0f));
+                () => _ = new PitchView(worldUnitsPerMeter: 0f));
             Assert.Throws<ArgumentOutOfRangeException>(
-                () => _ = new PitchView(metersPerUnit: -0.1f));
+                () => _ = new PitchView(worldUnitsPerMeter: -0.1f));
         }
 
         [Test]
@@ -73,6 +73,8 @@ namespace FinalWhistle.Viewer.Tests.EditMode
                 () => _ = new PitchView(pitchLengthMeters: float.NaN));
             Assert.Throws<ArgumentException>(
                 () => _ = new PitchView(pitchWidthMeters: float.PositiveInfinity));
+            Assert.Throws<ArgumentException>(
+                () => _ = new PitchView(worldUnitsPerMeter: float.NaN));
         }
 
         [Test]
@@ -138,8 +140,8 @@ namespace FinalWhistle.Viewer.Tests.EditMode
         public void FixedToWorld_NonUnityScaleAtCornerMagnitude_PreservesAccuracy()
         {
             // Per pr-review-toolkit:feature-dev:code-reviewer 2026-04-30 P1
-            // against the slice-1 first draft: when MetersPerUnit != 1f the
-            // multiplication MUST stay in double precision, not happen on
+            // against the slice-1 first draft: when WorldUnitsPerMeter != 1f
+            // the multiplication MUST stay in double precision, not happen on
             // the float side after the cast. This test exercises that
             // pipeline: 0.5f scale × corner-of-pitch fractional coord =
             // 26.25 Unity units; if the multiply happened post-cast, the
@@ -150,7 +152,7 @@ namespace FinalWhistle.Viewer.Tests.EditMode
                 Fixed.FromInt(52) + Fixed.Half,
                 Fixed.Zero,
                 Fixed.FromInt(34));
-            PitchView pitch = new(metersPerUnit: 0.5f);
+            PitchView pitch = new(worldUnitsPerMeter: 0.5f);
             Vector3 actual = pitch.FixedToWorld(pos);
             Assert.That(actual.x, Is.EqualTo(26.25f).Within(TolMm));
             Assert.That(actual.z, Is.EqualTo(17f).Within(TolMm));
@@ -200,13 +202,33 @@ namespace FinalWhistle.Viewer.Tests.EditMode
         }
 
         [Test]
-        public void FixedToWorld_MetersPerUnitScales_ScalesOutput()
+        public void FixedToWorld_HalfWorldUnitsPerMeter_ShrinksOutput()
         {
-            // 0.5 m/unit means a 1-meter sim distance maps to 0.5 Unity units.
-            PitchView pitch = new(metersPerUnit: 0.5f);
+            // Per Codex round-1 follow-up against b8d400f — P2: pin
+            // units-per-metre semantics under the renamed property.
+            // WorldUnitsPerMeter=0.5 means each canonical metre maps to 0.5
+            // Unity units, so a 10m sim distance maps to 5 Unity units.
+            PitchView pitch = new(worldUnitsPerMeter: 0.5f);
             Vector3Fixed pos = new(Fixed.FromInt(10), Fixed.Zero, Fixed.Zero);
             Vector3 actual = pitch.FixedToWorld(pos);
             Assert.That(actual.x, Is.EqualTo(5f).Within(TolMm));
+        }
+
+        [Test]
+        public void FixedToWorld_DoubleWorldUnitsPerMeter_EnlargesOutput()
+        {
+            // Per Codex round-1 follow-up against b8d400f — P2: complement
+            // to the 0.5f shrink case. WorldUnitsPerMeter=2.0 means each
+            // canonical metre maps to 2 Unity units, so a 10m sim distance
+            // maps to 20 Unity units. Together with the 0.5f case this
+            // brackets the rename + locks the multiply-not-divide direction
+            // so a future "MetersPerUnit" relapse cannot ship without test
+            // failure.
+            PitchView pitch = new(worldUnitsPerMeter: 2.0f);
+            Vector3Fixed pos = new(Fixed.FromInt(10), Fixed.Zero, Fixed.FromInt(-3));
+            Vector3 actual = pitch.FixedToWorld(pos);
+            Assert.That(actual.x, Is.EqualTo(20f).Within(TolMm));
+            Assert.That(actual.z, Is.EqualTo(-6f).Within(TolMm));
         }
 
         // ----- ActiveViewerEvent invariants + projections -----
