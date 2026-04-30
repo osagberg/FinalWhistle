@@ -155,6 +155,17 @@ namespace FinalWhistle.Viewer.Contracts
                     ? Array.Empty<string>()
                     : new[] { focalSubject };
 
+                // SignatureMetadata per Codex round-2 P1 against
+                // 24767c0: project the matched recipe into the
+                // adapter-consumable DTO. Non-null iff sourceClass ==
+                // SignatureExecuted; goals + breakthroughs carry null.
+                SignatureRecipeMetadata? signatureMetadata = null;
+                if (sourceClass == EventClass.SignatureExecuted
+                    && recipesByIndex.TryGetValue(i, out SignaturePresentationRecipe matchedRecipe))
+                {
+                    signatureMetadata = SignatureRecipeMetadata.FromRecipe(matchedRecipe);
+                }
+
                 ViewerEvent ev = new(
                     viewerEventId: viewerEventId,
                     sourceEventId: (ulong)i,
@@ -171,7 +182,8 @@ namespace FinalWhistle.Viewer.Contracts
                     participantPlayerIds: participantPlayerIds,
                     memoryHits: Array.Empty<MemoryHit>(),
                     sourceEventClass: sourceClass,
-                    sourceEntityId: focalSubject);
+                    sourceEntityId: focalSubject,
+                    signatureMetadata: signatureMetadata);
 
                 result.Add(ev);
                 viewerEventId++;
@@ -216,12 +228,28 @@ namespace FinalWhistle.Viewer.Contracts
                         $"SignatureRecipes[{i}].KeyEventIndex={exec.KeyEventIndex} is out of range " +
                         $"for KeyEvents.Count={state.KeyEvents.Count}.");
                 }
-                if (!IsSignatureExecutionKind(state.KeyEvents[exec.KeyEventIndex].Kind))
+                KeyEventKind keyEventKind = state.KeyEvents[exec.KeyEventIndex].Kind;
+                if (!IsSignatureExecutionKind(keyEventKind))
                 {
                     throw new InvalidOperationException(
                         $"SignatureRecipes[{i}].KeyEventIndex={exec.KeyEventIndex} points to a " +
-                        $"KeyEvent of kind {state.KeyEvents[exec.KeyEventIndex].Kind}, which is not " +
+                        $"KeyEvent of kind {keyEventKind}, which is not " +
                         "a signature-execution kind. Recipe-stream entries must mirror SignatureExecuted_* events.");
+                }
+                // Recipe.SignatureId must match the specific KeyEventKind
+                // per Codex round-2 P2 against 24767c0: a LowCutback
+                // KeyEvent with a BlindSideRun-keyed recipe was
+                // previously accepted + emitted a wrong-shot ViewerEvent.
+                // Validate the (kind, signatureId) pair so the parallel
+                // streams cannot drift silently.
+                string expectedSignatureId = ExpectedSignatureIdForKind(keyEventKind);
+                if (!string.Equals(exec.Recipe.SignatureId, expectedSignatureId, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"SignatureRecipes[{i}].KeyEventIndex={exec.KeyEventIndex} carries " +
+                        $"Recipe.SignatureId='{exec.Recipe.SignatureId}' but the KeyEvent at that " +
+                        $"index is kind {keyEventKind} which expects SignatureId='{expectedSignatureId}'. " +
+                        "Recipe identity must match the specific signature-execution kind.");
                 }
                 byIndex[exec.KeyEventIndex] = exec.Recipe;
             }
@@ -303,6 +331,33 @@ namespace FinalWhistle.Viewer.Contracts
             kind == KeyEventKind.SignatureExecuted_LowCutback
             || kind == KeyEventKind.SignatureExecuted_BlindSideNearPostRun
             || kind == KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch;
+
+        /// <summary>
+        /// Pin the (KeyEventKind, expected SignatureId) pairing per
+        /// Codex round-2 P2 against <c>24767c0</c>. The signature IDs
+        /// match the constants pinned in
+        /// <c>FinalWhistle.MatchSim.Sim.SignatureRules</c> — keeping
+        /// them as inline constants here means the bridge has its own
+        /// authoritative source-of-truth for the pairing; if the
+        /// MatchSim-side IDs ever change without the bridge's pairing
+        /// being updated, the validator catches the drift loudly.
+        /// </summary>
+        private static string ExpectedSignatureIdForKind(KeyEventKind kind)
+        {
+            return kind switch
+            {
+                KeyEventKind.SignatureExecuted_LowCutback =>
+                    "fwh.core:signature.low-cutback-from-byline",
+                KeyEventKind.SignatureExecuted_BlindSideNearPostRun =>
+                    "fwh.core:signature.blind-side-near-post-run",
+                KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch =>
+                    "fwh.core:signature.first-time-diagonal-switch",
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(kind), kind,
+                    "ExpectedSignatureIdForKind called with non-signature-execution kind " +
+                    "— guard upstream via IsSignatureExecutionKind."),
+            };
+        }
 
         private static void ValidateKeyEventsStartTickNonDecreasing(IReadOnlyList<KeyEvent> keyEvents)
         {

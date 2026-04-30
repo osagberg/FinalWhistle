@@ -2,6 +2,24 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Codex round-2 follow-up against `24767c0` — recipe metadata + signature-id consistency)
+
+Codex round-2 review pass against `24767c0` flagged 1 P1 + 1 P2. Both closed with regression tests:
+
+- **P1 — Recipe metadata still dropped before the dots adapter.** Round-1 P1 #2 used `Recipe.RecipeKey` for shot selection, but `ViewerEvent` had no fields exposing `SignatureId` / `SimBiasFieldId` / `SimBiasDeltaRawQ32`. The dots adapter still couldn't consume the authored signature presentation metadata (cut-in panels, commentary cadence, presentation-layer sim-bias effects). Codex's Unity reflection probe: `ViewerEvent` had no SignatureId/RecipeKey/SimBiasFieldId/SimBiasDeltaRawQ32 fields. **Fix**: new `SignatureRecipeMetadata` readonly struct in `Viewer.Contracts` (carries SignatureId + RecipeKey + SimBiasFieldId + SimBiasDeltaRawQ32 + `FromRecipe` factory + equality/hashcode); new optional `ViewerEvent.SignatureMetadata` field (`SignatureRecipeMetadata?`); cross-field invariant in `ViewerEvent` constructor: `signatureMetadata` non-null iff `sourceEventClass == EventClass.SignatureExecuted`. EventBridge populates the field from the matched recipe via `SignatureRecipeMetadata.FromRecipe`. Goals + breakthroughs carry null metadata.
+
+- **P2 — Recipe identity could contradict the KeyEvent kind.** `BuildRecipeIndex` validated that a recipe pointed at *some* `SignatureExecuted_*` event but did not validate that `Recipe.SignatureId` matched the *specific* `KeyEventKind`. Codex's Unity probe: a `LowCutback` KeyEvent with a `BlindSideNearPostRun` recipe was accepted + emitted a wrong-shot ViewerEvent. **Fix**: new `ExpectedSignatureIdForKind` helper pinning the (kind, expected-SignatureId) pairing; `BuildRecipeIndex` validates `Recipe.SignatureId == ExpectedSignatureIdForKind(KeyEventKind)` and throws `InvalidOperationException` on mismatch. The bridge now has an authoritative source-of-truth for the pairing — if the MatchSim-side IDs ever drift without the bridge being updated, the validator catches it loudly.
+
+**New tests**: 7 (1 metadata populated from recipe + 1 goal-has-null-metadata + 1 breakthrough-has-null-metadata + 1 SignatureExecuted-without-metadata-throws + 1 goal-with-metadata-throws + 1 metadata-roundtrip-equality + 1 mismatched-signature-id-throws).
+
+**Total tests: 642/642 MatchSim** (unchanged — only Viewer-side changes) + **35/35 EditMode** (was 28; +7 new round-2 regressions). UnityMCP `run_tests EditMode`: 35/35 in 1.13 seconds.
+
+**Pinned 60-tick MatchCanonicalState determinism hash `sha256:7e851976...50e` UNCHANGED**. Both fixes in the Viewer layer; MatchSim canonical paths untouched.
+
+**Unity Mono repros all verified fixed via UnityMCP `execute_code`**: `metadata=fwh.core:signature.low-cutback-from-byline|player-isolation|cutback_xAssist; mismatch=OK-throws`.
+
+**Subagent rotation**: Codex round-2 review pass external; main-thread authoring with the round-2 finding list as the work order. pr-review-toolkit triple skipped per the small-diff exception (~150 net LoC of code + ~150 LoC of tests + doc updates) — finding-driven hardening with named regression tests per finding.
+
 ## 2026-04-30 (Codex round-1 follow-up against `40159bd` — Viewer.EventBridge classification + recipe-stream + immutable-result + ordering fixes)
 
 Codex review pass against `40159bd` flagged 2 P1 + 2 P2 findings. All four closed with regression tests:

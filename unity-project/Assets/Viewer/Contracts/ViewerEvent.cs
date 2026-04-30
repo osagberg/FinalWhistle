@@ -164,6 +164,21 @@ namespace FinalWhistle.Viewer.Contracts
         /// </summary>
         public string? SourceEntityId { get; }
 
+        /// <summary>
+        /// Adapter-consumable signature recipe metadata copied from the
+        /// MatchSim-side <see cref="SignaturePresentationRecipe"/> per
+        /// Codex round-2 P1 against <c>24767c0</c>. Non-null iff this
+        /// event is a signature execution
+        /// (<see cref="SourceEventClass"/> ==
+        /// <see cref="EventClass.SignatureExecuted"/>); null for goals,
+        /// breakthroughs, and any future event class without authored
+        /// recipe metadata. Adapters look up per-signature presentation
+        /// tables (cut-in panels, commentary cadence, sim-bias overlay
+        /// effects) via the <see cref="SignatureRecipeMetadata.SignatureId"/>
+        /// + <see cref="SignatureRecipeMetadata.SimBiasFieldId"/> fields.
+        /// </summary>
+        public SignatureRecipeMetadata? SignatureMetadata { get; }
+
         public ViewerEvent(
             ulong viewerEventId,
             ulong sourceEventId,
@@ -180,7 +195,8 @@ namespace FinalWhistle.Viewer.Contracts
             IReadOnlyList<string> participantPlayerIds,
             IReadOnlyList<MemoryHit> memoryHits,
             EventClass sourceEventClass,
-            string? sourceEntityId)
+            string? sourceEntityId,
+            SignatureRecipeMetadata? signatureMetadata = null)
         {
             if (sourceEventOrdinal < 0)
             {
@@ -250,6 +266,32 @@ namespace FinalWhistle.Viewer.Contracts
                 throw new ArgumentException(
                     "SourceEntityId must be null OR non-empty.", nameof(sourceEntityId));
             }
+            // SignatureMetadata cross-field invariant per Codex round-2
+            // P1 against 24767c0: metadata must be present iff the
+            // event is a signature execution. Goals + breakthroughs +
+            // any future non-signature event class carry null metadata
+            // — the field is the typed witness for "this event has
+            // authored signature recipe data attached."
+            if (sourceEventClass == EventClass.SignatureExecuted)
+            {
+                if (signatureMetadata is null)
+                {
+                    throw new ArgumentException(
+                        "SignatureMetadata must be non-null for SourceEventClass=SignatureExecuted " +
+                        "events. The bridge populates it from SignaturePresentationRecipe.",
+                        nameof(signatureMetadata));
+                }
+            }
+            else
+            {
+                if (signatureMetadata is not null)
+                {
+                    throw new ArgumentException(
+                        $"SignatureMetadata must be null for SourceEventClass={sourceEventClass}. " +
+                        "Only SignatureExecuted events carry signature recipe metadata.",
+                        nameof(signatureMetadata));
+                }
+            }
             // Reduce-motion-applied and the BaseShotTypeId vs EffectiveShotTypeId
             // pair must agree: if ReduceMotionApplied is true, the IDs must
             // differ (substitution actually happened); if false, they must
@@ -300,6 +342,7 @@ namespace FinalWhistle.Viewer.Contracts
             MemoryHits = new ReadOnlyCollection<MemoryHit>(memoryHitsCopy);
             SourceEventClass = sourceEventClass;
             SourceEntityId = sourceEntityId;
+            SignatureMetadata = signatureMetadata;
         }
 
         public bool Equals(ViewerEvent? other)
@@ -320,6 +363,7 @@ namespace FinalWhistle.Viewer.Contracts
                 || FocalSubject != other.FocalSubject
                 || SourceEventClass != other.SourceEventClass
                 || SourceEntityId != other.SourceEntityId
+                || !Nullable.Equals(SignatureMetadata, other.SignatureMetadata)
                 || ParticipantPlayerIds.Count != other.ParticipantPlayerIds.Count
                 || MemoryHits.Count != other.MemoryHits.Count)
             {

@@ -528,6 +528,149 @@ namespace FinalWhistle.Viewer.Tests.EditMode
         }
 
         // ============================================================
+        // Codex round-2 P1 against 24767c0: SignatureRecipeMetadata
+        // is exposed on ViewerEvent for adapter consumption
+        // ============================================================
+
+        [Test]
+        public void Derive_SignatureExecution_PopulatesSignatureMetadataFromRecipe()
+        {
+            // Codex round-2 P1: ViewerEvent must carry the recipe's
+            // SignatureId / SimBiasFieldId / SimBiasDeltaRawQ32 onto
+            // the contract surface — the dots adapter consumes them.
+            MatchSimulationState state = BuildEmptyState();
+            AppendSignatureExecution(state, 900, KeyEventKind.SignatureExecuted_LowCutback, TeamSide.Home, jersey: 6);
+
+            IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
+
+            Assert.AreEqual(1, events.Count);
+            Assert.IsTrue(events[0].SignatureMetadata.HasValue);
+            SignatureRecipeMetadata md = events[0].SignatureMetadata!.Value;
+            Assert.AreEqual("fwh.core:signature.low-cutback-from-byline", md.SignatureId);
+            Assert.AreEqual("player-isolation", md.RecipeKey);
+            Assert.AreEqual("cutback_xAssist", md.SimBiasFieldId);
+            // AppendSignatureExecution helper uses Fixed.OneRaw / 5L for the delta.
+            Assert.AreEqual(Fixed.OneRaw / 5L, md.SimBiasDeltaRawQ32);
+        }
+
+        [Test]
+        public void Derive_GoalEvent_HasNullSignatureMetadata()
+        {
+            // Goals are not signature executions; SignatureMetadata MUST
+            // be null so the cross-field invariant on ViewerEvent fires
+            // at construction if a future bridge change wrongly populates.
+            MatchSimulationState state = BuildEmptyState();
+            state.KeyEvents.Add(BuildKeyEvent(1200, KeyEventKind.Goal, TeamSide.Home, KeyEvent.JerseyUnspecified));
+
+            IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
+
+            Assert.IsFalse(events[0].SignatureMetadata.HasValue);
+        }
+
+        [Test]
+        public void Derive_BreakthroughEvent_HasNullSignatureMetadata()
+        {
+            MatchSimulationState state = BuildEmptyState();
+            state.KeyEvents.Add(BuildKeyEvent(1500, KeyEventKind.SignatureBreakthrough, TeamSide.Home, jersey: 6));
+
+            IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
+
+            Assert.IsFalse(events[0].SignatureMetadata.HasValue);
+        }
+
+        [Test]
+        public void ViewerEvent_Construction_SignatureExecutedWithoutMetadata_Throws()
+        {
+            // Cross-field invariant: SignatureExecuted REQUIRES non-null metadata.
+            Assert.Throws<System.ArgumentException>(() => new ViewerEvent(
+                viewerEventId: 0,
+                sourceEventId: 0,
+                sourceEventOrdinal: 0,
+                baseShotTypeId: ShotTypeCatalog.ShotPlayerIsolation,
+                effectiveShotTypeId: ShotTypeCatalog.ShotPlayerIsolation,
+                reduceMotionApplied: false,
+                startTick: new Tick(100),
+                endTick: new Tick(280),
+                seed: Seed.FromUInt64(0),
+                stakesNormalized: Fixed.Parse("0.7000000000"),
+                memoryRelevance: Fixed.Zero,
+                focalSubject: "viewer.focal:home.06",
+                participantPlayerIds: new[] { "viewer.focal:home.06" },
+                memoryHits: System.Array.Empty<MemoryHit>(),
+                sourceEventClass: EventClass.SignatureExecuted,
+                sourceEntityId: "viewer.focal:home.06",
+                signatureMetadata: null));  // missing — must throw
+        }
+
+        [Test]
+        public void ViewerEvent_Construction_GoalWithSignatureMetadata_Throws()
+        {
+            // Cross-field invariant: non-SignatureExecuted REJECTS metadata.
+            SignatureRecipeMetadata md = new(
+                "fwh.core:signature.low-cutback-from-byline", "player-isolation",
+                "cutback_xAssist", Fixed.OneRaw / 5L);
+            Assert.Throws<System.ArgumentException>(() => new ViewerEvent(
+                viewerEventId: 0,
+                sourceEventId: 0,
+                sourceEventOrdinal: 0,
+                baseShotTypeId: ShotTypeCatalog.ShotPassShotImpact,
+                effectiveShotTypeId: ShotTypeCatalog.ShotPassShotImpact,
+                reduceMotionApplied: false,
+                startTick: new Tick(100),
+                endTick: new Tick(340),
+                seed: Seed.FromUInt64(0),
+                stakesNormalized: Fixed.Parse("0.9500000000"),
+                memoryRelevance: Fixed.Zero,
+                focalSubject: null,
+                participantPlayerIds: System.Array.Empty<string>(),
+                memoryHits: System.Array.Empty<MemoryHit>(),
+                sourceEventClass: EventClass.GoalScored,
+                sourceEntityId: null,
+                signatureMetadata: md));  // wrong — must throw
+        }
+
+        [Test]
+        public void SignatureRecipeMetadata_Equality_RoundTripsFromRecipe()
+        {
+            // Round-trip through SignatureRecipeMetadata.FromRecipe.
+            SignaturePresentationRecipe recipe = new(
+                "fwh.core:signature.test", "player-isolation",
+                "cutback_xAssist", Fixed.OneRaw / 5L);
+            SignatureRecipeMetadata a = SignatureRecipeMetadata.FromRecipe(recipe);
+            SignatureRecipeMetadata b = SignatureRecipeMetadata.FromRecipe(recipe);
+
+            Assert.AreEqual(a, b);
+            Assert.AreEqual(a.GetHashCode(), b.GetHashCode());
+            Assert.IsTrue(a == b);
+        }
+
+        // ============================================================
+        // Codex round-2 P2 against 24767c0: Recipe.SignatureId must
+        // match the specific KeyEventKind
+        // ============================================================
+
+        [Test]
+        public void Derive_RecipeSignatureIdMismatchesKeyEventKind_Throws()
+        {
+            // Codex round-2 P2: a LowCutback KeyEvent with a
+            // blind-side-near-post-run-keyed recipe must throw at the
+            // bridge boundary, not silently emit a wrong-signature
+            // ViewerEvent.
+            MatchSimulationState state = BuildEmptyState();
+            state.KeyEvents.Add(BuildKeyEvent(900, KeyEventKind.SignatureExecuted_LowCutback, TeamSide.Home, jersey: 6));
+            // Recipe carries the WRONG SignatureId for this kind:
+            SignaturePresentationRecipe wrongRecipe = new(
+                signatureId: "fwh.core:signature.blind-side-near-post-run",  // wrong: kind expects low-cutback
+                recipeKey: "player-isolation",
+                simBiasFieldId: "near_post_xG",
+                simBiasDeltaRawQ32: Fixed.OneRaw / 4L);
+            state.SignatureRecipes.Add(new SignatureExecution(0, wrongRecipe));
+
+            Assert.Throws<System.InvalidOperationException>(() =>
+                EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL)));
+        }
+
+        // ============================================================
         // Codex round-1 P2 against 40159bd: KeyEvents must be
         // StartTick-non-decreasing
         // ============================================================
