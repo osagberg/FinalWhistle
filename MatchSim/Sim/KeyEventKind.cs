@@ -37,4 +37,31 @@ public enum KeyEventKind : byte
 
     /// <summary>Ball crossed the goal line on the attacking side outside the goal mouth; corner-kick restart. Phase-4 activation; Phase-3 emits <see cref="GoalKickRestart"/> for all non-goal goal-line crossings.</summary>
     CornerKickRestart = 4,
+
+    /// <summary>
+    /// Phase-3 active signature #20 fired: <em>Low cutback from the byline</em>.
+    /// Carrier (Winger role-family) drives near the byline + cuts the ball
+    /// back. <see cref="KeyEvent.JerseyNumber"/> = the carrier's jersey;
+    /// <see cref="KeyEvent.Position"/> = the carrier's pitch position at
+    /// fire-time. <see cref="KeyEvent.Side"/> = the carrier's team. Pairs
+    /// with the parallel <see cref="MatchSimulationState.SignatureRecipes"/>
+    /// stream that carries the presentation-recipe metadata for the
+    /// dots-adapter consumption via <c>Viewer.EventBridge</c> (Phase-3
+    /// next semantic-slice item).
+    /// </summary>
+    SignatureExecuted_LowCutback = 5,
+
+    /// <summary>
+    /// Phase-3 active signature #22 fired: <em>Blind-side near-post run</em>.
+    /// Carrier (Striker role-family) curves run off defender's shoulder to
+    /// near post during a wide ball-delivery moment.
+    /// </summary>
+    SignatureExecuted_BlindSideNearPostRun = 6,
+
+    /// <summary>
+    /// Phase-3 active signature #13 fired: <em>First-time diagonal switch</em>.
+    /// Carrier (CentralMidfielder role-family) plays a one-touch
+    /// cross-field switch from the middle third while the ball is moving.
+    /// </summary>
+    SignatureExecuted_FirstTimeDiagonalSwitch = 7,
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using FinalWhistle.MatchSim.Content;
 using FinalWhistle.MatchSim.Sim;
 using Xunit;
 
@@ -190,6 +191,84 @@ public sealed class MatchDeterminismTests
         // failure output (Assert.Equal truncates string mismatches at ~38 chars).
         Assert.True(hash == SmokeSeed60TickHash,
             $"Canonical-state hash mismatch.\nExpected: {SmokeSeed60TickHash}\nActual:   {hash}");
+    }
+
+    [Fact]
+    public void Match_SmokeFixture60TicksWithSignaturePackets_ProducesIdenticalPinnedHash()
+    {
+        // Phase-3 semantic-slice signature-dispatch regression check
+        // (SPEC line 143 / commit landing the 3 active signatures).
+        // The signature-aware RunTicks overload accepts IdentityPacket
+        // arrays and inserts SignatureRules.Step in the per-tick order
+        // immediately after MatchRules.Step. The architect blueprint's
+        // spatial analysis proved the smoke fixture (ball at centre,
+        // formation positions, 60 ticks, ball velocity zero) cannot
+        // satisfy any of the three Phase-3 trigger conditions:
+        //
+        //   #20 Low cutback — fails byline-proximity (no player within
+        //   3m of GoalLineX over 60 ticks from formation positions
+        //   with ball at centre).
+        //   #22 Blind-side run — fails penalty-area-depth (no striker
+        //   in attacking box).
+        //   #13 Diagonal switch — fails ball-velocity gate (ball at
+        //   rest stays at rest under drag).
+        //
+        // Therefore: zero KeyEvents added by SignatureRules → canonical
+        // bytes identical → pinned hash unchanged. This test pins that
+        // claim. If the architect's spatial analysis ever fails (e.g.,
+        // a future BT change moves a striker into the box during the
+        // smoke ticks), this test fails LOUDLY rather than the pinned
+        // hash silently re-baselining.
+        BehaviorTreeArchetype direct = BehaviorTreeArchetypes.Load("direct-pressing");
+        BehaviorTreeArchetype lowBlock = BehaviorTreeArchetypes.Load("low-block-counter");
+        MatchSimulationState state = BuildSmokeFixture(direct, lowBlock);
+
+        IdentityPacket[] homePackets = LoadArchetypePackets("direct-pressing");
+        IdentityPacket[] awayPackets = LoadArchetypePackets("low-block-counter");
+
+        MatchSimulationRunner.RunTicks(state, direct, lowBlock,
+            homePackets, awayPackets,
+            PlayerKinematics.Phase3Defaults,
+            BallPhysicsCoefficients.Phase3Seeds,
+            MatchSimulationConfig.Default,
+            SignatureConfig.Phase3Defaults,
+            ticks: 60);
+
+        string hash = MatchCanonicalState.ComputeHash(state);
+        Assert.True(hash == SmokeSeed60TickHash,
+            $"Smoke-fixture WITH IdentityPackets produced a different hash.\n" +
+            $"Expected: {SmokeSeed60TickHash}\n" +
+            $"Actual:   {hash}\n" +
+            $"This means SignatureRules.Step fired during the smoke fixture, " +
+            $"violating the architect's spatial-analysis claim. Investigate " +
+            $"which signature fired + tighten the trigger threshold or " +
+            $"intentionally re-baseline the hash with a documented reason.");
+
+        // Belt-and-suspenders: explicitly assert SignatureRules emitted
+        // zero events. If a signature DID fire but happened to produce
+        // canonical bytes that hashed to the same value (astronomically
+        // unlikely but guard against), this surfaces the issue directly.
+        int signatureExecutionEvents = 0;
+        foreach (var keyEvent in state.KeyEvents)
+        {
+            if (keyEvent.Kind >= KeyEventKind.SignatureExecuted_LowCutback
+                && keyEvent.Kind <= KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch)
+            {
+                signatureExecutionEvents++;
+            }
+        }
+        Assert.Equal(0, signatureExecutionEvents);
+        Assert.Empty(state.SignatureRecipes);
+    }
+
+    private static IdentityPacket[] LoadArchetypePackets(string archetype)
+    {
+        IdentityPacket[] packets = new IdentityPacket[IdentityPackets.PlayersPerArchetype];
+        for (byte jersey = 1; jersey <= IdentityPackets.PlayersPerArchetype; jersey++)
+        {
+            packets[jersey - 1] = IdentityPackets.Load(archetype, jersey);
+        }
+        return packets;
     }
 
     #endregion

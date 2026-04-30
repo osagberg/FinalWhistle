@@ -55,13 +55,32 @@ public sealed class MatchSimulationState
 
     /// <summary>
     /// Append-only stream of significant match events: goals + restart
-    /// emissions. Entries are written in canonical order during
-    /// <see cref="MatchRules.Step"/>; never removed or reordered. The
+    /// emissions + Phase-3 signature executions. Entries are written in
+    /// canonical order during <see cref="MatchRules.Step"/> +
+    /// <see cref="SignatureRules.Step"/>; never removed or reordered. The
     /// golden-replay-corpus spec's <c>key_event_hashes</c> field hashes the
     /// canonical encoding of this list per replay seed for Tier-A
     /// verification.
     /// </summary>
     public List<KeyEvent> KeyEvents { get; }
+
+    /// <summary>
+    /// Parallel append-only stream of presentation-recipe metadata for
+    /// signature-execution <see cref="KeyEvent"/>s. Read by
+    /// <c>Viewer.EventBridge</c> (Phase-3 next semantic-slice item) which
+    /// translates each entry to a <c>ViewerEvent</c> per ADR-0008.
+    ///
+    /// <para>
+    /// <strong>Not canonical state.</strong> Excluded from
+    /// <c>MatchCanonicalState.Write</c>. Coupling presentation
+    /// metadata to the canonical hash would mean any overlay-text or
+    /// shot-recipe change invalidates the corpus fixture — wrong axis
+    /// (canonical = gameplay outcomes; recipes = derived display data).
+    /// Each entry's <c>KeyEventIndex</c> points back into
+    /// <see cref="KeyEvents"/> so the bridge can correlate.
+    /// </para>
+    /// </summary>
+    public List<SignatureExecution> SignatureRecipes { get; }
 
     public MatchSimulationState(
         Tick currentTick,
@@ -77,6 +96,7 @@ public sealed class MatchSimulationState
         AwayScore = 0;
         OutOfPlay = OutOfPlay.InPlay;
         KeyEvents = new List<KeyEvent>();
+        SignatureRecipes = new List<SignatureExecution>();
     }
 
     /// <summary>

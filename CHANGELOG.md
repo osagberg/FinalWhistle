@@ -2,6 +2,63 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Phase-3 semantic slice #2 of 5 — 3 active signatures end-to-end)
+
+SPEC.md Phase-3 line 143 closed. Second of five semantic-slice deliverables shipped end-to-end: 3 active signatures (#20 Low cutback from the byline / #22 Blind-side near-post run / #13 First-time diagonal switch) emit canonical `KeyEvent`s + parallel `SignaturePresentationRecipe` metadata.
+
+**New files** (5 under `MatchSim/Sim/`):
+- `SignatureKind.cs` — public byte enum (LowCutback=1 / BlindSideNearPostRun=2 / FirstTimeDiagonalSwitch=3).
+- `SignatureCooldownState.cs` — public sealed class; per-match per-player per-signature scratch tracking last-fired tick + fire count. Allocated once at match start by the runner; passed by reference to `SignatureRules.Step`.
+- `SignatureConfig.cs` — public readonly struct; 10 spatial Fixed thresholds + 3 cooldown ticks + 3 max-fire counts. `Phase3Defaults` pre-computed singleton.
+- `SignaturePresentationRecipe.cs` — public readonly struct DTO + sibling `SignatureExecution` (KeyEventIndex + recipe pair). Read by `Viewer.EventBridge` (next semantic-slice item) for ADR-0008 ViewerEvent translation.
+- `SignatureRules.cs` — public static class. `Step(state, homePackets, awayPackets, cooldown, config)` runs immediately after `MatchRules.Step` each tick. Three trigger detectors (`TryFireLowCutback` / `TryFireBlindSideRun` / `TryFireDiagonalSwitch`) consult role-family + position + velocity + ball-state.
+
+**Modified files**:
+- `KeyEventKind.cs` — extended with 3 pinned values 5/6/7 (`SignatureExecuted_LowCutback` / `_BlindSideNearPostRun` / `_FirstTimeDiagonalSwitch`). KeyEvent canonical 35-byte layout unchanged; the byte-typed enum has plenty of room. Pinned-value-never-reuse contract preserved per the existing `KeyEventKind` doc comment.
+- `MatchSimulationState.cs` — added `SignatureRecipes` parallel list. Each entry pairs a `KeyEventIndex` (into `KeyEvents`) with the `SignaturePresentationRecipe` metadata. **Excluded from `MatchCanonicalState.Write`** — coupling presentation metadata to the canonical hash would couple the corpus fixture to viewer-presentation choices (wrong axis: canonical = gameplay outcomes; recipes = derived display data).
+- `MatchSimulationRunner.cs` — new signature-aware overload `RunTicks(state, home, away, homePackets, awayPackets, kinematics, ballCoeffs, config, signatureConfig, ticks)` inserts `SignatureRules.Step` in the per-tick order: BT.Tick × 2 → PlayerActuator.Step × 22 → BallPhysics.Step → MatchRules.Step → **SignatureRules.Step** → Tick+1. Legacy 7-arg overload preserved by delegating to the new overload with `Array.Empty<IdentityPacket>()` × 2 — `SignatureRules.Step` short-circuits on empty packets, producing byte-identical canonical hash.
+
+**Trigger detection (Phase-3 simplifications)**:
+- **#20 Low cutback** (Winger): carrier within 3m of attacking byline + |Z| > 20m wide channel + lateral velocity > 1m/s. Cooldown 180 ticks (3s); max-fires 3.
+- **#22 Blind-side near-post run** (Striker): striker in attacking penalty area (within 16m of goal-line + |Z| < 20m) + ball wide for cross (in attacking half + |Z| > 15m) + forward+curve velocity > 1m/s. Cooldown 240 ticks (4s); max-fires 2.
+- **#13 First-time diagonal switch** (CM): carrier in middle third (|X| < 25m) + ball moving on both axes (X+Z velocity > 1m/s each — proxy for "one-touch" without a possession-transition tracker, deferred to Phase 4+). Cooldown 300 ticks (5s); max-fires 2.
+
+The full Phase-4+ "trigger-history-builds-readiness" awakening lifecycle per `design/signatures.md` §lifecycle is deferred — Phase-3 affinity gate is the IdentityPacket-fixture-declared `SignatureCandidates` list. <!-- ui-lint:allow term="awakening" reason="design/signatures.md §lifecycle reference for the Phase-4+ system; not Phase-3 player-facing copy" reviewer="osagberg" -->
+
+**Sim bias is metadata-only at Phase 3** per ADR-0005 SimBiasSnapshot deferral. The recipe payload carries `SimBiasFieldId` (e.g. `cutback_xAssist`, `near_post_xG`, `diagonal_switch_trigger`) + `SimBiasDeltaRawQ32` for the dots adapter's presentation-layer effects only. Actual MatchSim canonical-state behavioral modification on signature fire ships in Phase 4 alongside the proper `SignatureSO` bake-time pipeline.
+
+**Recipe-key mapping** to the ADR-0008 7-shot vocabulary:
+- #20 → `player-isolation`
+- #22 → `pass-shot-impact`
+- #13 → `tactical-wide`
+
+**Tests**: 17 new (16 in `MatchSim.Tests/Sim/SignatureRulesTests.cs` + 1 pinned-hash regression in `MatchDeterminismTests.cs`). Coverage:
+- Per-signature fires under expected condition.
+- Carrier-affinity gate (no fire if `SignatureCandidates` empty or wrong signature ID).
+- Role-family gate (no fire if `RoleFamily` doesn't match the signature's designed role).
+- Spatial-condition rejection (no fire if not at byline / not in box / outside middle third).
+- Cooldown — no fire within window; fires after expiry.
+- Per-match max-fires — stops firing after the cap.
+- Empty-packets short-circuit (legacy-overload path produces zero events).
+- 3 argument-validation throw-paths.
+- Pinned-hash regression: smoke fixture WITH IdentityPackets produces byte-identical canonical hash + zero signature events.
+
+**Total tests: 564 passing** (was 547; +17).
+
+**Pinned 60-tick MatchCanonicalState determinism hash `sha256:7e851976...50e` UNCHANGED**. The architect's spatial analysis proved the smoke fixture (ball at centre, formation positions, 60 ticks, ball velocity zero) cannot satisfy any of the three Phase-3 trigger conditions:
+- #20 fails byline-proximity (no player within 3m of GoalLineX over 60 ticks from formation positions with ball at centre).
+- #22 fails penalty-area-depth (no striker in attacking box).
+- #13 fails ball-velocity gate (ball at rest stays at rest under drag).
+
+The new `Match_SmokeFixture60TicksWithSignaturePackets_ProducesIdenticalPinnedHash` test pins this claim — if any future BT change moves a striker into the box or spawns ball velocity during the smoke ticks, the pinned hash silently re-baselining is impossible because the test fails LOUDLY with both the hash mismatch + a count of signature events fired.
+
+**Subagent rotation per CLAUDE.md §6.3**:
+- `feature-dev:code-architect` produced the implementation blueprint (tool_uses=14; plugin subagent fired cleanly — third consecutive successful invocation).
+- `pr-review-toolkit:silent-failure-hunter` + `:type-design-analyzer` + `feature-dev:code-reviewer` ran in parallel before commit.
+- Project-internal subagents (`gameplay-programmer` for MatchSim sim/signatures; `narrative-director` for presentation-recipe content) skipped per the same project-subagent invocation gap caught in the previous /next pickups; main-thread authoring with the architect's blueprint as guide, all reviewer findings applied. Honest framing per CLAUDE.md §6.3 fallback rule.
+
+**Phase-3 semantic-slice next-task ladder**: 3 of 5 deliverables remaining — 1 MemoryEvent reader callback + 1 persistent development event + Viewer.EventBridge minimum implementation. The signature-execution canonical events + parallel recipe metadata stream now feed the EventBridge boundary that's next.
+
 ## 2026-04-30 (Codex round-7 hand-rolled-parser refactor — closes Unity-load + strict-parsing P1+P2)
 
 Closes Codex round-7 review against commit `e0ecc5c`. Two P1s and one P2 closed by replacing `System.Text.Json` with a hand-rolled strict parser scoped to the IdentityPacket schema. Architectural reasoning:

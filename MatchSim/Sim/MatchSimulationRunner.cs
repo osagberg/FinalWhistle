@@ -1,4 +1,5 @@
 using System;
+using FinalWhistle.MatchSim.Content;
 
 namespace FinalWhistle.MatchSim.Sim;
 
@@ -50,6 +51,29 @@ namespace FinalWhistle.MatchSim.Sim;
 /// </summary>
 public static class MatchSimulationRunner
 {
+    /// <summary>
+    /// Legacy overload preserved for callers that don't engage the
+    /// Phase-3 signature-dispatch layer. Internally calls the
+    /// signature-aware overload with empty <see cref="IdentityPacket"/>
+    /// arrays — <see cref="SignatureRules.Step"/> short-circuits on
+    /// empty inputs so the canonical-state output is byte-identical to
+    /// a no-signature-step run. Pinned 60-tick determinism hash stays
+    /// green via this path.
+    ///
+    /// <para>
+    /// <strong>Signature config</strong> is fixed at
+    /// <see cref="SignatureConfig.Phase3Defaults"/> when going through
+    /// this overload; because the packet arrays are empty,
+    /// <see cref="SignatureRules.Step"/> short-circuits before consulting
+    /// the config, so the value is never read. A Phase-4+ caller that
+    /// needs both signature-suppression AND a non-default config should
+    /// call the signature-aware overload directly with explicit empty
+    /// packet arrays + the desired config — the legacy overload here
+    /// will be retired once Phase-4 signatures fire in real corpus
+    /// fixtures and "no signatures" stops being the runtime default.
+    /// (Per feature-dev:code-reviewer 2026-04-30 round-2 finding 3.)
+    /// </para>
+    /// </summary>
     public static void RunTicks(
         MatchSimulationState state,
         BehaviorTreeArchetype homeArchetype,
@@ -57,6 +81,43 @@ public static class MatchSimulationRunner
         PlayerKinematics kinematics,
         BallPhysicsCoefficients ballCoefficients,
         MatchSimulationConfig config,
+        int ticks)
+    {
+        RunTicks(
+            state, homeArchetype, awayArchetype,
+            Array.Empty<IdentityPacket>(),
+            Array.Empty<IdentityPacket>(),
+            kinematics, ballCoefficients, config,
+            SignatureConfig.Phase3Defaults,
+            ticks);
+    }
+
+    /// <summary>
+    /// Phase-3 signature-aware <c>RunTicks</c>. Identical to the
+    /// legacy overload PLUS:
+    /// <list type="bullet">
+    ///   <item><description>Allocates a process-lifetime
+    ///       <see cref="SignatureCooldownState"/> at match start.</description></item>
+    ///   <item><description>Inserts <see cref="SignatureRules.Step"/>
+    ///       in the per-tick step order immediately after
+    ///       <see cref="MatchRules.Step"/>:
+    ///       <c>BT.Tick × 2 → PlayerActuator.Step × 22 → BallPhysics.Step
+    ///       → MatchRules.Step → SignatureRules.Step → Tick+1</c>.</description></item>
+    /// </list>
+    /// Empty <paramref name="homePackets"/>/<paramref name="awayPackets"/>
+    /// arrays = signature dispatch is a no-op; canonical hash unchanged
+    /// vs. the legacy overload.
+    /// </summary>
+    public static void RunTicks(
+        MatchSimulationState state,
+        BehaviorTreeArchetype homeArchetype,
+        BehaviorTreeArchetype awayArchetype,
+        IdentityPacket[] homePackets,
+        IdentityPacket[] awayPackets,
+        PlayerKinematics kinematics,
+        BallPhysicsCoefficients ballCoefficients,
+        MatchSimulationConfig config,
+        SignatureConfig signatureConfig,
         int ticks)
     {
         if (state is null)
@@ -71,6 +132,14 @@ public static class MatchSimulationRunner
         {
             throw new ArgumentNullException(nameof(awayArchetype));
         }
+        if (homePackets is null)
+        {
+            throw new ArgumentNullException(nameof(homePackets));
+        }
+        if (awayPackets is null)
+        {
+            throw new ArgumentNullException(nameof(awayPackets));
+        }
         if (ticks < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(ticks), ticks, "ticks must be non-negative.");
@@ -84,6 +153,7 @@ public static class MatchSimulationRunner
 
         PlayerCommand[] homeCommands = new PlayerCommand[MatchCanonicalState.PlayersPerTeam];
         PlayerCommand[] awayCommands = new PlayerCommand[MatchCanonicalState.PlayersPerTeam];
+        SignatureCooldownState cooldown = new();
 
         for (int t = 0; t < ticks; t++)
         {
@@ -112,6 +182,13 @@ public static class MatchSimulationRunner
             BallState preStepBall = state.Ball;
             state.Ball = BallPhysics.Step(state.Ball, ballCoefficients);
             MatchRules.Step(state, preStepBall);
+
+            // Phase-3 signature dispatch runs AFTER MatchRules because
+            // signature triggers consult the post-rules canonical state
+            // (e.g. ball respawn after a goal kick reset). Passes
+            // `kinematics` so SignatureRules.IsCarrier reads the same
+            // possession radius PlayerActuator uses.
+            SignatureRules.Step(state, homePackets, awayPackets, kinematics, cooldown, signatureConfig);
 
             state.CurrentTick = state.CurrentTick + 1L;
         }
