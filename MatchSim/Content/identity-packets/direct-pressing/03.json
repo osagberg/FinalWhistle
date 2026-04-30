@@ -1,0 +1,17 @@
+{
+  "PlayerId": "fwh.core:player_00003",
+  "DisplayNameFull": "Ardo Vermeer",
+  "DisplayNameShort": "A. Vermeer",
+  "RoleFamily": "CentreBack",
+  "SignatureCandidates": [],
+  "Genes": {
+    "FastTwitchRawQ32": 2576980377,
+    "PatternRecognitionRawQ32": 3006477107,
+    "DecisionVelocityRawQ32": 2576980377,
+    "FirstTouchRawQ32": 2147483648,
+    "StrikingRawQ32": 2147483648,
+    "LeftFootRawQ32": 2147483648
+  },
+  "SchemaVersion": 1,
+  "SourcePackVersion": "1.0.0"
+}

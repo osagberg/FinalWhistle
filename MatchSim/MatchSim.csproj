@@ -99,6 +99,13 @@
          and Unity-friendly. The two Month-3 archetype YAMLs (direct-pressing,
          low-block-counter) are embedded as resources below. -->
     <PackageReference Include="YamlDotNet" Version="17.0.1" />
+
+    <!-- System.Text.Json for IdentityPacket fixture loading per ADR-0006.
+         Not transitively available on netstandard2.1 — explicit reference
+         required. Phase-3 SPEC line 142 deliverable. Pinned to a version
+         compatible with both netstandard2.1 (this assembly) and net10.0
+         (the test host); 9.0.x is the current LTS-aligned choice. -->
+    <PackageReference Include="System.Text.Json" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -113,6 +120,21 @@
          P1 round 4, 2026-04-30); local stale obj/bin can mask it. -->
     <EmbeddedResource Include="Content/archetypes/*.yaml">
       <LogicalName>FinalWhistle.MatchSim.Content.archetypes.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- IdentityPacket fixtures per Phase-3 SPEC line 142 / ADR-0006.
+         Two explicit per-archetype blocks (NOT a recursive `**/*.json`
+         glob) so the LogicalName transform stays simple. Same flat-form
+         pattern as the archetype YAMLs above; resource names take the
+         shape `FinalWhistle.MatchSim.Content.identity-packets.<archetype>.<jersey>.json`,
+         matching the lookup in `IdentityPackets.LoadAndValidate`. -->
+    <EmbeddedResource Include="Content/identity-packets/direct-pressing/*.json">
+      <LogicalName>FinalWhistle.MatchSim.Content.identity-packets.direct-pressing.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Content/identity-packets/low-block-counter/*.json">
+      <LogicalName>FinalWhistle.MatchSim.Content.identity-packets.low-block-counter.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 

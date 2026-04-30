@@ -1,0 +1,22 @@
+{
+  "PlayerId": "fwh.core:player_00009",
+  "DisplayNameFull": "Felix Aydar",
+  "DisplayNameShort": "F. Aydar",
+  "RoleFamily": "Winger",
+  "SignatureCandidates": [
+    {
+      "SignatureId": "fwh.core:signature.low-cutback-from-byline",
+      "AffinityWeightRaw": 2576980377
+    }
+  ],
+  "Genes": {
+    "FastTwitchRawQ32": 3435973836,
+    "PatternRecognitionRawQ32": 2576980377,
+    "DecisionVelocityRawQ32": 3006477107,
+    "FirstTouchRawQ32": 3006477107,
+    "StrikingRawQ32": 2576980377,
+    "LeftFootRawQ32": 3006477107
+  },
+  "SchemaVersion": 1,
+  "SourcePackVersion": "1.0.0"
+}

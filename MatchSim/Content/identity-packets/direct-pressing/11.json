@@ -1,0 +1,22 @@
+{
+  "PlayerId": "fwh.core:player_00011",
+  "DisplayNameFull": "Liam Travers",
+  "DisplayNameShort": "L. Travers",
+  "RoleFamily": "Striker",
+  "SignatureCandidates": [
+    {
+      "SignatureId": "fwh.core:signature.blind-side-near-post-run",
+      "AffinityWeightRaw": 2576980377
+    }
+  ],
+  "Genes": {
+    "FastTwitchRawQ32": 3006477107,
+    "PatternRecognitionRawQ32": 2576980377,
+    "DecisionVelocityRawQ32": 2576980377,
+    "FirstTouchRawQ32": 3006477107,
+    "StrikingRawQ32": 3006477107,
+    "LeftFootRawQ32": 3006477107
+  },
+  "SchemaVersion": 1,
+  "SourcePackVersion": "1.0.0"
+}

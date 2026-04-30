@@ -2,6 +2,57 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Phase-3 semantic slice foundation #4 first task — 22 IdentityPacket fixtures)
+
+SPEC.md Phase-3 line 142 closed. The first of five semantic-slice deliverables shipped end-to-end: 22 hand-authored IdentityPacket JSON fixtures + the C# schema/loader/validator code path + 31+3=34 test cases covering round-trip / validator / signature-affinity reads.
+
+**C# surface** (~520 LoC across 4 files in new `MatchSim/Content/` namespace):
+- `IdentityPacket.cs` — `sealed record` + nested `SignatureCandidate` (readonly record struct) + `IdentityPacketGenes` (sealed record). Phase-3 minimum subset of ADR-0006's full schema: PlayerId / DisplayNameFull / DisplayNameShort / RoleFamily / SignatureCandidates (0-3 entries) / Genes (6-of-22-fields subset) / SchemaVersion=1 / SourcePackVersion. Phase-4 schema-v2 bump adds the remaining 16 gene fields + phenotype labels + rivalry/lineage metadata via save-migration-fixtures.md 4-test discipline.
+- `IdentityPacketValidator.cs` — `IdentityPacketValidator.Validate` returns `ValidationResult(bool IsValid, IReadOnlyList<string> Errors)` non-fail-fast (caller gets full failure surface in one pass). Checks: ID-format regex (`^fwh\.core(?:\.v[0-9]+)?:player_[0-9]{5}$`); affinity weight in `[0, Fixed.One.RawValue]`; signature-candidate count ≤3; signature-ID format regex per ADR-0005; schema-version exact-match; role-family `Enum.IsDefined`; display-name presence; gene-field bounds in `[0, Fixed.One.RawValue]`. Phase-6 deferred: phenotype-label lint, real-player-name diff, SignatureCandidate.SignatureId resolution against loaded SignatureSO catalog.
+- `IdentityPackets.cs` — embedded-resource loader; `Load(archetype, jersey)` + `LoadAll()` + `Parse(json)`; process-lifetime `ConcurrentDictionary` cache; throws on resource-missing / validation-failure with full error list.
+- `RoleFamily.cs` — `byte` enum (8 contiguous values 1-8) serialized as string via `JsonStringEnumConverter`.
+- `IsExternalInitPolyfill.cs` — netstandard2.1 marker-type polyfill so `init` setters compile.
+
+**22 JSON fixtures** under `MatchSim/Content/identity-packets/<archetype>/<jersey>.json`:
+- Direct-Pressing 4-4-2 (jerseys 01-11): Erik Halvarsson GK / Mateus Korhonen RB / Ardo Vermeer & Casper Linde CBs / Tobias Renno LB / Jonas Pielke & Felix Aydar wingers (both carry low-cutback signature) / Aleks Brennan & Niko Sandven CMs (Brennan carries diagonal-switch) / Rafael Mendes-Cole & Liam Travers strikers (both carry near-post run).
+- Low-Block-Counter 4-5-1 (jerseys 01-11): Henrik Vasquez GK / Sami Lindahl RB / Marko Brennan & Joren Visser CBs / Petra Nordquist LB / Toma Velasco & Ryo Castellan wingers (both carry low-cutback) / Diego Hartmann & Yusuf Aren CMs (both carry diagonal-switch) / Anders Strom DM / Mikel Ostrowski lone striker (carries near-post run).
+- Caldren-flavored fictional names; no real-AAA-player collisions. Signature-affinity assignments role-coherent (lint-locked via the signature-affinity test file). Gene values use 0.5/0.6/0.7/0.8 buckets with role-appropriate biasing.
+
+**Tests** (34 new = 3+9+14+8 = 34 minus 3 = 31 originally + 3 added post-review):
+- `IdentityPacketRoundTripTests` (9 facts): load + cache identity + 22-count + per-archetype 11+11 (refactored to use loader directly per feature-dev:code-reviewer round-1 finding) + JSON serialize/deserialize round-trip + cross-fixture ID uniqueness + invalid-archetype + jersey-out-of-range.
+- `IdentityPacketValidatorTests` (17 facts including 3 added post-review): valid baseline + 22-fixture sweep + null packet + ID with pack-minor + ID with capitals + ID missing player_ suffix + affinity above one + affinity negative + 4 candidates + empty/whitespace display name + schema-version mismatch + role-family out-of-range + bad signature-ID format + invalid-JSON parse + **gene above one** (added) + **gene negative** (added) + **null Genes** (added).
+- `IdentityPacketSignatureAffinityTests` (8 facts): per-signature carrier counts + role-coherence per signature + affinity weight bounds + total-carriers smoke check.
+
+**Total tests: 537 passing** (was 503; +34 new).
+
+**Subagent rotation per CLAUDE.md §6.3**:
+- `feature-dev:code-architect` produced the implementation blueprint (tool_uses=7; plugin subagent worked) before authoring started.
+- `pr-review-toolkit:silent-failure-hunter` ran in parallel before commit — verdict: **CLEAN PASS**, no findings.
+- `pr-review-toolkit:type-design-analyzer` ran in parallel — flagged 2 actionable: (1) gene-bounds missing from validator (HIGH IMPACT — applied with 3 new tests); (2) `ValidationResult.Errors` mutability (`string[]` → `IReadOnlyList<string>`; applied + 1-character API change). Other ratings noted; not actioned at Phase 3 (records-without-constructor-guards is documented Phase-3-acceptable; positional-record-struct conversion is Phase-4 refactor).
+- `feature-dev:code-reviewer` ran in parallel — flagged 3: (1) brittle archetype-via-PlayerId-numeric-range test (Critical / 85; applied: refactored to iterate `BuiltInArchetypeNames` × jersey directly via `Load`); (2) `Parse` doc-comment cache-lifecycle clarity (Important / 80; applied); (3) `IsRoleFamilyDefined` contiguous-range vs `Enum.IsDefined` (Important / 80; applied).
+- Project-internal subagents (`narrative-director` rotation-table mandate for "Narrative / identity / signatures content"; `gameplay-programmer` for MatchSim code) skipped per the same invocation gap caught in the prior 2 /next pickups (Addressables init `0f420d7`, scenes `e93f138`); main-thread authoring with the architect's blueprint as guide, all reviewer findings applied. Honest framing per CLAUDE.md §6.3 fallback documentation rule.
+
+**Phase-3 dependencies**:
+- `MatchSim.csproj` adds `System.Text.Json` 9.0.0 (not transitively available on netstandard2.1).
+- `MatchSim.csproj` adds `IsExternalInit` polyfill (netstandard2.1 missing the marker type required for `init` setters; net5.0+ ships it).
+- `MatchSim.csproj` adds 2 explicit `EmbeddedResource` blocks (one per archetype subfolder) with locked `LogicalName` per the Codex round-4 P1#1 fresh-clone fix.
+
+**Lint exemptions**:
+- 3 inline `ui-lint:allow term="awakens"` exemptions for signature-mechanic vocabulary (`IdentityPacket.cs` / `IdentityPacketSignatureAffinityTests.cs` / SPEC.md line 142 closure note that quotes the exemption attribute). All 3 use catalog key `awakens` (matches `CATEGORY_B_TERMS` dict, not the regex match form `awaken`). <!-- ui-lint:allow term="awakens" reason="CHANGELOG meta-reference to the exemption attribute string used in the IdentityPacket files; not player-facing copy" reviewer="osagberg" -->
+- Lowercase `jerseyNumber` in error message bypasses A.5 `\bJersey\b` regex naturally; no exemption needed.
+
+**csproj cleanup**:
+- `MatchSim/Sim/CanonicalEncoder.cs:54` cref ambiguity for `ArrayBufferWriter<T>` (now in two assemblies post-System.Text.Json) replaced with plain `<c>System.Buffers.ArrayBufferWriter<byte></c>` formatting.
+
+**Verification**:
+- `fw verify` 537/537 green.
+- `git diff --check` clean (gitattributes exemption from b7af083 silences any Unity-emitted whitespace; no source-file whitespace regressions).
+- `fw verify-unity-plugins` clean.
+- Pinned 60-tick determinism hash unchanged.
+- All 22 fixtures pass the validator-fixture-sweep test.
+
+**Phase-3 semantic-slice next-task ladder**: 4 of 5 deliverables remaining — 3 active signatures (#13/#20/#22 trigger conditions in MatchSim BT layer); 1 MemoryEvent reader callback; 1 persistent development event; Viewer.EventBridge minimum implementation. The IdentityPacket fixtures now feed the affinity reads that the 3 active signatures will consult.
+
 ## 2026-04-30 (Phase-3 scenes — Boot.unity + MatchViewer.unity)
 
 SPEC.md Phase-3 line 139 closed. Created the two Phase-3 scenes via UnityMCP and registered them in `EditorBuildSettings.m_Scenes`.

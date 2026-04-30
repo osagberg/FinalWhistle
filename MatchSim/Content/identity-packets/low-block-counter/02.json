@@ -1,0 +1,17 @@
+{
+  "PlayerId": "fwh.core:player_00013",
+  "DisplayNameFull": "Sami Lindahl",
+  "DisplayNameShort": "S. Lindahl",
+  "RoleFamily": "FullBack",
+  "SignatureCandidates": [],
+  "Genes": {
+    "FastTwitchRawQ32": 2576980377,
+    "PatternRecognitionRawQ32": 2576980377,
+    "DecisionVelocityRawQ32": 2576980377,
+    "FirstTouchRawQ32": 2147483648,
+    "StrikingRawQ32": 2147483648,
+    "LeftFootRawQ32": 2147483648
+  },
+  "SchemaVersion": 1,
+  "SourcePackVersion": "1.0.0"
+}

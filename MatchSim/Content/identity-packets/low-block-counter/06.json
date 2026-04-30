@@ -1,0 +1,22 @@
+{
+  "PlayerId": "fwh.core:player_00017",
+  "DisplayNameFull": "Toma Velasco",
+  "DisplayNameShort": "T. Velasco",
+  "RoleFamily": "Winger",
+  "SignatureCandidates": [
+    {
+      "SignatureId": "fwh.core:signature.low-cutback-from-byline",
+      "AffinityWeightRaw": 3435973836
+    }
+  ],
+  "Genes": {
+    "FastTwitchRawQ32": 3435973836,
+    "PatternRecognitionRawQ32": 3006477107,
+    "DecisionVelocityRawQ32": 3006477107,
+    "FirstTouchRawQ32": 3006477107,
+    "StrikingRawQ32": 2576980377,
+    "LeftFootRawQ32": 2147483648
+  },
+  "SchemaVersion": 1,
+  "SourcePackVersion": "1.0.0"
+}

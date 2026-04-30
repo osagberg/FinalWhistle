@@ -1,0 +1,17 @@
+{
+  "PlayerId": "fwh.core:player_00005",
+  "DisplayNameFull": "Tobias Renno",
+  "DisplayNameShort": "T. Renno",
+  "RoleFamily": "FullBack",
+  "SignatureCandidates": [],
+  "Genes": {
+    "FastTwitchRawQ32": 3006477107,
+    "PatternRecognitionRawQ32": 2576980377,
+    "DecisionVelocityRawQ32": 2576980377,
+    "FirstTouchRawQ32": 2576980377,
+    "StrikingRawQ32": 2147483648,
+    "LeftFootRawQ32": 3435973836
+  },
+  "SchemaVersion": 1,
+  "SourcePackVersion": "1.0.0"
+}

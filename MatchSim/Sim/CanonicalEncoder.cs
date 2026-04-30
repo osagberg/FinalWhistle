@@ -51,7 +51,7 @@ namespace FinalWhistle.MatchSim.Sim;
 ///
 /// <para>
 /// <strong>Determinism:</strong> the encoder allocates an internal growable
-/// buffer (<see cref="ArrayBufferWriter{T}"/>); call <see cref="Reset"/> to
+/// buffer (<c>System.Buffers.ArrayBufferWriter&lt;byte&gt;</c>); call <see cref="Reset"/> to
 /// reuse the same instance for multiple encodings without re-allocating.
 /// </para>
 /// </summary>
