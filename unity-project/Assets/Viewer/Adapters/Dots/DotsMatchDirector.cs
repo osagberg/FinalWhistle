@@ -63,9 +63,15 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         [Tooltip("If true, RunTicks runs every FixedUpdate. Toggle off for static-formation Slice-2-style debugging.")]
         [SerializeField] private bool driveSim = true;
 
-        [Header("Determinism")]
-        [Tooltip("Locked at 1/60 to match canonical sim tick rate; do not change without re-running the cross-platform determinism gate.")]
-        [SerializeField] private float fixedDeltaTimeOverride = 1f / 60f;
+        // Canonical sim tick rate per `Tick.TicksPerSecond`. Hard-coded
+        // (NOT a [SerializeField]) per Codex round-1 P2 follow-up against
+        // 2a79529: an inspector-mutable knob is a load-bearing-determinism
+        // footgun — accidentally editing this to 0.02 / 0 / NaN would
+        // silently desync the FixedUpdate loop from the canonical 60Hz tick
+        // rate without any loud boundary failure. Deriving from the
+        // MatchSim const ensures it tracks the canonical rate if/when
+        // `Tick.TicksPerSecond` ever changes.
+        private const float CanonicalFixedDeltaTime = 1f / Tick.TicksPerSecond;
 
         private PitchView pitchView;
         private MatchSimulationState state;
@@ -76,6 +82,17 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         private MatchSimulationConfig config;
         private Seed matchSeed;
 
+        // Pre-allocated scratch buffers for the buffer-reusing RunTicks
+        // overload per Codex round-1 P2 follow-up against 2a79529: the
+        // FixedUpdate hot path no longer fresh-allocates 22 PlayerCommand
+        // entries per tick; these buffers live on the director for the
+        // match's lifetime + are reused across every RunTicks call. The
+        // per-match SignatureCooldownState (round-9 closure) lives on
+        // MatchSimulationState; these viewer-side scratch buffers live
+        // on the director.
+        private PlayerCommand[] homeCommandBuffer;
+        private PlayerCommand[] awayCommandBuffer;
+
         // High-water mark for ViewerEvent dispatch. ulong? collapses the
         // prior two-field shape (lastProcessedViewerEventId + bool
         // firstViewerEventConsumed) into one self-documenting state per
@@ -83,6 +100,17 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         // event consumed yet"; otherwise the highest dispatched id.
         private ulong? lastProcessedViewerEventId;
         private bool warnedAdapterRootMissing;
+
+        // Cached canonical-state event-stream lengths per Codex round-1 P2
+        // follow-up against 2a79529: skip EventBridge.Derive (which
+        // allocates List<ViewerEvent> + Dictionary + ReadOnlyCollection
+        // per call) on quiet ticks where neither the KeyEvents stream nor
+        // the SignatureRecipes stream advanced. Phase-3 KeyEvent counts
+        // are <10 per match, so most ticks are "quiet" — eliminating the
+        // wasted allocation eliminates ~120 empty-container allocations
+        // per second on the live viewer hot path.
+        private int lastKeyEventCount;
+        private int lastSignatureRecipeCount;
 
         // [NonSerialized] per pr-review-toolkit silent-failure-hunter
         // Slice-3 P2: a Unity domain-reload during play mode would
@@ -129,8 +157,16 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             config = new MatchSimulationConfig(matchSeed);
             state = MatchSimulationState.FromArchetypeFormations(
                 Tick.Zero, BallState.AtRest, homeArchetype, awayArchetype);
+            // Pre-allocate scratch buffers once at match start for the
+            // buffer-reusing RunTicks overload (per the field doc-comment
+            // above; eliminates 22 PlayerCommand[] entries × 60Hz of
+            // fresh allocations on the FixedUpdate hot path).
+            homeCommandBuffer = new PlayerCommand[MatchCanonicalState.PlayersPerTeam];
+            awayCommandBuffer = new PlayerCommand[MatchCanonicalState.PlayersPerTeam];
             lastProcessedViewerEventId = null;
             warnedAdapterRootMissing = false;
+            lastKeyEventCount = state.KeyEvents.Count;
+            lastSignatureRecipeCount = state.SignatureRecipes.Count;
         }
 
         private void Start()
@@ -149,7 +185,7 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             if (!fixedDeltaTimeOverrideApplied)
             {
                 priorFixedDeltaTime = Time.fixedDeltaTime;
-                Time.fixedDeltaTime = fixedDeltaTimeOverride;
+                Time.fixedDeltaTime = CanonicalFixedDeltaTime;
                 fixedDeltaTimeOverrideApplied = true;
             }
         }
@@ -178,14 +214,18 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             // N+1) - StartTick (N) = 1, off-by-one.
             long preAdvanceTick = state.CurrentTick.Value;
 
-            // Advance the canonical sim by exactly one tick. The chunked-
-            // vs-single-call invariant is pinned by
-            // Match_ChunkedRunTicksWithSignatures_ProducesIdenticalHashAndEventStream
+            // Advance the canonical sim by exactly one tick via the
+            // buffer-reusing RunTicks overload (Codex round-1 P2 follow-up
+            // against 2a79529). The chunked-vs-single-call invariant is
+            // pinned by Match_ChunkedRunTicksWithSignatures_ProducesIdenticalHashAndEventStream
             // in MatchSim.Tests — RunTicks(ticks=1) × N produces byte-identical
             // canonical state to RunTicks(ticks=N) for the smoke fixture and
             // for the LowCutback trigger fixture (round-10 follow-up). The
             // per-match SignatureCooldownState lives on MatchSimulationState
             // (round-9 closure), so it persists across these chunked calls.
+            // The buffer-reusing path is pinned byte-identical to the
+            // fresh-allocation path by Match_RunTicks_BufferReusing_ProducesIdenticalCanonicalState
+            // (Slice-3 follow-up).
             MatchSimulationRunner.RunTicks(
                 state, homeArchetype, awayArchetype,
                 homePackets, awayPackets,
@@ -193,6 +233,7 @@ namespace FinalWhistle.Viewer.Adapters.Dots
                 BallPhysicsCoefficients.Phase3Seeds,
                 config,
                 SignatureConfig.Phase3Defaults,
+                homeCommandBuffer, awayCommandBuffer,
                 ticks: 1);
 
             // Push the new canonical-state snapshot to the dot pool BEFORE
@@ -205,6 +246,25 @@ namespace FinalWhistle.Viewer.Adapters.Dots
 
         private void DispatchNewViewerEvents(long preAdvanceTick)
         {
+            // Quiet-tick shortcut per Codex round-1 P2 follow-up against
+            // 2a79529: skip the bridge entirely when neither the canonical
+            // KeyEvents stream nor the SignatureRecipes stream advanced
+            // since the last call. EventBridge.Derive allocates a List +
+            // Dictionary + ReadOnlyCollection per call regardless of
+            // event count; at Phase-3 KeyEvent counts (<10 per match),
+            // most ticks are quiet and these allocations are pure waste.
+            // Tracking the prior counts is a 2-int compare per FixedUpdate
+            // — orders of magnitude cheaper than the alloc.
+            int currentKeyEventCount = state.KeyEvents.Count;
+            int currentRecipeCount = state.SignatureRecipes.Count;
+            if (currentKeyEventCount == lastKeyEventCount
+                && currentRecipeCount == lastSignatureRecipeCount)
+            {
+                return;
+            }
+            lastKeyEventCount = currentKeyEventCount;
+            lastSignatureRecipeCount = currentRecipeCount;
+
             // Re-derive the full ViewerEvent list once per tick per blueprint
             // Decision 4: O(n) in KeyEvent count, negligible at Phase-3 counts
             // (<10 per 90-min match). Phase-4+ may add an incremental

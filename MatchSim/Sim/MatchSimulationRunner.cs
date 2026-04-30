@@ -120,6 +120,62 @@ public static class MatchSimulationRunner
         SignatureConfig signatureConfig,
         int ticks)
     {
+        // Convenience overload that allocates fresh PlayerCommand[] scratch
+        // buffers per call. Used by tests + headless batch runs where GC
+        // pressure is not a concern. Live FixedUpdate-driven callers should
+        // use the buffer-accepting overload below to avoid allocating two
+        // 11-element arrays per tick (Codex round-1 P2 follow-up against
+        // 2a79529: at 60Hz × 90min = 324_000 fresh allocations per match,
+        // which becomes a real GC concern once Slice 4+ adds shot cameras
+        // and Slice 5+ adds URP custom passes that compete for the same
+        // managed heap).
+        PlayerCommand[] homeCommands = new PlayerCommand[MatchCanonicalState.PlayersPerTeam];
+        PlayerCommand[] awayCommands = new PlayerCommand[MatchCanonicalState.PlayersPerTeam];
+        RunTicks(state, homeArchetype, awayArchetype,
+            homePackets, awayPackets,
+            kinematics, ballCoefficients, config, signatureConfig,
+            homeCommands, awayCommands, ticks);
+    }
+
+    /// <summary>
+    /// Buffer-reusing overload per Codex round-1 P2 follow-up against
+    /// <c>2a79529</c>: live <c>FixedUpdate</c>-driven callers (Slice 3
+    /// dots adapter; future viewer / replay loops) cache <see cref="PlayerCommand"/>
+    /// scratch buffers once at session start + reuse them across every
+    /// <c>RunTicks</c> call to avoid the per-tick allocation.
+    ///
+    /// <para>
+    /// <strong>Determinism:</strong> the buffers are pure write-then-read
+    /// scratch space within a single tick — BT writes commands, actuators
+    /// read them in the same iteration. Reusing the buffer across ticks
+    /// is safe because every cell is unconditionally rewritten by the BT
+    /// before the actuator reads it. Canonical-state output is byte-identical
+    /// to the fresh-allocation overload above; the
+    /// <c>Match_RunTicks_BufferReusing_ProducesIdenticalCanonicalState</c>
+    /// regression in MatchSim.Tests pins this claim.
+    /// </para>
+    ///
+    /// <para>
+    /// <strong>Buffer length contract:</strong> both buffers MUST be
+    /// exactly <see cref="MatchCanonicalState.PlayersPerTeam"/> entries.
+    /// Throws on length mismatch — silently truncating or overflowing
+    /// would silently corrupt canonical state.
+    /// </para>
+    /// </summary>
+    public static void RunTicks(
+        MatchSimulationState state,
+        BehaviorTreeArchetype homeArchetype,
+        BehaviorTreeArchetype awayArchetype,
+        IdentityPacket[] homePackets,
+        IdentityPacket[] awayPackets,
+        PlayerKinematics kinematics,
+        BallPhysicsCoefficients ballCoefficients,
+        MatchSimulationConfig config,
+        SignatureConfig signatureConfig,
+        PlayerCommand[] homeCommandBuffer,
+        PlayerCommand[] awayCommandBuffer,
+        int ticks)
+    {
         if (state is null)
         {
             throw new ArgumentNullException(nameof(state));
@@ -140,6 +196,26 @@ public static class MatchSimulationRunner
         {
             throw new ArgumentNullException(nameof(awayPackets));
         }
+        if (homeCommandBuffer is null)
+        {
+            throw new ArgumentNullException(nameof(homeCommandBuffer));
+        }
+        if (awayCommandBuffer is null)
+        {
+            throw new ArgumentNullException(nameof(awayCommandBuffer));
+        }
+        if (homeCommandBuffer.Length != MatchCanonicalState.PlayersPerTeam)
+        {
+            throw new ArgumentException(
+                $"homeCommandBuffer must have {MatchCanonicalState.PlayersPerTeam} entries; got {homeCommandBuffer.Length}.",
+                nameof(homeCommandBuffer));
+        }
+        if (awayCommandBuffer.Length != MatchCanonicalState.PlayersPerTeam)
+        {
+            throw new ArgumentException(
+                $"awayCommandBuffer must have {MatchCanonicalState.PlayersPerTeam} entries; got {awayCommandBuffer.Length}.",
+                nameof(awayCommandBuffer));
+        }
         if (ticks < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(ticks), ticks, "ticks must be non-negative.");
@@ -151,8 +227,6 @@ public static class MatchSimulationRunner
         // unused-warning by reading it once into a discard.
         _ = config;
 
-        PlayerCommand[] homeCommands = new PlayerCommand[MatchCanonicalState.PlayersPerTeam];
-        PlayerCommand[] awayCommands = new PlayerCommand[MatchCanonicalState.PlayersPerTeam];
         // Per-match cooldown lives on MatchSimulationState (closes Codex round-9
         // P1): chunked-tick callers (viewer/replay loops driving ticks=1 in a
         // hot loop) reuse the same SignatureCooldownState instance across every
@@ -164,22 +238,22 @@ public static class MatchSimulationRunner
         for (int t = 0; t < ticks; t++)
         {
             BehaviorTreeRunner.Tick(state.Ball, state.HomeTeam, state.AwayTeam,
-                TeamSide.Home, homeArchetype, kinematics, homeCommands);
+                TeamSide.Home, homeArchetype, kinematics, homeCommandBuffer);
             BehaviorTreeRunner.Tick(state.Ball, state.AwayTeam, state.HomeTeam,
-                TeamSide.Away, awayArchetype, kinematics, awayCommands);
+                TeamSide.Away, awayArchetype, kinematics, awayCommandBuffer);
 
             for (int i = 0; i < MatchCanonicalState.PlayersPerTeam; i++)
             {
                 state.HomeTeam[i] = PlayerActuator.Step(
-                    state.HomeTeam[i], homeCommands[i].DesiredPosition,
-                    homeCommands[i].DesiredSpeed, kinematics);
+                    state.HomeTeam[i], homeCommandBuffer[i].DesiredPosition,
+                    homeCommandBuffer[i].DesiredSpeed, kinematics);
             }
 
             for (int i = 0; i < MatchCanonicalState.PlayersPerTeam; i++)
             {
                 state.AwayTeam[i] = PlayerActuator.Step(
-                    state.AwayTeam[i], awayCommands[i].DesiredPosition,
-                    awayCommands[i].DesiredSpeed, kinematics);
+                    state.AwayTeam[i], awayCommandBuffer[i].DesiredPosition,
+                    awayCommandBuffer[i].DesiredSpeed, kinematics);
             }
 
             // Cache pre-step ball before BallPhysics mutates state.Ball, so

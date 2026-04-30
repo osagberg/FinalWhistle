@@ -311,6 +311,118 @@ public sealed class MatchDeterminismTests
     }
 
     [Fact]
+    public void Match_RunTicks_BufferReusing_ProducesIdenticalCanonicalState()
+    {
+        // Closes Codex round-1 P2 follow-up against 2a79529: the Slice-3
+        // FixedUpdate-driven dots adapter calls RunTicks(ticks=1) at 60Hz.
+        // The convenience overload allocates fresh PlayerCommand[] scratch
+        // buffers per call (22 small structs × 60Hz = real GC pressure as
+        // Slice 4+ adds shot cameras + URP custom passes that compete for
+        // the same managed heap). The buffer-reusing overload accepts
+        // pre-allocated scratch buffers; this test pins that the two
+        // overloads produce byte-identical canonical state on the smoke
+        // fixture.
+        BehaviorTreeArchetype direct = BehaviorTreeArchetypes.Load("direct-pressing");
+        BehaviorTreeArchetype lowBlock = BehaviorTreeArchetypes.Load("low-block-counter");
+        IdentityPacket[] homePackets = LoadArchetypePackets("direct-pressing");
+        IdentityPacket[] awayPackets = LoadArchetypePackets("low-block-counter");
+
+        // Run A: convenience overload (fresh-allocates buffers per call).
+        MatchSimulationState a = BuildSmokeFixture(direct, lowBlock);
+        for (int t = 0; t < 60; t++)
+        {
+            MatchSimulationRunner.RunTicks(a, direct, lowBlock,
+                homePackets, awayPackets,
+                PlayerKinematics.Phase3Defaults,
+                BallPhysicsCoefficients.Phase3Seeds,
+                MatchSimulationConfig.Default,
+                SignatureConfig.Phase3Defaults,
+                ticks: 1);
+        }
+
+        // Run B: buffer-reusing overload (caches buffers once + reuses across
+        // every chunked call). 22 small structs × 60 ticks × 0 fresh allocations
+        // = the perf-sensitive path the dots adapter wants for FixedUpdate.
+        MatchSimulationState b = BuildSmokeFixture(direct, lowBlock);
+        PlayerCommand[] homeBuffer = new PlayerCommand[MatchCanonicalState.PlayersPerTeam];
+        PlayerCommand[] awayBuffer = new PlayerCommand[MatchCanonicalState.PlayersPerTeam];
+        for (int t = 0; t < 60; t++)
+        {
+            MatchSimulationRunner.RunTicks(b, direct, lowBlock,
+                homePackets, awayPackets,
+                PlayerKinematics.Phase3Defaults,
+                BallPhysicsCoefficients.Phase3Seeds,
+                MatchSimulationConfig.Default,
+                SignatureConfig.Phase3Defaults,
+                homeBuffer, awayBuffer,
+                ticks: 1);
+        }
+
+        // Byte-identical canonical state across both overloads.
+        Assert.Equal(MatchCanonicalState.ComputeHash(a), MatchCanonicalState.ComputeHash(b));
+        // Both must also match the pinned smoke-seed hash so the new
+        // overload doesn't drift the canonical-state baseline either.
+        Assert.Equal(SmokeSeed60TickHash, MatchCanonicalState.ComputeHash(b));
+        Assert.Equal(a.KeyEvents.Count, b.KeyEvents.Count);
+        Assert.Equal(a.SignatureRecipes.Count, b.SignatureRecipes.Count);
+    }
+
+    [Fact]
+    public void Match_RunTicks_BufferReusing_RejectsWrongLengthBuffers()
+    {
+        // The buffer contract is exactly MatchCanonicalState.PlayersPerTeam
+        // (= 11) entries per buffer. Wrong length must throw rather than
+        // silently truncating or overflowing — silent truncation would
+        // corrupt canonical state.
+        BehaviorTreeArchetype direct = BehaviorTreeArchetypes.Load("direct-pressing");
+        BehaviorTreeArchetype lowBlock = BehaviorTreeArchetypes.Load("low-block-counter");
+        IdentityPacket[] homePackets = LoadArchetypePackets("direct-pressing");
+        IdentityPacket[] awayPackets = LoadArchetypePackets("low-block-counter");
+        MatchSimulationState state = BuildSmokeFixture(direct, lowBlock);
+
+        PlayerCommand[] tooFew = new PlayerCommand[10];
+        PlayerCommand[] correct = new PlayerCommand[MatchCanonicalState.PlayersPerTeam];
+
+        Assert.Throws<ArgumentException>(() =>
+            MatchSimulationRunner.RunTicks(state, direct, lowBlock,
+                homePackets, awayPackets,
+                PlayerKinematics.Phase3Defaults,
+                BallPhysicsCoefficients.Phase3Seeds,
+                MatchSimulationConfig.Default,
+                SignatureConfig.Phase3Defaults,
+                tooFew, correct,
+                ticks: 1));
+        Assert.Throws<ArgumentException>(() =>
+            MatchSimulationRunner.RunTicks(state, direct, lowBlock,
+                homePackets, awayPackets,
+                PlayerKinematics.Phase3Defaults,
+                BallPhysicsCoefficients.Phase3Seeds,
+                MatchSimulationConfig.Default,
+                SignatureConfig.Phase3Defaults,
+                correct, tooFew,
+                ticks: 1));
+
+        Assert.Throws<ArgumentNullException>(() =>
+            MatchSimulationRunner.RunTicks(state, direct, lowBlock,
+                homePackets, awayPackets,
+                PlayerKinematics.Phase3Defaults,
+                BallPhysicsCoefficients.Phase3Seeds,
+                MatchSimulationConfig.Default,
+                SignatureConfig.Phase3Defaults,
+                null!, correct,
+                ticks: 1));
+        Assert.Throws<ArgumentNullException>(() =>
+            MatchSimulationRunner.RunTicks(state, direct, lowBlock,
+                homePackets, awayPackets,
+                PlayerKinematics.Phase3Defaults,
+                BallPhysicsCoefficients.Phase3Seeds,
+                MatchSimulationConfig.Default,
+                SignatureConfig.Phase3Defaults,
+                correct, null!,
+                ticks: 1));
+    }
+
+    [Fact]
     public void Match_ChunkedRunTicks_LowCutbackFiresOnceAcrossChunkedAndSingleCallRuns()
     {
         // Codex round-10 P2: prior chunked-tick regressions (smoke fixture
