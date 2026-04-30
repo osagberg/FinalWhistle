@@ -2,6 +2,34 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Addressables groups initialized — Phase-3 bootstrap line 138)
+
+Ran `AddressableAssetSettingsDefaultObject.GetSettings(true)` via UnityMCP `execute_code`; Unity auto-provisioned the canonical default Addressables harness:
+
+- `Assets/AddressableAssetsData/AddressableAssetSettings.asset` (root settings)
+- `Assets/AddressableAssetsData/DefaultObject.asset` (singleton reference)
+- `AssetGroups/Default Local Group.asset` (the one default group)
+- `AssetGroups/Schemas/Default Local Group_BundledAssetGroupSchema.asset`
+- `AssetGroups/Schemas/Default Local Group_ContentUpdateGroupSchema.asset`
+- `AssetGroupTemplates/Packed Assets.asset`
+- `DataBuilders/BuildScriptFastMode.asset`
+- `DataBuilders/BuildScriptPackedMode.asset`
+- `DataBuilders/BuildScriptPackedPlayMode.asset`
+
+11 .asset files + 11 .meta files = 22 net-new tracked paths.
+
+Phase-3 minimum scope only — no custom group naming, no preview cache configuration, no schema authoring beyond the two Unity auto-creates. Phase-4+ trigger when content packs (IdentityPackets / ShotTypeSO / SignatureSO) start landing as Addressables-loaded content.
+
+**Subagent rotation note (CLAUDE.md §6.3 mandatory rotation table)**: This task's class is "Unity / Viewer" → required agent `unity-specialist` per the table. Delegation attempted but the subagent returned narrated success with `tool_uses: 0` (the same project-subagent invocation issue logged in the prior compaction notes). Fell back to main-thread MCP-driving per the §6.3 MAY-list ("Driving MCP tools directly when the action is one logical operation") — Addressables init is a single `execute_code` call + `refresh_unity` + `read_console` triplet, well inside the MAY-list scope. This is the documented per-CLAUDE.md fallback when the rotation-table mandate cannot fire.
+
+Verification:
+- UnityMCP `refresh_unity` (force / all / compile=request / wait_for_ready=true): completed, ready.
+- UnityMCP `read_console`: zero code errors, zero code warnings. Pre-existing transport-level `MCP-FOR-UNITY: [WebSocket] Unexpected receive error: WebSocket is not initialised` blip present but is not a code regression.
+- `fw verify` 503/503 green.
+- Pinned 60-tick determinism hash sha256:7e851976...50e unchanged (no MatchSim source touched).
+
+Sequence: first /next pickup after the round-4 hardening sequence completed. Still 6 Phase-3 tasks remaining before the semantic slice (foundation #4) work begins: scenes (Boot.unity / MatchViewer.unity), the 22 IdentityPacket fixtures, 3 active signatures, MemoryEvent reader, dev event, observer-pool recruitment (user-action), Viewer.EventBridge, dots adapter, devlog clips. Match-replay skill end-to-end is a meta-task that lands once the dots adapter ships its 3 of 7 shot types.
+
 ## 2026-04-30 (Process discipline — CLAUDE.md §6.3 mandatory rotation table + /next gate)
 
 Per Codex round-4 follow-up plan, commit #6 of 6 — final commit in the round-4 hardening sequence. Closes audit-06 P0/P1 capability-under-utilization findings (8 of 15 project agents at ZERO invocations across 36 agent events).
