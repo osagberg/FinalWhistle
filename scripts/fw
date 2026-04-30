@@ -62,9 +62,19 @@ COMMANDS (implemented)
                     Catches "forgot to rerun build-unity-plugins" before
                     Codex / CI does (SPEC 2026-04-30 Codex round-4 entry).
     test            dotnet test against FinalWhistle.slnx (MatchSim + tests)
+    replay <seed> --compare-corpus
+                    Run a corpus seed + compare against the matching
+                    fixture under MatchSim.Tests/fixtures/replay-corpus/.
+                    Phase-3: only 0xdeadbeefdeadbeef supported (Tier-A
+                    smoke seed); other seeds gate on Phase 6 corpus
+                    expansion per golden-replay-corpus.md.
+    save-migration-test
+                    Run save-migration fixture suite. Phase-3 stub-active:
+                    exits 0 when no fixtures present. First real fixture
+                    lands when MemoryEvent ships (Phase 4) per
+                    save-migration-fixtures.md.
 
 COMMANDS (stubbed — land when their phase trigger hits)
-    replay <seed>   Run one deterministic replay, print final hash (Phase 3)
     content-lint    Full content-pack validator (Phase 6)
     build-local     Unity build, current platform only (Phase 3)
     package-playtest   Signed build zip for itch upload (Phase 4)
@@ -81,9 +91,11 @@ EOF
         "$0" banned-terms
         "$0" shader-audit
         "$0" verify-unity-plugins
+        "$0" save-migration-test
         "$0" test
-        # Future additions: determinism smoke / corpus replay (Phase 3),
-        # content-lint (Phase 6).
+        # Future additions: corpus replay --compare-corpus once the
+        # umbrella's runtime budget can absorb it (currently `fw test`
+        # already covers the smoke fixture via xUnit), content-lint (Phase 6).
         ;;
 
     banned-terms)
@@ -587,12 +599,118 @@ EOF
         exec dotnet test "$solution" --nologo "$@"
         ;;
 
-    replay|content-lint|build-local|package-playtest)
+    replay)
+        # Phase-3 enforcement-skeleton-rollout per SPEC 2026-04-28 + Codex
+        # round-4 follow-up plan (commit #4 of 6, 2026-04-30).
+        #
+        # Tier-A CI contract per design/specs/golden-replay-corpus.md §Tier A:
+        #   `fw replay <seed> --compare-corpus`
+        # Runs the seed through MatchSim headless, computes actual hashes,
+        # compares against the corpus fixture's expected fields, exits 0
+        # on match / non-zero on drift. Must complete in under 30 seconds
+        # on GitHub-hosted Linux.
+        #
+        # Phase-3 implementation: shells out to `dotnet test --filter` against
+        # the corpus-fixture-validating Fact in MatchDeterminismTests.cs.
+        # That Fact reads the JSON fixture + asserts its expected hash
+        # matches the in-code SmokeSeed60TickHash constant. The constant
+        # is itself verified by the load-bearing
+        # Match_SmokeFixture60Ticks_ProducesPinnedCanonicalStateHash test
+        # (the actual sim-run); together they form the corpus contract.
+        # Phase-4+ may upgrade this to a dedicated dotnet console tool
+        # (`MatchSim.Tools.Replay`) as fixture count grows; for one fixture
+        # the dotnet-test shell-out is appropriate.
+        echo "=== Final Whistle — fw replay ==="
+        echo
+        seed="${1:-}"
+        flag="${2:-}"
+        if [ -z "$seed" ]; then
+            cat >&2 <<EOF
+fw replay: missing <seed> argument.
+
+USAGE:
+    scripts/fw replay <seed> [--compare-corpus]
+
+  <seed>             16-hex-digit canonical seed, e.g. 0xdeadbeefdeadbeef.
+  --compare-corpus   Compare run output against the matching corpus fixture
+                     under MatchSim.Tests/fixtures/replay-corpus/<seed>.json.
+                     Currently the only supported mode for Phase 3 — bare
+                     replay (without comparison) is Phase 4+ scope.
+EOF
+            exit 2
+        fi
+
+        if [ "$flag" != "--compare-corpus" ]; then
+            cat >&2 <<EOF
+fw replay: only --compare-corpus is implemented at Phase 3.
+
+USAGE:
+    scripts/fw replay $seed --compare-corpus
+
+Phase 4+ adds bare replay + --regenerate-corpus + --all flags per the
+golden-replay-corpus.md spec.
+EOF
+            exit 2
+        fi
+
+        # Phase-3 covers the smoke seed only. Other seeds trigger when
+        # additional fixtures land in Phase-6 corpus expansion.
+        if [ "$seed" != "0xdeadbeefdeadbeef" ]; then
+            cat >&2 <<EOF
+fw replay: only the Tier-A smoke seed (0xdeadbeefdeadbeef) is implemented at
+Phase 3. Other seeds gate on Phase-6 corpus expansion (20-50 fixtures per
+the corpus growth policy in design/specs/golden-replay-corpus.md).
+EOF
+            exit 2
+        fi
+
+        if ! command -v dotnet >/dev/null 2>&1; then
+            echo "FAIL: dotnet SDK not found on PATH." >&2
+            exit 2
+        fi
+
+        echo "Running corpus-fixture compare for seed $seed..."
+        # The fixture-validating Fact + the actual-run Fact together form
+        # the corpus contract. Both must pass for a green replay.
+        exec dotnet test "$ROOT/FinalWhistle.slnx" \
+            --filter "FullyQualifiedName~Replay_SmokeCorpusFixture_AgreesWithPinnedInCodeHash|FullyQualifiedName~Match_SmokeFixture60Ticks_ProducesPinnedCanonicalStateHash" \
+            --nologo
+        ;;
+
+    save-migration-test)
+        # Phase-3 enforcement-skeleton-rollout per SPEC 2026-04-28 + Codex
+        # round-4 follow-up plan (commit #4 of 6, 2026-04-30).
+        #
+        # Stub-active: exits 0 when no fixtures are present under
+        # MatchSim.Tests/fixtures/save-migration/. First real fixture
+        # lands when MemoryEvent ships its first schema (Phase 4).
+        # Wired into `fw verify` umbrella because the no-fixtures path
+        # is essentially zero-cost.
+        echo "=== Final Whistle — save-migration-test ==="
+        echo
+        fixtures_dir="$ROOT/MatchSim.Tests/fixtures/save-migration"
+        if [ ! -d "$fixtures_dir" ]; then
+            echo "OK: $fixtures_dir does not exist yet — Phase-4 trigger."
+            exit 0
+        fi
+        # Count actual fixture files (anything other than .gitkeep).
+        fixture_count=$(find "$fixtures_dir" -type f ! -name '.gitkeep' 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$fixture_count" = "0" ]; then
+            echo "OK: no save-migration fixtures yet (Phase-4 trigger when MemoryEvent ships)."
+            exit 0
+        fi
+        echo "FAIL: $fixture_count save-migration fixture(s) present but no Phase-4" >&2
+        echo "      runner is implemented yet." >&2
+        echo "      Either remove the fixtures or implement the runner." >&2
+        exit 2
+        ;;
+
+    content-lint|build-local|package-playtest)
         cat >&2 <<EOF
 fw: '$cmd' is not implemented yet at this phase.
 
 Implementation lands at its phase trigger:
-  replay / build-local         Phase 3 (Unity bootstrap + MatchSim prototype)
+  build-local                  Phase 3 (Unity build, current platform only)
   package-playtest             Phase 4 (closed itch distribution)
   content-lint                 Phase 6 (full content-pack validator)
 

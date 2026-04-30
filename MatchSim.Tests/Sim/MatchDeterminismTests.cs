@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
 using FinalWhistle.MatchSim.Sim;
 using Xunit;
 
@@ -67,6 +69,101 @@ public sealed class MatchDeterminismTests
     #endregion
 
     #region Pinned-hash bedrock — cross-platform parity
+
+    [Fact]
+    public void Replay_SmokeCorpusFixture_AgreesWithPinnedInCodeHash()
+    {
+        // Phase-3 enforcement-skeleton-rollout per SPEC 2026-04-28 + Codex
+        // round-4 follow-up plan (commit #4 of 6, 2026-04-30). The corpus
+        // fixture at MatchSim.Tests/fixtures/replay-corpus/0xdeadbeefdeadbeef.json
+        // is the on-disk artifact form of the same smoke gate exercised by
+        // Match_SmokeFixture60Ticks_ProducesPinnedCanonicalStateHash above.
+        //
+        // This test prevents drift between the fixture's expected.final_canonical_state_hash
+        // string and the in-code SmokeSeed60TickHash constant. If the hash
+        // is intentionally re-baselined (e.g., a future schema bump), both
+        // must move together — the fixture file is the corpus contract,
+        // the constant is the test bedrock; they MUST agree.
+        //
+        // The actual `fw replay <seed> --compare-corpus` command shells out
+        // to `dotnet test --filter` against this test class; this Fact is
+        // the load-bearing assertion that satisfies the Tier-A CI contract
+        // documented in design/specs/golden-replay-corpus.md §Tier A.
+        string fixturePath = LocateCorpusFixture("0xdeadbeefdeadbeef.json");
+        Assert.True(File.Exists(fixturePath),
+            $"Corpus fixture missing: {fixturePath}. Phase-3 enforcement-skeleton " +
+            $"requires fixtures/replay-corpus/0xdeadbeefdeadbeef.json per SPEC " +
+            $"2026-04-28 enforcement-skeleton-rollout entry.");
+
+        using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(fixturePath));
+        JsonElement root = doc.RootElement;
+
+        // Schema version must match what this test was authored against;
+        // a bump to v2 means the fixture format changed and this test
+        // needs review.
+        Assert.Equal(1, root.GetProperty("corpus_schema_version").GetInt32());
+
+        // Match seed string must be lowercase hex with 0x prefix per spec.
+        Assert.Equal("0xdeadbeefdeadbeef", root.GetProperty("match_seed").GetString());
+
+        // Sim length must match the in-code 60-tick smoke fixture.
+        Assert.Equal(60, root.GetProperty("sim_length_ticks").GetInt32());
+
+        // The load-bearing claim: fixture's final canonical-state hash
+        // must equal the constant pinned in this test class.
+        JsonElement expected = root.GetProperty("expected");
+        string fixtureHash = expected.GetProperty("final_canonical_state_hash").GetString()
+            ?? throw new InvalidOperationException("final_canonical_state_hash missing or null");
+        Assert.True(fixtureHash == SmokeSeed60TickHash,
+            $"Corpus fixture hash drift.\n" +
+            $"  In-code constant: {SmokeSeed60TickHash}\n" +
+            $"  Fixture file:     {fixtureHash}\n" +
+            $"  Path: {fixturePath}\n" +
+            $"If this is intentional (schema bump), update both in the same commit.");
+
+        // Phase-3 smoke at 60 ticks at centre never scores — final score
+        // is [0,0]. Belt-and-suspenders: prevents a fixture author from
+        // typo-ing a non-zero score.
+        JsonElement finalScore = expected.GetProperty("final_score");
+        Assert.Equal(2, finalScore.GetArrayLength());
+        Assert.Equal(0, finalScore[0].GetInt32());
+        Assert.Equal(0, finalScore[1].GetInt32());
+
+        // Phase-3 smoke produces zero KeyEvents — pre-out / post-out
+        // short-circuits prevent any restart emission with the ball at
+        // centre over 60 ticks. Pinned at empty array.
+        Assert.Equal(0, expected.GetProperty("key_event_hashes").GetArrayLength());
+    }
+
+    /// <summary>
+    /// Locate a corpus fixture file. xUnit runs from the test bin directory;
+    /// the fixtures live alongside source files at the project root. Walk
+    /// up until we find <c>fixtures/replay-corpus/</c>.
+    /// </summary>
+    private static string LocateCorpusFixture(string fileName)
+    {
+        string current = AppContext.BaseDirectory;
+        for (int depth = 0; depth < 10; depth++)
+        {
+            string candidate = Path.Combine(current, "fixtures", "replay-corpus", fileName);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+            DirectoryInfo? parent = Directory.GetParent(current);
+            if (parent is null)
+            {
+                break;
+            }
+            current = parent.FullName;
+        }
+        // Last-ditch: the canonical project-relative path. Returned even if
+        // missing so the assertion message points to where authors should
+        // put the file.
+        return Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "fixtures",
+            "replay-corpus", fileName);
+    }
 
     [Fact]
     public void Match_SmokeFixture60Ticks_ProducesPinnedCanonicalStateHash()
