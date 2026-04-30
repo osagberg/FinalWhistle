@@ -1,0 +1,25 @@
+{
+    "name": "FinalWhistle.Viewer.Tests.EditMode",
+    "rootNamespace": "FinalWhistle.Viewer.Tests.EditMode",
+    "references": [
+        "FinalWhistle.Viewer.Contracts"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "autoReferenced": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll",
+        "FinalWhistle.MatchSim.dll"
+    ],
+    "autoReferencedPackages": [],
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

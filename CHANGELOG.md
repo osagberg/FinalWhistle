@@ -2,6 +2,60 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Phase-3 semantic slice #5 of 5 — Viewer.EventBridge minimum implementation; Phase-3 semantic-slice ladder COMPLETE)
+
+SPEC.md Phase-3 line 148 closed. Final of five semantic-slice deliverables shipped end-to-end: `Viewer.EventBridge.Derive(state, matchSeed)` consumes the canonical MatchSim KeyEvent stream + the Phase-3 `ShotTypeCatalog` and emits a deterministic `ViewerEvent` stream sorted by `(StartTick ascending, ViewerEventId ascending)` per ADR-0008 §"Determinism contract." Verified end-to-end via UnityMCP `run_tests`: 21/21 EditMode tests pass in 1.12 seconds in the actual deploy environment.
+
+**Architectural posture**:
+- **EventBridge home is locked in `Viewer.Contracts`** (NOT `Viewer.Core`) per `.claude/rules/Scripts/Viewer/RULES.md` + SPEC 2026-04-30 Codex round-4 entry: the asmdef-level `noEngineReferences: true` flag makes a stray `using UnityEngine` in bridge code a compile error, architecturally enforcing ADR-0008's "no Unity APIs in deterministic conversion" contract.
+- **MatchSim never sees `ViewerEvent`** — the bridge is a consumer of canonical sim state, not an emitter. Pinned 60-tick `MatchCanonicalState` hash UNCHANGED.
+
+**New files** (10 new + 1 modified) under `unity-project/Assets/Viewer/`:
+- Contracts/ (9 new + 1 modified): `AdapterId.cs` / `CallbackSlotValue.cs` / `EventBridge.cs` / `MemoryHit.cs` / `ReduceMotionStrategy.cs` / `ShotCategory.cs` / `ShotTypeCatalog.cs` / `ShotTypeDefinition.cs` / `ViewerEvent.cs` + modified `ViewerContractsAssemblyMarker.cs`.
+- Tests/EditMode/ (2 new): `Viewer.Tests.EditMode.asmdef` + `EventBridgeTests.cs`.
+
+**Phase-3 minimum scope**:
+- KeyEventKind.Goal → `fwh.core:shot.pass-shot-impact` (4s envelope)
+- KeyEventKind.SignatureExecuted_LowCutback → `fwh.core:shot.player-isolation` (3s envelope; reduce-motion variant available)
+- KeyEventKind.SignatureExecuted_BlindSideNearPostRun → `fwh.core:shot.pass-shot-impact` (4s)
+- KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch → `fwh.core:shot.tactical-wide` (3s)
+- KeyEventKind.SignatureBreakthrough → `fwh.core:shot.aftermath-freeze` (5s — `design/breakthrough-moments.md` §Q1 high-stakes upper-bound)
+- Restart events: skip translation (routine-band telemetry per ADR-0004; not surfaced to viewer at Phase 3)
+
+**ViewerEvent v1 schema** per ADR-0008 §"ViewerEvent schema": `ViewerEventId` (bridge-assigned monotonic) + `SourceEventId` (raw KeyEvents index) + `BaseShotTypeId` / `EffectiveShotTypeId` / `ReduceMotionApplied` (substitution boundary locked at the bridge — adapters NEVER re-substitute per ADR-0008 §"Reduce-motion adapter-awareness") + `StartTick` / `EndTick` / `Seed` + `StakesNormalized` / `MemoryRelevance` / `FocalSubject` / `ParticipantPlayerIds` / `MemoryHits` + `SourceEventClass` / `SourceEntityId`. Constructor enforces 12 invariants including the tri-invariant `ReduceMotionApplied iff (BaseShotTypeId != EffectiveShotTypeId)` cross-field check.
+
+**ShotTypeCatalog** is a hard-coded Phase-3 catalog with 5 shot types (4 base + 1 reduce-motion variant). Phase-4+ `Viewer.Core` adds the `ShotTypeSO → ShotTypeDefinition` projection seam per ADR-0008 §"Contract package boundary"; this catalog stands in until that landing. Static-ctor consistency assertion (per pr-review-toolkit:type-design-analyzer round-1 finding #3) catches authoring drift in `ReduceMotionVariantId` references at startup, not at first reduce-motion ViewerEvent.
+
+**Determinism contract** per ADR-0008:
+- ViewerEvent stream order: `(StartTick ascending, ViewerEventId ascending)`. Bridge iterates `state.KeyEvents` in chronological order (MatchSim invariant); ViewerEventId is monotonic-contiguous over emitted events.
+- MemoryHit.Slots ordinal-ascending by SlotName at construction (defensive copy + sort + `ReadOnlyCollection<T>` wrap per slice-#3 round-1 P2 cast-back-prevention pattern).
+- No `double` / `DateTime` / `Guid` / `System.Collections.Immutable` in canonical paths.
+- No UnityEngine references at the bridge boundary (asmdef-level enforcement).
+
+**Phase-3 deferrals** (Phase-4+ work owed):
+- `PitchView` + `ActiveViewerEvent` + `IShotPresentationAdapter` deferred to SPEC line 149 (dots adapter is the runtime-rendering consumer).
+- `MemoryHit` derivation deferred — Phase-3 emission produces empty MemoryHit arrays. Wires up alongside dots adapter authoring when the bridge ↔ memory-reader bridge surfaces what fields drive what visual.
+- `FocalSubject` uses `viewer.focal:home.06` placeholder format rather than the canonical `fwh.core:player_NNNNN` because the bridge doesn't take IdentityPackets at Phase 3; Phase-4+ wires identity packets exactly like `MemoryEmissionRules` does (per Codex round-1 P1 fix on `a2b9479`).
+- `MapToSourceEventClass` maps signature-execution KeyEvents to `EventClass.SignatureBreakthrough` placeholder pending Phase-4+ `SignatureExecuted` EventClass entry per ADR-0004's reserved Phase-4+ slots.
+
+**Tests**: 21 new EditMode tests via Unity Test Framework. Coverage: 5 KeyEventKind translations + restart-event skip + monotonic ViewerEventId + restart-mid-stream contiguous-id + same-input byte-identical determinism + reduce-motion substitution (with-variant + no-variant-noop) + invariant guards (null-state / cross-field reduce-motion / end-tick / etc.) + ShotTypeCatalog Phase-3 5s upper-bound + CallbackSlotValue exactly-one-of-two + MemoryHit slot-ordinal-sort.
+
+**MatchSim.Tests regression check**: 642/642 still passing. Pinned 60-tick `MatchCanonicalState` determinism hash `sha256:7e851976...50e` UNCHANGED.
+
+**Subagent rotation per CLAUDE.md §6.3**: pr-review-toolkit triple ran in parallel before commit. **All findings applied**:
+- silent-failure-hunter: clean (no try/catch, no `??` / `?.` suppression, no silent-skip outside the documented routine-band-telemetry path).
+- type-design-analyzer: 3 findings applied — (1) `ViewerEvent.MinShotDurationTicks` invariant guard (30 ticks = 0.5s minimum); (2) EventBridge derives `endTick` from EFFECTIVE shot's definition not base shot (RM variants might have different durations Phase-4+); (3) ShotTypeCatalog static-ctor consistency assertion that every `ReduceMotionVariantId` resolves in `_byId`.
+- feature-dev:code-reviewer: 2 important findings applied — (1) `ViewerEvent.SourceEventId` XML doc clarification on the divergence from `ViewerEventId` when restart KeyEvents are skipped (so future callers don't treat the two fields as equivalent); (2) `EventBridge.StakesFor` default arm throws `ArgumentOutOfRangeException` instead of silent 0.5 fallback (matches `MapToSourceEventClass`'s exhaustive-throw posture).
+
+**Phase-3 semantic-slice ladder COMPLETE** (5 of 5):
+1. ✅ 22 IdentityPacket fixtures (`62f378b`)
+2. ✅ 3 active signatures end-to-end (`bf2ac1e` + round-9/10 `2bdf807` / `137bae7`)
+3. ✅ 1 MemoryEvent reader callback (`6c68e48` + round-1 `63f235d`)
+4. ✅ 1 persistent development event (`a2b9479` + round-1 `fe1efe4`)
+5. ✅ Viewer.EventBridge minimum implementation ← THIS COMMIT
+
+The next Phase-3 task is line 149 (dots-phase render adapter prototype) — the consumer of the EventBridge stream this commit ships.
+
 ## 2026-04-30 (Codex round-1 follow-up against `a2b9479` — breakthrough participant + permanence + comment-drift fixes)
 
 Codex review pass against `a2b9479` flagged one P1 + one P2 + two P3 findings. All four closed with regression tests:
