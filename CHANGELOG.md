@@ -2,6 +2,46 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Process discipline — CLAUDE.md §6.3 mandatory rotation table + /next gate)
+
+Per Codex round-4 follow-up plan, commit #6 of 6 — final commit in the round-4 hardening sequence. Closes audit-06 P0/P1 capability-under-utilization findings (8 of 15 project agents at ZERO invocations across 36 agent events).
+
+CLAUDE.md §6.3 now ships a 10-row mandatory rotation table mapping task classes → required agent(s):
+
+| Task class | Required agent(s) |
+|---|---|
+| MatchSim code (≥100 LoC) | gameplay-programmer OR engine-programmer |
+| MatchSim tests (≥50 LoC) | gameplay/engine-programmer + pr-review-toolkit:pr-test-analyzer |
+| Unity / Viewer | unity-specialist (+ unity-ui-specialist or ui-programmer); + unity-check skill |
+| Contracts / asmdefs / ADRs | lead-programmer + feature-dev:code-architect; director subagent reviews |
+| Narrative / identity / signatures | narrative-director |
+| Systems / balance / progression | systems-designer |
+| Tests-heavy changes (≥100 LoC) | pr-review-toolkit:pr-test-analyzer (in addition to underlying-code agent) |
+| Architecture / design-doc work | match-specialty director |
+| Codebase exploration (>3 queries) | feature-dev:code-explorer (or Explore for read-only) |
+| Cross-discipline coordination | producer |
+
+`/next` discipline gate sharpened (`.claude/commands/next.md` step 6): the command must NAME both the classification AND the required agent(s) before any code is written. Skipping a row's mandate requires an explicit one-liner in the commit body explaining why.
+
+CLAUDE.md §8 first-session directive step 1 updated to surface the rotation table at the top of the onboarding read.
+
+What is NOT changed:
+- The §6.3 prose mandate stays in place; the table formalizes it.
+- The pr-review-toolkit hook-reminded posture stays as-is (`pr-review-reminder.sh` is still non-blocking).
+- Honest framing per Codex 2026-04-30 audit: this is process discipline reinforced by reminder + table mandate, not full enforcement.
+
+Verification: `fw verify` 503/503 green; doc/process commit (no DLL drift, no code change).
+
+Sequence: commit #6 of 6. Round-4 Codex-driven hardening sequence complete:
+- 2477ae4 — Plugin Importer Hygiene
+- 1780067 — Unity Bootstrap Hygiene
+- 3a32a36 — CI Split + Plugin Repro
+- 2df9310 — Phase-3 Enforcement Skeleton
+- 4e77c02 — Design / State Sync
+- THIS — Process Discipline
+
+Phase-3 semantic slice (foundation #4 — IdentityPacket fixtures + 3 active signatures + MemoryEvent reader + dev event + Viewer.EventBridge) is now unblocked, with sharper tooling discipline (mandatory agent rotation), a verified CI matrix that splits failure surfaces, plugin-importer correctness, fresh-clone reproducibility, the football-rules matrix as a guardrail, the anime-presentation budget as a guardrail, and the corpus enforcement skeleton in place.
+
 ## 2026-04-30 (Design / state sync — USP #4 honesty pass + anime-presentation budget + observer-pool task)
 
 Per Codex round-4 follow-up plan, commit #5 of 6. Three coordinated framing/structural changes plus three small drift fixes. No code changes.

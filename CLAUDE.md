@@ -177,16 +177,24 @@ available or the user asks for PR mode.
 
 Solo-dev project; the main thread's context window is precious. Use subagents for substantial work; the main thread does coordination + multi-file orchestration only. Catalogued in `TOOLING.md §3` + `.claude/agents/` (15 project-specialized agents).
 
-**MUST delegate to a subagent (do NOT do these in the main thread):**
+**Mandatory rotation by task class** (per SPEC 2026-04-30 process-discipline entry; Codex round-4 follow-up plan, commit #6 of 6 — closes audit-06 P0/P1 capability-under-utilization findings; 8 of 15 project agents had ZERO invocations across the first 36 agent events). `/next` MUST name both the task class and the required agent(s) before coding starts. Skipping a row's mandate requires an explicit one-liner in the commit body explaining why.
 
-- Substantial code authoring (>200 LoC of new code in one area) — match the subagent's specialty:
-  - `gameplay-programmer` — match-sim, signatures, player systems
-  - `engine-programmer` — performance-critical hot paths, MatchSim primitive math
-  - `unity-specialist` — Unity-side asmdefs, Addressables, package decisions, Editor-API scripts
-  - `unity-ui-specialist` — UI Toolkit UXML/USS, management screens
-  - `ui-programmer` — HUD, menu frameworks
-  - `narrative-director` — memory templates, salience scoring, callback prose
-  - `systems-designer` — economy, progression, balance formulas
+| Task class | Indicator | Required agent(s) — MUST | Required follow-up |
+|---|---|---|---|
+| **MatchSim code** (≥100 LoC of `MatchSim/Sim/**` or `MatchSim/Content/**`) | New canonical-state surface, BT runner change, Ball / Player / Match-rules math | `gameplay-programmer` (sim/signatures/players) OR `engine-programmer` (primitive math/perf hot path) | `pr-review-toolkit` triple before commit |
+| **MatchSim tests** (≥50 LoC of `MatchSim.Tests/**`) | New fixture, new theory, regression test for a closed bug | `gameplay-programmer` OR `engine-programmer` to draft + `pr-review-toolkit:pr-test-analyzer` to review | Pinned-hash + cross-platform implications named in commit body |
+| **Unity / Viewer** (any change under `unity-project/Assets/Viewer/**` or asmdef edits) | Asmdef graph change, ScriptableObject authoring, Editor-script change | `unity-specialist` (asmdefs / Addressables / Editor APIs) — co-author with `unity-ui-specialist` if UI Toolkit; `ui-programmer` for menu/HUD frameworks | `unity-check` skill at L1 (compile via UnityMCP) minimum; L2/L3 for behavior/visuals |
+| **Contracts / asmdefs / ADRs** | New ADR, asmdef-boundary change, cross-system contract change | `lead-programmer` (architecture review) + `feature-dev:code-architect` (blueprint pass before implementation) | Director subagent for the affected discipline (technical-director / game-designer / narrative-director / art-director) reviews the ADR text |
+| **Narrative / identity / signatures content** | IdentityPacket fixtures, scout-prose templates, MemoryEvent reader callbacks, signature presentation recipes | `narrative-director` (memory templates / callback prose / salience tuning) | `pr-review-toolkit` if ≥100 LoC of code lands alongside |
+| **Systems / balance / progression math** | Balance-harness work, gene-model curves, economy formulas, progression-curve tuning | `systems-designer` (economy / progression / balance formulas) | New SPEC decisions-log entry if a coefficient becomes load-bearing |
+| **Tests-heavy changes** (≥100 LoC across `MatchSim.Tests/**` or new fixture authoring) | New corpus seed, new fixture format, test-strategy refactor | `pr-review-toolkit:pr-test-analyzer` BEFORE commit (in addition to the gameplay/engine programmer for the underlying code) | — |
+| **Architecture / design-doc work** | New `design/**.md` system doc, design-doc supersession, GDD authoring | Match-specialty director (`creative-director` / `game-designer` / `narrative-director` / `art-director` / `technical-director`) | Append SPEC decisions-log entry if architecture-bearing |
+| **Codebase exploration** (>3 queries deep) | Cross-cutting research, dependency tracing, "where is X?" >3 hops | `feature-dev:code-explorer` (or built-in `Explore` for read-only) | — |
+| **Cross-discipline coordination** | Phase-boundary handoff, multi-discipline scope negotiation | `producer` | — |
+
+**Original prose mandate** (kept for context — the table above formalizes it):
+
+- Substantial code authoring (>200 LoC of new code in one area) — match the subagent's specialty per the table above.
 - **Code review on uncommitted changes ≥100 LoC of code, BEFORE commit** — run all three: `pr-review-toolkit:silent-failure-hunter` (catches try/catch suppression / fallback-on-error / silent failure paths) + `pr-review-toolkit:type-design-analyzer` (audits new types for invariant strength + encapsulation) + `feature-dev:code-reviewer` (general bugs / logic / security / convention drift). Optionally `lead-programmer` for architecture-bearing changes. **Hook-reminded, not hook-enforced**: `.claude/hooks/pr-review-reminder.sh` fires PreToolUse on `git commit` and emits a soft stderr reminder when the staged diff exceeds the threshold + touches code files. The hook is non-blocking by design — it does NOT prove the subagents actually ran; it only flags that they should have. Honest framing per Codex audit 2026-04-30: this is process discipline reinforced by a reminder, not enforcement. The mandate (this bullet) is the binding rule; the hook reduces the "I forgot" failure mode but cannot replace running the subagents. If you skip them, document the reason in the commit body. Rationale: across the 2026-04-28 → 2026-04-30 audit cycles Codex consistently caught issues these subagents would have caught first locally. Running them before Codex review tightens the loop and makes Codex's review focus on the cross-model insights (different-bones-different-blindspots) rather than the kind of issue any code reviewer would flag.
 - Codebase exploration spanning >3 queries — `feature-dev:code-explorer` (or built-in `Explore`).
 - Feature design before implementation — `feature-dev:code-architect` (returns blueprint with files-to-create / data-flows / build-sequence).
@@ -237,7 +245,7 @@ For MatchSim work: verify via xUnit tests AND headless balance-harness sweep. Fl
 
 ## 8. First-session directive (fresh Claude Code session in this folder)
 
-1. Read `CLAUDE.md` (this file) — **including §6.3 delegation discipline**. Subagent rotation is mandatory, not optional.
+1. Read `CLAUDE.md` (this file) — **including §6.3 delegation discipline AND the mandatory rotation table**. Subagent rotation is mandatory, not optional. `/next` MUST name task class + required agent(s) before any code is written.
 2. Read `PROJECT_CONTEXT.md`, `STATUS.md`, `SPEC.md` current state block.
 3. Run `claude mcp list` via Bash — confirm installed MCPs match TOOLING.md catalog. The Phase-3-onward Unity MCP server registers as `UnityMCP` (Pascal); the underlying CoplayDev package is `com.coplaydev.unity-mcp` (UPM). If `UnityMCP` is supposed to be active for the current phase but disconnected, ask the user to start the Unity MCP server (`Window → MCP for Unity → Start Server`).
 4. Read `TOOLING.md` to confirm plugin / MCP / subagent / skill state. **`feature-dev`, `pr-review-toolkit`, `hookify` are all installed at user-scope (verified 2026-04-30)** — if a fresh-Claude-session lookup at `~/.claude/plugins/installed_plugins.json` shows any are missing, surface to user as a 2-min high-leverage install before continuing.
