@@ -38,6 +38,7 @@ All 12 docs had their open-questions resolved during the Phase-0 consolidated 20
 | [`accessibility.md`](accessibility.md) | EA accessibility feature set (reduce-motion / colorblind / remap / large-text / subtitles) | Phase 2 authoring pass / 2026-04-24 |
 | [`content_policy.md`](content_policy.md) | PEGI 12 / ESRB T content boundaries + AI-content disclosure + mod-pack content-safety surface | Phase 2 authoring pass / 2026-04-24 |
 | [`3d-pipeline.md`](3d-pipeline.md) | 3D cel-shaded shipping-visual pipeline placeholder + Phase-5/6 production-feasibility spike-gate criteria + animation contract surface + licensing requirements + alternatives | Phase 2 placeholder authored 2026-04-26 per visual-target supersession; full spec lands at Phase-5 spike kickoff |
+| [`anime-presentation-budget.md`](anime-presentation-budget.md) | Phase-3/4 guardrail spec — 8 anime-inflected presentation surfaces (impact frames / motion lines / signature title-cards / camera rhythm / pressure indicator / aftermath-freeze emphasis / commentary cadence / type-rhythm), explicit no-list (mid-match QTE banned) | Phase-3 placeholder authored 2026-04-30 per Codex round-4 follow-up plan; full per-surface specs land alongside Phase-3 EventBridge + Phase-4 polish-bar work |
 
 ## Specs (sub-contracts under `design/specs/`)
 

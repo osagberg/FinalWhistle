@@ -2,6 +2,36 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Design / state sync — USP #4 honesty pass + anime-presentation budget + observer-pool task)
+
+Per Codex round-4 follow-up plan, commit #5 of 6. Three coordinated framing/structural changes plus three small drift fixes. No code changes.
+
+USP #4 honesty pass:
+- `CLAUDE.md §1` USP #4 reworded inline. "Unbounded RPG progression — no 1-20 attribute ceiling; soft-gated by internal gene model, narrative moments redraw ranges" was promising more than the bounded (0.0–1.0 clamped) gene model + balance-harness can deliver. New language: "Breakthrough-driven player development with soft caps + rare narrative exceptions" — players grow because of what happened to them, not because growth has no ceiling. Decisions-log entry locks the framing.
+- `design/progression.md` Phase-4 owed task added under Phase 4 (co-authored with the gene-model implementation so the doc reflects shipped code).
+
+Anime-presentation budget placeholder:
+- `design/anime-presentation-budget.md` shipped. Eight surfaces in budget (impact frames / motion lines / signature title-cards / camera rhythm / pressure indicator / aftermath-freeze / commentary cadence / typography rhythm); explicit no-list bans mid-match QTE + capitalized state-nouns + screen-shake-spam.
+- `design/README.md` index updated.
+- SPEC task `[x]` with completion note.
+
+Observer-pool task:
+- New SPEC Phase-3 task: name 5 cold football-literate observers + 2 backups in STATUS.md. Audit-07 P0 finding from 2026-04-30 8-agent triage. Recruitment is user-action; criteria + sources documented inline.
+
+Drift fixes:
+- SPEC.md line 13 Current state: stale "create unity-project/ via Unity Hub URP template" replaced with the actual next-up (Phase-3 semantic slice + round-4 hardening sequence). Audit-05 P0 finding.
+- SPEC.md line 145 typo: `design/breakthroughs.md` → `design/breakthrough-moments.md`. Audit-02 P1 finding. The decisions-log copy at line 379 (immutable history) is left unchanged per append-only discipline; this commit's decisions-log entry serves as the erratum.
+- (Skipped: `design/3d-pipeline.md:124` forward-ref to `design/match-rating.md` from audit-02 P2 — that doc is correctly marked Phase-4-owed in SPEC.md, no action this cycle.)
+
+Three new decisions-log entries:
+1. USP #4 honesty pass.
+2. Anime-presentation budget locked as `design/anime-presentation-budget.md` placeholder.
+3. Month-3 observer-pool recruitment promoted to active SPEC task.
+
+Verification: `fw verify` 503/503 green; doc-only commit (no DLL drift, no code change).
+
+Sequence: commit #5 of 6 in the Codex round-4 follow-up batch. Next up: Process Discipline (CLAUDE.md §6.3 mandatory rotation table; `/next` discipline gate).
+
 ## 2026-04-30 (Football rules matrix — Phase-3 guardrail spec)
 
 Adds `design/specs/football-rules-matrix.md` per Codex round-4 follow-up plan. Doc-only commit — no MatchRules / Viewer code changes.
