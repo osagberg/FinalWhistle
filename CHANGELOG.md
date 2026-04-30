@@ -2,6 +2,26 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Codex round-3 follow-up against `a26c632` — SignatureRecipeMetadata default-state bypass closed)
+
+Codex round-3 review pass against `a26c632` flagged 1 P2:
+
+- **P2 — Default struct metadata bypassed required-field validation.** `SignatureRecipeMetadata` was a `readonly struct`, so `default(SignatureRecipeMetadata)` skipped the constructor's non-empty-field guards. The `ViewerEvent` cross-field invariant only checked `HasValue`, so a `SignatureExecuted` event could have `SignatureMetadata.HasValue == true` while `SignatureId` / `RecipeKey` / `SimBiasFieldId` were all null. Codex's Unity probe confirmed: `default(SignatureRecipeMetadata)` was accepted with null fields. **Fix**: converted `SignatureRecipeMetadata` from `readonly struct` to `sealed class` with `IEquatable<SignatureRecipeMetadata>` — same precedent as the slice-#3 round-1 P2 fix on `CallbackTag` (records-with-init-setters footgun → sealed-class-with-parameterized-ctor). Class form makes `default(SignatureRecipeMetadata)` yield `null` (a reference-type default), which the `ViewerEvent` cross-field guard already rejects. The default-state-bypass attack vector is structurally impossible after the type change.
+
+**Why class over "validate fields in ViewerEvent"**: the field validation already happens in the `SignatureRecipeMetadata` constructor; the bypass came from skipping the constructor entirely via `default()`. Adding redundant validation on the consumer side (`ViewerEvent` checking metadata.SignatureId for null) would close the immediate hole but leave OTHER consumers of `SignatureRecipeMetadata` (Phase-4+ readers, content packs, future adapters) vulnerable to the same bypass. Class form fixes it everywhere at once.
+
+**Equality update**: `SignatureRecipeMetadata.Equals(SignatureRecipeMetadata? other)` accepts nullable; `==` / `!=` operators handle null cases; `ViewerEvent.Equals` swapped `Nullable.Equals` for a reference-or-value `SignatureMetadataEqual` helper.
+
+**New tests**: 3 round-3 regressions (1 default-is-null type-system property + 1 SignatureExecuted-with-default-metadata-throws + 1 empty-fields-throws-from-direct-constructor).
+
+**Total tests: 642/642 MatchSim** (unchanged) + **38/38 EditMode** (was 35; +3 new). UnityMCP `run_tests EditMode`: 38/38 in 1.22 seconds.
+
+**Pinned 60-tick MatchCanonicalState determinism hash `sha256:7e851976...50e` UNCHANGED**.
+
+**Unity Mono repro verified fixed via UnityMCP `execute_code`**: `defaultIsNull=OK-null; viewerEvent=OK-throws`.
+
+**Subagent rotation**: Codex round-3 review pass external; main-thread authoring with the round-3 finding as work order. pr-review-toolkit triple skipped per the small-diff exception (~30 net LoC of code + ~40 LoC of tests + doc updates) — finding-driven hardening with named regression tests.
+
 ## 2026-04-30 (Codex round-2 follow-up against `24767c0` — recipe metadata + signature-id consistency)
 
 Codex round-2 review pass against `24767c0` flagged 1 P1 + 1 P2. Both closed with regression tests:

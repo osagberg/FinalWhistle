@@ -363,7 +363,7 @@ namespace FinalWhistle.Viewer.Contracts
                 || FocalSubject != other.FocalSubject
                 || SourceEventClass != other.SourceEventClass
                 || SourceEntityId != other.SourceEntityId
-                || !Nullable.Equals(SignatureMetadata, other.SignatureMetadata)
+                || !SignatureMetadataEqual(SignatureMetadata, other.SignatureMetadata)
                 || ParticipantPlayerIds.Count != other.ParticipantPlayerIds.Count
                 || MemoryHits.Count != other.MemoryHits.Count)
             {
@@ -385,5 +385,11 @@ namespace FinalWhistle.Viewer.Contracts
             ViewerEventId, SourceEventId, BaseShotTypeId, EffectiveShotTypeId, StartTick, SourceEventClass);
         public override string ToString() =>
             $"ViewerEvent(id={ViewerEventId}, shot={EffectiveShotTypeId}, tick={StartTick.Value}-{EndTick.Value}, class={SourceEventClass})";
+
+        private static bool SignatureMetadataEqual(SignatureRecipeMetadata? a, SignatureRecipeMetadata? b)
+        {
+            if (a is null) return b is null;
+            return a.Equals(b);
+        }
     }
 }

@@ -24,8 +24,22 @@ namespace FinalWhistle.Viewer.Contracts
     /// behavioral modification on signature fire ships in Phase 4
     /// alongside the <c>SignatureSO</c> bake-time pipeline.
     /// </para>
+    ///
+    /// <para>
+    /// <strong>Sealed class</strong> (not <c>readonly struct</c>) per
+    /// Codex round-3 P2 against <c>a26c632</c>: a value-type
+    /// <c>default(SignatureRecipeMetadata)</c> bypassed the constructor's
+    /// non-empty-field guards, leaving a metadata instance with null
+    /// SignatureId / RecipeKey / SimBiasFieldId reachable via
+    /// <c>ViewerEvent.SignatureMetadata.HasValue == true</c>. Class form
+    /// makes default-initialization yield <c>null</c> instead, which the
+    /// <see cref="ViewerEvent"/> cross-field guard rejects on
+    /// SignatureExecuted events. Same precedent as the slice-#3 round-1
+    /// P2 fix on <c>CallbackTag</c> (records-with-init-setters footgun
+    /// → sealed-class-with-parameterized-ctor).
+    /// </para>
     /// </summary>
-    public readonly struct SignatureRecipeMetadata : IEquatable<SignatureRecipeMetadata>
+    public sealed class SignatureRecipeMetadata : IEquatable<SignatureRecipeMetadata>
     {
         /// <summary>
         /// Content-pack-qualified signature ID per ADR-0005
@@ -95,16 +109,27 @@ namespace FinalWhistle.Viewer.Contracts
                 simBiasFieldId: recipe.SimBiasFieldId,
                 simBiasDeltaRawQ32: recipe.SimBiasDeltaRawQ32);
 
-        public bool Equals(SignatureRecipeMetadata other) =>
-            SignatureId == other.SignatureId
-            && RecipeKey == other.RecipeKey
-            && SimBiasFieldId == other.SimBiasFieldId
-            && SimBiasDeltaRawQ32 == other.SimBiasDeltaRawQ32;
+        public bool Equals(SignatureRecipeMetadata? other)
+        {
+            if (other is null) return false;
+            if (ReferenceEquals(this, other)) return true;
+            return SignatureId == other.SignatureId
+                && RecipeKey == other.RecipeKey
+                && SimBiasFieldId == other.SimBiasFieldId
+                && SimBiasDeltaRawQ32 == other.SimBiasDeltaRawQ32;
+        }
 
         public override bool Equals(object? obj) => obj is SignatureRecipeMetadata other && Equals(other);
         public override int GetHashCode() => HashCode.Combine(SignatureId, RecipeKey, SimBiasFieldId, SimBiasDeltaRawQ32);
-        public static bool operator ==(SignatureRecipeMetadata left, SignatureRecipeMetadata right) => left.Equals(right);
-        public static bool operator !=(SignatureRecipeMetadata left, SignatureRecipeMetadata right) => !left.Equals(right);
+
+        public static bool operator ==(SignatureRecipeMetadata? left, SignatureRecipeMetadata? right)
+        {
+            if (left is null) return right is null;
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(SignatureRecipeMetadata? left, SignatureRecipeMetadata? right) => !(left == right);
+
         public override string ToString() => $"SignatureRecipeMetadata({SignatureId}, key={RecipeKey}, biasField={SimBiasFieldId}, deltaRaw={SimBiasDeltaRawQ32})";
     }
 }

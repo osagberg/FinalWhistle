@@ -544,8 +544,8 @@ namespace FinalWhistle.Viewer.Tests.EditMode
             IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
 
             Assert.AreEqual(1, events.Count);
-            Assert.IsTrue(events[0].SignatureMetadata.HasValue);
-            SignatureRecipeMetadata md = events[0].SignatureMetadata!.Value;
+            Assert.IsNotNull(events[0].SignatureMetadata);
+            SignatureRecipeMetadata md = events[0].SignatureMetadata!;
             Assert.AreEqual("fwh.core:signature.low-cutback-from-byline", md.SignatureId);
             Assert.AreEqual("player-isolation", md.RecipeKey);
             Assert.AreEqual("cutback_xAssist", md.SimBiasFieldId);
@@ -564,7 +564,7 @@ namespace FinalWhistle.Viewer.Tests.EditMode
 
             IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
 
-            Assert.IsFalse(events[0].SignatureMetadata.HasValue);
+            Assert.IsNull(events[0].SignatureMetadata);
         }
 
         [Test]
@@ -575,7 +575,78 @@ namespace FinalWhistle.Viewer.Tests.EditMode
 
             IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
 
-            Assert.IsFalse(events[0].SignatureMetadata.HasValue);
+            Assert.IsNull(events[0].SignatureMetadata);
+        }
+
+        [Test]
+        public void SignatureRecipeMetadata_DefaultIsNull_NotABypassedStruct()
+        {
+            // Codex round-3 P2 against a26c632: the prior readonly struct
+            // form let `default(SignatureRecipeMetadata)` skip the
+            // constructor's non-empty-field guards, leaving null
+            // SignatureId/RecipeKey/SimBiasFieldId reachable through
+            // ViewerEvent.SignatureMetadata.HasValue == true. Sealed
+            // class form makes default-initialization yield null, which
+            // the ViewerEvent cross-field guard rejects on
+            // SignatureExecuted events.
+            //
+            // This regression pins the type-system property: there is
+            // no way to construct a SignatureRecipeMetadata instance
+            // with null fields, because the only constructor validates
+            // them, and `default(SignatureRecipeMetadata)` returns null
+            // (a reference-type default), not a struct with null fields.
+            SignatureRecipeMetadata? defaultMetadata = default;
+            Assert.IsNull(defaultMetadata);
+        }
+
+        [Test]
+        public void ViewerEvent_Construction_SignatureExecutedWithDefaultMetadata_Throws()
+        {
+            // The class-form fix structurally eliminates the round-3 P2
+            // attack vector: `default(SignatureRecipeMetadata)` is null,
+            // and ViewerEvent's cross-field invariant rejects null
+            // metadata on SignatureExecuted events.
+            Assert.Throws<System.ArgumentException>(() => new ViewerEvent(
+                viewerEventId: 0,
+                sourceEventId: 0,
+                sourceEventOrdinal: 0,
+                baseShotTypeId: ShotTypeCatalog.ShotPlayerIsolation,
+                effectiveShotTypeId: ShotTypeCatalog.ShotPlayerIsolation,
+                reduceMotionApplied: false,
+                startTick: new Tick(100),
+                endTick: new Tick(280),
+                seed: Seed.FromUInt64(0),
+                stakesNormalized: Fixed.Parse("0.7000000000"),
+                memoryRelevance: Fixed.Zero,
+                focalSubject: "viewer.focal:home.06",
+                participantPlayerIds: new[] { "viewer.focal:home.06" },
+                memoryHits: System.Array.Empty<MemoryHit>(),
+                sourceEventClass: EventClass.SignatureExecuted,
+                sourceEntityId: "viewer.focal:home.06",
+                signatureMetadata: default));  // class default == null → cross-field invariant rejects
+        }
+
+        [Test]
+        public void SignatureRecipeMetadata_Construction_EmptyFields_Throws()
+        {
+            // Direct constructor regression: empty fields rejected at
+            // construction. This was the original P1 invariant from
+            // round-2; the class form keeps it intact.
+            Assert.Throws<System.ArgumentException>(() => new SignatureRecipeMetadata(
+                signatureId: "",
+                recipeKey: "player-isolation",
+                simBiasFieldId: "cutback_xAssist",
+                simBiasDeltaRawQ32: Fixed.OneRaw / 5L));
+            Assert.Throws<System.ArgumentException>(() => new SignatureRecipeMetadata(
+                signatureId: "fwh.core:signature.test",
+                recipeKey: "",
+                simBiasFieldId: "cutback_xAssist",
+                simBiasDeltaRawQ32: Fixed.OneRaw / 5L));
+            Assert.Throws<System.ArgumentException>(() => new SignatureRecipeMetadata(
+                signatureId: "fwh.core:signature.test",
+                recipeKey: "player-isolation",
+                simBiasFieldId: "",
+                simBiasDeltaRawQ32: Fixed.OneRaw / 5L));
         }
 
         [Test]
