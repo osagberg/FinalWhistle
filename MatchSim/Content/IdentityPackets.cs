@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
-using System.Text.Json;
+using FinalWhistle.MatchSim.Content.Json;
 
 namespace FinalWhistle.MatchSim.Content;
 
@@ -122,13 +122,16 @@ public static class IdentityPackets
             throw new ArgumentException("JSON content must be non-empty.", nameof(jsonContent));
         }
 
-        IdentityPacket? packet = JsonSerializer.Deserialize<IdentityPacket>(jsonContent);
-        if (packet is null)
-        {
-            throw new InvalidDataException(
-                "JsonSerializer.Deserialize<IdentityPacket> returned null. " +
-                "Likely a top-level JSON literal `null` rather than an object.");
-        }
+        // Schema-strict, hand-rolled parser per Codex round-7 P1 (2026-04-30).
+        // System.Text.Json was removed because (a) STJ + transitive deps don't
+        // ship in Unity 6's Mono runtime — STJ-referenced MatchSim DLL fails
+        // to load — and (b) STJ defaults silently accept typoed fields and
+        // numeric-encoded enum values (Codex P1#2 + P2). The parser at
+        // `Content/Json/IdentityPacketParser.cs` is strict by construction:
+        // every accepted field is whitelisted, every required field's
+        // presence is verified, RoleFamily MUST be a string, duplicate keys
+        // are rejected, malformed JSON throws.
+        IdentityPacket packet = IdentityPacketParser.Parse(jsonContent);
 
         ValidationResult result = IdentityPacketValidator.Validate(packet);
         if (!result.IsValid)

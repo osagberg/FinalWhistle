@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace FinalWhistle.MatchSim.Content;
 
 /// <summary>
@@ -8,14 +6,15 @@ namespace FinalWhistle.MatchSim.Content;
 /// catalog (3 per role × 8 families) keys off this enum.
 ///
 /// <para>
-/// <strong>Serialized as a string in JSON</strong> via
-/// <see cref="JsonStringEnumConverter"/>. Numeric ordering is NOT canonical;
-/// future role-family additions append to the end and never reorder, so the
-/// enum-byte form would drift across schema versions. The string form is
-/// stable.
+/// <strong>Serialized as a string in JSON.</strong> The hand-rolled
+/// <c>Content/Json/IdentityPacketParser</c> rejects numeric encoding
+/// (<c>"RoleFamily": 7</c>) per Codex round-7 P2 (2026-04-30); only
+/// canonical string values (<c>"Striker"</c>) are accepted. Numeric
+/// ordering is NOT canonical — future role-family additions append at
+/// the end and never reorder, so the enum-byte form would drift across
+/// schema versions. The string form is stable.
 /// </para>
 /// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum RoleFamily : byte
 {
     Goalkeeper = 1,

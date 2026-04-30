@@ -2,6 +2,51 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Codex round-7 hand-rolled-parser refactor — closes Unity-load + strict-parsing P1+P2)
+
+Closes Codex round-7 review against commit `e0ecc5c`. Two P1s and one P2 closed by replacing `System.Text.Json` with a hand-rolled strict parser scoped to the IdentityPacket schema. Architectural reasoning:
+
+- **P1#1 — Unity could not load MatchSim.dll**: STJ + transitive deps (System.Memory / System.Buffers / System.Text.Encodings.Web / Microsoft.Bcl.AsyncInterfaces / etc.) don't ship in Unity 6's Mono runtime. STJ-referenced MatchSim DLL was reporting "Assembly will not be loaded due to errors: Unable to resolve reference 'System.Text.Json'."
+- **P1#2 — STJ defaults silently accepted typoed/missing fields**: `JsonSerializer.Deserialize` with default options reads `FastTwichRawQ32` (typo) as missing → defaults `FastTwitchRawQ32` to `0`, validator only checks `[0, Fixed.One.RawValue]` so it passes — silent corruption of signature-affinity dispatch.
+- **P2 — STJ's `JsonStringEnumConverter` defaults to `allowIntegerValues=true`**: a fixture with `"RoleFamily": 7` parsed and validated as Winger; weakens the canonical-JSON contract.
+
+**Architecture choice**: hand-rolled strict parser, NOT (a) commit-STJ-+-8-transitive-DLLs-to-Plugins, NOT (b) Newtonsoft.Json. Reasoning: (a) pollutes the Plugin drop with 8 magic DLLs each requiring PluginImporter blocks + .meta + cross-platform reproducibility surface; (b) Newtonsoft conflicts with Unity's `com.unity.nuget.newtonsoft-json` package version. Hand-rolled scoped to Phase-3 schema is ~470 LoC (parser + tokenizer); zero new deps; strict-by-design closes both P1s + the P2 in one stroke.
+
+**New files** (`MatchSim/Content/Json/`):
+- `JsonReader.cs` (~190 LoC) — primitive tokenizer. Strict: rejects unknown escapes (only `\"` and `\\` accepted), control chars in strings, leading-zero numbers, decimals/exponents in numbers. Single source/position cursor; `Position` exposed for parse-error diagnostics.
+- `IdentityPacketParser.cs` (~280 LoC) — schema-aware strict parser. Whitelists every accepted field; presence-checks every required field; rejects duplicates, unknown fields, numeric RoleFamily.
+
+**Modified files**:
+- `MatchSim/Content/IdentityPackets.cs` — `Parse` delegates to `IdentityPacketParser.Parse` instead of `JsonSerializer.Deserialize<IdentityPacket>`. Validator chain unchanged.
+- `MatchSim/Content/RoleFamily.cs` — removed `[JsonConverter(typeof(JsonStringEnumConverter))]` attribute and the `using System.Text.Json.Serialization` import.
+- `MatchSim/MatchSim.csproj` — removed `System.Text.Json 9.0.0` `PackageReference`. Comment block in csproj documents WHY (STJ Unity-load failure + strict-parsing requirement).
+- `MatchSim.Tests/Content/IdentityPacketRoundTripTests.cs` — round-trip test reworked. Was: `Deserialize → Serialize → Deserialize → assert structural equality`. Now: `Load (via cache miss) + Parse (direct from same embedded-resource source) → assert structural equality`. The round-trip safety property is preserved differently — by the parser's strict-mode-by-default — since schema drift now surfaces as a parse failure rather than a silent default-zero.
+
+**New tests** (10 facts in `MatchSim.Tests/Content/IdentityPacketParserStrictTests.cs`):
+- typoed gene field name → rejected (P1#2)
+- missing FastTwitch / PatternRecognition gene → rejected (P1#2)
+- missing top-level PlayerId → rejected (P1#2)
+- unknown top-level field → rejected (P1#2)
+- numeric RoleFamily → rejected (P2)
+- unknown RoleFamily string → rejected (defensive)
+- duplicate top-level key → rejected (defensive)
+- number with leading zeros → rejected (canonical-JSON discipline)
+- float in numeric field → rejected (Q32.32-only contract)
+- trailing content after close-brace → rejected
+
+**Verification**:
+- `fw verify` 547/547 green (was 537; +10 strict-parsing tests).
+- `git diff --check` clean.
+- **UnityMCP `execute_code` ran `IdentityPackets.LoadAll()` inside Unity's Mono runtime → returned 22 packets, 10 carrying ≥1 SignatureCandidate.** P1#1 closed end-to-end (not just "compiles" but "actually executes in Unity").
+- `fw verify-unity-plugins` clean.
+- Pinned 60-tick determinism hash unchanged.
+
+**SPEC.md line 142 closure note** corrected per Codex P3 (test count 534→547 + reason).
+
+**Subagent rotation per CLAUDE.md §6.3**: pr-review-toolkit triple (silent-failure-hunter + type-design-analyzer + feature-dev:code-reviewer) running in parallel before commit; round-7 findings (if any) applied before commit lands.
+
+**No SPEC checkbox flips** — Phase-3 line 142 stays `[x]` (closed in `e0ecc5c`); this commit is the Codex-driven follow-up that makes the deliverable actually consumable by Unity.
+
 ## 2026-04-30 (Phase-3 semantic slice foundation #4 first task — 22 IdentityPacket fixtures)
 
 SPEC.md Phase-3 line 142 closed. The first of five semantic-slice deliverables shipped end-to-end: 22 hand-authored IdentityPacket JSON fixtures + the C# schema/loader/validator code path + 31+3=34 test cases covering round-trip / validator / signature-affinity reads.

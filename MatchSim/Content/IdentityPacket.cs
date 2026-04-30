@@ -18,13 +18,16 @@ namespace FinalWhistle.MatchSim.Content;
 /// </para>
 ///
 /// <para>
-/// <strong>Serialization shape</strong> (per <c>System.Text.Json</c> default
-/// + ADR-0006 §canonical-JSON-rules):
+/// <strong>Serialization shape</strong> (per the Phase-3 hand-rolled
+/// <c>Content.Json.IdentityPacketParser</c> + ADR-0006 §canonical-JSON-rules;
+/// <c>System.Text.Json</c> was removed in the Codex round-7 refactor
+/// 2026-04-30 because STJ + transitive deps don't ship in Unity 6's Mono
+/// runtime):
 /// </para>
 /// <list type="bullet">
 ///   <item><description>2-space indent, structural-key order (JSON canon).</description></item>
 ///   <item><description>Q32.32 fields stored as raw <c>long</c> integers (no floats).</description></item>
-///   <item><description><see cref="RoleFamily"/> serializes as a string.</description></item>
+///   <item><description><see cref="RoleFamily"/> serializes as a string; numeric encoding rejected.</description></item>
 /// </list>
 ///
 /// <para>

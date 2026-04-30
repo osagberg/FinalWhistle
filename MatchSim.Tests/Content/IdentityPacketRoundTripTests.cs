@@ -1,4 +1,3 @@
-using System.Text.Json;
 using FinalWhistle.MatchSim.Content;
 using Xunit;
 
@@ -9,12 +8,13 @@ namespace FinalWhistle.MatchSim.Tests.Content;
 /// SPEC.md Phase-3 line 142 + ADR-0006 §verification-required.
 ///
 /// <para>
-/// Round-trip discipline: every fixture deserializes via
-/// <see cref="IdentityPackets.Parse"/>, re-serializes via
-/// <see cref="JsonSerializer.Serialize{TValue}(TValue, JsonSerializerOptions)"/>,
-/// and re-deserializes — the second deserialization must produce a packet
-/// structurally equal to the first. This is the explicit ADR-0006
-/// "round-trip serialization clean" gate.
+/// Round-trip discipline: parse the same fixture twice (via
+/// <see cref="IdentityPackets.Load"/> + via direct <see cref="IdentityPackets.Parse"/>
+/// of the same source) and assert structural equality. The hand-rolled
+/// <c>IdentityPacketParser</c> is strict-by-design — schema drift would
+/// surface as a parse failure rather than a silent default-zero (Codex
+/// round-7 P1#2 2026-04-30). System.Text.Json was removed from MatchSim
+/// because it doesn't ship in Unity 6's Mono runtime (Codex P1#1).
 /// </para>
 /// </summary>
 public sealed class IdentityPacketRoundTripTests
@@ -65,44 +65,64 @@ public sealed class IdentityPacketRoundTripTests
     }
 
     [Fact]
-    public void Parse_ValidFixture_RoundTripsThroughJsonSerializer()
+    public void Parse_AllBuiltInFixtures_ParseTwice_AgreeStructurally()
     {
-        // Deserialize → re-serialize → re-deserialize → structural equality
-        // on every field. The whole-cycle test: anything System.Text.Json-
-        // related that would silently drop a field (missing converter,
-        // mismatched property name, etc.) breaks here.
-        //
-        // Note: record-level Equals is NOT used here. The default-synthesized
-        // `IdentityPacket.Equals(IdentityPacket?)` uses reference equality
-        // on the `IReadOnlyList<SignatureCandidate>` field (List<T>.Equals
-        // is reference equality). A record-level structural-equality
-        // implementation requires either ImmutableArray with overridden
-        // EqualityComparer or a hand-rolled Equals override; that's a
-        // Phase-4 refactor when more code paths consume IdentityPacket
-        // equality semantics. For now, deep-compare here explicitly.
-        var original = IdentityPackets.Load("direct-pressing", 6);  // J. Pielke (winger w/ signature)
-
-        string roundTripJson = JsonSerializer.Serialize(original);
-        var roundTripped = IdentityPackets.Parse(roundTripJson);
-
-        AssertPacketsEquivalent(original, roundTripped);
-    }
-
-    [Fact]
-    public void Parse_AllBuiltInFixtures_RoundTripCleanly()
-    {
-        // Belt-and-suspenders: every one of the 22 fixtures must survive
-        // a serialize → deserialize cycle.
-        foreach (var packet in IdentityPackets.LoadAll())
+        // Parse the same fixture source twice via two different code paths
+        // (Load via cache miss / Parse direct from string). Both must
+        // produce structurally equal packets. This replaces the prior
+        // serialize-then-parse round-trip, which depended on
+        // System.Text.Json — removed because STJ doesn't ship in Unity 6's
+        // Mono runtime (Codex round-7 P1#1) and silently accepted typoed
+        // fields (P1#2). With the hand-rolled strict parser, schema drift
+        // surfaces as a parse failure rather than a silent default-zero,
+        // so the round-trip safety property is preserved differently:
+        // by the parser's strict-mode-by-default.
+        foreach (var archetype in IdentityPackets.BuiltInArchetypeNames)
         {
-            string json = JsonSerializer.Serialize(packet);
-            var roundTripped = IdentityPackets.Parse(json);
-            AssertPacketsEquivalent(packet, roundTripped);
+            for (byte jersey = 1; jersey <= IdentityPackets.PlayersPerArchetype; jersey++)
+            {
+                var loaded = IdentityPackets.Load(archetype, jersey);
+
+                // Re-parse the SAME embedded resource via the direct Parse
+                // path (bypasses cache). Locate the resource by name and
+                // read its raw JSON text.
+                string resourceName =
+                    $"FinalWhistle.MatchSim.Content.identity-packets.{archetype}.{jersey:D2}.json";
+                using var stream = typeof(IdentityPackets).Assembly
+                    .GetManifestResourceStream(resourceName);
+                Assert.NotNull(stream);
+                using var reader = new System.IO.StreamReader(stream!);
+                string sourceJson = reader.ReadToEnd();
+                var reparsed = IdentityPackets.Parse(sourceJson);
+
+                AssertPacketsEquivalent(loaded, reparsed);
+            }
         }
     }
 
+    /// <summary>
+    /// Field-by-field structural-equality assertion.
+    ///
+    /// <para>
+    /// <strong>Maintenance contract</strong> (per feature-dev:code-reviewer
+    /// 2026-04-30 round-7 review, confidence-85 finding): when
+    /// <see cref="IdentityPacket"/> gains a new field at a Phase-4+ schema
+    /// bump, this helper MUST grow a new <c>Assert.Equal</c> line. The
+    /// helper has no compile-time exhaustiveness guarantee — a missed
+    /// assertion would silently pass tests where the new field's value
+    /// differed between <paramref name="expected"/> and
+    /// <paramref name="actual"/>. Cross-checked against ADR-0006 schema
+    /// at every save-migration-fixture v(N) → v(N+1) bump.
+    /// </para>
+    /// </summary>
     private static void AssertPacketsEquivalent(IdentityPacket expected, IdentityPacket actual)
     {
+        // Phase-3 schema v1: 8 top-level fields (PlayerId / DisplayNameFull
+        // / DisplayNameShort / RoleFamily / SignatureCandidates / Genes /
+        // SchemaVersion / SourcePackVersion). Adding a Phase-4 field
+        // requires adding the matching Assert.Equal here. IdentityPacketGenes
+        // is checked via record-level Equals (the record's compiler-
+        // synthesized equality compares all 6 long fields structurally).
         Assert.Equal(expected.PlayerId, actual.PlayerId);
         Assert.Equal(expected.DisplayNameFull, actual.DisplayNameFull);
         Assert.Equal(expected.DisplayNameShort, actual.DisplayNameShort);

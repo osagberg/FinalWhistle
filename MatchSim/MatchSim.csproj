@@ -97,15 +97,16 @@
     <!-- YamlDotNet for behavior-tree archetype loading per CLAUDE.md tech
          stack ("YAML for behavior-tree archetypes"). netstandard2.0-compatible
          and Unity-friendly. The two Month-3 archetype YAMLs (direct-pressing,
-         low-block-counter) are embedded as resources below. -->
+         low-block-counter) are embedded as resources below.
+         Note: NO System.Text.Json package reference. STJ + transitive deps
+         (System.Memory / System.Buffers / System.Text.Encodings.Web /
+         Microsoft.Bcl.AsyncInterfaces / etc.) don't ship in Unity 6's Mono
+         runtime, so an STJ-referencing MatchSim DLL fails to load (Codex
+         round-7 P1, 2026-04-30). IdentityPacket fixtures are read by the
+         hand-rolled `Content/Json/IdentityPacketParser` instead — strict-
+         by-design (rejects unknown fields, missing fields, numeric enum
+         values), Phase-3-scoped, zero new deps. -->
     <PackageReference Include="YamlDotNet" Version="17.0.1" />
-
-    <!-- System.Text.Json for IdentityPacket fixture loading per ADR-0006.
-         Not transitively available on netstandard2.1 — explicit reference
-         required. Phase-3 SPEC line 142 deliverable. Pinned to a version
-         compatible with both netstandard2.1 (this assembly) and net10.0
-         (the test host); 9.0.x is the current LTS-aligned choice. -->
-    <PackageReference Include="System.Text.Json" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>
