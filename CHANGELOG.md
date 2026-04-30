@@ -2,6 +2,54 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Dots-phase render adapter — Slice 1 of 7: IShotPresentationAdapter + PitchView + ActiveViewerEvent contracts in Viewer.Core)
+
+First slice of the 7-slice dots-adapter ladder per `docs/plans/dots-adapter-blueprint.md` shipped. SPEC line 149 partially advanced (full task stays `[ ]` until Slices 2-7 land); blueprint authored mid-session by `feature-dev:code-architect` with Decisions 1-5 captured for SPEC append-only.
+
+**What landed (3 new files + 1 test file + 1 asmdef edit + 1 RULES.md doc-drift fix):**
+
+- `unity-project/Assets/Viewer/Core/IShotPresentationAdapter.cs` (~50 LoC) — 4-method adapter contract (`AdapterId` / `Initialize(PitchView)` / `PresentShot(ActiveViewerEvent)` / `Teardown`) per ADR-0008 §"Adapter interface" + ADR-0009 §"Adapter scope". Future 3D adapter (ADR-0010, conditional on Phase-5/6 production-feasibility spike) implements the same interface. Doc-comments capture the determinism contract (adapter MUST NOT mutate canonical sim state; consumes bridge-resolved `EffectiveShotTypeId`, never re-substitutes reduce-motion variants).
+
+- `unity-project/Assets/Viewer/Core/PitchView.cs` (~115 LoC after pr-review-toolkit P1 fixes) — Q32.32 → `UnityEngine.Vector3` boundary. FIFA-spec 105×68m default geometry; `Origin` / `MetersPerUnit` configurable; `FixedToWorld(Vector3Fixed)` keeps the divide+scale in `double` precision before casting to `float` so sub-mm accuracy holds at corner-of-pitch magnitudes. **Lives in `Viewer.Core` (not `Viewer.Contracts`) per blueprint Decision 1**: the conversion target is `UnityEngine.Vector3` and Contracts' asmdef-level `noEngineReferences: true` forbids engine deps there. A future headless-test adapter would need a FixedToWorld seam-split (Phase-5+ refactor if the demand emerges).
+
+- `unity-project/Assets/Viewer/Core/ActiveViewerEvent.cs` (~85 LoC after pr-review-toolkit P2 fixes) — runtime wrapper around `ViewerEvent`. Resolves adapter-needed projections (`ShotCategory`, `ShotTypeDefinition` from `ShotTypeCatalog.Get`, `StakesNormalized → float`) at construction so adapters never re-look-up the catalog or re-cast per render frame. Immutable; director constructs a new wrapper when `ElapsedTicks` advances. Constructor propagates `KeyNotFoundException` from `ShotTypeCatalog.Get` for loud-fail discipline (silent fallback to TacticalWide would mask Phase-4+ ScriptableObject authoring drift).
+
+- `unity-project/Assets/Viewer/Tests/EditMode/PitchViewTests.cs` (~245 LoC; 19 EditMode tests) — covers PitchView constructor invariants (NaN/Inf rejection / strict-positive dimensions / origin propagation / null-origin defaults to zero) + FixedToWorld precision (integer-corner / **fractional-corner sub-mm pin that actually exercises the float-cliff guard** + **non-unity-scale corner-magnitude pin locking the all-double pipeline** + altitude-on-Y / origin-shift additivity / scale propagation / fractional sub-meter / negative quadrant) + ActiveViewerEvent ShotTypeCatalog projection + StakesNormalized→float conversion (full + half) + null/negative-tick guards + ElapsedTicks-immutability across constructed instances. Test-local `Vector3EqualityComparer` for tolerance-based assertions.
+
+- `unity-project/Assets/Viewer/Tests/EditMode/Viewer.Tests.EditMode.asmdef` — added `FinalWhistle.Viewer.Core` to `references` so the new tests can resolve the new types.
+
+- `.claude/rules/Scripts/Viewer/RULES.md` — doc-drift fix: PitchView + ActiveViewerEvent now correctly enumerated under `Viewer.Core` (was stale, said Contracts) with the UnityEngine.Vector3 rationale captured + Decision-1 lock cited.
+
+- `docs/plans/dots-adapter-blueprint.md` (NEW; ~430 LoC) — `feature-dev:code-architect`'s 7-slice ladder + per-slice required-agents matrix + Decisions 1-5 (interface 4-method shape in Viewer.Core; no Cinemachine for Phase-3 dots adapter; `diagonal-attack-lane` adapter-local heuristic not bridge-emitted; EventBridge.Derive once-per-tick re-derive not incremental at Phase-3 KeyEvent counts; player dot identity = `RoleFamily` + `TeamSide` colour tinting not jersey-number rendering at Phase-3) + handoff section for the cross-session restart.
+
+**SPEC update**: line 149 stays `[ ]` (full task = all 7 slices); inline note added documenting Slice 1 ship + verification + pr-review-toolkit findings. SPEC decisions-log additions deferred — blueprint Decisions 1-5 will fold into a single decisions-log entry at Slice 7 close (rationale: Decisions 2-5 may evolve as Slices 2-7 land; pinning them mid-ladder risks decisions-log churn).
+
+**Verification stack (full /done discipline)**:
+
+- `scripts/fw verify`: green. verify-docs clean / 27 Category-B exemptions / banned-terms clean / shader-audit clean (no viewer-adapter shaders yet) / verify-unity-plugins matches publish (3 files) / save-migration-test no fixtures (Phase-4 trigger) / **dotnet test 642/642 passing in 279ms**.
+
+- pr-review-toolkit triple (silent-failure-hunter / type-design-analyzer / feature-dev:code-reviewer) — ran mid-session per the blueprint handoff. P1/P2 findings applied:
+  - P1 (code-reviewer): PitchView validation reordered — finite checks BEFORE positivity. Reason: `NaN <= 0f` evaluates `false` in IEEE 754, so NaN/Inf would have passed the positivity check and only failed the finite check below, yielding `ArgumentException` (via the finite gate) rather than `ArgumentOutOfRangeException` (via the positivity gate, which the doc summary advertises). Reordering also makes the failure mode loud at the first detected violation rather than the second.
+  - P1 (code-reviewer): PitchView.FixedToWorld keeps multiplication in double precision across `MetersPerUnit`. Was casting to float before scaling, which defeats the double-side divide's precision benefit when `MetersPerUnit != 1f` (binding precision constraint becomes the post-cast float-side product, not the double-side divide). All-double pipeline preserves sub-mm accuracy across corner magnitudes.
+  - P2 (code-reviewer + silent-failure-hunter): added `FixedToWorld_FractionalCorner_HoldsSubMillimetreAccuracy` + `FixedToWorld_NonUnityScaleAtCornerMagnitude_PreservesAccuracy` tests. Reason: the prior corner test used integer-only Q32.32 which round-trips through float exactly and therefore did NOT exercise the float-cliff guard the double intermediate exists to defend against. The new tests construct `(52.5, 0, 34)` using `Fixed.Half` for the fractional component; this is the magnitude where direct `long → float` conversion of the raw value loses ~6 microns.
+  - P2 (silent-failure-hunter): added `<exception cref>` XML doc on `ActiveViewerEvent` constructor for `KeyNotFoundException` propagation. Reason: makes the loud-fail intent explicit so a future maintainer can't "fix" it back into a silent fallback.
+  - P2 (code-reviewer): `Viewer/RULES.md` updated to reflect `PitchView` + `ActiveViewerEvent` live in `Viewer.Core` (was stale, said Contracts).
+  - P2/P3 (type-design-analyzer): `IsInitialized` lifecycle guard + `StakesFloat` clamp assert deferred — Phase-3 acceptable (doc-only is current discipline; would add Slice-2+ if observed drift in adapter integration).
+
+- `scripts/fw build-unity-plugins`: N/A — no MatchSim source touched.
+
+- `unity-check` L1: green via UnityMCP `refresh_unity force=request` + `read_console` (zero errors / zero code warnings post-`using FinalWhistle.MatchSim.Memory.Contracts;` add to PitchViewTests.cs that fixed the initial `EventClass` not-found compile error from cross-session restart).
+
+- `unity-check` L2: green via UnityMCP `run_tests EditMode FinalWhistle.Viewer.Tests.EditMode` — **60/60 passed in 0.78 seconds** (was 21 baseline pre-slice; +39 new tests across the new PitchView fixture + the existing EventBridge harness picking up the Core asmdef reference). Pinned 60-tick `MatchCanonicalState` determinism hash UNCHANGED.
+
+- `unity-check` L3: N/A — Slice 1 is contracts only, no rendering surface yet. L3 returns at Slice 2 (first SpriteRenderer on screen) and Slice 7 (Month-3 observer rubric clip).
+
+**Subagent rotation per CLAUDE.md §6.3**: `feature-dev:code-architect` produced the 7-slice blueprint at `docs/plans/dots-adapter-blueprint.md` (tool_uses captured in commit body); pr-review-toolkit triple (silent-failure-hunter + type-design-analyzer + feature-dev:code-reviewer) ran in parallel mid-session pre-commit; `lead-programmer` reviewed interface shape per Slice-1 rotation cell. `unity-check` skill verified L1+L2 via UnityMCP. The next-slice required-agents are pre-assigned in the blueprint §B Slice 2 row (`unity-specialist` for the asmdef + scene + sprite work; async `art-director` for palette legibility review post-L2 screenshot).
+
+**What's next**: Slice 2 of 7 — static pitch quad + `DotPool` rendering 22 players + ball visible on screen. Files to create per blueprint §B: `DotsMatchDirector.cs` (stub MonoBehaviour) + `DotPool.cs` (23 SpriteRenderers; 11 home + 11 away + 1 ball) + `PitchQuad.cs` (105×68m green quad mesh) + `IdentityTintTable.cs` + `IdentityTintTable.asset` (RoleFamily × TeamSide → Color) + `Scenes/DotsViewer.unity` + 3 dot sprite PNGs. Hand-rolled orthographic top-down camera (no Cinemachine for Phase-3 per blueprint Decision 2). LoC estimate ~350. Acceptance criteria: scene loads; 23 dots visible at formation; home vs away colour legible at full pitch scale; GK distinct.
+
+<!-- ui-lint:allow term="awakening" reason="closure note refers to ADR-0008/0009 + design/breakthrough-moments.md context surfaced via the slice-1 doc-block; not Phase-3 player-facing copy" reviewer="osagberg" -->
+
 ## 2026-04-30 (Codex round-3 follow-up against `a26c632` — SignatureRecipeMetadata default-state bypass closed)
 
 Codex round-3 review pass against `a26c632` flagged 1 P2:
