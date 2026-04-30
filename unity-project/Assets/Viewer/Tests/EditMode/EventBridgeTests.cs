@@ -43,6 +43,39 @@ namespace FinalWhistle.Viewer.Tests.EditMode
                 position: Vector3Fixed.Zero);
         }
 
+        /// <summary>
+        /// Append a signature-execution KeyEvent + the matching
+        /// SignatureExecution recipe so the bridge's symmetric validation
+        /// (every signature-execution KeyEvent has exactly one recipe;
+        /// every recipe maps to a real signature-execution KeyEvent)
+        /// passes. Recipe-key matches the signature kind per the
+        /// SignatureRules production wiring (#20 → "player-isolation",
+        /// #22 → "pass-shot-impact", #13 → "tactical-wide").
+        /// </summary>
+        private static void AppendSignatureExecution(
+            MatchSimulationState state, long tickValue, KeyEventKind kind,
+            TeamSide side, byte jersey)
+        {
+            state.KeyEvents.Add(BuildKeyEvent(tickValue, kind, side, jersey));
+            int keyEventIndex = state.KeyEvents.Count - 1;
+            (string sigId, string recipeKey, string biasField) = kind switch
+            {
+                KeyEventKind.SignatureExecuted_LowCutback =>
+                    ("fwh.core:signature.low-cutback-from-byline", "player-isolation", "cutback_xAssist"),
+                KeyEventKind.SignatureExecuted_BlindSideNearPostRun =>
+                    ("fwh.core:signature.blind-side-near-post-run", "pass-shot-impact", "near_post_xG"),
+                KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch =>
+                    ("fwh.core:signature.first-time-diagonal-switch", "tactical-wide", "diagonal_switch_trigger"),
+                _ => throw new System.ArgumentOutOfRangeException(nameof(kind), kind, "Not a signature-execution kind."),
+            };
+            SignaturePresentationRecipe recipe = new(
+                signatureId: sigId,
+                recipeKey: recipeKey,
+                simBiasFieldId: biasField,
+                simBiasDeltaRawQ32: Fixed.OneRaw / 5L);
+            state.SignatureRecipes.Add(new SignatureExecution(keyEventIndex, recipe));
+        }
+
         // ============================================================
         // SPEC line 148 acceptance: synthetic-fixture path produces
         // deterministic ViewerEvent stream
@@ -75,7 +108,7 @@ namespace FinalWhistle.Viewer.Tests.EditMode
         public void Derive_LowCutbackKeyEvent_ProducesPlayerIsolationViewerEvent()
         {
             MatchSimulationState state = BuildEmptyState();
-            state.KeyEvents.Add(BuildKeyEvent(900, KeyEventKind.SignatureExecuted_LowCutback, TeamSide.Home, jersey: 6));
+            AppendSignatureExecution(state, 900, KeyEventKind.SignatureExecuted_LowCutback, TeamSide.Home, jersey: 6);
 
             IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
 
@@ -86,32 +119,38 @@ namespace FinalWhistle.Viewer.Tests.EditMode
             Assert.AreEqual("viewer.focal:home.06", ev.FocalSubject);
             Assert.AreEqual(1, ev.ParticipantPlayerIds.Count);
             Assert.AreEqual("viewer.focal:home.06", ev.ParticipantPlayerIds[0]);
+            // Per Codex round-1 P1 against 40159bd: signature executions
+            // are NOT breakthroughs — distinct EventClass + moderate stakes.
+            Assert.AreEqual(EventClass.SignatureExecuted, ev.SourceEventClass);
+            Assert.AreEqual(Fixed.Parse("0.7000000000"), ev.StakesNormalized);
         }
 
         [Test]
         public void Derive_DiagonalSwitchKeyEvent_ProducesTacticalWideViewerEvent()
         {
             MatchSimulationState state = BuildEmptyState();
-            state.KeyEvents.Add(BuildKeyEvent(1500, KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch, TeamSide.Home, jersey: 7));
+            AppendSignatureExecution(state, 1500, KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch, TeamSide.Home, jersey: 7);
 
             IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
 
             Assert.AreEqual(1, events.Count);
             Assert.AreEqual(ShotTypeCatalog.ShotTacticalWide, events[0].BaseShotTypeId);
             Assert.AreEqual("viewer.focal:home.07", events[0].FocalSubject);
+            Assert.AreEqual(EventClass.SignatureExecuted, events[0].SourceEventClass);
         }
 
         [Test]
         public void Derive_BlindSideRunKeyEvent_ProducesPassShotImpactViewerEvent()
         {
             MatchSimulationState state = BuildEmptyState();
-            state.KeyEvents.Add(BuildKeyEvent(1800, KeyEventKind.SignatureExecuted_BlindSideNearPostRun, TeamSide.Away, jersey: 11));
+            AppendSignatureExecution(state, 1800, KeyEventKind.SignatureExecuted_BlindSideNearPostRun, TeamSide.Away, jersey: 11);
 
             IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
 
             Assert.AreEqual(1, events.Count);
             Assert.AreEqual(ShotTypeCatalog.ShotPassShotImpact, events[0].BaseShotTypeId);
             Assert.AreEqual("viewer.focal:away.11", events[0].FocalSubject);
+            Assert.AreEqual(EventClass.SignatureExecuted, events[0].SourceEventClass);
         }
 
         [Test]
@@ -156,7 +195,7 @@ namespace FinalWhistle.Viewer.Tests.EditMode
         {
             MatchSimulationState state = BuildEmptyState();
             state.KeyEvents.Add(BuildKeyEvent(100, KeyEventKind.Goal, TeamSide.Home, KeyEvent.JerseyUnspecified));
-            state.KeyEvents.Add(BuildKeyEvent(200, KeyEventKind.SignatureExecuted_LowCutback, TeamSide.Home, jersey: 6));
+            AppendSignatureExecution(state, 200, KeyEventKind.SignatureExecuted_LowCutback, TeamSide.Home, jersey: 6);
             state.KeyEvents.Add(BuildKeyEvent(300, KeyEventKind.SignatureBreakthrough, TeamSide.Home, jersey: 6));
 
             IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
@@ -180,7 +219,7 @@ namespace FinalWhistle.Viewer.Tests.EditMode
             MatchSimulationState state = BuildEmptyState();
             state.KeyEvents.Add(BuildKeyEvent(100, KeyEventKind.Goal, TeamSide.Home, KeyEvent.JerseyUnspecified));
             state.KeyEvents.Add(BuildKeyEvent(150, KeyEventKind.GoalKickRestart, TeamSide.Away, KeyEvent.JerseyUnspecified));
-            state.KeyEvents.Add(BuildKeyEvent(300, KeyEventKind.SignatureExecuted_LowCutback, TeamSide.Home, jersey: 6));
+            AppendSignatureExecution(state, 300, KeyEventKind.SignatureExecuted_LowCutback, TeamSide.Home, jersey: 6);
 
             IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
 
@@ -224,7 +263,7 @@ namespace FinalWhistle.Viewer.Tests.EditMode
         public void Derive_LowCutbackWithReduceMotion_SubstitutesEffectiveShot()
         {
             MatchSimulationState state = BuildEmptyState();
-            state.KeyEvents.Add(BuildKeyEvent(900, KeyEventKind.SignatureExecuted_LowCutback, TeamSide.Home, jersey: 6));
+            AppendSignatureExecution(state, 900, KeyEventKind.SignatureExecuted_LowCutback, TeamSide.Home, jersey: 6);
 
             IReadOnlyList<ViewerEvent> events = EventBridge.Derive(
                 state, matchSeed: Seed.FromUInt64(0xdeadbeefdeadbeefUL),
@@ -372,6 +411,162 @@ namespace FinalWhistle.Viewer.Tests.EditMode
         {
             Assert.Throws<System.ArgumentException>(() =>
                 new CallbackSlotValue("test", entityId: "fwh.core:player_00006", literalValue: "12"));
+        }
+
+        // ============================================================
+        // Codex round-1 P1 against 40159bd: signature executions are
+        // not breakthroughs (distinct EventClass + distinct stakes)
+        // ============================================================
+
+        [Test]
+        public void Derive_SignatureExecution_IsNotClassifiedAsBreakthrough()
+        {
+            // Codex round-1 P1: a routine signature fire MUST surface as
+            // EventClass.SignatureExecuted with moderate stakes (~0.7),
+            // distinct from EventClass.SignatureBreakthrough at Stakes=1.0
+            // which is reserved for the cap-reach permanent-development
+            // event. Conflating them silently corrupts the dots adapter's
+            // modulation logic + the replay-corpus's distinction.
+            MatchSimulationState state = BuildEmptyState();
+            AppendSignatureExecution(state, 900, KeyEventKind.SignatureExecuted_LowCutback, TeamSide.Home, jersey: 6);
+            state.KeyEvents.Add(BuildKeyEvent(1500, KeyEventKind.SignatureBreakthrough, TeamSide.Home, jersey: 6));
+
+            IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
+
+            Assert.AreEqual(2, events.Count);
+            // Signature execution: distinct class + distinct stakes.
+            Assert.AreEqual(EventClass.SignatureExecuted, events[0].SourceEventClass);
+            Assert.AreEqual(Fixed.Parse("0.7000000000"), events[0].StakesNormalized);
+            Assert.AreNotEqual(Fixed.One, events[0].StakesNormalized);
+            // Breakthrough still classifies + stakes correctly.
+            Assert.AreEqual(EventClass.SignatureBreakthrough, events[1].SourceEventClass);
+            Assert.AreEqual(Fixed.One, events[1].StakesNormalized);
+        }
+
+        // ============================================================
+        // Codex round-1 P1 against 40159bd: bridge consumes
+        // SignatureRecipes — derives shot from Recipe.RecipeKey
+        // ============================================================
+
+        [Test]
+        public void Derive_SignatureExecution_DerivesShotFromRecipeKey()
+        {
+            // The bridge must derive shot ID from Recipe.RecipeKey, not
+            // hard-code by KeyEventKind. Substituting a recipe with a
+            // different RecipeKey changes the resulting shot.
+            MatchSimulationState state = BuildEmptyState();
+            state.KeyEvents.Add(BuildKeyEvent(900, KeyEventKind.SignatureExecuted_LowCutback, TeamSide.Home, jersey: 6));
+            // Authored an unusual recipe: LowCutback signature with
+            // tactical-wide RecipeKey (a hypothetical content-pack
+            // override). Bridge must follow the recipe, not the kind.
+            SignaturePresentationRecipe overrideRecipe = new(
+                signatureId: "fwh.core:signature.low-cutback-from-byline",
+                recipeKey: "tactical-wide",
+                simBiasFieldId: "cutback_xAssist",
+                simBiasDeltaRawQ32: Fixed.OneRaw / 5L);
+            state.SignatureRecipes.Add(new SignatureExecution(
+                keyEventIndex: 0, recipe: overrideRecipe));
+
+            IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
+
+            Assert.AreEqual(1, events.Count);
+            // Bridge followed the recipe-key override, not the static
+            // KeyEventKind→shot map.
+            Assert.AreEqual(ShotTypeCatalog.ShotTacticalWide, events[0].BaseShotTypeId);
+        }
+
+        [Test]
+        public void Derive_SignatureExecution_MissingRecipe_Throws()
+        {
+            // Bridge enforces "every signature-execution KeyEvent has
+            // exactly one matching SignatureRecipes entry" — a missing
+            // recipe is a runner-wiring bug, not a recoverable runtime
+            // condition.
+            MatchSimulationState state = BuildEmptyState();
+            state.KeyEvents.Add(BuildKeyEvent(900, KeyEventKind.SignatureExecuted_LowCutback, TeamSide.Home, jersey: 6));
+            // No SignatureRecipes entry added.
+
+            Assert.Throws<System.InvalidOperationException>(() =>
+                EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL)));
+        }
+
+        [Test]
+        public void Derive_SignatureRecipe_MismatchedKeyEventIndex_Throws()
+        {
+            // A recipe pointing at a non-signature-execution KeyEvent
+            // (here: a Goal) is a bridge-contract violation.
+            MatchSimulationState state = BuildEmptyState();
+            state.KeyEvents.Add(BuildKeyEvent(900, KeyEventKind.Goal, TeamSide.Home, KeyEvent.JerseyUnspecified));
+            state.SignatureRecipes.Add(new SignatureExecution(
+                keyEventIndex: 0,  // points at Goal, not a signature execution
+                recipe: new SignaturePresentationRecipe(
+                    "fwh.core:signature.test", "tactical-wide", "test_field", 0L)));
+
+            Assert.Throws<System.InvalidOperationException>(() =>
+                EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL)));
+        }
+
+        // ============================================================
+        // Codex round-1 P2 against 40159bd: Derive returns immutable
+        // wrapper — cast-back to List<T> impossible
+        // ============================================================
+
+        [Test]
+        public void Derive_Result_CannotBeCastToMutableList()
+        {
+            MatchSimulationState state = BuildEmptyState();
+            state.KeyEvents.Add(BuildKeyEvent(100, KeyEventKind.Goal, TeamSide.Home, KeyEvent.JerseyUnspecified));
+
+            IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
+
+            // Per Codex round-1 P2: a bare List<ViewerEvent> would let
+            // consumers cast back + reorder/append after the bridge has
+            // emitted a deterministic stream. ReadOnlyCollection wrap
+            // returns null on the cast-back probe.
+            List<ViewerEvent>? leakedList = events as List<ViewerEvent>;
+            Assert.IsNull(leakedList);
+        }
+
+        // ============================================================
+        // Codex round-1 P2 against 40159bd: KeyEvents must be
+        // StartTick-non-decreasing
+        // ============================================================
+
+        [Test]
+        public void Derive_OutOfOrderKeyEvents_Throws()
+        {
+            // Per ADR-0008 §Determinism contract: stream order is
+            // (StartTick, ViewerEventId). Bridge requires the canonical
+            // KeyEvents stream to already be StartTick-non-decreasing
+            // (the MatchSim runtime invariant). A hand-built or future
+            // orchestration state with [tick=300, tick=100] must throw
+            // at the bridge boundary, not silently emit out-of-order.
+            MatchSimulationState state = BuildEmptyState();
+            state.KeyEvents.Add(BuildKeyEvent(300, KeyEventKind.Goal, TeamSide.Home, KeyEvent.JerseyUnspecified));
+            state.KeyEvents.Add(BuildKeyEvent(100, KeyEventKind.Goal, TeamSide.Home, KeyEvent.JerseyUnspecified));
+
+            Assert.Throws<System.ArgumentException>(() =>
+                EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL)));
+        }
+
+        [Test]
+        public void Derive_EqualStartTickKeyEvents_AreAllowed()
+        {
+            // Equal-tick is allowed (multiple events on same tick →
+            // ordering by ViewerEventId per ADR-0008). Only strict-
+            // decreasing throws.
+            MatchSimulationState state = BuildEmptyState();
+            state.KeyEvents.Add(BuildKeyEvent(100, KeyEventKind.Goal, TeamSide.Home, KeyEvent.JerseyUnspecified));
+            AppendSignatureExecution(state, 100, KeyEventKind.SignatureExecuted_LowCutback, TeamSide.Home, jersey: 6);
+
+            IReadOnlyList<ViewerEvent> events = EventBridge.Derive(state, Seed.FromUInt64(0xdeadbeefdeadbeefUL));
+
+            Assert.AreEqual(2, events.Count);
+            // Both at tick 100; ViewerEventId monotonic.
+            Assert.AreEqual(100L, events[0].StartTick.Value);
+            Assert.AreEqual(100L, events[1].StartTick.Value);
+            Assert.AreEqual(0UL, events[0].ViewerEventId);
+            Assert.AreEqual(1UL, events[1].ViewerEventId);
         }
 
         [Test]

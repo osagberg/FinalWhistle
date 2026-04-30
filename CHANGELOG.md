@@ -2,6 +2,30 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Codex round-1 follow-up against `40159bd` — Viewer.EventBridge classification + recipe-stream + immutable-result + ordering fixes)
+
+Codex review pass against `40159bd` flagged 2 P1 + 2 P2 findings. All four closed with regression tests:
+
+- **P1 — Signature executions labeled as breakthroughs.** `EventBridge.MapToSourceEventClass` mapped all three `SignatureExecuted_*` KeyEvents to `EventClass.SignatureBreakthrough`, and `StakesFor` then assigned them `Fixed.One`. Pass-activation trace + dots adapter would see a routine low cutback / blind-side run / diagonal switch with the same source class + stakes as a permanent-development breakthrough. Codex's Unity repro: `sourceClass=SignatureBreakthrough; stakes=1.0000000000` for a low-cutback ViewerEvent. **Fix**: introduced `EventClass.SignatureExecuted = 3` as a Phase-3 catalog extension distinct from `SignatureBreakthrough = 2` (per SPEC 2026-04-30 decisions-log entry); bridge maps signature-execution KeyEvents to it with moderate stakes (`0.70`). Breakthroughs stay at `Fixed.One`. Goals stay at `0.95`. Three-way distinct stakes signal preserves the modulation logic.
+
+- **P1 — Bridge dropped the SignatureRecipes stream.** The signature slice (commit `bf2ac1e`) created `MatchSimulationState.SignatureRecipes` specifically for `Viewer.EventBridge` to consume — it carries `SignatureId` + `RecipeKey` + `SimBiasFieldId` + `SimBiasDeltaRawQ32` per signature execution. The slice-#5 bridge ignored this stream and hard-coded shot IDs from `KeyEventKind`, losing the authored presentation metadata + creating a silent drift surface (changing a recipe wouldn't change bridge output). **Fix**: `EventBridge.Derive` now builds a `Dictionary<int, SignaturePresentationRecipe>` keyed by `KeyEventIndex` from `state.SignatureRecipes`, validates the symmetric invariant ("every signature-execution KeyEvent has exactly one matching recipe; every recipe maps to a real signature-execution KeyEvent"), and derives the shot ID from `Recipe.RecipeKey` via the new `ShotIdForRecipeKey` mapping (recipe-key short slug → catalog ID). Mismatched / missing recipes throw `InvalidOperationException` at the bridge boundary.
+
+- **P2 — `Derive` returned a cast-mutable List.** The bare `List<ViewerEvent>` instance was castable back to `List<ViewerEvent>`, letting consumers reorder or append after the bridge has emitted what it claims is a deterministic stream. Codex's Unity repro: `events as List<ViewerEvent>` succeeded. **Fix**: wrapped the result in `ReadOnlyCollection<ViewerEvent>` at return — same defensive-wrap pattern as `MemoryEvent.Participants` + `CallbackTag.ConsumingReaders` from slice-#3 round-1 P2. Cast-back returns null (verified in Unity Mono).
+
+- **P2 — Bridge did not enforce StartTick ordering.** ADR-0008 §"Determinism contract" pins stream order at `(StartTick ascending, ViewerEventId ascending)`, but `Derive` preserved raw `KeyEvents` append order. A hand-built or future orchestration state with ticks `[300, 100]` emitted ViewerEvents in that same order. Codex's Unity repro: `firstStart=300; secondStart=100`. **Fix**: new `ValidateKeyEventsStartTickNonDecreasing` helper called at `Derive` entry. Throws `ArgumentException` on strict-decreasing (allows equal ticks for same-tick events ordered by ViewerEventId). The MatchSim runtime always emits in chronological order; the validation is a bridge-boundary guard against future orchestration drift.
+
+**New tests**: 7 (1 SignatureExecution-not-breakthrough classification + 1 recipe-key-derives-shot + 1 missing-recipe-throws + 1 mismatched-key-event-index-throws + 1 cast-back-returns-null + 1 out-of-order-throws + 1 equal-tick-allowed). Plus updates to 6 prior tests using the new `AppendSignatureExecution` helper that adds the recipe stream entry.
+
+**Total tests: 642/642 MatchSim** (unchanged; only test-only changes in MatchSim) + **28/28 EditMode** (was 21; +7 new). Unity Test Framework `run_tests`: 28/28 passed in 0.41 seconds.
+
+**SPEC decisions-log entry**: `EventClass.SignatureExecuted = 3` Phase-3 catalog extension appended per CLAUDE.md §5.2 append-only policy + ADR-0004 cross-doc exact-match discipline. Distinct from ADR-0004's reserved Phase-4+ `SignatureExecuted` (the readiness-accumulator awakening lifecycle); Phase-3 reuses the name semantically (a signature fired) but the entries will likely consolidate when Phase-4 ships.
+
+**Pinned 60-tick MatchCanonicalState determinism hash `sha256:7e851976...50e` UNCHANGED**. All four fixes are in the Viewer layer + Memory.Contracts EventClass enum extension; MatchSim canonical paths untouched.
+
+**Unity Mono repros all verified fixed via UnityMCP `execute_code`**: `sourceClass=SignatureExecuted; stakes=0.7000000000; shot=fwh.core:shot.player-isolation; cast_to_list=null`.
+
+**Subagent rotation**: Codex round-1 review pass external; main-thread authoring with the round-1 finding list as the work order. pr-review-toolkit triple skipped per the small-diff exception (~250 net LoC of code + ~200 LoC of tests + doc updates) — finding-driven hardening with named regression tests per finding.
+
 ## 2026-04-30 (Phase-3 semantic slice #5 of 5 — Viewer.EventBridge minimum implementation; Phase-3 semantic-slice ladder COMPLETE)
 
 SPEC.md Phase-3 line 148 closed. Final of five semantic-slice deliverables shipped end-to-end: `Viewer.EventBridge.Derive(state, matchSeed)` consumes the canonical MatchSim KeyEvent stream + the Phase-3 `ShotTypeCatalog` and emits a deterministic `ViewerEvent` stream sorted by `(StartTick ascending, ViewerEventId ascending)` per ADR-0008 §"Determinism contract." Verified end-to-end via UnityMCP `run_tests`: 21/21 EditMode tests pass in 1.12 seconds in the actual deploy environment.

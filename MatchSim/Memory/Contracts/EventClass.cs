@@ -49,10 +49,39 @@ public enum EventClass
     /// cap-reach trigger is a deterministic fixture-driven minimum
     /// that demonstrates the persistent-development pattern without
     /// pulling forward Phase-4 lifecycle work. Phase 4 will add
-    /// <c>SignatureAwakened = 3</c> as a separate value; the
-    /// Phase-3 <see cref="SignatureBreakthrough"/> stays as the
-    /// fixture-driven cap-reach event.
+    /// <c>SignatureAwakened</c> as a separate value at the next
+    /// available slot; the Phase-3 <see cref="SignatureBreakthrough"/>
+    /// stays as the fixture-driven cap-reach event.
     /// </para>
     /// </summary>
     SignatureBreakthrough = 2,
+
+    /// <summary>
+    /// Phase-3 minimum signature-execution event class per Codex
+    /// round-1 P1 finding against <c>40159bd</c> + SPEC 2026-04-30
+    /// catalog-extension entry. Distinct from
+    /// <see cref="SignatureBreakthrough"/> — a routine signature fire
+    /// (LowCutback / BlindSideNearPostRun / FirstTimeDiagonalSwitch)
+    /// is NOT a permanent player-development event; conflating them
+    /// silently sets the pass-activation trace's source class +
+    /// stakes to breakthrough levels.
+    ///
+    /// <para>
+    /// <strong>Phase-3 minimum scope</strong>: Viewer.EventBridge
+    /// maps <c>KeyEventKind.SignatureExecuted_*</c> → this class with
+    /// moderate stakes (Phase-3 placeholder) so the pass-activation
+    /// trace correctly distinguishes routine fires from cap-reach
+    /// breakthroughs.
+    /// </para>
+    ///
+    /// <para>
+    /// <strong>Distinct from ADR-0004's reserved
+    /// <c>SignatureExecuted</c></strong>: the ADR catalog reserves
+    /// the same name for the Phase-4+ runtime-emission lifecycle.
+    /// Phase-3 reuses the name semantically (a signature fired) but
+    /// the entry will likely consolidate with the Phase-4+ slot when
+    /// the lifecycle ships. Pinned int value 3.
+    /// </para>
+    /// </summary>
+    SignatureExecuted = 3,
 }

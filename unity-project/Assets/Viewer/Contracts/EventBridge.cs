@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using FinalWhistle.MatchSim.Memory.Contracts;
 using FinalWhistle.MatchSim.Sim;
 
@@ -90,12 +91,33 @@ namespace FinalWhistle.Viewer.Contracts
         {
             if (state is null) throw new ArgumentNullException(nameof(state));
 
+            // StartTick ordering enforcement per Codex round-1 P2 against
+            // 40159bd: ADR-0008 §"Determinism contract" pins stream order
+            // at (StartTick ascending, ViewerEventId ascending). Bridge
+            // requires KeyEvents to already be StartTick-non-decreasing
+            // (the MatchSim runtime invariant); a hand-built or future
+            // orchestration state with [tick=300, tick=100] would
+            // otherwise silently emit ViewerEvents out of order. Throw
+            // loud at the bridge boundary rather than emit a malformed
+            // stream.
+            ValidateKeyEventsStartTickNonDecreasing(state.KeyEvents);
+
+            // Build an index from KeyEventIndex → SignatureExecution so
+            // each signature-execution KeyEvent is correlated with its
+            // recipe per Codex round-1 P1 against 40159bd. The recipe
+            // is the authored presentation metadata — RecipeKey drives
+            // the shot selection (no longer hard-coded by KeyEventKind),
+            // and SignatureId / SimBiasFieldId / SimBiasDeltaRawQ32
+            // travel onto the ViewerEvent for the dots adapter.
+            Dictionary<int, SignaturePresentationRecipe> recipesByIndex =
+                BuildRecipeIndex(state);
+
             List<ViewerEvent> result = new();
             ulong viewerEventId = 0;
             for (int i = 0; i < state.KeyEvents.Count; i++)
             {
                 KeyEvent ke = state.KeyEvents[i];
-                if (!TryMapToShot(ke.Kind, out string baseShotId))
+                if (!TryResolveBaseShot(ke, i, recipesByIndex, out string baseShotId))
                 {
                     // Phase-3: restart events skip translation. The skip is
                     // the documented routine-band-telemetry behavior, not
@@ -154,31 +176,152 @@ namespace FinalWhistle.Viewer.Contracts
                 result.Add(ev);
                 viewerEventId++;
             }
-            return result;
+            // Wrap in ReadOnlyCollection per Codex round-1 P2 against
+            // 40159bd: the bare List<ViewerEvent> instance is castable
+            // back to a mutable List<ViewerEvent>, letting consumers
+            // reorder or append after the bridge has emitted what it
+            // claims is a deterministic stream. Same defensive-wrap
+            // pattern as MemoryEvent.Participants + CallbackTag.ConsumingReaders.
+            return new ReadOnlyCollection<ViewerEvent>(result);
         }
 
-        private static bool TryMapToShot(KeyEventKind kind, out string shotId)
+        /// <summary>
+        /// Build a (KeyEventIndex → recipe) dictionary AND validate the
+        /// invariant: every <c>SignatureExecuted_*</c> KeyEvent has
+        /// exactly one matching recipe in
+        /// <c>state.SignatureRecipes</c>; every recipe maps to a real
+        /// signature-execution KeyEvent. Per Codex round-1 P1: the
+        /// recipe stream was specifically built for Viewer.EventBridge;
+        /// silently dropping it loses the authored presentation metadata
+        /// (SignatureId / RecipeKey / SimBiasFieldId / SimBiasDeltaRawQ32)
+        /// the dots adapter is meant to consume.
+        /// </summary>
+        private static Dictionary<int, SignaturePresentationRecipe> BuildRecipeIndex(
+            MatchSimulationState state)
         {
-            switch (kind)
+            Dictionary<int, SignaturePresentationRecipe> byIndex = new(state.SignatureRecipes.Count);
+            for (int i = 0; i < state.SignatureRecipes.Count; i++)
+            {
+                SignatureExecution exec = state.SignatureRecipes[i];
+                if (byIndex.ContainsKey(exec.KeyEventIndex))
+                {
+                    throw new InvalidOperationException(
+                        $"SignatureRecipes contains duplicate entries for KeyEventIndex {exec.KeyEventIndex}. " +
+                        "The recipe stream is parallel to the KeyEvents stream — each signature-execution " +
+                        "KeyEvent must correspond to exactly one SignatureExecution entry.");
+                }
+                if ((uint)exec.KeyEventIndex >= state.KeyEvents.Count)
+                {
+                    throw new InvalidOperationException(
+                        $"SignatureRecipes[{i}].KeyEventIndex={exec.KeyEventIndex} is out of range " +
+                        $"for KeyEvents.Count={state.KeyEvents.Count}.");
+                }
+                if (!IsSignatureExecutionKind(state.KeyEvents[exec.KeyEventIndex].Kind))
+                {
+                    throw new InvalidOperationException(
+                        $"SignatureRecipes[{i}].KeyEventIndex={exec.KeyEventIndex} points to a " +
+                        $"KeyEvent of kind {state.KeyEvents[exec.KeyEventIndex].Kind}, which is not " +
+                        "a signature-execution kind. Recipe-stream entries must mirror SignatureExecuted_* events.");
+                }
+                byIndex[exec.KeyEventIndex] = exec.Recipe;
+            }
+            // Symmetric check: every signature-execution KeyEvent has a
+            // recipe entry. The pairing is what makes the two streams a
+            // joint contract.
+            for (int i = 0; i < state.KeyEvents.Count; i++)
+            {
+                if (IsSignatureExecutionKind(state.KeyEvents[i].Kind) && !byIndex.ContainsKey(i))
+                {
+                    throw new InvalidOperationException(
+                        $"KeyEvents[{i}] is a {state.KeyEvents[i].Kind} signature-execution event " +
+                        "but no matching SignatureRecipes entry exists. SignatureRules must emit a " +
+                        "recipe alongside every signature-execution KeyEvent.");
+                }
+            }
+            return byIndex;
+        }
+
+        /// <summary>
+        /// Resolve the base shot ID for a KeyEvent. For
+        /// signature-execution events, looks up the recipe and maps
+        /// <see cref="SignaturePresentationRecipe.RecipeKey"/> → catalog
+        /// shot ID — the recipe is the authored single-source-of-truth
+        /// per Codex round-1 P1 fix. Goals + breakthroughs use static
+        /// mappings (no recipe stream entry; their shot identity is
+        /// pinned by the bridge contract). Restart events return false
+        /// (caller skips them).
+        /// </summary>
+        private static bool TryResolveBaseShot(
+            KeyEvent ke, int keyEventIndex,
+            Dictionary<int, SignaturePresentationRecipe> recipesByIndex,
+            out string shotId)
+        {
+            switch (ke.Kind)
             {
                 case KeyEventKind.Goal:
                     shotId = ShotTypeCatalog.ShotPassShotImpact;
                     return true;
-                case KeyEventKind.SignatureExecuted_LowCutback:
-                    shotId = ShotTypeCatalog.ShotPlayerIsolation;
-                    return true;
-                case KeyEventKind.SignatureExecuted_BlindSideNearPostRun:
-                    shotId = ShotTypeCatalog.ShotPassShotImpact;
-                    return true;
-                case KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch:
-                    shotId = ShotTypeCatalog.ShotTacticalWide;
-                    return true;
                 case KeyEventKind.SignatureBreakthrough:
                     shotId = ShotTypeCatalog.ShotAftermathFreeze;
+                    return true;
+                case KeyEventKind.SignatureExecuted_LowCutback:
+                case KeyEventKind.SignatureExecuted_BlindSideNearPostRun:
+                case KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch:
+                    SignaturePresentationRecipe recipe = recipesByIndex[keyEventIndex];
+                    shotId = ShotIdForRecipeKey(recipe.RecipeKey);
                     return true;
                 default:
                     shotId = string.Empty;
                     return false;
+            }
+        }
+
+        /// <summary>
+        /// Map a signature recipe key (the short slug authored on
+        /// <see cref="SignaturePresentationRecipe.RecipeKey"/>) to the
+        /// content-pack-qualified <see cref="ShotTypeDefinition.Id"/> in
+        /// <see cref="ShotTypeCatalog"/>. The two layers carry the same
+        /// vocabulary; this helper is the seam between them. Throws on
+        /// unknown recipe keys so a future authoring drift surfaces
+        /// loudly.
+        /// </summary>
+        private static string ShotIdForRecipeKey(string recipeKey)
+        {
+            return recipeKey switch
+            {
+                "tactical-wide" => ShotTypeCatalog.ShotTacticalWide,
+                "player-isolation" => ShotTypeCatalog.ShotPlayerIsolation,
+                "pass-shot-impact" => ShotTypeCatalog.ShotPassShotImpact,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(recipeKey), recipeKey,
+                    "EventBridge has no Phase-3 ShotTypeCatalog mapping for this recipe key. " +
+                    "Add an entry here when a new signature recipe key enters the bridge."),
+            };
+        }
+
+        private static bool IsSignatureExecutionKind(KeyEventKind kind) =>
+            kind == KeyEventKind.SignatureExecuted_LowCutback
+            || kind == KeyEventKind.SignatureExecuted_BlindSideNearPostRun
+            || kind == KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch;
+
+        private static void ValidateKeyEventsStartTickNonDecreasing(IReadOnlyList<KeyEvent> keyEvents)
+        {
+            // Allow equal ticks (multiple events on same tick → ordering
+            // by ViewerEventId ascending per ADR-0008). Reject strictly
+            // decreasing.
+            for (int i = 1; i < keyEvents.Count; i++)
+            {
+                if (keyEvents[i].Tick.Value < keyEvents[i - 1].Tick.Value)
+                {
+                    throw new ArgumentException(
+                        $"KeyEvents are not StartTick-non-decreasing: " +
+                        $"KeyEvents[{i - 1}].Tick={keyEvents[i - 1].Tick.Value}, " +
+                        $"KeyEvents[{i}].Tick={keyEvents[i].Tick.Value}. " +
+                        "EventBridge requires the canonical KeyEvents stream to be in " +
+                        "chronological order per ADR-0008 §Determinism contract " +
+                        "(stream order is (StartTick, ViewerEventId)).",
+                        nameof(keyEvents));
+                }
             }
         }
 
@@ -194,12 +337,13 @@ namespace FinalWhistle.Viewer.Contracts
 
         private static EventClass MapToSourceEventClass(KeyEventKind kind)
         {
-            // ADR-0004 cross-doc exact-match: signature-execution KeyEvents
-            // map to SignatureBreakthrough at Phase 3 as the closest
-            // available EventClass (the SignatureExecuted EventClass entry
-            // is Phase-4+ reserved per ADR-0004 + the SPEC 2026-04-30
-            // EventClass.SignatureBreakthrough catalog-extension entry).
-            // Goals + breakthroughs map to their own classes.
+            // ADR-0004 cross-doc exact-match. Signature-execution KeyEvents
+            // map to EventClass.SignatureExecuted (Phase-3 catalog
+            // extension per SPEC 2026-04-30 decisions-log entry +
+            // Codex round-1 P1 fix against 40159bd) — distinct from
+            // EventClass.SignatureBreakthrough (the cap-reach permanent-
+            // development event). Goals + breakthroughs map to their own
+            // classes.
             return kind switch
             {
                 KeyEventKind.Goal => EventClass.GoalScored,
@@ -207,7 +351,7 @@ namespace FinalWhistle.Viewer.Contracts
                 KeyEventKind.SignatureExecuted_LowCutback
                     or KeyEventKind.SignatureExecuted_BlindSideNearPostRun
                     or KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch
-                    => EventClass.SignatureBreakthrough,
+                    => EventClass.SignatureExecuted,
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(kind), kind,
                     $"EventBridge has no Phase-3 EventClass mapping for KeyEventKind.{kind}."),
@@ -218,17 +362,21 @@ namespace FinalWhistle.Viewer.Contracts
         {
             // Phase-3 placeholder stakes by event class. Phase-4+ derives
             // stakes from match context (cup final / derby / relegation
-            // match). Pinned values match the Memory layer's analogous
-            // placeholders for cross-layer consistency.
+            // match). Pinned values keep routine signature fires cleanly
+            // distinct from cap-reach breakthroughs per Codex round-1 P1
+            // against 40159bd:
+            //   GoalScored             — 0.95 (high stakes; goal events feed press-fan)
+            //   SignatureExecuted      — 0.70 (moderate; routine signature fire)
+            //   SignatureBreakthrough  — 1.00 (max; permanent player-development)
             //
             // Default arm THROWS per pr-review-toolkit:feature-dev:code-reviewer
             // 2026-04-30 finding #2: a future Phase-4 EventClass entry
             // added without a StakesFor case must fail loud rather than
-            // silently emit 0.5 (a misleading default). Mirrors the
-            // exhaustive-throw posture of MapToSourceEventClass.
+            // silently emit a misleading default.
             return sourceClass switch
             {
                 EventClass.GoalScored => Fixed.Parse("0.9500000000"),
+                EventClass.SignatureExecuted => Fixed.Parse("0.7000000000"),
                 EventClass.SignatureBreakthrough => Fixed.One,
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(sourceClass), sourceClass,
