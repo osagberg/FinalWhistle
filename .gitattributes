@@ -1,24 +1,39 @@
 # Final Whistle — git attributes
 #
 # The whitespace exemption below is the load-bearing line: Unity serializes
-# `.asset` / `.meta` YAML with trailing spaces on blank fields (e.g. empty
-# `userData: ` / `assetBundleName: ` / `assetBundleVariant: `), as a
+# `.asset` / `.meta` / `.unity` / `.prefab` / `.mat` / `.controller` /
+# `.shadergraph` / `.subshader` YAML with trailing spaces on blank fields
+# (e.g. empty `userData: ` / `assetBundleName: ` / `m_Name: `), as a
 # documented Unity convention. Functional Unity import is unaffected, but
 # `git diff --check` / `git show --check` flag the trailing whitespace and
-# break the repo's clean-hygiene-check habit. Codex round-5 review
-# (2026-04-30) caught this on the Addressables-init commit `0f420d7`.
+# break the repo's clean-hygiene-check habit.
+#
+# Codex round-5 review (2026-04-30) first caught this on the
+# Addressables-init commit `0f420d7` for `.asset` / `.meta`. Codex round-1
+# review against `9dc4140` (2026-04-30 Slice-2 dots-adapter scene) caught
+# the same pattern on `.unity` scene files (Unity emits empty `m_Name: `
+# trailing-spaces on auto-generated component sub-objects). Extending the
+# exemption to ALL Unity-serialized YAML types under `unity-project/Assets/`
+# pre-empts the next round catching `.prefab` / `.mat` / etc. with the
+# same pattern.
 #
 # Setting `whitespace=-trailing-space` on Unity-generated paths exempts
 # them from the trailing-space check WITHOUT disabling the check globally,
 # so source files (.cs, .py, .sh, .md) still surface trailing-whitespace
 # regressions normally.
 
-# Unity-serialized asset + meta files everywhere they live.
-unity-project/Assets/**/*.asset    whitespace=-trailing-space
-unity-project/Assets/**/*.meta     whitespace=-trailing-space
-unity-project/ProjectSettings/*.asset    whitespace=-trailing-space
-unity-project/ProjectSettings/*.meta     whitespace=-trailing-space
-unity-project/Packages/*.json      whitespace=-trailing-space
+# Unity-serialized YAML files everywhere they live.
+unity-project/Assets/**/*.asset         whitespace=-trailing-space
+unity-project/Assets/**/*.meta          whitespace=-trailing-space
+unity-project/Assets/**/*.unity         whitespace=-trailing-space
+unity-project/Assets/**/*.prefab        whitespace=-trailing-space
+unity-project/Assets/**/*.mat           whitespace=-trailing-space
+unity-project/Assets/**/*.controller    whitespace=-trailing-space
+unity-project/Assets/**/*.shadergraph   whitespace=-trailing-space
+unity-project/Assets/**/*.subshader     whitespace=-trailing-space
+unity-project/ProjectSettings/*.asset   whitespace=-trailing-space
+unity-project/ProjectSettings/*.meta    whitespace=-trailing-space
+unity-project/Packages/*.json           whitespace=-trailing-space
 
 # Treat Unity-serialized YAML as text on Windows (CRLF/LF discipline). Unity
 # always writes LF; let git pass them through unchanged regardless of the
