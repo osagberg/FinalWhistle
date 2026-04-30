@@ -39,6 +39,16 @@ All 12 docs had their open-questions resolved during the Phase-0 consolidated 20
 | [`content_policy.md`](content_policy.md) | PEGI 12 / ESRB T content boundaries + AI-content disclosure + mod-pack content-safety surface | Phase 2 authoring pass / 2026-04-24 |
 | [`3d-pipeline.md`](3d-pipeline.md) | 3D cel-shaded shipping-visual pipeline placeholder + Phase-5/6 production-feasibility spike-gate criteria + animation contract surface + licensing requirements + alternatives | Phase 2 placeholder authored 2026-04-26 per visual-target supersession; full spec lands at Phase-5 spike kickoff |
 
+## Specs (sub-contracts under `design/specs/`)
+
+Implementation contracts that bind one or more system docs above. Each is its own append-only-ish authority for the surface it covers.
+
+- [`specs/golden-replay-corpus.md`](specs/golden-replay-corpus.md) — canonical-seed match fixtures + cross-platform deterministic-replay hash protocol.
+- [`specs/save-migration-fixtures.md`](specs/save-migration-fixtures.md) — save-format migration regression fixtures.
+- [`specs/content-pack-validation-contract.md`](specs/content-pack-validation-contract.md) — content-pack validator gate (Phase 6 implementation).
+- [`specs/artifact-retention-policy.md`](specs/artifact-retention-policy.md) — CI artifact retention windows.
+- [`specs/football-rules-matrix.md`](specs/football-rules-matrix.md) — MatchSim football-law simplification matrix + canonical-impact tracking + promotion triggers.
+
 ## Future docs (added when trigger hits)
 - `balance-harness.md` — Phase 6 tuning methodology
 - Per-signature specs under `signatures/*.md` — Phase 3+

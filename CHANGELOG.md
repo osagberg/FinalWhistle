@@ -2,6 +2,33 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Football rules matrix — Phase-3 guardrail spec)
+
+Adds `design/specs/football-rules-matrix.md` per Codex round-4 follow-up plan. Doc-only commit — no MatchRules / Viewer code changes.
+
+Why: scattered `MatchRules.cs` doc-comments documenting which football laws Phase 3 simplifies were making it hard for any reviewer (Codex, Claude, future-Claude, the user) to answer the question "what football do we model TODAY?" without reading the whole codebase. The new matrix is the umbrella contract; `MatchRules.cs` doc-comments stay as sub-contracts that the matrix references.
+
+Coverage: 16 rule-surface rows — goals, touchlines, goal kicks, corners, throw-ins, restart authority, kickoffs, offside, fouls, cards, substitutions, injuries, stoppage, advantage, penalties / free kicks, goalkeeper handling. Each row pins:
+
+- Real-football intent
+- Current Phase-3 behavior (with `MatchRules.cs:<line>` references for active surfaces)
+- Simplification / deviation
+- Player-visible risk
+- Canonical impact (Score / Restart-state / KeyEvent / Ball-position / Replay-hash / Presentation-only / None)
+- Tests owed
+- Promotion trigger (the event that turns the simplification into a Phase task or ADR/spec update)
+
+Locked decisions in the matrix:
+- **Matrix before expansion** — new MatchRules / PitchRules surfaces require a matrix row before implementation is marked done.
+- **Player-visible restarts need a contract** — viewer cannot present a restart side as authoritative until the matrix says it is.
+- **Canonical impact is explicit** — every row marks what hits the deterministic hash.
+- **Football lines treated deliberately** — Phase 3 is ball-center + strict-`<` boundary; whole-ball-radius geometry deferred.
+- **Promotion triggers are binding** — when a trigger fires, the simplification cannot remain in code comments only.
+
+Cross-links: `design/README.md` index updated to list the spec under a new `## Specs (sub-contracts)` section. SPEC.md decisions log entry added at the matching date. SPEC.md Phase-3 task line marks the matrix as `[x]`.
+
+Verification: `fw verify` 502/502 green; doc-only commit, no DLL drift, no test changes.
+
 ## 2026-04-30 (Codex round-4 review-driven hardening sweep + pr-review-toolkit follow-up)
 
 Closes 6 Codex P1/P1/P2/P2/P2/P2 findings against HEAD `9f762ec` + 7 silent-failure-hunter fail-loud regressions + 1 type-design-analyzer ctor-validation gap + 3 feature-dev:code-reviewer follow-ups (all in one batch per CLAUDE.md §6.3 mandate). 502/502 tests green; cross-platform deterministic 60-tick hash unchanged.
