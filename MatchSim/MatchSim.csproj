@@ -16,6 +16,15 @@
     <ProductName>Final Whistle MatchSim</ProductName>
     <Description>Pure-C# canonical match simulation. Q32.32 fixed-point determinism. Zero UnityEngine references per TECH_APPROACH.md §3.</Description>
 
+    <!-- AnyCPU + Prefer32Bit=false per Codex round-4 follow-up plan
+         (2026-04-30). Removes ambiguity about whether the assembly is
+         platform-bitness-locked. Unity inspects the PE header on first
+         import; an explicit AnyCPU + Prefer32Bit=false prevents any
+         x86 / 32-bit-preferred PluginImporter auto-fill on machines
+         where MSBuild's default differs. -->
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+
     <!-- Reproducible build per `scripts/fw build-unity-plugins` SPEC 2026-04-29
          decisions-log §6 idempotency claim. These project-level properties,
          plus the explicit relative PdbFile publish flag in `scripts/fw`,
