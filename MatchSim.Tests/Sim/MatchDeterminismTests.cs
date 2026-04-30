@@ -311,6 +311,160 @@ public sealed class MatchDeterminismTests
     }
 
     [Fact]
+    public void Match_ChunkedRunTicks_LowCutbackFiresOnceAcrossChunkedAndSingleCallRuns()
+    {
+        // Codex round-10 P2: prior chunked-tick regressions (smoke fixture
+        // hash equality + pre-saturated cooldown persistence) would NOT
+        // catch the original bug coming back if RunTicks reverted to a
+        // fresh local SignatureCooldownState while leaving the state
+        // property untouched — smoke fires zero signatures, and saturation
+        // pre-load doesn't depend on the runner consuming
+        // state.SignatureCooldown. This test forces the runner-driven
+        // path: build a state where #20 LowCutback fires on tick 0 AND
+        // would re-fire on tick 1 if the cooldown were lost between
+        // RunTicks calls (the 180-tick cooldown window blocks any second
+        // fire when persistence holds — but only if the runner actually
+        // reads the persisted state).
+        //
+        // Construction:
+        //   - Smoke-fixture formation positions for 21 of 22 players.
+        //   - Home jersey 6 (direct-pressing RM, role=Winger, real fixture
+        //     packet carries #20 LowCutback affinity per
+        //     `MatchSim/Content/identity-packets/direct-pressing/06.json`)
+        //     overridden to (50, 0, 22) with lateral velocity (0, 0, 3).
+        //   - Ball overridden to (50, 0, 22) with zero velocity.
+        //   - Real loaded direct-pressing + low-block-counter packets.
+        //
+        // Tick 0 trigger evaluation (post-rules, after BT+actuator+ball):
+        //   - Home jersey 6 is sole carrier (ball at player position; all
+        //     other players at formation positions, none within 0.5m).
+        //   - Direct-pressing BT enters Build-up; sets target velocity
+        //     toward opponent goal at MaxSpeed × 0.95. Actuator clamps
+        //     velocity-delta to MaxAcceleration·dt = 0.1m/s, so velocity
+        //     after tick 0 ≈ (0.008, 0, 2.9) — lateral component still
+        //     above MinLateralSpeed=1.
+        //   - Position drifts to ~(50.0001, 0, 22.05) — distance to
+        //     byline 2.5m < 3m, |Z|=22.05 > 20m, IsCarrier ✓.
+        //   - All #20 conditions met → fire. Cooldown records tick 0.
+        //
+        // Tick 1 trigger evaluation:
+        //   - All conditions still hold (position has drifted ~0.05m,
+        //     lateral velocity still ~2.8m/s).
+        //   - WITH persistent cooldown: 1 - 0 = 1 < 180 → BLOCKED.
+        //     Total fires: 1.
+        //   - WITHOUT persistent (the bug): fresh cooldown's
+        //     lastFiredTick = long.MinValue. 1 - long.MinValue ≫ 180
+        //     → CanFire passes → re-fires. Total fires: 2.
+        //
+        // The test asserts both chunked + single-call paths produce
+        // exactly 1 fire (and identical canonical hash). A regression
+        // that re-allocates the cooldown per chunk fails LOUDLY because
+        // the chunked path fires twice while single-call fires once.
+        BehaviorTreeArchetype direct = BehaviorTreeArchetypes.Load("direct-pressing");
+        BehaviorTreeArchetype lowBlock = BehaviorTreeArchetypes.Load("low-block-counter");
+        IdentityPacket[] homePackets = LoadArchetypePackets("direct-pressing");
+        IdentityPacket[] awayPackets = LoadArchetypePackets("low-block-counter");
+
+        // Run A: one call of 2 ticks.
+        MatchSimulationState single = BuildLowCutbackTriggerFixture(direct, lowBlock);
+        MatchSimulationRunner.RunTicks(single, direct, lowBlock,
+            homePackets, awayPackets,
+            PlayerKinematics.Phase3Defaults,
+            BallPhysicsCoefficients.Phase3Seeds,
+            MatchSimulationConfig.Default,
+            SignatureConfig.Phase3Defaults,
+            ticks: 2);
+
+        int singleFireCount = CountSignatureExecutions(
+            single, KeyEventKind.SignatureExecuted_LowCutback);
+        // Test-setup invariant: the trigger fixture MUST fire #20 at
+        // least once within 2 ticks. If this is 0, either the BT path
+        // moved the player out of the trigger zone faster than expected
+        // or the affinity wiring is wrong — fail loudly with a
+        // diagnostic instead of letting the comparison-equal-zero
+        // assertion below pass vacuously.
+        Assert.True(singleFireCount > 0,
+            $"Trigger-fixture invariant violated: expected >=1 LowCutback fire " +
+            $"in 2-tick run; got {singleFireCount}. Check fixture construction " +
+            $"or signature-affinity mapping for direct-pressing jersey 6.");
+        // Cooldown=180 ticks blocks any second fire within a 2-tick run.
+        Assert.Equal(1, singleFireCount);
+
+        // Run B: 2 calls of 1 tick each, on a fresh identical state.
+        MatchSimulationState chunked = BuildLowCutbackTriggerFixture(direct, lowBlock);
+        for (int t = 0; t < 2; t++)
+        {
+            MatchSimulationRunner.RunTicks(chunked, direct, lowBlock,
+                homePackets, awayPackets,
+                PlayerKinematics.Phase3Defaults,
+                BallPhysicsCoefficients.Phase3Seeds,
+                MatchSimulationConfig.Default,
+                SignatureConfig.Phase3Defaults,
+                ticks: 1);
+        }
+
+        int chunkedFireCount = CountSignatureExecutions(
+            chunked, KeyEventKind.SignatureExecuted_LowCutback);
+
+        // The bug-detector: without persistent cooldown, chunkedFireCount
+        // would be 2 (both ticks fire, fresh cooldown each call). With
+        // persistent cooldown, chunkedFireCount == singleFireCount == 1.
+        Assert.Equal(singleFireCount, chunkedFireCount);
+        Assert.Equal(1, chunkedFireCount);
+
+        // Belt + suspenders: full canonical-state hash equality (the
+        // chunked path produces byte-identical state to the single call).
+        Assert.Equal(MatchCanonicalState.ComputeHash(single),
+                     MatchCanonicalState.ComputeHash(chunked));
+        // Recipe streams also agree (1:1 mirror of signature KeyEvents
+        // for #20).
+        Assert.Equal(single.SignatureRecipes.Count, chunked.SignatureRecipes.Count);
+    }
+
+    /// <summary>
+    /// Builds a state where home jersey 6 (direct-pressing RM, real
+    /// fixture packet has Winger role + LowCutback affinity) is parked
+    /// at the attacking byline with the ball coincident, lateral velocity
+    /// non-trivial — satisfying every spatial/kinematic condition for #20
+    /// LowCutback to fire on tick 0 (post-BT+actuator+ball drift).
+    /// </summary>
+    private static MatchSimulationState BuildLowCutbackTriggerFixture(
+        BehaviorTreeArchetype homeArchetype,
+        BehaviorTreeArchetype awayArchetype)
+    {
+        // Start from the smoke-fixture formation, then override home
+        // jersey 6 + ball. The other 21 players stay at formation
+        // positions so none are accidentally closer to the override
+        // ball position than home jersey 6 (BT possession check is
+        // nearest-player-to-ball; want home jersey 6 to be sole carrier).
+        MatchSimulationState state = MatchSimulationState.FromArchetypeFormations(
+            Tick.Zero, BallState.AtRest, homeArchetype, awayArchetype);
+
+        Vector3Fixed bylinePos = new(Fixed.FromInt(50), Fixed.Zero, Fixed.FromInt(22));
+        state.HomeTeam[5] = new PlayerState(
+            position: bylinePos,
+            velocity: new Vector3Fixed(Fixed.Zero, Fixed.Zero, Fixed.FromInt(3)),
+            jerseyNumber: 6,
+            side: TeamSide.Home);
+        state.Ball = new BallState(bylinePos, Vector3Fixed.Zero, Vector3Fixed.Zero);
+
+        return state;
+    }
+
+    private static int CountSignatureExecutions(MatchSimulationState state, KeyEventKind kind)
+    {
+        int count = 0;
+        for (int i = 0; i < state.KeyEvents.Count; i++)
+        {
+            if (state.KeyEvents[i].Kind == kind)
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    [Fact]
     public void Match_ChunkedRunTicks_PersistsSignatureCooldownSaturationAcrossCalls()
     {
         // Closes Codex round-9 P1 (behavior angle): pre-saturate the

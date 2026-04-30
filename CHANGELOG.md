@@ -2,6 +2,33 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Codex round-10 follow-up — chunked-tick regression test that actually exercises the bug)
+
+Codex round-10 review of `2bdf807` flagged one P2: prior chunked-tick regression tests (`Match_ChunkedRunTicksWithSignatures_ProducesIdenticalHashAndEventStream` + `Match_ChunkedRunTicks_PersistsSignatureCooldownSaturationAcrossCalls`) would NOT have caught the original P1 bug if it returned via the regression "RunTicks switched back to a fresh local SignatureCooldownState while leaving the `state.SignatureCooldown` property untouched" — smoke fixture fires zero signatures, and the saturation test pre-loads `state.SignatureCooldown` directly without depending on the runner consuming it.
+
+**Fix**: new runner-driven test `Match_ChunkedRunTicks_LowCutbackFiresOnceAcrossChunkedAndSingleCallRuns` in `MatchDeterminismTests.cs` that exercises a real signature trigger across chunked vs single-call runs.
+
+**Construction** (verified against the trigger conditions in `SignatureRules.cs` + post-runner state evolution):
+- Smoke-fixture formation positions for 21 of 22 players (so home jersey 6 is the sole carrier; nearest-player-to-ball BT possession check resolves to home).
+- Home jersey 6 (direct-pressing RM, role=Winger, real fixture packet `MatchSim/Content/identity-packets/direct-pressing/06.json` carries LowCutback affinity) overridden to `(50, 0, 22)` with lateral velocity `(0, 0, 3)`.
+- Ball overridden to `(50, 0, 22)` with zero velocity.
+- Real loaded `direct-pressing` + `low-block-counter` IdentityPackets via `LoadArchetypePackets`.
+
+**Bug-detection logic**: trigger conditions persist for 2+ ticks under BT+actuator+ball drift (winger position drifts ~0.05m off byline; lateral velocity decays from 3.0 to 2.8m/s; carrier check still passes; |Z| stays >20m). The 180-tick cooldown blocks any second fire WHEN the cooldown is persistent. Without persistence (the bug), each chunked `RunTicks(ticks=1)` call gets a fresh `SignatureCooldownState` with `lastFiredTick = long.MinValue`, so `currentTick - lastFiredTick ≫ 180` → CanFire passes → re-fires.
+
+**Assertions**:
+- `singleFireCount > 0` — test-setup invariant; loud failure if the trigger doesn't actually fire (catches packet-affinity wiring drift or BT-path drift that moves the winger out of the trigger zone faster than expected).
+- `singleFireCount == 1` — cooldown blocks tick 1 in single-call run.
+- `chunkedFireCount == singleFireCount == 1` — the actual bug regression check.
+- `MatchCanonicalState.ComputeHash(single) == ComputeHash(chunked)` — full canonical-state byte equality.
+- `single.SignatureRecipes.Count == chunked.SignatureRecipes.Count` — recipe stream stays in lockstep.
+
+**Total tests: 572 passing** (was 571; +1).
+
+**Pinned 60-tick MatchCanonicalState determinism hash `sha256:7e851976...50e` UNCHANGED** — the new test runs a custom 2-tick fixture, not the smoke-fixture pinned-hash path, and adds zero new code under `MatchSim/Sim/`.
+
+**Subagent rotation**: Codex review pass external; main-thread authoring with the round-10 finding as the work order. Single-test addition with a documented test-setup invariant + bug-detection logic.
+
 ## 2026-04-30 (Codex round-9 follow-up — signature-slice P1/P2/P3 fixes against `bf2ac1e`)
 
 Codex review pass against `bf2ac1e` (the signature-slice commit) flagged one P1, two P2, and two P3 findings. All five closed end-to-end:
