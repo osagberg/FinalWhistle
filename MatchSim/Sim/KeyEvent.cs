@@ -134,6 +134,20 @@ public readonly struct KeyEvent : IEquatable<KeyEvent>
 
     public override bool Equals(object? obj) => obj is KeyEvent other && Equals(other);
 
+    /// <summary>
+    /// Hash code for in-memory dictionary / set keying ONLY. <strong>Not
+    /// cross-process / cross-platform stable</strong> because
+    /// <c>HashCode.Combine</c> uses an xxHash variant whose seed
+    /// is randomized per process per .NET runtime spec. If a future
+    /// Phase-4+ feature wants to deterministically group KeyEvents
+    /// (e.g. compose a per-tick replay-segment hash from key-event
+    /// sub-hashes), do NOT use <see cref="GetHashCode"/> — fold the
+    /// canonical bytes via <see cref="CanonicalEncoder"/> + SHA256 the
+    /// way the rest of the determinism suite does. Codex round-4
+    /// 2026-04-30 noted this risk; flagging here so the next reviewer
+    /// catches an ambient-RNG-via-hash regression at type-definition
+    /// time.
+    /// </summary>
     public override int GetHashCode()
         => HashCode.Combine(Tick, (byte)Kind, (byte)Side, JerseyNumber, Position);
 

@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 
 namespace FinalWhistle.MatchSim.Sim;
 
@@ -41,6 +42,15 @@ namespace FinalWhistle.MatchSim.Sim;
 ///   <item><description><strong>No scorer / last-toucher in KeyEvents.</strong>
 ///       <see cref="KeyEvent.JerseyNumber"/> is 0 for all Phase-3 emissions.
 ///       Phase 4+ adds proper scorer attribution once possession lands.</description></item>
+///   <item><description><strong>Restarts are event-only placeholders.</strong>
+///       Per the 2026-04-30 decisions-log entry (Codex P2 round 4): the
+///       <see cref="KeyEvent.Side"/> on a restart event is informational
+///       documentation, NOT a possession lock. <see cref="MatchSimulationRunner"/>
+///       does not read it on the next tick — both BTs run as normal and
+///       nearest-player heuristics decide who picks up the ball. Phase 4
+///       introduces possession-lock + taker behavior so the recorded side
+///       becomes authoritative. Until then, "Home throws in" is a label,
+///       not a rule the sim enforces.</description></item>
 /// </list>
 /// </summary>
 public static class MatchRules
@@ -113,25 +123,34 @@ public static class MatchRules
         // — a ball that exits near a corner can be beyond both planes at
         // post-step. Football-rule correctness: the boundary the ball
         // crossed FIRST in time-order determines the restart. Compute the
-        // parametric t for each candidate plane crossing in pre→post; the
-        // smallest in-range t wins.
+        // parametric t for each candidate as an *exact* rational (raw-long
+        // numerator + denominator); compare via cross-multiplied BigInteger
+        // arithmetic so two near-simultaneous crossings classify correctly
+        // even when their Q32.32-divided Fixed values would round to equal.
         //
-        // (Codex audit 2026-04-30 caught the prior implementation, which
-        // checked goal-line vs touchline by post-position only and always
-        // preferred goal-line — incorrectly classifying touchline-first-
-        // then-also-past-goal-line trajectories as GoalKickRestart.)
-        Fixed? tGoal = ComputeGoalLineCrossingT(pre, post);
-        Fixed? tTouch = ComputeTouchlineCrossingT(pre, post);
+        // History:
+        //   2026-04-30 (commit 5ff42a3) — earliest-t selection introduced,
+        //     using Q32.32 division then Fixed.CompareTo. Codex P1
+        //     (round 4) caught: division rounds to a Fixed step, so two
+        //     crossings within ~1 ULP can collapse to equal t and the
+        //     tie-break (prefer goal-line) misclassifies a truly-touchline-
+        //     first trajectory as GoalKickRestart.
+        //   2026-04-30 (this commit) — switch to exact-rational compare.
+        //     Helpers return (|num|, |den|) raw-long pairs; compare via
+        //     |numG| * |denT|  vs  |numT| * |denG| in BigInteger space.
+        //     Tie-break (prefer goal-line) only applies on TRUE equality.
+        CrossingFraction? goalCrossing = ComputeGoalLineCrossingFraction(pre, post);
+        CrossingFraction? touchCrossing = ComputeTouchlineCrossingFraction(pre, post);
 
-        if (!tGoal.HasValue && !tTouch.HasValue)
+        if (goalCrossing is null && touchCrossing is null)
         {
             // Pre is in-field + post is out-of-field, yet neither plane
             // crossing resolved a t in [0,1]. Geometrically unreachable —
             // any in→out transition MUST cross at least one of the two
             // planes between pre and post — but per the silent-failure-
             // hunter audit (2026-04-30), if a future refactor of
-            // IsInField / ComputeXxxCrossingT changes the invariant, a
-            // silent return would corrupt canonical state without trace.
+            // IsInField / ComputeXxxCrossingFraction changes the invariant,
+            // a silent return would corrupt canonical state without trace.
             // Throw loudly so the determinism harness fails the run
             // rather than continuing with "ball is out, no event recorded."
             throw new InvalidOperationException(
@@ -142,14 +161,26 @@ public static class MatchRules
 
         // Earliest crossing wins. Tie-break: prefer goal-line.
         // Rationale for the tie-break: when the ball exits exactly through
-        // a corner (tGoal == tTouch geometrically), it's a corner-kick
-        // restart in real football. Phase-3 omits CornerKick activation
+        // a corner (numG·denT == numT·denG geometrically), it's a corner-
+        // kick restart in real football. Phase-3 omits CornerKick activation
         // (no last-touched tracking yet) and emits GoalKickRestart for
         // all non-goal goal-line crossings, so preferring goal-line on
-        // tie matches Phase-3 simplification policy. Phase 4+ revisits
+        // true tie matches Phase-3 simplification policy. Phase 4+ revisits
         // when last-touched tracking lands.
-        bool goalLineFirst = tGoal.HasValue
-            && (!tTouch.HasValue || tGoal.Value.CompareTo(tTouch.Value) <= 0);
+        bool goalLineFirst;
+        if (touchCrossing is null)
+        {
+            goalLineFirst = true;
+        }
+        else if (goalCrossing is null)
+        {
+            goalLineFirst = false;
+        }
+        else
+        {
+            int cmp = CompareCrossings(goalCrossing.Value, touchCrossing.Value);
+            goalLineFirst = cmp <= 0;  // tie → goal-line
+        }
 
         if (goalLineFirst)
         {
@@ -162,12 +193,76 @@ public static class MatchRules
     }
 
     /// <summary>
-    /// Compute the parametric crossing point on the goal-line plane (X = ±GoalLineX)
-    /// between pre→post. Returns null if no goal-line crossing happened in [0,1]:
-    /// post is still in-field on X, or pre and post are on the same side
-    /// of the plane, or the ball didn't move on X.
+    /// Exact rational form of a parametric plane-crossing point on
+    /// pre→post. Both raw long values are non-negative with
+    /// <c>AbsNumeratorRaw &lt;= AbsDenominatorRaw</c> and
+    /// <c>AbsDenominatorRaw &gt; 0</c> — i.e., t = num/den is a rational
+    /// in [0,1]. The 2^32 scaling factor cancels because both come from
+    /// <see cref="Fixed.RawValue"/> of values produced by the same Q32.32
+    /// subtraction (no division). Cross-multiplication via
+    /// <see cref="BigInteger"/> compares two such fractions exactly,
+    /// without Q32.32 rounding.
+    ///
+    /// <para>
+    /// <strong>Construction is constructor-validated.</strong> The only
+    /// way to build a <see cref="CrossingFraction"/> is via
+    /// <see cref="BuildCrossingFraction"/> (which acceptance-checks the
+    /// (numerator, denominator) signed pair); the private constructor
+    /// then re-asserts the invariant so any future caller cannot bypass
+    /// validation. Per pr-review-toolkit:type-design-analyzer 2026-04-30:
+    /// the type's reason-for-existing is "non-negative rational ≤ 1";
+    /// keeping the public-on-the-struct ctor unguarded was a
+    /// foot-gun for Phase-4+ callers.
+    /// </para>
     /// </summary>
-    private static Fixed? ComputeGoalLineCrossingT(Vector3Fixed pre, Vector3Fixed post)
+    private readonly struct CrossingFraction
+    {
+        private CrossingFraction(long absNumeratorRaw, long absDenominatorRaw)
+        {
+            // Re-assert the BuildCrossingFraction acceptance invariant. A
+            // future caller that bypasses Build (e.g., a Phase-4 helper for
+            // CornerKick disambiguation) cannot smuggle a malformed pair
+            // past this gate.
+            if (absDenominatorRaw <= 0L)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(absDenominatorRaw), absDenominatorRaw,
+                    "CrossingFraction denominator must be strictly positive.");
+            }
+            if (absNumeratorRaw < 0L)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(absNumeratorRaw), absNumeratorRaw,
+                    "CrossingFraction numerator must be non-negative.");
+            }
+            if (absNumeratorRaw > absDenominatorRaw)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(absNumeratorRaw), absNumeratorRaw,
+                    $"CrossingFraction numerator ({absNumeratorRaw}) must be ≤ " +
+                    $"denominator ({absDenominatorRaw}); fraction must lie in [0,1].");
+            }
+
+            AbsNumeratorRaw = absNumeratorRaw;
+            AbsDenominatorRaw = absDenominatorRaw;
+        }
+
+        /// <summary>Factory used internally; see <see cref="BuildCrossingFraction"/>.</summary>
+        internal static CrossingFraction CreateValidated(long absNumeratorRaw, long absDenominatorRaw)
+            => new(absNumeratorRaw, absDenominatorRaw);
+
+        public long AbsNumeratorRaw { get; }
+        public long AbsDenominatorRaw { get; }
+    }
+
+    /// <summary>
+    /// Compute the exact-rational crossing fraction on the goal-line plane
+    /// (X = ±GoalLineX) between pre→post. Returns null if no goal-line
+    /// crossing happened in [0,1]: post is still in-field on X, the deltas
+    /// disagree on sign (ball moves the wrong way to actually cross), or
+    /// the absolute numerator exceeds the absolute denominator (t &gt; 1).
+    /// </summary>
+    private static CrossingFraction? ComputeGoalLineCrossingFraction(Vector3Fixed pre, Vector3Fixed post)
     {
         if (AbsFixed(post.X) < GoalLineX)
         {
@@ -187,25 +282,21 @@ public static class MatchRules
             // breaks the invariant fails the determinism harness instead
             // of silently dropping the crossing.
             throw new InvalidOperationException(
-                $"ComputeGoalLineCrossingT: post is past the goal line on X " +
-                $"({post.X}) but deltaX is zero. pre={pre} post={post}. " +
+                $"ComputeGoalLineCrossingFraction: post is past the goal line " +
+                $"on X ({post.X}) but deltaX is zero. pre={pre} post={post}. " +
                 $"This is a caller-invariant violation — Step should have " +
                 $"rejected this case earlier.");
         }
 
-        Fixed t = (crossingX - pre.X) / deltaX;
-        if (t < Fixed.Zero || t > Fixed.One)
-        {
-            return null;
-        }
-        return t;
+        return BuildCrossingFraction(crossingX - pre.X, deltaX);
     }
 
     /// <summary>
-    /// Compute the parametric crossing point on the touchline plane (Z = ±TouchlineZ)
-    /// between pre→post. Returns null if no touchline crossing happened in [0,1].
+    /// Compute the exact-rational crossing fraction on the touchline plane
+    /// (Z = ±TouchlineZ) between pre→post. Returns null if no touchline
+    /// crossing happened in [0,1].
     /// </summary>
-    private static Fixed? ComputeTouchlineCrossingT(Vector3Fixed pre, Vector3Fixed post)
+    private static CrossingFraction? ComputeTouchlineCrossingFraction(Vector3Fixed pre, Vector3Fixed post)
     {
         if (AbsFixed(post.Z) < TouchlineZ)
         {
@@ -216,24 +307,120 @@ public static class MatchRules
         Fixed deltaZ = post.Z - pre.Z;
         if (deltaZ == Fixed.Zero)
         {
-            // Same caller-invariant rationale as ComputeGoalLineCrossingT:
+            // Same caller-invariant rationale as ComputeGoalLineCrossingFraction:
             // pre in-field on Z + post past touchline implies deltaZ != 0.
             // Throw on violation rather than silently drop the crossing
             // (silent-failure-hunter audit 2026-04-30).
             throw new InvalidOperationException(
-                $"ComputeTouchlineCrossingT: post is past the touchline on Z " +
-                $"({post.Z}) but deltaZ is zero. pre={pre} post={post}. " +
+                $"ComputeTouchlineCrossingFraction: post is past the touchline " +
+                $"on Z ({post.Z}) but deltaZ is zero. pre={pre} post={post}. " +
                 $"Caller-invariant violation.");
         }
 
-        Fixed t = (crossingZ - pre.Z) / deltaZ;
-        if (t < Fixed.Zero || t > Fixed.One)
-        {
-            return null;
-        }
-        return t;
+        return BuildCrossingFraction(crossingZ - pre.Z, deltaZ);
     }
 
+    /// <summary>
+    /// Build a non-negative-rational crossing fraction from a signed
+    /// numerator and signed denominator (both Fixed). The caller invariant
+    /// — pre is in-field on the relevant axis, post is past the boundary,
+    /// delta is non-zero — guarantees that the resulting (numerator,
+    /// denominator) pair shares sign and that |num| &lt;= |den|. Either
+    /// guarantee failing is a hidden caller-invariant violation rather
+    /// than a recoverable condition; throw with diagnostics so a future
+    /// refactor that breaks the invariant fails loudly instead of silently
+    /// dropping a crossing.
+    /// </summary>
+    /// <remarks>
+    /// Per pr-review-toolkit:silent-failure-hunter 2026-04-30 (P1 #1):
+    /// the prior implementation returned <c>null</c> on either invariant
+    /// failure. Combined with the upstream "if either compute returns
+    /// null, fall back to the other" branch in <see cref="Step"/>, that
+    /// silently classified geometrically-corrupt scenarios as clean
+    /// single-axis crossings. Loud throw matches the
+    /// <c>delta == Fixed.Zero</c> precedent already established here +
+    /// in <see cref="ComputeGoalLineCrossingFraction"/> /
+    /// <see cref="ComputeTouchlineCrossingFraction"/>.
+    /// </remarks>
+    private static CrossingFraction BuildCrossingFraction(Fixed signedNumerator, Fixed signedDenominator)
+    {
+        long numRaw = signedNumerator.RawValue;
+        long denRaw = signedDenominator.RawValue;
+
+        // Same-sign requirement: t in [0,1] forces num and den to share sign
+        // (or num == 0). Disagreement → caller-invariant violation; under
+        // the documented preconditions in ComputeGoalLineCrossingFraction /
+        // ComputeTouchlineCrossingFraction this is unreachable — pre is
+        // in-field, post is past the boundary, so (crossing - pre) and
+        // (post - pre) must point the same way.
+        bool sameSign = (numRaw >= 0 && denRaw > 0) || (numRaw <= 0 && denRaw < 0);
+        if (!sameSign)
+        {
+            throw new InvalidOperationException(
+                $"BuildCrossingFraction: signed numerator ({numRaw}) and " +
+                $"denominator ({denRaw}) disagree on sign. Caller-invariant " +
+                $"violation — pre must be in-field on the relevant axis and " +
+                $"post must be past the boundary, which forces same-sign.");
+        }
+
+        long absNum = numRaw >= 0 ? numRaw : -numRaw;
+        long absDen = denRaw >= 0 ? denRaw : -denRaw;
+
+        // |num| > |den| means t > 1: pre is on the OUT side of the plane,
+        // so the crossing happened before this tick. Same caller-invariant
+        // class — Step's pre/post field check rules this out before reaching
+        // here. Throw rather than silently drop.
+        if (absNum > absDen)
+        {
+            throw new InvalidOperationException(
+                $"BuildCrossingFraction: |numerator| ({absNum}) exceeds " +
+                $"|denominator| ({absDen}). t > 1 implies pre was already " +
+                $"out-of-field on the relevant axis — caller-invariant " +
+                $"violation; Step's pre-field guard should have rejected this.");
+        }
+
+        return CrossingFraction.CreateValidated(absNum, absDen);
+    }
+
+    /// <summary>
+    /// Compare two crossing fractions exactly via cross-multiplication.
+    /// Returns -1 if <paramref name="goal"/> &lt; <paramref name="touch"/>,
+    /// 0 if equal (true tie — caller applies the goal-line preference),
+    /// +1 if <paramref name="goal"/> &gt; <paramref name="touch"/>.
+    /// Uses <see cref="BigInteger"/> because the raw-long product can
+    /// reach ~2^126 (well beyond <c>long</c>'s 2^63 range).
+    /// </summary>
+    private static int CompareCrossings(CrossingFraction goal, CrossingFraction touch)
+    {
+        // goal.num/goal.den vs touch.num/touch.den
+        //   ⇔ goal.num * touch.den  vs  touch.num * goal.den
+        // (both denominators positive ⇒ inequality direction preserved).
+        BigInteger lhs = (BigInteger)goal.AbsNumeratorRaw * touch.AbsDenominatorRaw;
+        BigInteger rhs = (BigInteger)touch.AbsNumeratorRaw * goal.AbsDenominatorRaw;
+        return lhs.CompareTo(rhs);
+    }
+
+    /// <summary>
+    /// True iff the ball center is strictly inside the pitch boundary on
+    /// both X and Z. Boundary equality (|X| == GoalLineX or |Z| == TouchlineZ)
+    /// is treated as OUT.
+    ///
+    /// <para>
+    /// <strong>Boundary-line convention is a Phase-3 simplification.</strong>
+    /// Real football: the line itself is IN — the ball must wholly cross
+    /// the line to be out. We approximate with center-point + strict
+    /// inequality for two reasons: (1) Phase 3 has no ball-radius geometry
+    /// (the ball is treated as a point in <see cref="BallPhysics"/>), so
+    /// the "wholly crossed" test would need to be retrofitted alongside
+    /// every other ball-vs-line interaction; (2) Phase-3 GoalKick-everything
+    /// classification (no last-touched tracking → no CornerKick distinction)
+    /// makes the ball-on-line edge case observationally invisible — the
+    /// chosen boundary semantics still emit the same GoalKick event whether
+    /// "exactly on the line" counts as IN or OUT. Phase 4+ revisits both:
+    /// last-touched tracking activates CornerKick disambiguation, and the
+    /// ball-radius geometry can land alongside.
+    /// </para>
+    /// </summary>
     private static bool IsInField(Vector3Fixed position)
         => AbsFixed(position.X) < GoalLineX
             && AbsFixed(position.Z) < TouchlineZ;
@@ -260,12 +447,19 @@ public static class MatchRules
         Fixed crossingX = post.X > Fixed.Zero ? GoalLineX : -GoalLineX;
         Fixed deltaX = post.X - pre.X;
 
-        // Defensive: if deltaX is zero, ball didn't actually move on X — a
-        // pre-step in-field + post-step out-of-field with deltaX=0 is
-        // impossible by definition, but guard anyway. Skip the event.
+        // Caller-invariant: Step routes here only after
+        // ComputeGoalLineCrossingFraction returned a valid fraction, which
+        // means deltaX != Zero (Compute throws on the zero case). Throw on
+        // the unreachable branch rather than silently skip; a refactor that
+        // ever calls Handle* without Compute* validation must fail loudly
+        // (per pr-review-toolkit:silent-failure-hunter 2026-04-30 P1 #2).
         if (deltaX == Fixed.Zero)
         {
-            return;
+            throw new InvalidOperationException(
+                $"HandleGoalLineCrossing: deltaX is zero with pre={pre} " +
+                $"post={post}. This is unreachable under the current Step " +
+                $"orchestration; a future caller must run through " +
+                $"ComputeGoalLineCrossingFraction first.");
         }
 
         Fixed t = (crossingX - pre.X) / deltaX;
@@ -329,9 +523,17 @@ public static class MatchRules
         Fixed crossingZ = post.Z > Fixed.Zero ? TouchlineZ : -TouchlineZ;
         Fixed deltaZ = post.Z - pre.Z;
 
+        // Caller-invariant: Step routes here only after
+        // ComputeTouchlineCrossingFraction returned a valid fraction, which
+        // means deltaZ != Zero (Compute throws on the zero case). Throw on
+        // the unreachable branch (per silent-failure-hunter 2026-04-30 P1 #2).
         if (deltaZ == Fixed.Zero)
         {
-            return;
+            throw new InvalidOperationException(
+                $"HandleTouchlineCrossing: deltaZ is zero with pre={pre} " +
+                $"post={post}. This is unreachable under the current Step " +
+                $"orchestration; a future caller must run through " +
+                $"ComputeTouchlineCrossingFraction first.");
         }
 
         Fixed t = (crossingZ - pre.Z) / deltaZ;
@@ -350,7 +552,7 @@ public static class MatchRules
             tick: state.CurrentTick,
             kind: KeyEventKind.ThrowInRestart,
             side: restartSide,
-            jerseyNumber: 0,
+            jerseyNumber: KeyEvent.JerseyUnspecified,
             position: crossingPosition));
         state.Ball = new BallState(restartPosition, Vector3Fixed.Zero, Vector3Fixed.Zero);
     }

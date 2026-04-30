@@ -78,27 +78,84 @@ if [ -n "$JSON_FILES" ] && command -v python3 >/dev/null 2>&1; then
   done <<< "$JSON_FILES"
 fi
 
-# --- Check 3: SPEC.md decisions log preserved (belt+braces) ------------
+# --- Check 3: SPEC.md decisions log preserved (BLOCKING) ---------------
+# Codex P1 round 4 (2026-04-30): a Write that wholesale rewrites SPEC.md
+# can pass the PreToolUse hook; commit time is the catch-all. Compare the
+# staged SPEC.md against HEAD's version line-by-line; any decision-log
+# bullet present in HEAD but missing from staged → block the commit.
+SPEC_DELETIONS=""
+SPEC_INTEGRITY_ERROR=""
 if echo "$STAGED" | grep -qE '(^|/)SPEC\.md$'; then
-  # Cheap probe: verify HEAD's decision lines still appear in staged version.
-  if git show "HEAD:SPEC.md" >/tmp/.bp_spec_head 2>/dev/null; then
-    missing=0
-    while IFS= read -r line; do
-      case "$line" in
-        "- **"[0-9][0-9][0-9][0-9]-*)
-          if ! git diff --cached -- SPEC.md | grep -qF -- "$line" && \
-             ! grep -qF -- "$line" SPEC.md 2>/dev/null; then
-            missing=$((missing + 1))
-          fi
-          ;;
-      esac
-    done < /tmp/.bp_spec_head
-    rm -f /tmp/.bp_spec_head
-    if [ "$missing" -gt 0 ]; then
-      WARNINGS="$WARNINGS
-  SPEC: ~$missing decisions-log line(s) appear removed from SPEC.md. Log is append-only."
+  # Use mktemp for race-safety. Fixed paths (/tmp/.bp_spec_head etc.)
+  # would stomp each other on concurrent hook invocations (CI runner +
+  # IDE git-commit + fw verify), causing one run to read another run's
+  # SPEC.md pre-image (per feature-dev:code-reviewer 2026-04-30 review).
+  spec_head_tmp=$(mktemp -t fw-spec-head.XXXXXX) || spec_head_tmp=""
+  spec_staged_tmp=$(mktemp -t fw-spec-staged.XXXXXX) || spec_staged_tmp=""
+  if [ -n "$spec_head_tmp" ] && [ -n "$spec_staged_tmp" ]; then
+    if git show "HEAD:SPEC.md" >"$spec_head_tmp" 2>/dev/null; then
+      # Build the staged post-image (cwd version is normally identical, but
+      # check `:0:SPEC.md` for accuracy if files have unstaged tweaks).
+      if git show ":0:SPEC.md" >"$spec_staged_tmp" 2>/dev/null; then
+        missing_lines=""
+        missing_count=0
+        while IFS= read -r line; do
+          case "$line" in
+            "- **"[0-9][0-9][0-9][0-9]-*)
+              if ! grep -qF -- "$line" "$spec_staged_tmp" 2>/dev/null; then
+                missing_count=$((missing_count + 1))
+                if [ "$missing_count" -le 3 ]; then
+                  missing_lines="$missing_lines
+    $line"
+                fi
+              fi
+              ;;
+          esac
+        done < "$spec_head_tmp"
+        if [ "$missing_count" -gt 0 ]; then
+          SPEC_DELETIONS="$missing_count decisions-log entry/entries removed from SPEC.md.$missing_lines"
+        fi
+      else
+        # Staged-read failed despite SPEC.md being in $STAGED — index race,
+        # interrupted `git add`, or partial index. Fail-closed posture per
+        # pr-review-toolkit:silent-failure-hunter 2026-04-30 P2 #4.
+        SPEC_INTEGRITY_ERROR="Could not read staged SPEC.md (':0:SPEC.md') for the append-only integrity check."
+      fi
     fi
   fi
+  # Clean up tempfiles unconditionally; mktemp creation may have failed.
+  [ -n "$spec_head_tmp" ] && rm -f "$spec_head_tmp"
+  [ -n "$spec_staged_tmp" ] && rm -f "$spec_staged_tmp"
+fi
+
+if [ -n "$SPEC_INTEGRITY_ERROR" ]; then
+  {
+    echo "=== BLOCKED: SPEC.md decisions-log integrity check failed ==="
+    echo ""
+    echo "$SPEC_INTEGRITY_ERROR"
+    echo ""
+    echo "Possible causes: index race (interrupted git add), partial index,"
+    echo "filesystem race. Re-stage SPEC.md (\`git add SPEC.md\`) and retry."
+    echo "If this is a deliberate audited rewrite, commit through the"
+    echo "terminal (this hook only runs in Claude Code sessions)."
+  } >&2
+  exit 2
+fi
+
+if [ -n "$SPEC_DELETIONS" ]; then
+  {
+    echo "=== BLOCKED: SPEC.md decisions log is append-only ==="
+    echo ""
+    echo "$SPEC_DELETIONS"
+    echo ""
+    echo "Restore the missing bullets and re-stage. To supersede a prior"
+    echo "decision, append a NEW entry at the end with 'Supersedes: <prior date>'."
+    echo "See SETUP.md and the /log-decision skill."
+    echo ""
+    echo "If this is a deliberate, audited rewrite (rare), commit via terminal"
+    echo "(this hook only runs in Claude Code sessions)."
+  } >&2
+  exit 2
 fi
 
 # --- Check 4: TODO/FIXME/HACK markers (WARNING) -------------------------

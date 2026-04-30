@@ -2,6 +2,50 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Codex round-4 review-driven hardening sweep + pr-review-toolkit follow-up)
+
+Closes 6 Codex P1/P1/P2/P2/P2/P2 findings against HEAD `9f762ec` + 7 silent-failure-hunter fail-loud regressions + 1 type-design-analyzer ctor-validation gap + 3 feature-dev:code-reviewer follow-ups (all in one batch per CLAUDE.md §6.3 mandate). 502/502 tests green; cross-platform deterministic 60-tick hash unchanged.
+
+**Codex P1/P2 fixes:**
+- **P1#1 fresh-clone reproducibility** — `MatchSim/MatchSim.csproj` `<EmbeddedResource>` now pins `LogicalName="FinalWhistle.MatchSim.Content.archetypes.%(Filename)%(Extension)"`. Default MSBuild auto-naming flattened the relative path; local stale `obj/bin` masked the mismatch. `git archive HEAD | tar -x && bash ./scripts/fw verify` now lands 500/500 instead of 472/500.
+- **P1#2 decisions-log removal commit-blocking** — `.claude/hooks/protect-decisions-log.sh` now reads the on-disk SPEC pre-image and blocks any Write whose post-image drops decision bullets. `.claude/hooks/validate-commit.sh` Check 3 promoted from non-blocking warning to BLOCKING (exit 2). Both layers harden together.
+- **P2#3 exact-rational crossing comparison** — `MatchRules.Step` no longer compares Q32.32-divided `Fixed` t values; computes `(absNumeratorRaw, absDenominatorRaw)` from raw long arithmetic and cross-multiplies via `BigInteger`. New regression test `Step_DiagonalTouchlineFirst_SubUlpTouchEarlierThanGoal_EmitsThrowIn` constructs a sub-ULP collision that the prior rounded-compare implementation would have misclassified. Mirror `_SubUlp_NegativeDeltaCorner_EmitsThrowIn` exercises the negative-delta sign branch.
+- **P2#4 restart semantics framing** — `MatchRules` + `MatchSimulationRunner` doc-comments now state explicitly that the `KeyEvent.Side` recorded on `*Restart` events is informational; the runner does NOT consume restart-control state next tick. Phase 4 introduces possession-lock + taker behavior.
+- **P2#5 EventBridge purity asmdef-locked** — `Viewer.EventBridge` SPEC-locked to live under `Viewer.Contracts.asmdef` (already `noEngineReferences:true`); the compiler refuses any `UnityEngine.*` import there. `.claude/rules/Scripts/Viewer/RULES.md` updated; all three Viewer asmdefs ship `autoReferenced:false`.
+- **P2#6 Unity plugin freshness gated by `fw verify`** — new `scripts/fw verify-unity-plugins` subcommand publishes MatchSim to a tempdir + byte-diffs the produced DLL/PDB against the committed plugin drop. Wired into `fw verify` umbrella between `shader-audit` and `test`.
+
+**pr-review-toolkit:silent-failure-hunter findings (all 7 addressed):**
+- `MatchRules.BuildCrossingFraction` now THROWS on caller-invariant violations (same-sign, |num|>|den|) instead of returning null — matches the `delta==Zero` precedent.
+- `MatchRules.Handle*Crossing` redundant `delta==Zero` guards promoted from silent `return` to `throw`.
+- `protect-decisions-log.sh` fail-closed on read errors (drop bare `except: pass`).
+- `validate-commit.sh` BLOCKS when `git show :0:SPEC.md` fails (inner-else fail-closed).
+- `fw verify-unity-plugins` target_dir-missing branch is now phase-aware (sentinel: `unity-project/Packages/manifest.json` presence).
+- `fw verify-unity-plugins` adds explicit `dotnet publish` exit-code check (no more "drift=N" red herrings on compile failure).
+- `fw verify-unity-plugins` PDB now REQUIRED, not skipped (preserves source-path-embed verification signal).
+
+**pr-review-toolkit:type-design-analyzer fix:**
+- `CrossingFraction` ctor made `private`; `CreateValidated(absNum, absDen)` factory + ctor-level invariant assertions prevent any future helper from smuggling a malformed fraction past validation.
+
+**feature-dev:code-reviewer follow-ups:**
+- `validate-commit.sh` SPEC pre-image temp files now use `mktemp` + trap (was fixed `/tmp/.bp_spec_*` paths — race on concurrent hooks).
+- `fw verify-unity-plugins` portable shasum: prefer `sha256sum` (Linux CI default), fall back to `shasum` (macOS).
+- Mirrored sub-ULP regression test at `-X/+Z` corner exercises the negative-delta sign branch in `BuildCrossingFraction` that the `+X/+Z` test couldn't reach.
+
+**Smaller findings swept in same batch:**
+- `MatchRules` `ThrowInRestart` emission now uses `KeyEvent.JerseyUnspecified` (was literal `0`).
+- `IsInField` boundary semantics doc-locked (Phase-3 strict-inequality simplification + Phase-4 revisit trigger).
+- `KeyEvent.GetHashCode` flagged with explicit "in-memory only; not cross-process stable" comment.
+- `unity-project/Packages/manifest.json` + `packages-lock.json` cleanup: `com.unity.multiplayer.center` removed.
+- ProBuilder ProjectSettings remnant cleaned.
+- `global.json` SDK roll-forward narrowed `latestFeature` → `latestPatch`.
+- SPEC.md plugin-install `[x]` reconciled with verified-installed state.
+
+**Verification**: `fw verify` 502/502 green on local + clean fresh `git archive HEAD` extraction. Cross-platform deterministic 60-tick canonical-state hash `sha256:7e851976...50e` unchanged.
+
+**Subagent audit trail (CLAUDE.md §6.3)**: `pr-review-toolkit:silent-failure-hunter` + `pr-review-toolkit:type-design-analyzer` + `feature-dev:code-reviewer` all ran on the uncommitted diff before this commit. All findings closed in this same batch.
+
+**Parallel work**: 8-agent adversarial repo audit (Opus, run-in-background) launched in same session. Reports at `/tmp/repo-audit/0[1-8]-*.md`; synthesis triage doc to follow.
+
 ## 2026-04-30 (Phase-3 foundation-first task #3 — `PitchRules` / `MatchRules` layer)
 
 Closes Codex audit P1-05 (score + out-of-play + key-events absent from canonical state) + folds in P2-03 (seed-input refactor) per the 2026-04-28 PitchRules decisions-log entry. **Schema bump v0 → v1 for `MatchCanonicalState`**: pinned smoke-fixture hash re-baselined (intentional, per the decisions-log entry).

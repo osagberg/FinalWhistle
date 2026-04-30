@@ -243,6 +243,142 @@ public sealed class MatchRulesTests
     }
 
     [Fact]
+    public void Step_DiagonalTouchlineFirst_SubUlpTouchEarlierThanGoal_EmitsThrowIn()
+    {
+        // Codex P2 round 4 (2026-04-30) regression test.
+        //
+        // Construct a trajectory where:
+        //   • Goal-line crossing parameter t_g and touchline crossing t_t
+        //     are BOTH genuinely positive in (0, 1).
+        //   • t_t < t_g  (touchline truly crossed first).
+        //   • The Q32.32-rounded representations of t_g and t_t collide
+        //     to the SAME Fixed value (within 1 ULP). The pre-fix
+        //     compare-rounded-Fixed code therefore saw a tie and applied
+        //     the goal-line tie-break — emitting GoalKickRestart instead
+        //     of ThrowInRestart. The exact-rational compare via cross-
+        //     multiplied BigInteger correctly resolves t_t < t_g.
+        //
+        // Construction:
+        //   pre.X = 51.5      → numG = 52.5 - 51.5 = 1.0 (Fixed)
+        //   post.X = 53.5 - 1ULP_Fixed
+        //                     → denG = 2.0 - 1ULP, slightly < 2 in raw long
+        //   t_g exact = 1 / (2 - 2^-32) ≈ 0.5 + 2^-33 (truly > 0.5)
+        //
+        //   pre.Z = 33        → numT = 34 - 33 = 1.0
+        //   post.Z = 35       → denT = 2.0 exactly
+        //   t_t exact = 1 / 2 = 0.5 exactly
+        //
+        //   Q32.32 division of t_g: ((1·2^32) · 2^32) / (2·2^32 - 1)
+        //                          ≈ 2^31 + tiny, truncated to 2^31
+        //                        = 0.5 in Fixed.
+        //   Q32.32 division of t_t: (1·2^32 · 2^32) / (2·2^32) = 2^31
+        //                        = 0.5 in Fixed.
+        //   Both round to identical Fixed → rounded-CompareTo says EQUAL.
+        //
+        //   Exact rational: 1/(2-2^-32) > 1/2, so t_g > t_t,
+        //   so touchline crossed first → emit ThrowInRestart.
+        Fixed preX = Fixed.FromInt(515) / Fixed.FromInt(10);   // 51.5
+        // 53.5 in raw is (107 * 2^32) / 2 = 53.5 * 2^32. Subtract 1 raw long
+        // unit so denG = post.X - pre.X = (2 * 2^32) - 1 raw — i.e. one Q32.32
+        // ULP shy of exactly 2.0. The single 1-ULP shave is the ENTIRE
+        // mechanism that pushed the prior rounded-compare implementation into
+        // a tie with the touchline crossing.
+        Fixed postX = Fixed.FromRaw((Fixed.FromInt(535) / Fixed.FromInt(10)).RawValue - 1L);
+        Fixed preZ = Fixed.FromInt(33);
+        Fixed postZ = Fixed.FromInt(35);
+
+        BallState pre = new(
+            new Vector3Fixed(preX, Fixed.Zero, preZ),
+            Vector3Fixed.Zero,
+            Vector3Fixed.Zero);
+        BallState post = new(
+            new Vector3Fixed(postX, Fixed.Zero, postZ),
+            Vector3Fixed.Zero,
+            Vector3Fixed.Zero);
+
+        // Belt-and-suspenders: prove the construction actually exercises the
+        // sub-ULP boundary. The rounded Fixed division of both t values must
+        // collide; otherwise this test would also pass under the prior
+        // rounded-compare implementation and lose its regression power.
+        Fixed numG = (Fixed.FromInt(525) / Fixed.FromInt(10)) - preX;
+        Fixed denG = postX - preX;
+        Fixed numT = Fixed.FromInt(34) - preZ;
+        Fixed denT = postZ - preZ;
+        Fixed roundedTGoal = numG / denG;
+        Fixed roundedTTouch = numT / denT;
+        Assert.Equal(roundedTTouch, roundedTGoal);  // rounded would tie
+
+        MatchSimulationState state = BuildState(post);
+        MatchRules.Step(state, pre);
+
+        // Touchline crossed FIRST in true-rational time-order.
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.ThrowInRestart, state.KeyEvents[0].Kind);
+        Assert.Equal(OutOfPlay.ThrowIn, state.OutOfPlay);
+        Assert.Equal(0, state.HomeScore);
+        Assert.Equal(0, state.AwayScore);
+    }
+
+    [Fact]
+    public void Step_DiagonalTouchlineFirst_SubUlp_NegativeDeltaCorner_EmitsThrowIn()
+    {
+        // Mirror of the +X/+Z sub-ULP test across the -X/+Z corner so the
+        // exact-rational compare exercises the negative-delta sign branch
+        // in BuildCrossingFraction (numRaw < 0 && denRaw < 0). Without
+        // this mirror, only the positive-delta branch is regression-locked
+        // (per feature-dev:code-reviewer 2026-04-30 finding #5).
+        //
+        // Construction (mirrored from the +X/+Z fixture):
+        //   pre.X = -51.5             → numG_signed = -52.5 - (-51.5) = -1.0
+        //   post.X = -53.5 + 1ULP     → denG_signed = (post.X - pre.X)
+        //                              = (-2.0 + 1ULP), one Q32.32 ULP shy of -2.0
+        //   t_g exact = (-1.0) / (-2.0 + 2^-32) = 1 / (2 - 2^-32) ≈ 0.5 + 2^-33
+        //
+        //   pre.Z = 33                → numT_signed = 1.0
+        //   post.Z = 35               → denT_signed = 2.0 exactly
+        //   t_t exact = 0.5 exactly
+        //
+        // Exact rational: t_g > t_t, touchline crossed first → ThrowIn.
+        Fixed preX = -(Fixed.FromInt(515) / Fixed.FromInt(10));   // -51.5
+        // -53.5 raw + 1 ULP → one ULP closer to zero than -53.5, i.e., -2.0
+        // delta + 1 ULP. Exercises the all-negative-raw branch in
+        // BuildCrossingFraction.
+        Fixed postX = Fixed.FromRaw((-(Fixed.FromInt(535) / Fixed.FromInt(10))).RawValue + 1L);
+        Fixed preZ = Fixed.FromInt(33);
+        Fixed postZ = Fixed.FromInt(35);
+
+        BallState pre = new(
+            new Vector3Fixed(preX, Fixed.Zero, preZ),
+            Vector3Fixed.Zero,
+            Vector3Fixed.Zero);
+        BallState post = new(
+            new Vector3Fixed(postX, Fixed.Zero, postZ),
+            Vector3Fixed.Zero,
+            Vector3Fixed.Zero);
+
+        // Belt-and-suspenders: prove rounded compare would tie at the
+        // mirrored corner too.
+        Fixed numG = -(Fixed.FromInt(525) / Fixed.FromInt(10)) - preX;
+        Fixed denG = postX - preX;
+        Fixed numT = Fixed.FromInt(34) - preZ;
+        Fixed denT = postZ - preZ;
+        Fixed roundedTGoal = numG / denG;
+        Fixed roundedTTouch = numT / denT;
+        Assert.Equal(roundedTTouch, roundedTGoal);  // rounded would tie
+
+        MatchSimulationState state = BuildState(post);
+        MatchRules.Step(state, pre);
+
+        // Touchline crossed FIRST in true-rational time-order — same outcome
+        // as the +X/+Z mirror; symmetry locked.
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.ThrowInRestart, state.KeyEvents[0].Kind);
+        Assert.Equal(OutOfPlay.ThrowIn, state.OutOfPlay);
+        Assert.Equal(0, state.HomeScore);
+        Assert.Equal(0, state.AwayScore);
+    }
+
+    [Fact]
     public void Step_DiagonalTouchlineFirstAtGoalMouthHeight_StillEmitsThrowIn()
     {
         // The boundary-priority fix must apply even when the ball-Y at the

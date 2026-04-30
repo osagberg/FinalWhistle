@@ -9,6 +9,7 @@
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
+    "autoReferenced": false,
     "overrideReferences": false,
     "precompiledReferences": [],
     "autoReferencedPackages": [],

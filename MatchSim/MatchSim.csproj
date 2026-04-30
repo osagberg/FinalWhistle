@@ -17,9 +17,10 @@
     <Description>Pure-C# canonical match simulation. Q32.32 fixed-point determinism. Zero UnityEngine references per TECH_APPROACH.md §3.</Description>
 
     <!-- Reproducible build per `scripts/fw build-unity-plugins` SPEC 2026-04-29
-         decisions-log §6 idempotency claim. Three properties working together
-         to produce bit-identical DLL/PDB outputs across machines + git
-         commits + working-directory paths:
+         decisions-log §6 idempotency claim. These project-level properties,
+         plus the explicit relative PdbFile publish flag in `scripts/fw`,
+         produce bit-identical DLL/PDB outputs across machines + git commits +
+         working-directory paths:
 
            Deterministic=true   — Roslyn emits MVID from a stable hash of
                                   source + resources + references, not a
@@ -52,9 +53,11 @@
                      a side-effect. Source Link embedded the git HEAD
                      SHA into the PDB, producing per-commit drift Codex
                      caught (P1 round-3, 2026-04-29).
-           THIS  — replace ContinuousIntegrationBuild with the more
-                   surgical PathMap + SourceControl-disable pair.
-                   Same path-normalization win, no git-SHA stamping.
+          THIS  — replace ContinuousIntegrationBuild with the more surgical
+                  PathMap + SourceControl-disable pair, then make
+                  `scripts/fw` pass a relative PdbFile path so the DLL's
+                  CodeView record cannot embed the absolute checkout path.
+                  Same path-normalization win, no git-SHA stamping.
 
          EmbedUntrackedSources=false belt-and-suspenders: even if some
          downstream pipeline reactivates Source Link, untracked-file
@@ -90,7 +93,18 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Content/archetypes/*.yaml" />
+    <!-- Pin LogicalName explicitly. Default MSBuild auto-computation for
+         wildcard EmbeddedResource items produces only `<RootNamespace>.<Filename>.yaml`
+         (drops the relative-path segments). The runtime lookup in
+         BehaviorTreeArchetypes.ReadEmbeddedResource expects the path-aware
+         form `FinalWhistle.MatchSim.Content.archetypes.<name>.yaml`, which
+         is the canonical resource-name shape we want for any future content
+         tree (`Content/identity-packets/<archetype>/<jersey>.json`, etc.).
+         A fresh `git archive HEAD` checkout exposes the mismatch (Codex
+         P1 round 4, 2026-04-30); local stale obj/bin can mask it. -->
+    <EmbeddedResource Include="Content/archetypes/*.yaml">
+      <LogicalName>FinalWhistle.MatchSim.Content.archetypes.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

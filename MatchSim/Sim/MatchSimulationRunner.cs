@@ -32,6 +32,21 @@ namespace FinalWhistle.MatchSim.Sim;
 /// Phase 4+ stochastic events derive their RNG streams from it via
 /// <see cref="Seed.Derive"/>.
 /// </para>
+///
+/// <para>
+/// <strong>Phase-3 restarts are EVENT-ONLY placeholders.</strong> Per the
+/// 2026-04-30 decisions-log entry (Codex P2 round 4): when
+/// <see cref="MatchRules.Step"/> emits a <see cref="KeyEventKind.GoalKickRestart"/>
+/// / <see cref="KeyEventKind.ThrowInRestart"/> / <see cref="KeyEventKind.CornerKickRestart"/>,
+/// the side recorded on the <see cref="KeyEvent"/> is informational ONLY.
+/// The runner does NOT consume any restart-control state on the next tick
+/// — there is no possession lock, no taker assignment, no BT-suppression.
+/// The ball respawns at the canonical spot with zero velocity, and on the
+/// very next tick both BTs run normally and the nearest-player heuristic
+/// determines who picks it up. Phase 4 introduces real possession-lock +
+/// taker behavior; until then, the canonical sim treats restarts as
+/// observable events but not gameplay-authoritative state.
+/// </para>
 /// </summary>
 public static class MatchSimulationRunner
 {

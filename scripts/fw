@@ -56,6 +56,11 @@ COMMANDS (implemented)
                     unity-project/Assets/Plugins/MatchSim/ for Unity-side
                     consumption (per SPEC 2026-04-29 decisions log).
                     Run after every MatchSim source change before commit.
+    verify-unity-plugins
+                    Diff freshly-published MatchSim DLLs against the bytes
+                    committed under unity-project/Assets/Plugins/MatchSim/.
+                    Catches "forgot to rerun build-unity-plugins" before
+                    Codex / CI does (SPEC 2026-04-30 Codex round-4 entry).
     test            dotnet test against FinalWhistle.slnx (MatchSim + tests)
 
 COMMANDS (stubbed — land when their phase trigger hits)
@@ -75,6 +80,7 @@ EOF
         "$0" verify-docs
         "$0" banned-terms
         "$0" shader-audit
+        "$0" verify-unity-plugins
         "$0" test
         # Future additions: determinism smoke / corpus replay (Phase 3),
         # content-lint (Phase 6).
@@ -345,9 +351,9 @@ EOF
             exit 2
         fi
 
-        matchsim_proj="$ROOT/MatchSim/MatchSim.csproj"
-        if [ ! -f "$matchsim_proj" ]; then
-            echo "FAIL: $matchsim_proj missing." >&2
+        matchsim_proj="MatchSim/MatchSim.csproj"
+        if [ ! -f "$ROOT/$matchsim_proj" ]; then
+            echo "FAIL: $ROOT/$matchsim_proj missing." >&2
             exit 2
         fi
 
@@ -356,12 +362,19 @@ EOF
         # Bash trap to remove the temp dir even on failure mid-script.
         trap 'rm -rf "$publish_tmp"' EXIT
 
+        # PdbFile is passed as a command-line MSBuild property because the SDK
+        # assigns its default late in the build. Without this explicit relative
+        # path, a fresh clone can embed its absolute checkout path in the
+        # CodeView record while a stale local obj/ build appears clean.
+        stable_pdb_file="obj/Release/netstandard2.1/FinalWhistle.MatchSim.pdb"
+
         echo "Publishing MatchSim (Release, netstandard2.1) to staging..."
-        dotnet publish "$matchsim_proj" \
+        (cd "$ROOT" && dotnet publish "$matchsim_proj" \
             -c Release \
             --nologo \
+            "/p:PdbFile=$stable_pdb_file" \
             -o "$publish_tmp" \
-            >/dev/null
+            >/dev/null)
 
         # Verify the expected files arrived.
         for required in FinalWhistle.MatchSim.dll YamlDotNet.dll; do
@@ -408,6 +421,148 @@ EOF
             echo "  plugins, then commit them alongside the DLLs. After that, future"
             echo "  runs of this command preserve .meta stability automatically."
         fi
+        ;;
+
+    verify-unity-plugins)
+        # Plugin freshness gate per SPEC 2026-04-30 Codex round-4 entry.
+        #
+        # The DLL drop at `unity-project/Assets/Plugins/MatchSim/` is a
+        # checked-in build artifact. SPEC 2026-04-29 made it the Phase-3
+        # Unity consumption strategy; the drop's reproducibility depends
+        # on every committed pair (.dll + .pdb) being byte-equal to a
+        # fresh `dotnet publish` of the corresponding MatchSim source.
+        #
+        # Without a verify gate, a silent stale commit (you forgot to run
+        # `fw build-unity-plugins` after a MatchSim edit) survives `fw
+        # verify` even though the next contributor cloning + opening Unity
+        # would see Phase-3 sim code that disagrees with the dropped DLL.
+        # CI catches this on the cross-platform deterministic-test matrix
+        # because tests load the source-built DLL, not the dropped one,
+        # so divergence shows up as "Unity-side and headless tests
+        # disagree on canonical state" — but only when someone actually
+        # runs Unity. This subcheck closes that gap inside Tier-A.
+        #
+        # Mechanism: publish MatchSim to a tempdir with the same flags as
+        # `fw build-unity-plugins`, then byte-diff the produced DLL/PDB
+        # against the committed copy. Reproducibility relies on the
+        # deterministic-build properties already pinned in MatchSim.csproj
+        # (Deterministic=true + PathMap + SourceControlInformationFeature-
+        # Supported=false) plus the explicit relative PdbFile publish property.
+        # Together they make this front-door publish bit-identical across
+        # machines and commits, so the diff only fires when someone genuinely
+        # forgot to rebuild.
+        echo "=== Final Whistle — verify-unity-plugins ==="
+        echo
+        if ! command -v dotnet >/dev/null 2>&1; then
+            echo "FAIL: dotnet SDK not found on PATH." >&2
+            exit 2
+        fi
+
+        matchsim_proj="MatchSim/MatchSim.csproj"
+        target_dir="$ROOT/unity-project/Assets/Plugins/MatchSim"
+        unity_manifest="$ROOT/unity-project/Packages/manifest.json"
+
+        # Phase-aware target_dir-missing branch (per silent-failure-hunter
+        # 2026-04-30 P2 #5). The earlier "OK if missing" framing was correct
+        # only for the truly-fresh-clone state where unity-project/ itself
+        # didn't exist. Once unity-project/Packages/manifest.json is
+        # present, the plugin drop is committed-required (SPEC 2026-04-29),
+        # so a missing target_dir is drift, not stub-mode.
+        if [ ! -f "$unity_manifest" ]; then
+            echo "OK: unity-project/ not yet bootstrapped — no plugin drop to verify."
+            exit 0
+        fi
+        if [ ! -d "$target_dir" ]; then
+            {
+                echo "FAIL: $target_dir is missing despite unity-project/ being bootstrapped."
+                echo "  Plugin drop is committed-required per SPEC 2026-04-29."
+                echo "  Run:    scripts/fw build-unity-plugins"
+                echo "  Stage:  git add unity-project/Assets/Plugins/MatchSim/"
+            } >&2
+            exit 2
+        fi
+
+        publish_tmp=$(mktemp -d -t fw-verify-unity-plugins.XXXXXX)
+        trap 'rm -rf "$publish_tmp"' EXIT
+
+        stable_pdb_file="obj/Release/netstandard2.1/FinalWhistle.MatchSim.pdb"
+
+        # Explicit publish exit-code check (per silent-failure-hunter 2026-04-30
+        # P2 #6). stdout is muted (avoid noise on green); stderr stays visible.
+        # On non-zero, surface a real diagnostic instead of letting the
+        # downstream "drift=N" loop produce misleading "missing from publish
+        # output" lines for what's really a compile failure.
+        echo "Publishing MatchSim to staging for byte-comparison..."
+        if ! (cd "$ROOT" && dotnet publish "$matchsim_proj" \
+            -c Release \
+            --nologo \
+            "/p:PdbFile=$stable_pdb_file" \
+            -o "$publish_tmp" \
+            >/dev/null); then
+            {
+                echo "FAIL: dotnet publish failed (see stderr above for the real error)."
+                echo "  Fix the source error, then re-run scripts/fw verify-unity-plugins."
+            } >&2
+            exit 2
+        fi
+
+        # Files we expect to be in lockstep. PDB compared because it
+        # carries the embedded source-paths + MVID; if it drifts, the
+        # source did too. PDB is REQUIRED — both DebugType=portable
+        # (default) and our deterministic-build settings emit it. An
+        # absent PDB at this stage means MatchSim.csproj changed in a
+        # way that suppresses PDB emission (e.g., DebugType=none); the
+        # source-path-embed verification signal would silently disappear
+        # if we kept skipping (per silent-failure-hunter P2 #7).
+        check_files="FinalWhistle.MatchSim.dll FinalWhistle.MatchSim.pdb YamlDotNet.dll"
+        drift=0
+        for f in $check_files; do
+            staged="$publish_tmp/$f"
+            committed="$target_dir/$f"
+            if [ ! -f "$staged" ]; then
+                echo "  FAIL: $f missing from publish output ($publish_tmp)" >&2
+                if [ "$f" = "FinalWhistle.MatchSim.pdb" ]; then
+                    echo "    PDB emission is required for the source-path-embed " \
+                         "verification signal." >&2
+                    echo "    Check MatchSim.csproj DebugType (must be 'portable' " \
+                         "or 'embedded')." >&2
+                fi
+                drift=$((drift + 1))
+                continue
+            fi
+            if [ ! -f "$committed" ]; then
+                echo "  FAIL: $f committed plugin missing at $committed" >&2
+                drift=$((drift + 1))
+                continue
+            fi
+            if ! cmp -s "$staged" "$committed"; then
+                # Linux CI runners ship sha256sum (coreutils); macOS ships
+                # only shasum (Perl). feature-dev:code-reviewer 2026-04-30
+                # caught the latent diagnostic-truncation on Linux.
+                if command -v sha256sum >/dev/null 2>&1; then
+                    staged_sha=$(sha256sum "$staged" | awk '{print $1}')
+                    committed_sha=$(sha256sum "$committed" | awk '{print $1}')
+                else
+                    staged_sha=$(shasum -a 256 "$staged" | awk '{print $1}')
+                    committed_sha=$(shasum -a 256 "$committed" | awk '{print $1}')
+                fi
+                echo "  FAIL: $f bytes drift" >&2
+                echo "    staged   : sha256:$staged_sha" >&2
+                echo "    committed: sha256:$committed_sha" >&2
+                drift=$((drift + 1))
+            fi
+        done
+
+        if [ "$drift" -eq 0 ]; then
+            echo "OK: plugin drop matches a fresh dotnet publish (3 file(s) checked)."
+            exit 0
+        fi
+
+        echo
+        echo "verify-unity-plugins FAIL: $drift file(s) drifted from a fresh build."
+        echo "  Run: scripts/fw build-unity-plugins"
+        echo "  Then re-stage + commit: git add unity-project/Assets/Plugins/MatchSim/"
+        exit 2
         ;;
 
     test)

@@ -11,15 +11,15 @@ Per ADR-0008 + ADR-0009 (both Accepted 2026-04-27): the viewer renders MatchSim 
 
 Asmdef structure (per `unity-project/Assets/Viewer/`):
 
-- `Viewer.Contracts` — pure-C# DTOs (ViewerEvent / ShotTypeDefinition / PitchView / ActiveViewerEvent / MemoryHit). **`noEngineReferences: true`** — UnityEngine-free, same architectural posture as MatchSim. Asmdef-level enforcement, not just convention.
-- `Viewer.Core` — Unity-side adapter registry, `Viewer.EventBridge`, `ShotTypeSO → ShotTypeDefinition` projection.
-- `Viewer.Adapters.Dots` — concrete dots-prototype implementation; consumes Core + Contracts + URP runtime.
+- `Viewer.Contracts` — pure-C# DTOs (ViewerEvent / ShotTypeDefinition / PitchView / ActiveViewerEvent / MemoryHit) **+ `Viewer.EventBridge`** (deterministic conversion from ordered MatchSim canonical events to ViewerEvents — consumes already-projected pure `ShotTypeDefinition` DTOs). **`noEngineReferences: true`** + **`autoReferenced: false`** — UnityEngine-free at compile time, same architectural posture as MatchSim. Asmdef-level enforcement, not just convention. EventBridge home is locked here per SPEC 2026-04-30 Codex round-4 entry: hosting the bridge in `Viewer.Core` would inherit UnityEngine access (Time / Random / GameObject / scene state) and silently violate ADR-0008's deterministic-conversion contract; locking at the Contracts layer makes any `using UnityEngine` in bridge code a compile error rather than a reviewer-discipline issue.
+- `Viewer.Core` — Unity-side adapter registry + `ShotTypeSO → ShotTypeDefinition` projection (the ScriptableObject layer is Unity-side glue; the bridge itself lives in Contracts and consumes the already-projected DTOs). `autoReferenced: false`.
+- `Viewer.Adapters.Dots` — concrete dots-prototype implementation; consumes Core + Contracts + URP runtime. `autoReferenced: false`.
 
 Reference graph: `Adapters.Dots → Core → Contracts`. One-way; Contracts is the apex.
 
 ## MUST
 
-- Treat MatchSim canonical events as read-only input; viewer code cannot author, modify, or correct canonical match state. The bridge (`Viewer.Core.Viewer.EventBridge`) DERIVES `ViewerEvent`s from MatchSim events; it never emits canonical sim state.
+- Treat MatchSim canonical events as read-only input; viewer code cannot author, modify, or correct canonical match state. The bridge (`FinalWhistle.Viewer.Contracts.Viewer.EventBridge`) DERIVES `ViewerEvent`s from MatchSim events; it never emits canonical sim state.
 - Honor `noEngineReferences: true` on `Viewer.Contracts`. A `using UnityEngine` there fails compilation by design.
 - Map ViewerEvents into the locked 7-shot vocabulary from `design/semantic-cinema.md` (`tactical-wide` / `diagonal-attack-lane` / `pass-shot-impact` / `player-isolation` / `aftermath-freeze` / `crowd-reaction` / `tunnel-vision-press`). Adapters render shots; Contracts identifies them.
 - Resolve `ReduceMotion` ONCE at the bridge boundary per ADR-0008: `BaseShotTypeId` → `EffectiveShotTypeId` substitution + `ReduceMotionApplied` flag travels on the ViewerEvent. Adapters consume the resolved variant.

@@ -7,6 +7,7 @@
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
+    "autoReferenced": false,
     "overrideReferences": true,
     "precompiledReferences": [
         "FinalWhistle.MatchSim.dll"
