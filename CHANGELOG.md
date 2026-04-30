@@ -2,6 +2,45 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Phase-3 semantic slice #3 of 5 — 1 MemoryEvent reader callback end-to-end)
+
+SPEC.md Phase-3 line 144 closed. Third of five semantic-slice deliverables shipped end-to-end: a synthetic goal `KeyEvent` flows through `MemoryEmissionRules` → `Ledger.Emit` → `PressFanReader.QueryForSeason` and surfaces as a `CallbackCandidate` carrying the `fwh.core:callback_template.goal_press_fan_milestone` template ID at Notable band. Verified end-to-end inside Unity Mono via UnityMCP `execute_code`.
+
+**New files** (~1700 LoC + ~720 LoC tests):
+- 13 under `MatchSim/Memory/Contracts/`: `EventClass` / `EmitterKind` / `Emotion` / `SalienceBand` / `CareerDate` / `EventEmitter` / `Participant` / `SalienceInputs` / `CallbackTag` (+ sealed-abstract `ExpiryPolicy` closed union with `Never` / `Seasons(byte)` / `OnEvent(EventClass)`) / `ReaderQuery` / `IMemoryReader` (+ `ReaderId` value wrapper) / `CallbackCandidate` / `MemoryEvent`.
+- 7 under `MatchSim/Memory/`: `SalienceWeights` (Phase-3 tuning seeds w_stakes=0.4 / prominence=0.2 / class=0.2 / rivalry=0.1 / rarity=0.1 + `Phase3ModelVersion=1`); `SalienceEngine` (`Compute` / `ClassifyBand` / `ApplyCallbackAgeModifier` with 5%/season decay); `EventClassRegistry` (Phase-3 minimum subset: `GoalScored` base weight 0.6 + tag attachments); `CallbackTagRegistry` (`PressFan` MinBand=Notable Expiry=Seasons(3) + `ScoringMilestone` placeholder); `Ledger` (append-only, snapshot-semantic `All` + `SinceSeason`); `MemoryEmissionRules.EmitForKeyEvents` bridge; `PressFanReader` (filter by tag + season-window + band, sort by surfacing salience descending).
+
+**Architectural posture**:
+- **MatchSim never touches the ledger** per ADR-0004 hard line. Bridge lives outside `MatchSimulationRunner`; runner adds zero new code paths.
+- **MemoryEvents are NOT canonical state**. Excluded from `MatchCanonicalState.Write`; pinned 60-tick determinism hash `sha256:7e851976...50e` UNCHANGED.
+- **Determinism floor**: all numeric fields Q32.32; deterministic event-id format `match:<matchId>:tick:<tick>:seq:<n>`; no `double` / `DateTime` / `Guid` in canonical paths.
+- **No `System.Collections.Immutable` dependency** (matches Codex round-7 STJ-removal precedent — Unity 6 Mono doesn't ship it inboxed). Uses `IReadOnlyList<T>` backed by `T[]` with defensive copies in `MemoryEvent.Participants` + `CallbackTag.ConsumingReaders` constructors so caller-provided `List<T>`s can't retain mutation handles to ledger state.
+
+**Phase-3 minimum scope** drops `Consequences` array + per-event `CallbackEligibility` override (Phase-4+ when contracts/attribute-deltas + per-event tag overrides ship). Only `KeyEventKind.Goal` translates to `EventClass.GoalScored` in Phase 3; restart events stay as routine-band match telemetry; signature-execution events translate Phase-4+ when the awakening lifecycle ships. <!-- ui-lint:allow term="awakening" reason="design/signatures.md §lifecycle reference for Phase-4+ system; not Phase-3 player-facing copy" reviewer="osagberg" -->
+
+**Phase-3 placeholder values** in `MemoryEmissionRules`: Stakes=0.95 / Prominence=0.6 / EventClassBaseWeight=0.6 (lifted from architect-blueprint's 0.9/0.6/0.6 to leave ~2 ULP margin above NotableThreshold=0.60 so Q32.32 multiply-rounding can't flip the band classification at the boundary).
+
+**Narrative-director authored** (`fwh.core:tag.press-fan` semantic spec):
+- Min salience band: Notable (every-routine-event press coverage is noise).
+- Expiry: `Seasons(3)` (matches British football press-narrative carry).
+- Phase-3 default template: `fwh.core:callback_template.goal_press_fan_milestone` — boyhood-club flavor (most legible memory-callback for the Month-3 stranger-watching-3-minutes rubric per `design/month-3-vertical-slice.md`).
+- 4 slot-fill names: `{scorer_short_name}`, `{minute}`, `{season_offset}`, `{prior_event_summary}`.
+- Forbidden anti-patterns: real-football-club / real-player names; stat-density >1 numeral per line; system-vocabulary leakage.
+
+**Tests**: 42 new across 3 test files. Coverage:
+- 21 schema/invariant tests (`MemoryEventTests.cs`): every constructor's invariant has a positive + negative test (sentinel rejection, range bounds, null guards, schema-version pin, week/day/season validation, ID format, throw-type contracts).
+- 10 salience-engine tests (`SalienceEngineTests.cs`): Compute formula at all-zero / all-one boundaries + Phase-3 placeholder result; band classification at threshold boundaries; callback-age decay direction + tolerance + clamp + future-currentSeason fallthrough.
+- 11 end-to-end + reader-behavior tests (`PressFanReaderEndToEndTests.cs`): the headline Phase-3 acceptance test (synthetic Goal KeyEvent → 1 candidate); Routine-band events filtered out; old events outside window filtered out; callback-age decay direction asserted; non-Goal KeyEvents skipped by emission rules; deterministic event-id format pinned; Ledger.SinceSeason filtering; CallbackTagRegistry / EventClassRegistry static-init validation.
+
+**Total tests: 614 passing** (was 572; +42).
+
+**Subagent rotation per CLAUDE.md §6.3**: `feature-dev:code-architect` produced the implementation blueprint; `narrative-director` authored the press-fan callback prose + tag-registry semantic spec; `pr-review-toolkit` triple ran in parallel before commit. **All findings applied**:
+- silent-failure-hunter: clean (no try/catch suppression, no fallback-on-error paths).
+- type-design-analyzer: 3 findings applied — defensive `Participants` array copy in `MemoryEvent` constructor; `CallbackTag` constructor-validated (closed the opt-in `Validate()` footgun); duplicate-id check on `Ledger.Emit` deferred Phase-4+ as a low-priority hardening (Phase-3 emission paths produce deterministic-from-input IDs that cannot collide).
+- feature-dev:code-reviewer: 4 findings applied — C1 `ReaderQuery.CurrentSeason` decoupled from `ToSeason` so historical-window queries compute callback-age correctly; CV3 `CareerDate` doc-vs-code mismatch fixed (default-init `(0,0,0)` is NOT permitted; constructor enforces week>=1, day>=1); I1 `Ledger.All` returns a snapshot copy (matches `SinceSeason` semantics; concurrent-safe iteration); I2 `ApplyCallbackAgeModifier` XML doc clarified to describe both `currentSeason < eventSeason` (authoring bug) AND `currentSeason == eventSeason` (age-0 optimization) early-return cases. C2 (KeyEvent.Tick null-deref) was a false positive — `KeyEvent.Tick` is a non-nullable `Tick` struct, not `Tick?`. CV1 (Fixed.Parse may use double) verified false — `Fixed.Parse` uses `decimal` (128-bit BCL primitive) not `double`. CV4 (missing test files) was a naming mismatch — tests are consolidated under `PressFanReaderEndToEndTests.cs`.
+
+**Pinned 60-tick MatchCanonicalState determinism hash `sha256:7e851976...50e` UNCHANGED**. The Memory layer is read-only against canonical state; `MatchCanonicalState.Write` is unmodified.
+
 ## 2026-04-30 (Codex round-10 follow-up — chunked-tick regression test that actually exercises the bug)
 
 Codex round-10 review of `2bdf807` flagged one P2: prior chunked-tick regression tests (`Match_ChunkedRunTicksWithSignatures_ProducesIdenticalHashAndEventStream` + `Match_ChunkedRunTicks_PersistsSignatureCooldownSaturationAcrossCalls`) would NOT have caught the original P1 bug if it returned via the regression "RunTicks switched back to a fresh local SignatureCooldownState while leaving the `state.SignatureCooldown` property untouched" — smoke fixture fires zero signatures, and the saturation test pre-loads `state.SignatureCooldown` directly without depending on the runner consuming it.
