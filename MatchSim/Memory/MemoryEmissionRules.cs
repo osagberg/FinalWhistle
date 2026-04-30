@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using FinalWhistle.MatchSim.Content;
 using FinalWhistle.MatchSim.Memory.Contracts;
 using FinalWhistle.MatchSim.Sim;
 
@@ -64,10 +65,12 @@ public static class MemoryEmissionRules
     /// maximum stakes signal until Phase-4 readiness-accumulator
     /// lifecycle adds gradient. With Phase3Defaults weights:
     /// <c>0.4·1.0 + 0.2·0.6 + 0.2·0.9 + 0 + 0 = 0.40 + 0.12 + 0.18 = 0.70</c>
-    /// — solidly Notable; falls below SeasonDefining (0.85) until rivalry-
-    /// or rarity-boost lands Phase-4+. Tag-level MinBand=SeasonDefining
-    /// on the breakthrough tag is the load-bearing band gate; this
-    /// salience scalar's job is just to sit above the Notable floor.
+    /// — solidly Notable; falls below SeasonDefining (0.85) until
+    /// rivalry/rarity wiring lands Phase-4+. <strong>Permanence comes
+    /// from the breakthrough tag's <c>ExpiryPolicy.Never</c> setting,
+    /// not the band scalar.</strong> Tag-level <c>MinBand=Notable</c>
+    /// matches the natural compute output; SeasonDefining requires
+    /// Phase-4+ contextual boosts.
     /// </summary>
     public static readonly Fixed Phase3BreakthroughStakes = Fixed.One;
 
@@ -91,13 +94,28 @@ public static class MemoryEmissionRules
     /// generated <see cref="MemoryEvent.Id"/>s. Default 0; pass the
     /// running ledger size to chain matches without ID collisions
     /// across the same career.</param>
+    /// <param name="homePackets">Home roster IdentityPackets used to
+    /// resolve participant identity for events that carry jersey-attributed
+    /// player data (currently <see cref="EventClass.SignatureBreakthrough"/>).
+    /// Required when the keyEvents stream contains any
+    /// <see cref="KeyEventKind.SignatureBreakthrough"/> KeyEvents — null
+    /// or empty packets cause an <see cref="ArgumentException"/> in that
+    /// case so the bridge fails loud rather than silently emitting a
+    /// player-less MemoryEvent that downstream readers can't render.
+    /// Optional for goal-only event streams (<see cref="KeyEventKind.Goal"/>
+    /// emits with <see cref="KeyEvent.JerseyUnspecified"/> at Phase 3 —
+    /// no scorer attribution yet).</param>
+    /// <param name="awayPackets">Away roster IdentityPackets — same
+    /// constraint as <paramref name="homePackets"/>.</param>
     public static IReadOnlyList<MemoryEvent> EmitForKeyEvents(
         IReadOnlyList<KeyEvent> keyEvents,
         string matchId,
         ushort season,
         CareerDate careerDate,
         SalienceWeights weights,
-        int eventSeqStart = 0)
+        int eventSeqStart = 0,
+        IReadOnlyList<IdentityPacket>? homePackets = null,
+        IReadOnlyList<IdentityPacket>? awayPackets = null)
     {
         if (keyEvents is null) throw new ArgumentNullException(nameof(keyEvents));
         if (string.IsNullOrEmpty(matchId)) throw new ArgumentException("matchId must be non-empty.", nameof(matchId));
@@ -143,6 +161,16 @@ public static class MemoryEmissionRules
 
             Fixed salience = SalienceEngine.Compute(inputs, weights);
 
+            // Participant resolution per Codex round-1 P1: events that
+            // carry jersey-attributed player data (currently breakthroughs)
+            // need the resolver to map (Side, JerseyNumber) → PlayerId so
+            // the resulting MemoryEvent has a real Participant for the
+            // downstream Viewer.EventBridge to render a player-specific
+            // panel. Goals stay empty-participants in Phase 3 (no scorer
+            // attribution per the existing JerseyUnspecified emission).
+            IReadOnlyList<Participant> participants = ResolveParticipantsFor(
+                what, ke, homePackets, awayPackets);
+
             results.Add(new MemoryEvent(
                 id: eventId,
                 matchId: matchId,
@@ -150,7 +178,7 @@ public static class MemoryEmissionRules
                 tick: tickValue,
                 careerDate: careerDate,
                 emitter: emitter,
-                participants: Array.Empty<Participant>(),
+                participants: participants,
                 what: what,
                 stakes: stakes,
                 emotion: emotion,
@@ -162,6 +190,80 @@ public static class MemoryEmissionRules
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Phase-3 participant resolver per Codex round-1 P1. Goals: empty
+    /// (no scorer attribution at Phase 3). Breakthroughs: resolve
+    /// (TeamSide, JerseyNumber) → IdentityPacket.PlayerId and emit a
+    /// single <c>Participant("player", &lt;id&gt;)</c>. Throws
+    /// <see cref="ArgumentException"/> on resolver failure (missing
+    /// packets, jersey-out-of-range, jersey-not-found-in-roster) so the
+    /// bridge fails loud rather than silently emitting an identity-less
+    /// MemoryEvent.
+    /// </summary>
+    private static IReadOnlyList<Participant> ResolveParticipantsFor(
+        EventClass what, KeyEvent ke,
+        IReadOnlyList<IdentityPacket>? homePackets,
+        IReadOnlyList<IdentityPacket>? awayPackets)
+    {
+        if (what != EventClass.SignatureBreakthrough)
+        {
+            // Phase-3 goals: no scorer attribution yet. Phase-4+ adds
+            // GoalScored participant resolution when the scorer-tracking
+            // pipeline ships.
+            return Array.Empty<Participant>();
+        }
+
+        IReadOnlyList<IdentityPacket>? roster = ke.Side switch
+        {
+            TeamSide.Home => homePackets,
+            TeamSide.Away => awayPackets,
+            _ => throw new ArgumentException(
+                $"SignatureBreakthrough KeyEvent has invalid TeamSide {ke.Side}.",
+                nameof(ke)),
+        };
+        if (roster is null || roster.Count == 0)
+        {
+            throw new ArgumentException(
+                $"SignatureBreakthrough KeyEvent for jersey {ke.JerseyNumber} ({ke.Side}) " +
+                "requires non-empty IdentityPackets to resolve player identity. " +
+                "Pass homePackets + awayPackets to EmitForKeyEvents when the keyEvents " +
+                "stream contains SignatureBreakthrough events.",
+                ke.Side == TeamSide.Home ? nameof(homePackets) : nameof(awayPackets));
+        }
+        if (ke.JerseyNumber == KeyEvent.JerseyUnspecified)
+        {
+            throw new ArgumentException(
+                $"SignatureBreakthrough KeyEvent has JerseyNumber=Unspecified ({KeyEvent.JerseyUnspecified}). " +
+                "Breakthrough events must carry the carrier's jersey number for participant resolution.",
+                nameof(ke));
+        }
+
+        IdentityPacket? match = null;
+        for (int i = 0; i < roster.Count; i++)
+        {
+            // IdentityPacket records carry their roster slot via the
+            // jersey-numbered fixture filename + the SignatureRules
+            // emission pattern; Phase-3 fixtures load 11 packets per
+            // archetype indexed [0]=jersey 1 .. [10]=jersey 11.
+            // Match by index → jersey arithmetic.
+            if (i + 1 == ke.JerseyNumber)
+            {
+                match = roster[i];
+                break;
+            }
+        }
+        if (match is null)
+        {
+            throw new ArgumentException(
+                $"SignatureBreakthrough KeyEvent for jersey {ke.JerseyNumber} ({ke.Side}) " +
+                $"could not be resolved against the {roster.Count}-packet roster. " +
+                "Roster must hold packets indexed [0]=jersey 1 .. [N-1]=jersey N.",
+                ke.Side == TeamSide.Home ? nameof(homePackets) : nameof(awayPackets));
+        }
+
+        return new[] { new Participant("player", match.PlayerId) };
     }
 
     /// <summary>

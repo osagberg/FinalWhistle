@@ -35,9 +35,12 @@ public enum EventClass
     /// <c>design/breakthrough-moments.md</c> §"Trigger kinds" Kind 1.
     /// Fires when a player records their final-allowed signature fire
     /// of the match (firedCount reaches per-match cap). Phase-3 bridge
-    /// maps <c>KeyEventKind.SignatureBreakthrough</c> → this class with
-    /// SeasonDefining-band salience (Stakes=1.0; a breakthrough is the
-    /// event most deserving of permanent narrative weight).
+    /// maps <c>KeyEventKind.SignatureBreakthrough</c> → this class.
+    /// Phase-3 salience compute (Stakes=1.0, Prominence=0.6, ClassWeight
+    /// =0.9, rivalry+rarity=0) lands at 0.70 — Notable band. Permanence
+    /// comes from the breakthrough tag's <c>ExpiryPolicy.Never</c>
+    /// setting, NOT the band scalar; SeasonDefining requires Phase-4+
+    /// rivalry/rarity wiring for contextually-relevant breakthroughs.
     ///
     /// <para>
     /// <strong>Not <c>SignatureAwakened</c>.</strong> ADR-0004's

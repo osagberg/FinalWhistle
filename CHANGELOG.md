@@ -2,6 +2,26 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Codex round-1 follow-up against `a2b9479` — breakthrough participant + permanence + comment-drift fixes)
+
+Codex review pass against `a2b9479` flagged one P1 + one P2 + two P3 findings. All four closed with regression tests:
+
+- **P1 — Breakthrough MemoryEvents lost player identity.** `KeyEventKind.SignatureBreakthrough` carried `Side` + `JerseyNumber` but `EmitForKeyEvents` always wrote `participants: Array.Empty<Participant>()`, so the new persistent-development event reached `BreakthroughReader` with no player identity. Codex's Unity repro: `participants=0`. **Fix**: extended `EmitForKeyEvents` signature with optional `homePackets` / `awayPackets` parameters; new `ResolveParticipantsFor` helper maps `(TeamSide, JerseyNumber)` → `IdentityPacket.PlayerId` and emits `Participant("player", <id>)`. Throws `ArgumentException` on resolver failure (missing packets, jersey-out-of-range, JerseyUnspecified) so the bridge fails loud rather than silently emitting an identity-less MemoryEvent. Unity Mono repro fixed: `participants=1; player=fwh.core:player_00006`. Goals stay empty-participants in Phase 3 (no scorer attribution per the existing JerseyUnspecified emission); Phase-4+ scorer-tracking flips this asymmetry.
+
+- **P2 — Default breakthrough query hid permanent old events.** `BreakthroughReader.QueryForSeason` applied a 3-season default window before expiry was checked, silently filtering out breakthroughs older than 3 seasons even though the tag's `ExpiryPolicy.Never` says they never expire. Codex's Unity repro: season-1 breakthrough at `QueryForSeason(11)` returned 0 candidates. **Fix**: removed `DefaultSeasonWindow` constant; `QueryForSeason` now uses `fromSeason: 0` (all-time). The reader's default-window policy must match the tag's expiry policy. Unity Mono repro fixed: `candidates_at_season11=1`.
+
+- **P3 — Salience-band comments contradicted the pinned Notable band.** Multiple files (`EventClass.cs`, `EventClassRegistry.cs`, `MemoryEmissionRules.cs`) still described breakthroughs as "SeasonDefining-band" but the pinned Phase-3 salience compute is 0.70 → Notable. **Fix**: rewrote all three doc-comments to say "Notable at Phase 3; permanence comes from `Expiry=Never`; SeasonDefining requires Phase-4+ rivalry/rarity boosts." Closes the prose drift that would steer Viewer.EventBridge or later reader work into wrong-band assumptions.
+
+- **P3 — SPEC closure note had stale counts + old method name.** Said "12 new tests / 634 passing" + referenced `RecordFireAndIsCapReach`; actual outcome of slice #4 was 14/636 + the renamed `RecordFireAndDidReachCap` (saturation guard + band-classification invariant test landed AFTER the closure note was authored, in the same commit). **Fix**: SPEC line 145 closure note updated.
+
+**New tests**: 6 (4 P1 participant-resolution: home + away + null-packets + jersey-unspecified; 1 goal-still-empty-participants; 1 P2 `QueryForSeason(11)` regression).
+
+**Total tests: 642 passing** (was 636; +6).
+
+**Pinned 60-tick MatchCanonicalState determinism hash `sha256:7e851976...50e` UNCHANGED**. All four fixes are in the Memory layer (non-canonical); MatchSim canonical paths untouched.
+
+**Subagent rotation**: Codex round-1 review pass external; main-thread authoring with the round-1 finding list as the work order. pr-review-toolkit triple skipped per the small-diff exception (~140 net LoC of code + ~180 LoC of tests + doc updates) — finding-driven hardening with named regression tests per finding.
+
 ## 2026-04-30 (Phase-3 semantic slice #4 of 5 — 1 persistent development event end-to-end)
 
 SPEC.md Phase-3 line 145 closed. Fourth of five semantic-slice deliverables shipped end-to-end: a synthetic `KeyEventKind.SignatureBreakthrough` flows through the full Memory chain and surfaces as a `CallbackCandidate` carrying the `fwh.core:callback_template.signature_breakthrough_panel` template ID. Verified end-to-end inside Unity Mono via UnityMCP `execute_code`.

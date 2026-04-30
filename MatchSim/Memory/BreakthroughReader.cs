@@ -46,7 +46,6 @@ namespace FinalWhistle.MatchSim.Memory;
 public sealed class BreakthroughReader : IMemoryReader
 {
     public const int DefaultMaxResults = 5;
-    public const int DefaultSeasonWindow = 3;
 
     /// <summary>
     /// Phase-3 default template ID per <c>design/breakthrough-moments.md</c>
@@ -78,19 +77,30 @@ public sealed class BreakthroughReader : IMemoryReader
     public ReaderId Id => CallbackTagRegistry.BreakthroughReaderId;
 
     /// <summary>
-    /// Convenience overload: build a default <see cref="ReaderQuery"/>
-    /// for the signature-breakthrough tag centred on
-    /// <paramref name="currentSeason"/>. Uses <see cref="DefaultSeasonWindow"/>
-    /// + the tag's <see cref="CallbackTag.MinBand"/> floor.
+    /// Convenience overload: build an <strong>all-time</strong>
+    /// <see cref="ReaderQuery"/> for the signature-breakthrough tag.
+    /// Per <c>design/breakthrough-moments.md</c> "Permanent. Awakenings
+    /// are irreversible.", breakthroughs never expire — the tag's
+    /// <see cref="ExpiryPolicy.Never"/> setting is the policy
+    /// expression of that design rule, and the reader's default-window
+    /// must match it. <c>fromSeason: 0</c> spans the full career
+    /// history; the callback-age modifier still decays surfacing
+    /// salience reader-side per <c>design/event-sourced-memory.md</c>'s
+    /// "old breakthroughs surface less prominently" principle.
+    /// <para>
+    /// Per Codex round-1 P2 against <c>a2b9479</c>: the prior
+    /// <c>DefaultSeasonWindow=3</c> default would silently filter out
+    /// permanent breakthroughs older than 3 seasons (a season-1
+    /// breakthrough vanished at <c>QueryForSeason(11)</c> in Unity
+    /// Mono). The default-window policy must match the tag's
+    /// expiry policy.
+    /// </para>
     /// </summary>
     public IEnumerable<CallbackCandidate> QueryForSeason(ushort currentSeason)
     {
-        ushort fromSeason = currentSeason >= DefaultSeasonWindow
-            ? (ushort)(currentSeason - DefaultSeasonWindow)
-            : (ushort)0;
         ReaderQuery query = new(
             tagId: CallbackTagRegistry.SignatureBreakthroughId,
-            fromSeason: fromSeason,
+            fromSeason: 0,
             toSeason: currentSeason,
             currentSeason: currentSeason,
             minBand: CallbackTagRegistry.SignatureBreakthrough.MinBand);

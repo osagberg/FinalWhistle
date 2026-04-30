@@ -30,9 +30,12 @@ public static class EventClassRegistry
     /// <summary>
     /// Phase-3 base weight for <see cref="EventClass.SignatureBreakthrough"/>: 0.9 —
     /// a breakthrough is permanent player-development per
-    /// <c>design/breakthrough-moments.md</c>; lifts solidly into
-    /// SeasonDefining band even with the salience formula's full
-    /// 5-input weighting.
+    /// <c>design/breakthrough-moments.md</c>; ranks above goals
+    /// (base 0.6) when both surface in the same window. With Phase-3
+    /// placeholder stakes/prominence the compute lands at 0.70 (Notable
+    /// band); SeasonDefining requires Phase-4+ rivalry/rarity wiring.
+    /// Permanence is enforced by the breakthrough tag's
+    /// <c>ExpiryPolicy.Never</c>, not the band scalar.
     /// </summary>
     public static readonly Fixed SignatureBreakthroughBaseWeight = Fixed.Parse("0.9000000000");
 
