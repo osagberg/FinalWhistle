@@ -2,6 +2,24 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Codex round-9 follow-up — signature-slice P1/P2/P3 fixes against `bf2ac1e`)
+
+Codex review pass against `bf2ac1e` (the signature-slice commit) flagged one P1, two P2, and two P3 findings. All five closed end-to-end:
+
+- **P1 — `SignatureCooldownState` reset on every `RunTicks` call.** The signature-aware runner allocated a fresh `SignatureCooldownState` inside each `RunTicks` invocation, so chunked-tick callers (viewer / replay loops driving `ticks=1` in a hot loop) silently re-fired signatures past their per-match caps because the cooldown was wiped between calls. **Fix**: `SignatureCooldownState` now lives on `MatchSimulationState` (allocated once at construction). `MatchSimulationRunner.RunTicks` reads `state.SignatureCooldown` instead of allocating; reference equality of the cooldown survives across chunked calls. Documented as non-canonical state (excluded from `MatchCanonicalState.Write`); reconstructible from the canonical KeyEvents stream + signature config — same posture as `SignatureRecipes`.
+- **P2 — Short / partially null packet arrays silently suppress signatures.** `CheckAllPlayers` used `Math.Min(team.Length, packets.Length)` and skipped null packets. A loader/roster wiring bug supplying 10 packets, a shifted packet array, or a single null entry silently dropped signature eligibility for misaligned slots instead of failing at the boundary. **Fix**: new `ValidateFullRoster` helper in `SignatureRules.Step` enforces "both arrays empty (legacy / signature-suppressed) OR both exactly 11 non-null packets per side" — anything else throws `ArgumentException` at the boundary with a message naming the offending parameter (and slot index for null entries). Inner `CheckAllPlayers` loop now iterates `team.Length` directly because shape is guaranteed at the call site.
+- **P2 — `MultiSignatureSameTick` regression test does not test multi-fire.** Test was named + doc-commented as a multi-fire-per-tick regression but only fired #13 and asserted `Single`, so a hypothetical bug capping `Step()` at one event per tick would still pass. **Fix**: rewritten as `MultiSignatureSameTick_TwoPlayersTwoSignatures_BothFireWithSequentialIndices`. Constructs a state where both #13 (CM jersey 7 with carrier + moving ball) AND #22 (Striker jersey 11 in box + ball wide cross-delivery) fire on the same tick. Asserts `KeyEvents.Count == 2`, `SignatureRecipes.Count == 2`, ordering (CM first by roster index, Striker second), and `KeyEventIndex` 0/1 mapping into `KeyEvents`.
+- **P3 — Q32.32 recipe deltas constructed via `double` literals.** `(long)(0.20 * (1L << 32))` introduces a `double` precedent into MatchSim metadata even though recipe deltas aren't currently in the canonical hash. They ARE deterministic presentation metadata that will feed ViewerEvent traces. **Fix**: replaced with named `private const long Delta020Raw = Fixed.OneRaw / 5L` (and `/4L` for 0.25, `* 18L / 100L` for 0.18) — pure integer arithmetic, byte-identical raw values to the prior float-derived literals (verified: 858993459 / 1073741824 / 773094113), no `double` precedent in the metadata path.
+- **P3 — SPEC + CHANGELOG test counts stale.** Closure note at SPEC line 143 + CHANGELOG entry stated "17 new / 564 total" but the actual at-`bf2ac1e` count was "19 new (18 in SignatureRulesTests + 1 in MatchDeterminismTests) / 566 total." **Fix**: corrected both files.
+
+**New tests**: 5 (3 packet-validation in `SignatureRulesTests`: `Step_ShortRosterTenPackets_Throws` + `Step_MismatchedLengths_Throws` + `Step_FullRosterWithSingleNullEntry_Throws`; 2 chunked-tick regression in `MatchDeterminismTests`: `Match_ChunkedRunTicksWithSignatures_ProducesIdenticalHashAndEventStream` + `Match_ChunkedRunTicks_PersistsSignatureCooldownSaturationAcrossCalls`).
+
+**Total tests: 571 passing** (was 566; +5).
+
+**Pinned 60-tick MatchCanonicalState determinism hash `sha256:7e851976...50e` UNCHANGED.** All five fixes are either non-canonical (cooldown placement / recipe-delta construction / test rewrites / doc updates) or boundary-validation only (packet-shape throw replaces a silent eligibility drop on roster-loader bugs). No canonical encoding paths touched.
+
+**Subagent rotation**: Codex review pass against `bf2ac1e` was external; main-thread authoring with the round-9 finding list as the work order. `pr-review-toolkit` triple skipped this round per the small-diff exception (5 fixes, ~50 net LoC of code + ~30 LoC of tests + doc updates) — finding-driven hardening with named test additions per finding.
+
 ## 2026-04-30 (Phase-3 semantic slice #2 of 5 — 3 active signatures end-to-end)
 
 SPEC.md Phase-3 line 143 closed. Second of five semantic-slice deliverables shipped end-to-end: 3 active signatures (#20 Low cutback from the byline / #22 Blind-side near-post run / #13 First-time diagonal switch) emit canonical `KeyEvent`s + parallel `SignaturePresentationRecipe` metadata.
@@ -32,7 +50,7 @@ The full Phase-4+ "trigger-history-builds-readiness" awakening lifecycle per `de
 - #22 → `pass-shot-impact`
 - #13 → `tactical-wide`
 
-**Tests**: 17 new (16 in `MatchSim.Tests/Sim/SignatureRulesTests.cs` + 1 pinned-hash regression in `MatchDeterminismTests.cs`). Coverage:
+**Tests**: 19 new (18 in `MatchSim.Tests/Sim/SignatureRulesTests.cs` + 1 pinned-hash regression in `MatchDeterminismTests.cs`). Coverage:
 - Per-signature fires under expected condition.
 - Carrier-affinity gate (no fire if `SignatureCandidates` empty or wrong signature ID).
 - Role-family gate (no fire if `RoleFamily` doesn't match the signature's designed role).
@@ -43,7 +61,7 @@ The full Phase-4+ "trigger-history-builds-readiness" awakening lifecycle per `de
 - 3 argument-validation throw-paths.
 - Pinned-hash regression: smoke fixture WITH IdentityPackets produces byte-identical canonical hash + zero signature events.
 
-**Total tests: 564 passing** (was 547; +17).
+**Total tests: 566 passing** (was 547; +19).
 
 **Pinned 60-tick MatchCanonicalState determinism hash `sha256:7e851976...50e` UNCHANGED**. The architect's spatial analysis proved the smoke fixture (ball at centre, formation positions, 60 ticks, ball velocity zero) cannot satisfy any of the three Phase-3 trigger conditions:
 - #20 fails byline-proximity (no player within 3m of GoalLineX over 60 ticks from formation positions with ball at centre).

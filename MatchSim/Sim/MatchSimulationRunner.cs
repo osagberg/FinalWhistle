@@ -153,7 +153,13 @@ public static class MatchSimulationRunner
 
         PlayerCommand[] homeCommands = new PlayerCommand[MatchCanonicalState.PlayersPerTeam];
         PlayerCommand[] awayCommands = new PlayerCommand[MatchCanonicalState.PlayersPerTeam];
-        SignatureCooldownState cooldown = new();
+        // Per-match cooldown lives on MatchSimulationState (closes Codex round-9
+        // P1): chunked-tick callers (viewer/replay loops driving ticks=1 in a
+        // hot loop) reuse the same SignatureCooldownState instance across every
+        // RunTicks invocation, so per-match cooldown windows + fire caps stay
+        // honored. Allocating fresh inside this method would let signatures
+        // re-fire past their per-match caps once per RunTicks call.
+        SignatureCooldownState cooldown = state.SignatureCooldown;
 
         for (int t = 0; t < ticks; t++)
         {

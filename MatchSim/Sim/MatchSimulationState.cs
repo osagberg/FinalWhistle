@@ -82,6 +82,25 @@ public sealed class MatchSimulationState
     /// </summary>
     public List<SignatureExecution> SignatureRecipes { get; }
 
+    /// <summary>
+    /// Per-match signature cooldown + fire-count tracker. Persisted on
+    /// <see cref="MatchSimulationState"/> (allocated once at construction)
+    /// so that chunked-tick callers — viewer/replay loops that drive
+    /// <c>MatchSimulationRunner.RunTicks</c> in small batches — keep
+    /// per-match cooldown windows + max-fire caps across calls. Re-allocating
+    /// inside each <c>RunTicks</c> invocation would silently let signatures
+    /// fire past their documented per-match cap (Codex round-9 P1).
+    ///
+    /// <para>
+    /// <strong>Not canonical state.</strong> Excluded from
+    /// <c>MatchCanonicalState.Write</c> for the same reason
+    /// <see cref="SignatureRecipes"/> is excluded — it's a derived
+    /// runtime-only tracker, reconstructible from the canonical KeyEvents
+    /// stream + signature config. Pinned-hash determinism is unaffected.
+    /// </para>
+    /// </summary>
+    public SignatureCooldownState SignatureCooldown { get; }
+
     public MatchSimulationState(
         Tick currentTick,
         BallState ball,
@@ -97,6 +116,7 @@ public sealed class MatchSimulationState
         OutOfPlay = OutOfPlay.InPlay;
         KeyEvents = new List<KeyEvent>();
         SignatureRecipes = new List<SignatureExecution>();
+        SignatureCooldown = new SignatureCooldownState();
     }
 
     /// <summary>

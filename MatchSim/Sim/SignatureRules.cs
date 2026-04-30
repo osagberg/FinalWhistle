@@ -68,24 +68,45 @@ public static class SignatureRules
     /// Static-readonly singleton; allocation-free at hot-path access.
     /// Recipe metadata authored per <c>design/signatures.md</c> +
     /// <c>design/semantic-cinema.md</c> 7-shot vocabulary mapping.
+    ///
+    /// <para>
+    /// Q32.32 raw deltas are constructed via INTEGER-RATIO arithmetic on
+    /// <see cref="Fixed.OneRaw"/> (closes Codex round-9 P3) so no
+    /// <see cref="double"/> arithmetic appears in the MatchSim canonical
+    /// path. The recipe deltas are not currently in
+    /// <c>MatchCanonicalState.Write</c>, but they ARE deterministic
+    /// presentation metadata that will feed ViewerEvent traces, and
+    /// admitting a <c>(long)(0.20 * (1L &lt;&lt; 32))</c> precedent here
+    /// risks float arithmetic creeping into corpus-feeding paths later.
+    /// Each constant below documents its decimal intent + integer ratio.
+    /// </para>
     /// </summary>
+    // 0.20 = 1/5. Fixed.OneRaw / 5 = 858993459 (truncates 0.2 by ~0.5 ULP).
+    private const long Delta020Raw = Fixed.OneRaw / 5L;
+    // 0.25 = 1/4. Exact in Q32.32 (Fixed.OneRaw / 4 = 1073741824).
+    private const long Delta025Raw = Fixed.OneRaw / 4L;
+    // 0.18 = 18/100. Fixed.OneRaw * 18 / 100 = 773094113.
+    // Multiplied first to preserve integer-truncation semantics; safe in
+    // long arithmetic (Fixed.OneRaw * 18 = 77,309,411,328 ≪ long.MaxValue).
+    private const long Delta018Raw = Fixed.OneRaw * 18L / 100L;
+
     private static readonly SignaturePresentationRecipe RecipeLowCutback = new(
         signatureId: SigIdLowCutback,
         recipeKey: "player-isolation",
         simBiasFieldId: "cutback_xAssist",
-        simBiasDeltaRawQ32: (long)(0.20 * (1L << 32)));
+        simBiasDeltaRawQ32: Delta020Raw);
 
     private static readonly SignaturePresentationRecipe RecipeBlindSideRun = new(
         signatureId: SigIdBlindSideRun,
         recipeKey: "pass-shot-impact",
         simBiasFieldId: "near_post_xG",
-        simBiasDeltaRawQ32: (long)(0.25 * (1L << 32)));
+        simBiasDeltaRawQ32: Delta025Raw);
 
     private static readonly SignaturePresentationRecipe RecipeDiagonalSwitch = new(
         signatureId: SigIdDiagonalSwitch,
         recipeKey: "tactical-wide",
         simBiasFieldId: "diagonal_switch_trigger",
-        simBiasDeltaRawQ32: (long)(0.18 * (1L << 32)));
+        simBiasDeltaRawQ32: Delta018Raw);
 
     /// <summary>
     /// Step the signature dispatch forward one canonical tick. Iterates
@@ -119,11 +140,23 @@ public static class SignatureRules
             throw new ArgumentNullException(nameof(cooldown));
         }
 
-        // Empty packet arrays = no affinity gate ever fires = no signature
-        // events. This is the legacy-overload path (callers that don't
-        // care about signatures) and produces a byte-for-byte-identical
-        // canonical hash to a no-signatures-step run.
-        if (homePackets.Length == 0 && awayPackets.Length == 0)
+        // Phase-3 packet-shape contract (closes Codex round-9 P2): callers
+        // are in EXACTLY one of two valid states:
+        //   (a) Both arrays empty — legacy / signature-suppressed run.
+        //       Short-circuits to byte-identical canonical hash.
+        //   (b) Both arrays exactly 11 non-null packets per side — Phase-3
+        //       full-roster signature dispatch.
+        // Any other shape (10 packets, mismatched lengths, a single null
+        // entry) is a roster-loader bug; the previous Math.Min + null-skip
+        // guard silently dropped signature eligibility for misaligned slots
+        // instead of failing at the boundary.
+        bool legacyEmpty = homePackets.Length == 0 && awayPackets.Length == 0;
+        if (!legacyEmpty)
+        {
+            ValidateFullRoster(homePackets, nameof(homePackets));
+            ValidateFullRoster(awayPackets, nameof(awayPackets));
+        }
+        if (legacyEmpty)
         {
             return;
         }
@@ -136,6 +169,28 @@ public static class SignatureRules
             kinematics, cooldown, config, currentTick);
     }
 
+    private static void ValidateFullRoster(IdentityPacket[] packets, string paramName)
+    {
+        if (packets.Length != MatchCanonicalState.PlayersPerTeam)
+        {
+            throw new ArgumentException(
+                $"{paramName} must contain exactly 0 (legacy / signatures-suppressed) or " +
+                $"{MatchCanonicalState.PlayersPerTeam} (Phase-3 full-roster) packets; got {packets.Length}. " +
+                $"Mixed lengths or partial rosters silently drop signature eligibility for misaligned slots.",
+                paramName);
+        }
+        for (int i = 0; i < packets.Length; i++)
+        {
+            if (packets[i] is null)
+            {
+                throw new ArgumentException(
+                    $"{paramName}[{i}] is null. Phase-3 signature dispatch requires every roster slot to carry " +
+                    $"an IdentityPacket — a single null entry would silently disable that player's affinity gate.",
+                    paramName);
+            }
+        }
+    }
+
     private static void CheckAllPlayers(
         MatchSimulationState state,
         PlayerState[] team,
@@ -146,19 +201,12 @@ public static class SignatureRules
         SignatureConfig config,
         long currentTick)
     {
-        // Defensive: if a fixture-mismatch leaves packets shorter than
-        // the team roster, iterate only the overlap. Phase-3 always
-        // supplies 11 packets per side via IdentityPackets.LoadAll; this
-        // guard is for tests + future hand-built rosters.
-        int count = Math.Min(team.Length, packets.Length);
-        for (int i = 0; i < count; i++)
+        // Step's ValidateFullRoster guarantees packets.Length == team.Length
+        // and every entry non-null on this code path; iterate the full roster.
+        for (int i = 0; i < team.Length; i++)
         {
             PlayerState player = team[i];
             IdentityPacket packet = packets[i];
-            if (packet is null)
-            {
-                continue;
-            }
 
             // Cheap pre-filter: if the player has no signature candidates
             // at all, skip the role-family + position checks entirely.

@@ -448,54 +448,49 @@ public sealed class SignatureRulesTests
     // ============================================================
 
     [Fact]
-    public void MultiSignatureSameTick_PlayerCarriesTwoSignatures_BothFire()
+    public void MultiSignatureSameTick_TwoPlayersTwoSignatures_BothFireWithSequentialIndices()
     {
-        // Per feature-dev:code-reviewer 2026-04-30 round-2 finding #1:
-        // the architect blueprint flagged that more than one signature
-        // can fire on the same tick for the same player. This test
-        // pins that documented behavior so future refactors that
-        // accidentally serialize the dispatch fail loudly.
+        // Closes Codex round-9 P2 finding "Multi-fire regression test does
+        // not test multi-fire": prior construction only fired #13 and
+        // asserted Single, which would still pass under a hypothetical
+        // bug that capped Step() at one event per tick. This test pins
+        // the documented behavior — Step() iterates ALL players on BOTH
+        // teams and emits independent KeyEvent + SignatureRecipe pairs
+        // per matched signature — by constructing a state where two
+        // distinct signatures fire in the same tick.
         //
-        // Construct a packet for jersey 6 that carries BOTH the cutback
-        // (#20, requires Winger) and diagonal-switch (#13, requires CM)
-        // signatures. The role-family gate is checked separately for
-        // each — only the matching role-family branch fires. So the
-        // single-tick fire-count for jersey 6 with role Winger is 1
-        // (cutback), and 0 for diagonal-switch (wrong role).
+        // Construction (verified against the trigger conditions in
+        // SignatureRules.cs):
         //
-        // To actually fire BOTH on the same tick we need the cutback
-        // condition AND the diagonal-switch condition to overlap on
-        // the same player. The architect's role-family gating prevents
-        // a Winger from firing #13. So we test the cleaner case: TWO
-        // SEPARATE PLAYERS each firing their respective signature in
-        // the same Step() call.
+        //   #13 First-time diagonal switch (CM jersey 7):
+        //     - CM at (15, 0, 18) — middle-third (|X|=15 < 25m).
+        //     - Ball at (15, 0, 18) — coincident with CM → IsCarrier
+        //       passes (distance 0 < kinematics radius 0.5).
+        //     - Ball velocity (3, 0, 3) — both X and Z components
+        //       exceed MinBallSpeedForSwitch (1 m/s).
+        //
+        //   #22 Blind-side near-post run (Striker jersey 11):
+        //     - Striker at (49, 0, 8) — distance to GoalLineX=52.5 is
+        //       3.5m < 16m PenaltyAreaDepth; |Z|=8 < 20m
+        //       PenaltyAreaHalfWidth; X=49 > 0 (attacking half for Home).
+        //     - Striker velocity (3, 0, 2) — forward 3 > MinForward 1;
+        //       lateral 2 > MinNearPostCurve 1.
+        //     - Ball X=15 > 0 (attacking half) and |Z|=18 > 15m
+        //       CrossDeliveryWideZ — proxies a wide cross delivery.
+        //
+        // Iteration order: CheckAllPlayers iterates Home roster slots
+        // 0..10 first, then Away. CM is at index 6, Striker at index 10
+        // — so CM fires first → KeyEvents[0] is #13, KeyEvents[1] is #22,
+        // and SignatureRecipes[0].KeyEventIndex == 0,
+        //                  SignatureRecipes[1].KeyEventIndex == 1.
+
         var (home, away) = BuildTeams();
-        // Home winger (jersey 6) at byline.
-        home[5] = new PlayerState(V3(50, 0, 22), V3(0, 0, 3), 6, TeamSide.Home);
-        // Home CM (jersey 7) in middle third with moving ball.
-        home[6] = new PlayerState(V3(5, 0, 5), Vector3Fixed.Zero, 7, TeamSide.Home);
+        home[6] = new PlayerState(V3(15, 0, 18), Vector3Fixed.Zero, 7, TeamSide.Home);
+        home[10] = new PlayerState(V3(49, 0, 8), V3(3, 0, 2), 11, TeamSide.Home);
 
         var (homePackets, awayPackets) = BuildCarrierRoster();
-        // Ball at the CM's position with non-zero velocity (#13 needs
-        // moving ball + carrier proximity). The cutback test path uses
-        // the WINGER's position; with the ball at the CM's spot, the
-        // winger fails IsCarrier, so #20 cannot fire. Need a different
-        // construction: prove BOTH fire by using two ball positions —
-        // not possible in a single Step(). Instead, prove that two
-        // DIFFERENT signature-execution events from two different
-        // players land in the same tick when both conditions are met.
-        //
-        // Concrete construction: ball moving at midfield (5, 0, 5)
-        // satisfies #13 for the CM. The winger at (50, 0, 22) is NOT
-        // a carrier (ball is at (5, 0, 5) not at the winger), so #20
-        // doesn't fire on this tick. We're proving the dispatch
-        // ITERATES both players (not bails after the first); a more
-        // complete multi-fire test would need a position where both
-        // conditions hold, which requires either (a) two balls or
-        // (b) dropping IsCarrier from one signature. Both are
-        // architectural changes, not Phase-3 minimum.
         var state = BuildState(
-            new BallState(V3(5, 0, 5), V3(2, 0, 2), Vector3Fixed.Zero),
+            new BallState(V3(15, 0, 18), V3(3, 0, 3), Vector3Fixed.Zero),
             home, away);
         var cooldown = new SignatureCooldownState();
 
@@ -503,13 +498,24 @@ public sealed class SignatureRulesTests
             PlayerKinematics.Phase3Defaults, cooldown,
             SignatureConfig.Phase3Defaults);
 
-        // Phase-3 dispatch is per-player + per-signature; the iteration
-        // doesn't short-circuit. CM-#13 fires (jersey 7); winger-#20
-        // does NOT (no IsCarrier). KeyEvents.Count == 1.
-        Assert.Single(state.KeyEvents);
+        // Two distinct signatures fire on the same tick.
+        Assert.Equal(2, state.KeyEvents.Count);
+        Assert.Equal(2, state.SignatureRecipes.Count);
+
+        // Order: CM (jersey 7, roster index 6) precedes Striker
+        // (jersey 11, roster index 10).
         Assert.Equal(KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch,
             state.KeyEvents[0].Kind);
         Assert.Equal(7, state.KeyEvents[0].JerseyNumber);
+        Assert.Equal(KeyEventKind.SignatureExecuted_BlindSideNearPostRun,
+            state.KeyEvents[1].Kind);
+        Assert.Equal(11, state.KeyEvents[1].JerseyNumber);
+
+        // Recipe-stream indices point back into KeyEvents in order.
+        Assert.Equal(0, state.SignatureRecipes[0].KeyEventIndex);
+        Assert.Equal(1, state.SignatureRecipes[1].KeyEventIndex);
+        Assert.Equal(SigIdDiagonalSwitch, state.SignatureRecipes[0].Recipe.SignatureId);
+        Assert.Equal(SigIdBlindSideRun, state.SignatureRecipes[1].Recipe.SignatureId);
     }
 
     [Fact]
@@ -577,5 +583,73 @@ public sealed class SignatureRulesTests
             SignatureRules.Step(state, homePackets, awayPackets,
                 PlayerKinematics.Phase3Defaults, null!,
                 SignatureConfig.Phase3Defaults));
+    }
+
+    // ============================================================
+    // Packet-shape validation (Codex round-9 P2 — closes silent
+    // signature-suppression on partial / null / mismatched rosters)
+    // ============================================================
+
+    [Fact]
+    public void Step_ShortRosterTenPackets_ThrowsArgumentException()
+    {
+        // Per Codex round-9 P2: a 10-packet array (one slot missing) was
+        // previously accepted via Math.Min(team.Length, packets.Length)
+        // which silently dropped the 11th roster slot's signature
+        // eligibility. Now we throw at the boundary so a roster-loader
+        // bug fails loudly instead of producing a silently-wrong run.
+        var (home, away) = BuildTeams();
+        var state = BuildState(BallState.AtRest, home, away);
+        IdentityPacket[] homePackets = new IdentityPacket[10];
+        IdentityPacket[] awayPackets = new IdentityPacket[11];
+        for (int i = 0; i < 10; i++)
+        {
+            homePackets[i] = MakeNonCarrier($"fwh.core:player_{i:D5}", (byte)(i + 1), RoleFamily.CentralMidfielder);
+        }
+        for (int i = 0; i < 11; i++)
+        {
+            awayPackets[i] = MakeNonCarrier($"fwh.core:player_{(i + 11):D5}", (byte)(i + 1), RoleFamily.CentralMidfielder);
+        }
+
+        var ex = Assert.Throws<System.ArgumentException>(() =>
+            SignatureRules.Step(state, homePackets, awayPackets,
+                PlayerKinematics.Phase3Defaults, new SignatureCooldownState(),
+                SignatureConfig.Phase3Defaults));
+        Assert.Contains("homePackets", ex.Message);
+    }
+
+    [Fact]
+    public void Step_MismatchedLengths_ThrowsArgumentException()
+    {
+        // 11 home packets + 0 away packets is NOT a valid combination —
+        // both must be empty (legacy / signatures-suppressed) or both
+        // exactly 11 (full-roster).
+        var (home, away) = BuildTeams();
+        var state = BuildState(BallState.AtRest, home, away);
+        var (homePackets, _) = BuildCarrierRoster();
+
+        Assert.Throws<System.ArgumentException>(() =>
+            SignatureRules.Step(state, homePackets, System.Array.Empty<IdentityPacket>(),
+                PlayerKinematics.Phase3Defaults, new SignatureCooldownState(),
+                SignatureConfig.Phase3Defaults));
+    }
+
+    [Fact]
+    public void Step_FullRosterWithSingleNullEntry_ThrowsArgumentException()
+    {
+        // A single null packet at jersey-7 slot would silently disable
+        // that player's affinity gate under the previous null-skip
+        // defensive. Now: throws at the boundary so a packet-loader bug
+        // fails loudly.
+        var (home, away) = BuildTeams();
+        var state = BuildState(BallState.AtRest, home, away);
+        var (homePackets, awayPackets) = BuildCarrierRoster();
+        homePackets[6] = null!;
+
+        var ex = Assert.Throws<System.ArgumentException>(() =>
+            SignatureRules.Step(state, homePackets, awayPackets,
+                PlayerKinematics.Phase3Defaults, new SignatureCooldownState(),
+                SignatureConfig.Phase3Defaults));
+        Assert.Contains("homePackets[6]", ex.Message);
     }
 }

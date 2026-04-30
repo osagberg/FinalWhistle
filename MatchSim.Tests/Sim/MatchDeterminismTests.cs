@@ -261,6 +261,102 @@ public sealed class MatchDeterminismTests
         Assert.Empty(state.SignatureRecipes);
     }
 
+    [Fact]
+    public void Match_ChunkedRunTicksWithSignatures_ProducesIdenticalHashAndEventStream()
+    {
+        // Closes Codex round-9 P1: one RunTicks(ticks=N) MUST produce the
+        // same canonical state as N repeated RunTicks(ticks=1) calls when
+        // signatures are enabled. Before the fix, the runner allocated a
+        // fresh SignatureCooldownState on every call — so chunked callers
+        // (viewer/replay loops driving the runner one tick at a time)
+        // could re-fire signatures past their per-match cap because the
+        // cooldown state was wiped between calls. Now the cooldown lives
+        // on MatchSimulationState (allocated once at construction); both
+        // call patterns share the same cooldown instance and produce
+        // byte-identical output.
+        BehaviorTreeArchetype direct = BehaviorTreeArchetypes.Load("direct-pressing");
+        BehaviorTreeArchetype lowBlock = BehaviorTreeArchetypes.Load("low-block-counter");
+        IdentityPacket[] homePackets = LoadArchetypePackets("direct-pressing");
+        IdentityPacket[] awayPackets = LoadArchetypePackets("low-block-counter");
+
+        // Run A: one call of 60 ticks.
+        MatchSimulationState a = BuildSmokeFixture(direct, lowBlock);
+        MatchSimulationRunner.RunTicks(a, direct, lowBlock,
+            homePackets, awayPackets,
+            PlayerKinematics.Phase3Defaults,
+            BallPhysicsCoefficients.Phase3Seeds,
+            MatchSimulationConfig.Default,
+            SignatureConfig.Phase3Defaults,
+            ticks: 60);
+
+        // Run B: 60 calls of 1 tick each.
+        MatchSimulationState b = BuildSmokeFixture(direct, lowBlock);
+        for (int t = 0; t < 60; t++)
+        {
+            MatchSimulationRunner.RunTicks(b, direct, lowBlock,
+                homePackets, awayPackets,
+                PlayerKinematics.Phase3Defaults,
+                BallPhysicsCoefficients.Phase3Seeds,
+                MatchSimulationConfig.Default,
+                SignatureConfig.Phase3Defaults,
+                ticks: 1);
+        }
+
+        Assert.Equal(MatchCanonicalState.ComputeHash(a), MatchCanonicalState.ComputeHash(b));
+        Assert.Equal(a.KeyEvents.Count, b.KeyEvents.Count);
+        Assert.Equal(a.SignatureRecipes.Count, b.SignatureRecipes.Count);
+        // Belt-and-suspenders: the chunked path also matches the pinned
+        // smoke-fixture hash.
+        Assert.Equal(SmokeSeed60TickHash, MatchCanonicalState.ComputeHash(b));
+    }
+
+    [Fact]
+    public void Match_ChunkedRunTicks_PersistsSignatureCooldownSaturationAcrossCalls()
+    {
+        // Closes Codex round-9 P1 (behavior angle): pre-saturate the
+        // per-match cooldown so #20 LowCutback has hit its 3-fire cap for
+        // home jersey 6. Drive 60 single-tick RunTicks chunks. After the
+        // chunks, CanFire must STILL return false — saturation survives.
+        // Before the fix, each RunTicks call wiped the cooldown to a fresh
+        // instance, so this assertion would flip to true (the saturation
+        // was lost) and signatures could re-fire past the per-match cap.
+        BehaviorTreeArchetype direct = BehaviorTreeArchetypes.Load("direct-pressing");
+        BehaviorTreeArchetype lowBlock = BehaviorTreeArchetypes.Load("low-block-counter");
+        MatchSimulationState state = BuildSmokeFixture(direct, lowBlock);
+
+        int homeJersey6Index = SignatureCooldownState.PlayerIndex(TeamSide.Home, 6);
+        state.SignatureCooldown.RecordFire(SignatureKind.LowCutback, homeJersey6Index, currentTick: 0L);
+        state.SignatureCooldown.RecordFire(SignatureKind.LowCutback, homeJersey6Index, currentTick: 1L);
+        state.SignatureCooldown.RecordFire(SignatureKind.LowCutback, homeJersey6Index, currentTick: 2L);
+
+        Assert.False(state.SignatureCooldown.CanFire(
+            SignatureKind.LowCutback, homeJersey6Index,
+            currentTick: 1_000_000L, cooldownTicks: 1, maxFiresPerMatch: 3));
+
+        IdentityPacket[] homePackets = LoadArchetypePackets("direct-pressing");
+        IdentityPacket[] awayPackets = LoadArchetypePackets("low-block-counter");
+        SignatureCooldownState cooldownBefore = state.SignatureCooldown;
+
+        for (int t = 0; t < 60; t++)
+        {
+            MatchSimulationRunner.RunTicks(state, direct, lowBlock,
+                homePackets, awayPackets,
+                PlayerKinematics.Phase3Defaults,
+                BallPhysicsCoefficients.Phase3Seeds,
+                MatchSimulationConfig.Default,
+                SignatureConfig.Phase3Defaults,
+                ticks: 1);
+        }
+
+        // Reference equality: runner never swapped the cooldown instance.
+        Assert.Same(cooldownBefore, state.SignatureCooldown);
+
+        // Behavioral equality: cap-saturation survives 60 chunked calls.
+        Assert.False(state.SignatureCooldown.CanFire(
+            SignatureKind.LowCutback, homeJersey6Index,
+            currentTick: 1_000_000L, cooldownTicks: 1, maxFiresPerMatch: 3));
+    }
+
     private static IdentityPacket[] LoadArchetypePackets(string archetype)
     {
         IdentityPacket[] packets = new IdentityPacket[IdentityPackets.PlayersPerArchetype];
