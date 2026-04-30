@@ -402,18 +402,152 @@ public sealed class SignatureRulesTests
         var cooldown = new SignatureCooldownState();
         var config = SignatureConfig.Phase3Defaults;
 
-        // Fire 3 times with cooldown gaps between (max = 3).
+        // Fire 3 times with cooldown gaps between (max = 3). Per SPEC line
+        // 145 (persistent development event), the 3rd fire ALSO emits a
+        // SignatureBreakthrough KeyEvent on the cap-reach moment, so the
+        // expected count after 3 cap-reaching fires is 4 (3 LowCutback +
+        // 1 Breakthrough at the cap-reach), not 3.
         SignatureRules.Step(state, homePackets, awayPackets, PlayerKinematics.Phase3Defaults, cooldown, config);
+        Assert.Single(state.KeyEvents);
         state.CurrentTick = state.CurrentTick + 200L;
         SignatureRules.Step(state, homePackets, awayPackets, PlayerKinematics.Phase3Defaults, cooldown, config);
+        Assert.Equal(2, state.KeyEvents.Count);
         state.CurrentTick = state.CurrentTick + 200L;
         SignatureRules.Step(state, homePackets, awayPackets, PlayerKinematics.Phase3Defaults, cooldown, config);
-        Assert.Equal(3, state.KeyEvents.Count);
+        // 3rd LowCutback fire (the cap-reaching one) + 1 SignatureBreakthrough.
+        Assert.Equal(4, state.KeyEvents.Count);
+        Assert.Equal(KeyEventKind.SignatureExecuted_LowCutback, state.KeyEvents[2].Kind);
+        Assert.Equal(KeyEventKind.SignatureBreakthrough, state.KeyEvents[3].Kind);
 
-        // Fourth attempt — past cooldown but max-fires reached.
+        // Fourth attempt — past cooldown but max-fires reached. No new
+        // KeyEvents (no LowCutback, no breakthrough).
         state.CurrentTick = state.CurrentTick + 200L;
         SignatureRules.Step(state, homePackets, awayPackets, PlayerKinematics.Phase3Defaults, cooldown, config);
+        Assert.Equal(4, state.KeyEvents.Count);
+    }
+
+    // ============================================================
+    // Persistent development event (SPEC line 145) —
+    // SignatureBreakthrough emission on cap-reach moment
+    // ============================================================
+
+    [Fact]
+    public void SignatureBreakthrough_EmittedOnlyOnCapReachFire_NotOnEarlierFires()
+    {
+        // SPEC line 145: persistent development event fires only on the
+        // FINAL allowed signature fire (firedCount reaches per-match cap).
+        // For #20 LowCutback, cap = 3 fires. Verify breakthrough emits
+        // exactly once — on fire #3.
+        var (home, away) = BuildTeams();
+        home[5] = new PlayerState(V3(50, 0, 22), V3(0, 0, 3), 6, TeamSide.Home);
+        var (homePackets, awayPackets) = BuildCarrierRoster();
+        var state = BuildState(
+            new BallState(V3(50, 0, 22), Vector3Fixed.Zero, Vector3Fixed.Zero),
+            home, away);
+        var cooldown = new SignatureCooldownState();
+        var config = SignatureConfig.Phase3Defaults;
+
+        // Fire 1: 1 LowCutback, no breakthrough.
+        SignatureRules.Step(state, homePackets, awayPackets, PlayerKinematics.Phase3Defaults, cooldown, config);
+        Assert.Single(state.KeyEvents);
+        Assert.DoesNotContain(state.KeyEvents,
+            ke => ke.Kind == KeyEventKind.SignatureBreakthrough);
+
+        // Fire 2: still no breakthrough (firedCount=2 < cap=3).
+        state.CurrentTick = state.CurrentTick + 200L;
+        SignatureRules.Step(state, homePackets, awayPackets, PlayerKinematics.Phase3Defaults, cooldown, config);
+        Assert.Equal(2, state.KeyEvents.Count);
+        Assert.DoesNotContain(state.KeyEvents,
+            ke => ke.Kind == KeyEventKind.SignatureBreakthrough);
+
+        // Fire 3: cap-reach. Breakthrough emits in the same Step call.
+        state.CurrentTick = state.CurrentTick + 200L;
+        SignatureRules.Step(state, homePackets, awayPackets, PlayerKinematics.Phase3Defaults, cooldown, config);
+        Assert.Equal(4, state.KeyEvents.Count);
+        Assert.Equal(KeyEventKind.SignatureBreakthrough, state.KeyEvents[3].Kind);
+        Assert.Equal(TeamSide.Home, state.KeyEvents[3].Side);
+        Assert.Equal(6, state.KeyEvents[3].JerseyNumber);
+
+        // SignatureRecipes still 1:1 with SignatureExecuted_* events; no
+        // recipe entry for the breakthrough KeyEvent (recipe stream is
+        // scoped to signature-execution events specifically per the
+        // SignatureRules.RecordFireAndMaybeEmitBreakthrough doc-comment).
+        Assert.Equal(3, state.SignatureRecipes.Count);
+    }
+
+    [Fact]
+    public void SignatureBreakthrough_DiagonalSwitchCapTwo_BreakthroughOnSecondFire()
+    {
+        // #13 FirstTimeDiagonalSwitch cap = 2 fires. Breakthrough fires
+        // on the 2nd fire (cap-reach), not the 1st.
+        var (home, away) = BuildTeams();
+        home[6] = new PlayerState(V3(15, 0, 18), Vector3Fixed.Zero, 7, TeamSide.Home);
+        var (homePackets, awayPackets) = BuildCarrierRoster();
+        var state = BuildState(
+            new BallState(V3(15, 0, 18), V3(3, 0, 3), Vector3Fixed.Zero),
+            home, away);
+        var cooldown = new SignatureCooldownState();
+        var config = SignatureConfig.Phase3Defaults;
+
+        SignatureRules.Step(state, homePackets, awayPackets, PlayerKinematics.Phase3Defaults, cooldown, config);
+        Assert.Single(state.KeyEvents);
+        Assert.Equal(KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch, state.KeyEvents[0].Kind);
+
+        state.CurrentTick = state.CurrentTick + 400L;
+        SignatureRules.Step(state, homePackets, awayPackets, PlayerKinematics.Phase3Defaults, cooldown, config);
         Assert.Equal(3, state.KeyEvents.Count);
+        Assert.Equal(KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch, state.KeyEvents[1].Kind);
+        Assert.Equal(KeyEventKind.SignatureBreakthrough, state.KeyEvents[2].Kind);
+        Assert.Equal(7, state.KeyEvents[2].JerseyNumber);
+    }
+
+    [Fact]
+    public void SignatureCooldownState_GetFiredCount_ReturnsCurrentCount()
+    {
+        // Public accessor exposed for SignatureRules.RecordFireAndMaybeEmitBreakthrough
+        // + tests; round-trip integer check.
+        var cooldown = new SignatureCooldownState();
+        int idx = SignatureCooldownState.PlayerIndex(TeamSide.Home, 6);
+        Assert.Equal((byte)0, cooldown.GetFiredCount(SignatureKind.LowCutback, idx));
+        cooldown.RecordFire(SignatureKind.LowCutback, idx, currentTick: 100);
+        Assert.Equal((byte)1, cooldown.GetFiredCount(SignatureKind.LowCutback, idx));
+    }
+
+    [Fact]
+    public void SignatureCooldownState_RecordFireAndDidReachCap_ReturnsTrueOnCapReachFire()
+    {
+        var cooldown = new SignatureCooldownState();
+        int idx = SignatureCooldownState.PlayerIndex(TeamSide.Home, 6);
+        bool capAt1 = cooldown.RecordFireAndDidReachCap(
+            SignatureKind.LowCutback, idx, currentTick: 100, maxFiresPerMatch: 3);
+        Assert.False(capAt1);
+        bool capAt2 = cooldown.RecordFireAndDidReachCap(
+            SignatureKind.LowCutback, idx, currentTick: 200, maxFiresPerMatch: 3);
+        Assert.False(capAt2);
+        bool capAt3 = cooldown.RecordFireAndDidReachCap(
+            SignatureKind.LowCutback, idx, currentTick: 300, maxFiresPerMatch: 3);
+        Assert.True(capAt3);
+    }
+
+    [Fact]
+    public void SignatureCooldownState_RecordFireAndDidReachCap_AlreadyAtCap_Throws()
+    {
+        // Per pr-review-toolkit:feature-dev:code-reviewer 2026-04-30
+        // finding #1: pre-cap guard prevents over-incrementing past the
+        // cap when a future caller bypasses CanFire. RecordFire already
+        // throws on byte.MaxValue saturation but that's a 255 cap, not
+        // the per-match cap. The new pre-cap guard catches the realistic
+        // case (firedCount == maxFiresPerMatch already).
+        var cooldown = new SignatureCooldownState();
+        int idx = SignatureCooldownState.PlayerIndex(TeamSide.Home, 6);
+        // Pre-saturate to the per-match cap (3 fires).
+        cooldown.RecordFire(SignatureKind.LowCutback, idx, currentTick: 100);
+        cooldown.RecordFire(SignatureKind.LowCutback, idx, currentTick: 200);
+        cooldown.RecordFire(SignatureKind.LowCutback, idx, currentTick: 300);
+
+        Assert.Throws<System.InvalidOperationException>(() =>
+            cooldown.RecordFireAndDidReachCap(
+                SignatureKind.LowCutback, idx, currentTick: 400, maxFiresPerMatch: 3));
     }
 
     // ============================================================

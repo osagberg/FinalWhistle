@@ -64,4 +64,31 @@ public enum KeyEventKind : byte
     /// cross-field switch from the middle third while the ball is moving.
     /// </summary>
     SignatureExecuted_FirstTimeDiagonalSwitch = 7,
+
+    /// <summary>
+    /// Phase-3 minimum persistent-development event per SPEC line 145 +
+    /// <c>design/breakthrough-moments.md</c> §"Trigger kinds" Kind 1
+    /// signature awakening pattern. Fires the moment a player records
+    /// their final-allowed signature fire of the match (firedCount
+    /// reaches that signature's per-match max-fires cap) — the
+    /// "third time today" deterministic trigger from
+    /// <c>design/breakthrough-moments.md</c> §Q3 near-miss handling
+    /// applied to confirmed fires rather than misses. Carries the
+    /// player's jersey + side + tick + position so downstream readers
+    /// + the eventual Viewer.EventBridge can wire the breakthrough-
+    /// cinema panel beat (player-isolation shot → aftermath-freeze
+    /// overlay).
+    ///
+    /// <para>
+    /// <strong>Phase-3 minimum scope:</strong> emits ONE breakthrough
+    /// per (player, signature) per match. The full
+    /// <c>signature_readiness ∈ [0,1]</c> awakening lifecycle (Phase
+    /// 4+ per <c>design/breakthrough-moments.md</c> MVP boundary) lifts
+    /// the trigger off the cap-reach moment and onto a multi-match
+    /// readiness accumulator. Phase-3 cap-reach trigger is the
+    /// fixture-driven minimal that satisfies the Month-3 gate without
+    /// pulling forward Phase-4 lifecycle work.
+    /// </para>
+    /// </summary>
+    SignatureBreakthrough = 8,
 }

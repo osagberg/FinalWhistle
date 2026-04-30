@@ -27,11 +27,21 @@ public static class EventClassRegistry
     /// <summary>Phase-3 base weight for <see cref="EventClass.GoalScored"/>: 0.6 — a goal is notable by default.</summary>
     public static readonly Fixed GoalScoredBaseWeight = Fixed.Parse("0.6000000000");
 
+    /// <summary>
+    /// Phase-3 base weight for <see cref="EventClass.SignatureBreakthrough"/>: 0.9 —
+    /// a breakthrough is permanent player-development per
+    /// <c>design/breakthrough-moments.md</c>; lifts solidly into
+    /// SeasonDefining band even with the salience formula's full
+    /// 5-input weighting.
+    /// </summary>
+    public static readonly Fixed SignatureBreakthroughBaseWeight = Fixed.Parse("0.9000000000");
+
     static EventClassRegistry()
     {
         _baseWeights = new Dictionary<EventClass, Fixed>
         {
             [EventClass.GoalScored] = GoalScoredBaseWeight,
+            [EventClass.SignatureBreakthrough] = SignatureBreakthroughBaseWeight,
         };
         // ReadOnlyCollection wrap per pr-review-toolkit round-1 P2:
         // a raw T[] cast back to string[] would let consumers mutate
@@ -42,6 +52,10 @@ public static class EventClassRegistry
             {
                 CallbackTagRegistry.PressFanId,
                 CallbackTagRegistry.ScoringMilestoneId,
+            }),
+            [EventClass.SignatureBreakthrough] = new ReadOnlyCollection<string>(new[]
+            {
+                CallbackTagRegistry.SignatureBreakthroughId,
             }),
         };
     }

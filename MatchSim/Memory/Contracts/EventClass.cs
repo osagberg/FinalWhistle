@@ -29,4 +29,27 @@ public enum EventClass
     /// <c>KeyEventKind.Goal</c> → this class.
     /// </summary>
     GoalScored = 1,
+
+    /// <summary>
+    /// Phase-3 minimum persistent-development event per SPEC line 145 +
+    /// <c>design/breakthrough-moments.md</c> §"Trigger kinds" Kind 1.
+    /// Fires when a player records their final-allowed signature fire
+    /// of the match (firedCount reaches per-match cap). Phase-3 bridge
+    /// maps <c>KeyEventKind.SignatureBreakthrough</c> → this class with
+    /// SeasonDefining-band salience (Stakes=1.0; a breakthrough is the
+    /// event most deserving of permanent narrative weight).
+    ///
+    /// <para>
+    /// <strong>Not <c>SignatureAwakened</c>.</strong> ADR-0004's
+    /// catalog reserves <c>SignatureAwakened</c> for the Phase-4+
+    /// readiness-accumulator awakening lifecycle. Phase-3's
+    /// cap-reach trigger is a deterministic fixture-driven minimum
+    /// that demonstrates the persistent-development pattern without
+    /// pulling forward Phase-4 lifecycle work. Phase 4 will add
+    /// <c>SignatureAwakened = 3</c> as a separate value; the
+    /// Phase-3 <see cref="SignatureBreakthrough"/> stays as the
+    /// fixture-driven cap-reach event.
+    /// </para>
+    /// </summary>
+    SignatureBreakthrough = 2,
 }

@@ -5,6 +5,14 @@ using FinalWhistle.MatchSim.Sim;
 
 namespace FinalWhistle.MatchSim.Memory;
 
+// Phase-4+ refactor anchor (per pr-review-toolkit:type-design-analyzer
+// 2026-04-30 finding #2): once the 5-reader matrix from ADR-0004
+// §"Five readers" + Phase-3 BreakthroughReader = ≥5 readers, extract a
+// `ReaderBase` capturing the shared registry-boundary enforcement +
+// stable-sort tiebreaker + callback-age-decay surface. The duplicated
+// private helpers (TagListsThisReader / IsTagExpiredForEvent /
+// ContainsTag) + the Query body skeleton are the obvious candidates.
+
 /// <summary>
 /// Phase-3 reader implementation per ADR-0004 §"Five readers" / Reader 5
 /// — press / fan callbacks. Filters the underlying <see cref="Ledger"/>

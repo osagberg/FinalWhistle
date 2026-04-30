@@ -300,7 +300,9 @@ public static class SignatureRules
 
         EmitSignature(state, KeyEventKind.SignatureExecuted_LowCutback,
             side, player, RecipeLowCutback);
-        cooldown.RecordFire(SignatureKind.LowCutback, playerIndex, currentTick);
+        RecordFireAndMaybeEmitBreakthrough(
+            state, side, player, SignatureKind.LowCutback, playerIndex,
+            cooldown, currentTick, config.LowCutbackMaxFires);
     }
 
     // ----- #22 Blind-side near-post run ------------------------------
@@ -374,7 +376,9 @@ public static class SignatureRules
 
         EmitSignature(state, KeyEventKind.SignatureExecuted_BlindSideNearPostRun,
             side, player, RecipeBlindSideRun);
-        cooldown.RecordFire(SignatureKind.BlindSideNearPostRun, playerIndex, currentTick);
+        RecordFireAndMaybeEmitBreakthrough(
+            state, side, player, SignatureKind.BlindSideNearPostRun, playerIndex,
+            cooldown, currentTick, config.BlindSideRunMaxFires);
     }
 
     // ----- #13 First-time diagonal switch -----------------------------
@@ -422,7 +426,9 @@ public static class SignatureRules
 
         EmitSignature(state, KeyEventKind.SignatureExecuted_FirstTimeDiagonalSwitch,
             side, player, RecipeDiagonalSwitch);
-        cooldown.RecordFire(SignatureKind.FirstTimeDiagonalSwitch, playerIndex, currentTick);
+        RecordFireAndMaybeEmitBreakthrough(
+            state, side, player, SignatureKind.FirstTimeDiagonalSwitch, playerIndex,
+            cooldown, currentTick, config.DiagonalSwitchMaxFires);
     }
 
     // ----- Shared helpers --------------------------------------------
@@ -460,6 +466,48 @@ public static class SignatureRules
         state.SignatureRecipes.Add(new SignatureExecution(
             keyEventIndex: state.KeyEvents.Count - 1,
             recipe: recipe));
+    }
+
+    /// <summary>
+    /// Record the signature fire and, if the resulting per-match
+    /// fire-count equals the documented cap, emit a parallel
+    /// <see cref="KeyEventKind.SignatureBreakthrough"/> KeyEvent per
+    /// SPEC line 145 + <c>design/breakthrough-moments.md</c>'s
+    /// "third time today" pattern. The breakthrough KeyEvent is the
+    /// Phase-3 minimum persistent-development surface — its presence
+    /// in <see cref="MatchSimulationState.KeyEvents"/> drives Memory-
+    /// layer translation + reader callback discovery downstream.
+    ///
+    /// <para>
+    /// <strong>No <see cref="SignaturePresentationRecipe"/> entry</strong>
+    /// is added for the breakthrough event: the recipe stream is
+    /// scoped to signature-execution events specifically (per the
+    /// stream's documentation on <see cref="MatchSimulationState.SignatureRecipes"/>);
+    /// the breakthrough's presentation metadata flows through the
+    /// MemoryEvent → BreakthroughReader → CallbackTemplateId path,
+    /// not the signature-recipe stream. This keeps the recipe stream's
+    /// 1:1 mapping to <c>SignatureExecuted_*</c> KeyEvents intact.
+    /// </para>
+    /// </summary>
+    private static void RecordFireAndMaybeEmitBreakthrough(
+        MatchSimulationState state, TeamSide side, PlayerState player,
+        SignatureKind signature, int playerIndex,
+        SignatureCooldownState cooldown, long currentTick, byte maxFiresPerMatch)
+    {
+        bool capReached = cooldown.RecordFireAndDidReachCap(
+            signature, playerIndex, currentTick, maxFiresPerMatch);
+        if (!capReached)
+        {
+            return;
+        }
+
+        KeyEvent breakthrough = new(
+            tick: state.CurrentTick,
+            kind: KeyEventKind.SignatureBreakthrough,
+            side: side,
+            jerseyNumber: player.JerseyNumber,
+            position: player.Position);
+        state.KeyEvents.Add(breakthrough);
     }
 
     private static Fixed AbsFixed(Fixed value) => value < Fixed.Zero ? -value : value;

@@ -2,6 +2,40 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-04-30 (Phase-3 semantic slice #4 of 5 — 1 persistent development event end-to-end)
+
+SPEC.md Phase-3 line 145 closed. Fourth of five semantic-slice deliverables shipped end-to-end: a synthetic `KeyEventKind.SignatureBreakthrough` flows through the full Memory chain and surfaces as a `CallbackCandidate` carrying the `fwh.core:callback_template.signature_breakthrough_panel` template ID. Verified end-to-end inside Unity Mono via UnityMCP `execute_code`.
+
+**Trigger** is the deterministic cap-reach moment per `design/breakthrough-moments.md` §"Trigger kinds" Kind 1 + §Q3 ("third time today" pattern applied to confirmed fires rather than near-misses): when a player records their final-allowed signature fire of the match (firedCount reaches the per-match cap for that signature kind), `SignatureRules.RecordFireAndMaybeEmitBreakthrough` emits a parallel `KeyEventKind.SignatureBreakthrough` (new pinned value 8) into the canonical event stream alongside the underlying `SignatureExecuted_*` KeyEvent. Phase-4+ lifts the trigger off the cap-reach moment and onto the multi-match `signature_readiness ∈ [0,1]` accumulator per the design doc's Kind 1 awakening lifecycle. <!-- ui-lint:allow term="awakening" reason="design/breakthrough-moments.md §Q1 lifecycle reference; Phase-4+ technical context, not Phase-3 player-facing copy" reviewer="osagberg" -->
+
+**New files**:
+- `MatchSim/Memory/BreakthroughReader.cs` (~210 LoC; sister to `PressFanReader` with the same registry-boundary enforcement / stable-sort tiebreaker / callback-age-decay surface — Phase-3 acceptable structural duplication; Phase-4+ extracts a `ReaderBase` once the 5-reader matrix from ADR-0004 §"Five readers" lands).
+- `MatchSim.Tests/Memory/BreakthroughReaderTests.cs` (~210 LoC).
+
+**Modified core types**:
+- `KeyEventKind` extended with `SignatureBreakthrough = 8` pinned value.
+- `SignatureCooldownState` gained two surface methods: `GetFiredCount(signature, playerIndex)` accessor + `RecordFireAndDidReachCap(signature, playerIndex, currentTick, maxFiresPerMatch) → bool` (atomic record-and-cap-check; pre-cap guard throws `InvalidOperationException` if firedCount already at or past cap to prevent silent counter corruption from any caller that bypasses `CanFire`).
+- `SignatureRules` gained `RecordFireAndMaybeEmitBreakthrough` private helper invoked by all three TryFire paths; emits the breakthrough KeyEvent inline (no `SignatureRecipes` entry — the recipe stream is scoped to `SignatureExecuted_*` events specifically; breakthrough presentation flows through the MemoryEvent → BreakthroughReader → CallbackTemplateId path).
+- `EventClass` extended with `SignatureBreakthrough = 2` (distinct from ADR-0004's reserved Phase-4+ `SignatureAwakened` + `SignatureExecuted` lifecycle slots; SPEC decisions-log entry appended naming the catalog extension).
+- `CallbackTagRegistry` adds `SignatureBreakthroughId` + `BreakthroughReaderId` + `SignatureBreakthrough` tag (MinBand=Notable per the salience-formula natural ceiling at 0.80 with rivalry+rarity=0; Expiry=Never per the design doc's "Permanent. Awakenings are irreversible" mandate). `Get` diagnostic now derives the registered-IDs list from `_byId.Keys` so it stays in sync as new tags land.
+- `EventClassRegistry` registers SignatureBreakthrough → base-weight 0.9 (above goal's 0.6) + tag attachment.
+- `MemoryEmissionRules` extended with `MapKeyEventKindToEventClass` (returns nullable EventClass for the routine-band-telemetry pattern; null = "this kind doesn't translate") + `StakesAndEmotionFor` (returns `(1.0, Triumph)` for breakthroughs vs `(0.95, Triumph)` for goals). Phase3BreakthroughStakes = Fixed.One — a breakthrough is permanent player-development per the design doc.
+
+**Salience math** (pinned via the new `Breakthrough_SalienceLandsInNotableBand_NotSeasonDefining` test): `0.4·1.0 + 0.2·0.6 + 0.2·0.9 + 0 + 0 = 0.70` → Notable band. Phase-4+ rivalry/rarity wiring lifts contextually-relevant breakthroughs to SeasonDefining; the tag-level Expiry=Never is the load-bearing permanence guard, not the band scalar.
+
+**Tests**: 14 new across 2 files (8 in `BreakthroughReaderTests.cs`: end-to-end + Expiry=Never invariant + 10-season-old-still-surfaces + cross-reader rejection + restart-events-not-translated + tag/event-class/base-weight registry checks + the band-classification invariant pinning Phase3BreakthroughStakes at Notable; 6 in `SignatureRulesTests.cs`: cap-reach emission timing for #20 + #13 + GetFiredCount round-trip + RecordFireAndDidReachCap success path + saturation-guard throw path + the existing LowCutback_MaxFiresExceeded test updated to account for the cap-reach breakthrough emission).
+
+**Total tests: 636 passing** (was 622; +14).
+
+**Pinned 60-tick MatchCanonicalState determinism hash `sha256:7e851976...50e` UNCHANGED**. Smoke fires zero signatures so zero breakthroughs so canonical bytes identical.
+
+**Subagent rotation per CLAUDE.md §6.3**: pr-review-toolkit triple ran in parallel before commit. **All findings applied**:
+- silent-failure-hunter: clean (no try/catch, no `??` / `?.` suppression, no silent-skip on documented domain filters).
+- type-design-analyzer: 3 findings applied — (1) renamed `RecordFireAndIsCapReach` → `RecordFireAndDidReachCap` (imperative-with-bool-return reads naturally as `Did...`); (2) added Phase-4+ refactor-anchor comments to both `BreakthroughReader` + `PressFanReader` referencing the 5-reader extraction trigger; (3) added the band-classification invariant test pinning Phase3BreakthroughStakes at Notable.
+- feature-dev:code-reviewer: 2 important + 1 process finding applied — (1) saturation-pre-cap guard on `RecordFireAndDidReachCap` (throws if firedCount ≥ maxFiresPerMatch at entry, catches future callers that bypass `CanFire`); (2) `CallbackTagRegistry.Get` diagnostic message derives the tag-ID list from `_byId.Keys` (closes the stale "PressFanId, ScoringMilestoneId" hardcoding); (3) SPEC decisions-log entry appended for `EventClass.SignatureBreakthrough = 2` per CLAUDE.md §5.2 append-only policy + ADR-0004 §"Event class catalog" cross-doc exact-match discipline.
+
+**Unity Mono end-to-end verified via UnityMCP `execute_code`**: `events=1; candidates=1; template=fwh.core:callback_template.signature_breakthrough_panel; saturation=OK-throws; diagnostic=OK-lists-all`.
+
 ## 2026-04-30 (Codex round-1 follow-up — MemoryEvent reader-callback registry-boundary fixes)
 
 Codex review pass against `6c68e48` flagged one P1 + two P2 findings. All three closed with regression tests:

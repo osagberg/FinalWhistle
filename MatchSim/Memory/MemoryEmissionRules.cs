@@ -58,6 +58,20 @@ public static class MemoryEmissionRules
     public static readonly Fixed Phase3PlaceholderProminence = Fixed.Parse("0.6000000000");
 
     /// <summary>
+    /// Phase-3 placeholder stakes for a <see cref="EventClass.SignatureBreakthrough"/>
+    /// MemoryEvent: 1.0 — a breakthrough is permanent player-development
+    /// per <c>design/breakthrough-moments.md</c> and deserves the
+    /// maximum stakes signal until Phase-4 readiness-accumulator
+    /// lifecycle adds gradient. With Phase3Defaults weights:
+    /// <c>0.4·1.0 + 0.2·0.6 + 0.2·0.9 + 0 + 0 = 0.40 + 0.12 + 0.18 = 0.70</c>
+    /// — solidly Notable; falls below SeasonDefining (0.85) until rivalry-
+    /// or rarity-boost lands Phase-4+. Tag-level MinBand=SeasonDefining
+    /// on the breakthrough tag is the load-bearing band gate; this
+    /// salience scalar's job is just to sit above the Notable floor.
+    /// </summary>
+    public static readonly Fixed Phase3BreakthroughStakes = Fixed.One;
+
+    /// <summary>
     /// Translate a completed match's canonical KeyEvent stream into
     /// MemoryEvents. Caller appends results to the
     /// <see cref="Ledger"/> via <see cref="Ledger.Emit"/>.
@@ -100,13 +114,17 @@ public static class MemoryEmissionRules
         for (int i = 0; i < keyEvents.Count; i++)
         {
             KeyEvent ke = keyEvents[i];
-            if (ke.Kind != KeyEventKind.Goal)
+            EventClass? mapped = MapKeyEventKindToEventClass(ke.Kind);
+            if (mapped is null)
             {
-                // Phase-3: only Goal translates. Restart events stay as
-                // routine-band match telemetry; signature-execution
-                // events translate Phase-4+.
+                // Phase-3: only Goal + SignatureBreakthrough translate.
+                // Restart + signature-execution KeyEvents stay as
+                // routine-band match telemetry; future event classes
+                // (SignatureAwakened lifecycle, scout reports, etc.)
+                // translate Phase-4+.
                 continue;
             }
+            EventClass what = mapped.Value;
 
             uint tickValue = ToUInt32Tick(ke.Tick.Value);
             string eventId = string.Format(
@@ -114,10 +132,12 @@ public static class MemoryEmissionRules
                 "match:{0}:tick:{1}:seq:{2}",
                 matchId, tickValue, seq);
 
+            (Fixed stakes, Emotion emotion) = StakesAndEmotionFor(what);
+
             SalienceInputs inputs = new(
-                stakes: Phase3PlaceholderStakes,
+                stakes: stakes,
                 participantProminenceAvg: Phase3PlaceholderProminence,
-                eventClassBaseWeight: EventClassRegistry.BaseWeightFor(EventClass.GoalScored),
+                eventClassBaseWeight: EventClassRegistry.BaseWeightFor(what),
                 rivalryBoost: Fixed.Zero,
                 rarityBoost: Fixed.Zero);
 
@@ -131,9 +151,9 @@ public static class MemoryEmissionRules
                 careerDate: careerDate,
                 emitter: emitter,
                 participants: Array.Empty<Participant>(),
-                what: EventClass.GoalScored,
-                stakes: Phase3PlaceholderStakes,
-                emotion: Emotion.Triumph,
+                what: what,
+                stakes: stakes,
+                emotion: emotion,
                 salience: salience,
                 salienceInputs: inputs,
                 salienceModelVersion: SalienceWeights.Phase3ModelVersion,
@@ -142,6 +162,36 @@ public static class MemoryEmissionRules
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Phase-3 KeyEventKind → EventClass mapping. Returns null for
+    /// KeyEvent kinds that don't translate to a MemoryEvent yet
+    /// (restart events stay as routine-band match telemetry; signature-
+    /// execution events translate Phase-4+ when the
+    /// <c>SignatureAwakened</c> + <c>SignatureExecuted</c> lifecycle
+    /// ships per ADR-0004 cross-doc exact-match enum names).
+    /// </summary>
+    private static EventClass? MapKeyEventKindToEventClass(KeyEventKind kind)
+    {
+        return kind switch
+        {
+            KeyEventKind.Goal => EventClass.GoalScored,
+            KeyEventKind.SignatureBreakthrough => EventClass.SignatureBreakthrough,
+            _ => null,
+        };
+    }
+
+    private static (Fixed Stakes, Emotion Emotion) StakesAndEmotionFor(EventClass what)
+    {
+        return what switch
+        {
+            EventClass.GoalScored => (Phase3PlaceholderStakes, Emotion.Triumph),
+            EventClass.SignatureBreakthrough => (Phase3BreakthroughStakes, Emotion.Triumph),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(what), what,
+                $"No Phase-3 (stakes, emotion) mapping for EventClass.{what}."),
+        };
     }
 
     private static uint ToUInt32Tick(long tickValue)

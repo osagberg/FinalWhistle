@@ -106,6 +106,81 @@ public sealed class SignatureCooldownState
         return currentTick - last >= cooldownTicks;
     }
 
+    /// <summary>
+    /// Read the per-match fire count for the given signature + player.
+    /// Used by tests + by <see cref="RecordFireAndDidReachCap"/> callers
+    /// that need to inspect saturation without recording.
+    /// </summary>
+    public byte GetFiredCount(SignatureKind signature, int playerIndex)
+    {
+        if ((uint)playerIndex >= TotalPlayerSlots)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(playerIndex), playerIndex,
+                $"playerIndex must be in [0, {TotalPlayerSlots - 1}].");
+        }
+        int sigRow = (int)signature - 1;
+        if (sigRow < 0 || sigRow >= SignatureCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(signature), signature,
+                $"signature must be a defined SignatureKind value (1..{SignatureCount}).");
+        }
+        return _firedCount[sigRow, playerIndex];
+    }
+
+    /// <summary>
+    /// Record a fire AND report whether the fire-count just reached the
+    /// per-match cap. Used by <see cref="SignatureRules"/> to emit the
+    /// Phase-3 <see cref="KeyEventKind.SignatureBreakthrough"/> on the
+    /// cap-reach moment without exposing internal counter access.
+    ///
+    /// <para>
+    /// <strong>Pre-cap guard</strong> per pr-review-toolkit:feature-dev:code-reviewer
+    /// 2026-04-30 finding #1: throws <see cref="InvalidOperationException"/>
+    /// if <c>firedCount &gt;= maxFiresPerMatch</c> at entry. Without this
+    /// guard, a caller that bypasses <see cref="CanFire"/> (a future
+    /// Phase-4+ code path or a misconfigured test) would silently
+    /// over-increment the counter past the cap and return <c>false</c>
+    /// (since post-record count would equal <c>maxFiresPerMatch + 1</c>,
+    /// not <c>maxFiresPerMatch</c>) — silently missing the breakthrough
+    /// emission AND corrupting the cap state. <see cref="SignatureRules"/>'s
+    /// production path always checks <see cref="CanFire"/> first, so this
+    /// guard never fires there; it's defense-in-depth for foreign callers.
+    /// </para>
+    /// </summary>
+    /// <returns>True iff the post-record fire count equals
+    /// <paramref name="maxFiresPerMatch"/> (i.e., this fire was the
+    /// player's final-allowed fire of this signature this match).</returns>
+    public bool RecordFireAndDidReachCap(
+        SignatureKind signature, int playerIndex, long currentTick, byte maxFiresPerMatch)
+    {
+        if ((uint)playerIndex >= TotalPlayerSlots)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(playerIndex), playerIndex,
+                $"playerIndex must be in [0, {TotalPlayerSlots - 1}].");
+        }
+        int sigRow = (int)signature - 1;
+        if (sigRow < 0 || sigRow >= SignatureCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(signature), signature,
+                $"signature must be a defined SignatureKind value (1..{SignatureCount}).");
+        }
+        if (_firedCount[sigRow, playerIndex] >= maxFiresPerMatch)
+        {
+            throw new InvalidOperationException(
+                $"RecordFireAndDidReachCap called for signature {signature} " +
+                $"player-index {playerIndex} when firedCount " +
+                $"({_firedCount[sigRow, playerIndex]}) is already at or past " +
+                $"maxFiresPerMatch ({maxFiresPerMatch}). Caller must check " +
+                "CanFire before calling.");
+        }
+        RecordFire(signature, playerIndex, currentTick);
+        return _firedCount[sigRow, playerIndex] == maxFiresPerMatch;
+    }
+
     /// <summary>Record that <paramref name="signature"/> fired for the player at <paramref name="currentTick"/>.</summary>
     public void RecordFire(SignatureKind signature, int playerIndex, long currentTick)
     {

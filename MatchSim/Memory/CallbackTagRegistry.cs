@@ -27,11 +27,29 @@ public static class CallbackTagRegistry
     public const string PressFanId = "fwh.core:tag.press-fan";
     public const string ScoringMilestoneId = "fwh.core:tag.scoring-milestone";
 
+    /// <summary>
+    /// Phase-3 minimum persistent-development tag per SPEC line 145.
+    /// Consumed by <see cref="BreakthroughReader"/>. Expiry =
+    /// <see cref="ExpiryPolicy.Never"/> per
+    /// <c>design/breakthrough-moments.md</c> "Permanent. Awakenings are
+    /// irreversible." MinBand = Notable: the salience formula's max
+    /// achievable value with rivalry+rarity=0 is 0.80 (under
+    /// SeasonDefining's 0.85 cutoff), so Phase-3 breakthroughs naturally
+    /// land in Notable band even at maxed Stakes/Prominence/ClassWeight.
+    /// Phase-4+ rivalry-boost / rarity-boost wiring lifts breakthroughs
+    /// to SeasonDefining where appropriate; the tag-level expiry-Never
+    /// + reader-level consumer-check enforce the "permanent player-
+    /// development" semantic regardless of band.
+    /// </summary>
+    public const string SignatureBreakthroughId = "fwh.core:tag.signature-breakthrough";
+
     public static readonly ReaderId PressFanReaderId = new("press-fan-reader");
     public static readonly ReaderId ScoringMilestoneReaderId = new("scoring-milestone-reader");
+    public static readonly ReaderId BreakthroughReaderId = new("breakthrough-reader");
 
     public static readonly CallbackTag PressFan;
     public static readonly CallbackTag ScoringMilestone;
+    public static readonly CallbackTag SignatureBreakthrough;
 
     private static readonly Dictionary<string, CallbackTag> _byId;
 
@@ -51,10 +69,17 @@ public static class CallbackTagRegistry
             minBand: SalienceBand.Notable,
             expiry: ExpiryPolicy.Never.Instance);
 
+        SignatureBreakthrough = new CallbackTag(
+            id: SignatureBreakthroughId,
+            consumingReaders: new[] { BreakthroughReaderId },
+            minBand: SalienceBand.Notable,
+            expiry: ExpiryPolicy.Never.Instance);
+
         _byId = new Dictionary<string, CallbackTag>
         {
             [PressFan.Id] = PressFan,
             [ScoringMilestone.Id] = ScoringMilestone,
+            [SignatureBreakthrough.Id] = SignatureBreakthrough,
         };
     }
 
@@ -65,9 +90,14 @@ public static class CallbackTagRegistry
     {
         if (!_byId.TryGetValue(tagId, out CallbackTag? tag))
         {
+            // Derive the registered-IDs list from _byId so the diagnostic
+            // stays in sync as new tags land (closes pr-review-toolkit:
+            // feature-dev:code-reviewer 2026-04-30 finding #2 — prior
+            // hardcoded "PressFanId, ScoringMilestoneId" string was stale
+            // after the round-2 SignatureBreakthroughId addition).
             throw new KeyNotFoundException(
-                $"Unknown callback-tag ID: '{tagId}'. Phase-3 registry contains: " +
-                $"{PressFanId}, {ScoringMilestoneId}.");
+                $"Unknown callback-tag ID: '{tagId}'. Registry contains: " +
+                $"{string.Join(", ", _byId.Keys)}.");
         }
         return tag;
     }
