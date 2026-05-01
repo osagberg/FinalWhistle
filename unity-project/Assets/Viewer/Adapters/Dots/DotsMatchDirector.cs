@@ -271,19 +271,26 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             // adapter watches ball Z-velocity and transitions framing
             // when wide ball motion suggests an attacking lane is opening.
             // Phase-4+ may flip this to bridge-emitted (KeyEventKind.ThroughBallLaunched);
-            // until then it's a presentation-only heuristic that the
-            // ShotCamera ignores when an event-driven shot is active
-            // (BeginAdapterShot bails on hasActiveShot=true).
+            // until then it's a presentation-only heuristic. ShotCamera
+            // suppresses the heuristic shot while an event-driven shot is
+            // active (records the desired shot for resume on event-end).
             CheckDiagonalAttackLaneHeuristic();
         }
 
         private void CheckDiagonalAttackLaneHeuristic()
         {
+            // Silent early-return on missing adapterRoot is intentional:
+            // mirrors the runtime contract elsewhere in FixedUpdate
+            // (DispatchNewViewerEvents also tolerates a null adapterRoot
+            // and warns-once via the bridge wiring path). shotCamera is
+            // dereferenced earlier in FixedUpdate (OnSimTick), so a null
+            // shotCamera at this point would have NRE'd before reaching
+            // here — symmetric loud-fail isn't needed.
             if (adapterRoot == null)
             {
                 return;
             }
-            // diagonalAttackLaneZVelocityThreshold is now a SerializeField
+            // diagonalAttackLaneZVelocityThreshold is a SerializeField
             // (per pr-review-toolkit silent-failure-hunter Slice-4 P2-C):
             // Phase-3 observer feedback can tune the cutoff via inspector
             // without a code edit + recompile cycle. Default 8 m/s
@@ -296,11 +303,18 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             // unreachable at Phase-3 ball speeds but worth using the
             // canonical helper for clarity per pr-review-toolkit
             // feature-dev:code-reviewer Slice-4 P2.4).
-            if (Fixed.Abs(state.Ball.Velocity.Z) > threshold)
-            {
-                ShotTypeSO diagonalLane = adapterRoot.ResolveShot(ShotCategory.DiagonalAttackLane);
-                shotCamera.BeginAdapterShot(diagonalLane);
-            }
+            //
+            // SetAdapterShot is idempotent (Codex round-1 Slice-4 finding 1
+            // closure): a sustained over-threshold condition produces a
+            // single transition into diagonal-attack-lane (no per-FixedUpdate
+            // restart), and a below-threshold condition transitions back to
+            // the default framing. Both branches must be wired — calling
+            // SetAdapterShot on only the over-threshold path would leave the
+            // camera stuck in diagonal framing once the ball decelerates.
+            ShotTypeSO desired = Fixed.Abs(state.Ball.Velocity.Z) > threshold
+                ? adapterRoot.ResolveShot(ShotCategory.DiagonalAttackLane)
+                : null;
+            shotCamera.SetAdapterShot(desired);
         }
 
         private void DispatchNewViewerEvents(long preAdvanceTick)

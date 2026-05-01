@@ -124,12 +124,19 @@ namespace FinalWhistle.Viewer.Adapters.Dots
 
         /// <summary>
         /// Look up the <see cref="ShotTypeSO"/> for a given
-        /// <see cref="ShotCategory"/>. Falls back to
-        /// <see cref="ShotCategory.TacticalWide"/> when the category isn't
-        /// in the catalog (Phase-3 the dots adapter only registers 3 of
-        /// the 7 categories; the rest can't fire from the bridge yet so
-        /// the fallback stays unreachable in normal play, but the path
-        /// is here so a hand-injected debug shot doesn't NRE).
+        /// <see cref="ShotCategory"/>. Throws on unregistered categories
+        /// rather than silently falling back to
+        /// <see cref="ShotCategory.TacticalWide"/> per Codex round-1
+        /// Slice-4 finding 2: bridge-emitted categories
+        /// (e.g. <see cref="ShotCategory.PlayerIsolation"/> for
+        /// <c>SignatureExecuted_LowCutback</c>,
+        /// <see cref="ShotCategory.AftermathFreeze"/> for
+        /// <c>SignatureBreakthrough</c>) that aren't catalog-wired are
+        /// authoring/wiring bugs, not fallback cases — silent fallback
+        /// would drop the authored framing and ship as tactical-wide on
+        /// every match that triggers an unwired category. Loud-fail at
+        /// PresentShot time matches the <see cref="Initialize"/>-time
+        /// TacticalWide-required gate.
         /// </summary>
         public ShotTypeSO ResolveShot(ShotCategory category)
         {
@@ -137,13 +144,12 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             {
                 return so;
             }
-            if (shotByCategory != null && shotByCategory.TryGetValue(ShotCategory.TacticalWide, out ShotTypeSO fallback))
-            {
-                return fallback;
-            }
             throw new InvalidOperationException(
-                $"{nameof(DotsAdapterRoot)}: no ShotTypeSO registered for category {category} " +
-                $"and no TacticalWide fallback. Wire shotCatalog in the scene inspector.");
+                $"{nameof(DotsAdapterRoot)}: no ShotTypeSO registered for ShotCategory.{category}. " +
+                $"The bridge or an adapter heuristic asked for this category but the scene catalog " +
+                $"does not include it. Author + register a ShotTypeSO whose ShotTypeId resolves to " +
+                $"{nameof(ShotCategory)}.{category} in the scene inspector " +
+                $"(Phase-3 wired: TacticalWide / DiagonalAttackLane / PassShotImpact).");
         }
     }
 }

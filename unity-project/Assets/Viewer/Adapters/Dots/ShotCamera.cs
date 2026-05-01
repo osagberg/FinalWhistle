@@ -9,13 +9,13 @@ namespace FinalWhistle.Viewer.Adapters.Dots
     /// <summary>
     /// Drives the orthographic top-down <see cref="UnityEngine.Camera"/>
     /// per the Phase-3 dots-adapter blueprint §B Slice 4. On a new shot
-    /// (<see cref="BeginShot"/> or <see cref="BeginAdapterShot"/>) the
-    /// current framing is captured as the Lerp <c>from</c>-state and the
-    /// SO's framing becomes the <c>to</c>-state; <see cref="LateUpdate"/>
-    /// advances a single Lerp parameter <c>t</c> from 0 to 1 over
-    /// <see cref="ShotTypeSO.TransitionDurationSeconds"/> + samples
-    /// <c>Mathf.Lerp(from, to, t)</c> to get the current framing. This
-    /// is the textbook constant-velocity transition shape (per
+    /// (<see cref="BeginShot"/> or <see cref="SetAdapterShot"/> with a
+    /// distinct target) the current framing is captured as the Lerp
+    /// <c>from</c>-state and the SO's framing becomes the <c>to</c>-state;
+    /// <see cref="LateUpdate"/> advances a single Lerp parameter <c>t</c>
+    /// from 0 to 1 over <see cref="ShotTypeSO.TransitionDurationSeconds"/>
+    /// + samples <c>Mathf.Lerp(from, to, t)</c> to get the current framing.
+    /// This is the textbook constant-velocity transition shape (per
     /// pr-review-toolkit type-design-analyzer Slice-4 P1a closure of the
     /// initial draft's exponential-decay drift).
     ///
@@ -65,7 +65,7 @@ namespace FinalWhistle.Viewer.Adapters.Dots
 
         private PitchView pitchView;
 
-        // Lerp from-state: captured at BeginShot/BeginAdapterShot time.
+        // Lerp from-state: captured at BeginShot/SetAdapterShot time.
         private float fromOrthoSize;
         private float fromTiltDegrees;
         private Vector3 fromTargetWorld;
@@ -100,12 +100,51 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         private long activeShotEndTick;
         private bool hasActiveShot;
 
-        // Telemetry: one-shot warning the first time BeginAdapterShot bails
-        // because hasActiveShot is true. Per pr-review-toolkit
+        // Telemetry: one-shot warning the first time SetAdapterShot is
+        // called while hasActiveShot is true. Per pr-review-toolkit
         // silent-failure-hunter Slice-4 P2-B: distinguishes "heuristic
         // never fires because conditions never met" from "heuristic fires
-        // but is suppressed by an active event-driven shot."
+        // but is suppressed by an active event-driven shot." Reset by
+        // Initialize so a re-init (scene reload, test harness) restarts
+        // the once-per-lifecycle quota — NOT process-wide.
         private bool warnedAdapterShotSuppressed;
+
+        // Adapter-local desired shot (per Codex round-1 Slice-4 finding 1
+        // closure): tracks the caller's last-asked-for adapter shot
+        // independently of which shot is currently rendering. Lets
+        // SetAdapterShot be idempotent (same-shot calls are no-ops, no
+        // Lerp restart) and lets OnSimTick resume to the recorded adapter
+        // shot when an event-driven shot ends mid-heuristic. null = no
+        // adapter shot active; resume target is defaultShot.
+        private ShotTypeSO currentAdapterShot;
+
+        /// <summary>
+        /// Count of from→to Lerp transitions started since
+        /// <see cref="Initialize"/>. EditMode-test-only surface for the
+        /// Slice-4 idempotency contract: 60 per-FixedUpdate
+        /// <see cref="SetAdapterShot"/> calls with the same target
+        /// produce <c>1</c>, not <c>60</c>. <c>internal</c> rather than
+        /// <c>public</c> per pr-review-toolkit type-design-analyzer
+        /// Slice-4 round-2 P2.1: production callers MUST NOT depend on
+        /// this counter — exposing it via <see cref="InternalsVisibleTo"/>
+        /// keeps the test surface uniform with
+        /// <see cref="TargetShot"/> / <see cref="CurrentAdapterShot"/>.
+        /// </summary>
+        internal int TransitionStartCount { get; private set; }
+
+        /// <summary>
+        /// Test/diagnostic accessor for the current Lerp <c>to</c>-target
+        /// shot. <see cref="InternalsVisibleTo"/> exposes this to
+        /// <c>FinalWhistle.Viewer.Tests.EditMode</c>; production callers
+        /// should never depend on the target identity.
+        /// </summary>
+        internal ShotTypeSO TargetShot => targetShot;
+
+        /// <summary>
+        /// Test/diagnostic accessor for the recorded adapter-local
+        /// shot (<see cref="SetAdapterShot"/> caller's last argument).
+        /// </summary>
+        internal ShotTypeSO CurrentAdapterShot => currentAdapterShot;
 
         public void Initialize(PitchView pitchViewArg)
         {
@@ -153,6 +192,8 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             transitionElapsedSeconds = 0f;
             hasActiveShot = false;
             warnedAdapterShotSuppressed = false;
+            currentAdapterShot = null;
+            TransitionStartCount = 0;
         }
 
         /// <summary>
@@ -173,70 +214,97 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             }
             ValidateShotResolves(shot);
 
-            CaptureFromCurrent();
-            targetShot = shot;
-            targetOrthoSize = shot.OrthographicSize;
-            targetTiltDegrees = shot.TiltDegrees;
-            targetFocalSubject = active.Event.FocalSubject;
-            transitionDurationSeconds = shot.TransitionDurationSeconds;
-            transitionElapsedSeconds = 0f;
-            transitioning = true;
+            StartTransitionTo(shot, active.Event.FocalSubject);
 
             activeShotEndTick = active.Event.EndTick.Value;
             hasActiveShot = true;
         }
 
         /// <summary>
-        /// Adapter-local <c>diagonal-attack-lane</c> heuristic per blueprint
-        /// Decision 3: callers (e.g. <see cref="DotsMatchDirector"/>'s
-        /// per-tick check) invoke this when ball Z-velocity exceeds the
-        /// threshold AND no event-driven shot is currently active. Frames
-        /// the ball-as-target without an event lifetime so the auto-return
-        /// to default happens naturally as soon as the heuristic stops
-        /// firing.
+        /// Adapter-local desired-shot setter per blueprint Decision 3 + Codex
+        /// round-1 Slice-4 finding 1 closure. Stateful + idempotent: callers
+        /// (e.g. <see cref="DotsMatchDirector"/>'s per-FixedUpdate
+        /// diagonal-attack-lane heuristic) invoke this every tick with their
+        /// current desired shot.
+        ///
+        /// <para>
+        /// <strong>Contract</strong>:
+        /// </para>
+        /// <list type="bullet">
+        ///   <item><description>Same shot as the last call (including both
+        ///       <c>null</c>): no-op. No <see cref="CaptureFromCurrent"/>,
+        ///       no <c>transitionElapsedSeconds</c> reset. This is the
+        ///       guarantee that kills the previous restart bug — sustained
+        ///       per-FixedUpdate calls don't reseed the Lerp.</description></item>
+        ///   <item><description>Different shot: capture current framing as
+        ///       new <c>from</c>-state and Lerp toward
+        ///       <paramref name="shot"/> (<c>null</c> resolves to
+        ///       <c>defaultShot</c>).</description></item>
+        ///   <item><description>While <c>hasActiveShot</c> is true: record
+        ///       the desired shot but do NOT start a transition; the active
+        ///       event-driven shot keeps rendering. <see cref="OnSimTick"/>
+        ///       resumes to the recorded adapter shot when the event ends.</description></item>
+        /// </list>
         /// </summary>
-        public void BeginAdapterShot(ShotTypeSO shot)
+        public void SetAdapterShot(ShotTypeSO shot)
         {
-            EnsureInitialized(nameof(BeginAdapterShot));
-            if (shot == null)
+            EnsureInitialized(nameof(SetAdapterShot));
+            if (shot != null)
             {
-                throw new ArgumentNullException(nameof(shot));
+                ValidateShotResolves(shot);
             }
+            if (currentAdapterShot == shot)
+            {
+                return;
+            }
+            currentAdapterShot = shot;
+
             if (hasActiveShot)
             {
                 // Bridge-emitted events take precedence over adapter-local
-                // heuristics — don't override an in-flight event. Telemetry
-                // (one-shot) per pr-review-toolkit silent-failure-hunter
-                // Slice-4 P2-B: Slice-7 observers reporting "heuristic never
-                // fires" need to distinguish "conditions never met" from
-                // "suppressed by active event."
+                // heuristics. Record the desired shot (so OnSimTick can
+                // resume to it on event-end) but don't start a transition.
                 if (!warnedAdapterShotSuppressed)
                 {
                     Debug.Log(
-                        $"{nameof(ShotCamera)}: adapter-local heuristic shot '{shot.ShotTypeId}' " +
-                        $"suppressed by an active event-driven shot. This message logs once " +
-                        "per session (subsequent suppressions are silent).",
+                        $"{nameof(ShotCamera)}: adapter-local heuristic shot " +
+                        $"'{(shot != null ? shot.ShotTypeId : "<null>")}' suppressed by an " +
+                        "active event-driven shot. This message logs once per Initialize " +
+                        "lifecycle (subsequent suppressions are silent until next Initialize).",
                         this);
                     warnedAdapterShotSuppressed = true;
                 }
                 return;
             }
-            ValidateShotResolves(shot);
 
-            CaptureFromCurrent();
-            targetShot = shot;
-            targetOrthoSize = shot.OrthographicSize;
-            targetTiltDegrees = shot.TiltDegrees;
-            targetFocalSubject = null;
-            transitionDurationSeconds = shot.TransitionDurationSeconds;
-            transitionElapsedSeconds = 0f;
-            transitioning = true;
+            // ScriptableObject `==` is reference (asset-identity) equality,
+            // matching the top guard's `currentAdapterShot == shot` check.
+            // The current Phase-3 caller (DotsMatchDirector) routes through
+            // DotsAdapterRoot.ResolveShot which returns the same SO instance
+            // per category, so identity == ShotTypeId for these callers. A
+            // Phase-4+ caller that hot-swaps catalog entries should compare
+            // on ShotTypeId directly — flagged as a contract assumption.
+            ShotTypeSO target = shot ?? defaultShot;
+            if (targetShot != target)
+            {
+                StartTransitionTo(target, focal: null);
+            }
+            // No `else` — if targetShot already equals the resolved target
+            // (e.g. SetAdapterShot(defaultShot) when the camera is already
+            // framed at default after an event-end auto-resume), skip the
+            // redundant Lerp restart. The currentAdapterShot mutation above
+            // still records intent so OnSimTick's resume sees the latest
+            // desired shot.
         }
 
         /// <summary>
         /// Per-FixedUpdate hook from <see cref="DotsMatchDirector"/>.
         /// Checks whether the active shot has expired (by canonical tick
-        /// count) and snaps the target framing back to <see cref="defaultShot"/>.
+        /// count) and resumes to the recorded adapter-local shot — or to
+        /// <see cref="defaultShot"/> if no adapter shot is currently
+        /// requested. Resuming to <c>currentAdapterShot</c> (rather than
+        /// always to <see cref="defaultShot"/>) keeps a sustained heuristic
+        /// alive across a transient event-driven interruption.
         /// </summary>
         public void OnSimTick(Tick currentSimTick)
         {
@@ -247,16 +315,10 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             if (currentSimTick.Value >= activeShotEndTick)
             {
                 hasActiveShot = false;
-                if (targetShot != defaultShot)
+                ShotTypeSO returnTo = currentAdapterShot ?? defaultShot;
+                if (targetShot != returnTo)
                 {
-                    CaptureFromCurrent();
-                    targetShot = defaultShot;
-                    targetOrthoSize = defaultShot.OrthographicSize;
-                    targetTiltDegrees = defaultShot.TiltDegrees;
-                    targetFocalSubject = null;
-                    transitionDurationSeconds = defaultShot.TransitionDurationSeconds;
-                    transitionElapsedSeconds = 0f;
-                    transitioning = true;
+                    StartTransitionTo(returnTo, focal: null);
                 }
             }
         }
@@ -370,6 +432,23 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             return dotPool.TryGetFocalWorldPosition(focalSubject, out worldPos);
         }
 
+        private void StartTransitionTo(ShotTypeSO shot, string focal)
+        {
+            // Single entry point for any from→to Lerp transition (BeginShot,
+            // SetAdapterShot, OnSimTick auto-resume). Centralising here so
+            // TransitionStartCount stays accurate as the regression signal +
+            // any future transition-side-effect lands in one place.
+            CaptureFromCurrent();
+            targetShot = shot;
+            targetOrthoSize = shot.OrthographicSize;
+            targetTiltDegrees = shot.TiltDegrees;
+            targetFocalSubject = focal;
+            transitionDurationSeconds = shot.TransitionDurationSeconds;
+            transitionElapsedSeconds = 0f;
+            transitioning = true;
+            TransitionStartCount++;
+        }
+
         private void CaptureFromCurrent()
         {
             // Snapshot whatever the camera is rendering RIGHT NOW as the
@@ -395,7 +474,7 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         // Runtime gate per pr-review-toolkit silent-failure-hunter Slice-4
         // P2-A: ShotTypeSO.OnValidate's Debug.LogError doesn't block save,
         // so a misauthored shotTypeId can ship. Validate at the runtime
-        // consumer (BeginShot / BeginAdapterShot / Initialize) so the
+        // consumer (BeginShot / SetAdapterShot / Initialize) so the
         // failure surfaces loud at scene-load + per-shot rather than
         // silently rendering a default-fallback framing.
         private static void ValidateShotResolves(ShotTypeSO shot)

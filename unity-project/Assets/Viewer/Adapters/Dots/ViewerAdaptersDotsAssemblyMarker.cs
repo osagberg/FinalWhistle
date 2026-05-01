@@ -1,3 +1,10 @@
+using System.Runtime.CompilerServices;
+
+// Exposes `internal` test-surface accessors (e.g. ShotCamera.TargetShot /
+// CurrentAdapterShot) to the EditMode test assembly. Production callers
+// outside this asmdef must not depend on internal members.
+[assembly: InternalsVisibleTo("FinalWhistle.Viewer.Tests.EditMode")]
+
 namespace FinalWhistle.Viewer.Adapters.Dots
 {
     /// <summary>
