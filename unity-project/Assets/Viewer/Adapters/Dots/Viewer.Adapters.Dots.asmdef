@@ -4,7 +4,8 @@
     "references": [
         "FinalWhistle.Viewer.Core",
         "FinalWhistle.Viewer.Contracts",
-        "Unity.RenderPipelines.Universal.Runtime"
+        "Unity.RenderPipelines.Universal.Runtime",
+        "Unity.RenderPipelines.Core.Runtime"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

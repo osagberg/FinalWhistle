@@ -67,6 +67,18 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         [Tooltip("Ball Z-velocity (m/s) magnitude above which the diagonal-attack-lane heuristic transitions framing. Default 8 m/s ≈ sustained-pace cross-pitch ball travel.")]
         [SerializeField, Min(0f)] private float diagonalAttackLaneZVelocityThreshold = 8f;
 
+        [Tooltip("If true, EventBridge.Derive applies the reduce-motion shot-id substitution path per ADR-0001. Inspector toggle for L2 multi-state screenshot capture; player-facing UI lands Phase 4+. When true: impact-frame flash is suppressed; screen-tone strength clamps to 0.")]
+        [SerializeField] private bool reduceMotionEnabled = false;
+
+        [Tooltip("Stakes threshold above which a pass-shot-impact event triggers the impact-frame flash. Default 0.7 per dots-adapter blueprint Slice 5 acceptance criterion.")]
+        [SerializeField, Range(0f, 1f)] private float impactFrameStakesThreshold = 0.7f;
+
+        [Tooltip("Linear-decay window for the impact-frame flash, in canonical 60Hz ticks. Default 12 = 0.2s @ 60Hz. Visible window is [trigger, trigger+decayTicks).")]
+        [SerializeField, Min(1)] private int impactFrameDecayTicks = 12;
+
+        [Tooltip("Symmetric fade-in/fade-out length for the screen-tone overlay, in canonical ticks. Default 6 = 0.1s @ 60Hz.")]
+        [SerializeField, Min(0)] private int screenToneFadeTicks = 6;
+
         // Canonical sim tick rate per `Tick.TicksPerSecond`. Hard-coded
         // (NOT a [SerializeField]) per Codex round-1 P2 follow-up against
         // 2a79529: an inspector-mutable knob is a load-bearing-determinism
@@ -104,6 +116,12 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         // event consumed yet"; otherwise the highest dispatched id.
         private ulong? lastProcessedViewerEventId;
         private bool warnedAdapterRootMissing;
+        // One-shot warn for unknown ShotTypeIds reaching the trigger
+        // path (per pr-review-toolkit silent-failure-hunter Slice-5
+        // P1 closure: a typo or content-pack drift in EffectiveShotTypeId
+        // dropped the event into ShotCategory.None silently — entire match
+        // produced zero anime-presentation triggers with no diagnostic).
+        private bool warnedUnknownShotId;
 
         // Cached canonical-state event-stream lengths per Codex round-1 P2
         // follow-up against 2a79529: skip EventBridge.Derive (which
@@ -126,6 +144,29 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         // default cleanly.
         [NonSerialized] private float priorFixedDeltaTime = -1f;
         [NonSerialized] private bool fixedDeltaTimeOverrideApplied;
+
+        // Slice-5 anime-presentation state per blueprint §B Slice 5.
+        // Globals driven from these by FixedUpdate after RunTicks; the
+        // ScreenTone + ImpactFrame URP renderer features read the globals
+        // each frame they render. Decay/strength math lives in
+        // AnimePresentationUniforms — pure-C# + L1-testable.
+        // -1 sentinel = "no flash active." impactFlashStartTick is read
+        // back when an impact-frame trigger fires + computed against
+        // state.CurrentTick on FixedUpdate.
+        private long impactFlashStartTick = -1L;
+        // Active screen-tone window [start, end). -1 sentinel = "no
+        // tone active." Strength at the trigger-time stakes value, then
+        // modulated by the symmetric fade envelope.
+        private long screenToneStartTick = -1L;
+        private long screenToneEndTick = -1L;
+        private float screenToneBaseStrength = 0f;
+
+        // Cached PropertyToIDs — Shader.SetGlobalFloat takes either a
+        // string or an int; the int version skips a per-call hash.
+        // Cached at Awake to avoid the first-call hash inside the hot path.
+        private int flashIntensityId;
+        private int screenToneStrengthId;
+        private int elapsedTicksId;
 
         private void Awake()
         {
@@ -186,6 +227,35 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             warnedAdapterRootMissing = false;
             lastKeyEventCount = state.KeyEvents.Count;
             lastSignatureRecipeCount = state.SignatureRecipes.Count;
+
+            // Slice-5 shader-global ids cached once.
+            flashIntensityId = Shader.PropertyToID(AnimePresentationUniforms.FlashIntensityName);
+            screenToneStrengthId = Shader.PropertyToID(AnimePresentationUniforms.ScreenToneStrengthName);
+            elapsedTicksId = Shader.PropertyToID(AnimePresentationUniforms.ElapsedTicksName);
+            ResetAnimePresentationState();
+        }
+
+        private void ResetAnimePresentationState()
+        {
+            impactFlashStartTick = -1L;
+            screenToneStartTick = -1L;
+            screenToneEndTick = -1L;
+            screenToneBaseStrength = 0f;
+            warnedUnknownShotId = false;
+            // Zero the globals at start so a previous play-session's
+            // residual values don't bleed into this match's first frame.
+            //
+            // NOTE — Shader.SetGlobalFloat is process-global. This
+            // assumes a single DotsMatchDirector instance per process at
+            // Phase-3 (single-camera, single-scene playback). Multi-
+            // director scenarios (additive scenes, split-screen, in-editor
+            // scene reload mid-play) would need either singleton-enforce
+            // here or per-instance MaterialPropertyBlocks on the renderer
+            // features. Flagged for revisit if/when Slice-7+ adds those
+            // (per pr-review-toolkit silent-failure-hunter Slice-5 P2).
+            Shader.SetGlobalFloat(flashIntensityId, 0f);
+            Shader.SetGlobalFloat(screenToneStrengthId, 0f);
+            Shader.SetGlobalInt(elapsedTicksId, 0);
         }
 
         private void Start()
@@ -265,6 +335,13 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             shotCamera.OnSimTick(state.CurrentTick);
 
             DispatchNewViewerEvents(preAdvanceTick);
+
+            // Slice-5 anime-presentation: drive the shader globals each
+            // FixedUpdate against the canonical tick stream (NOT Time.time).
+            // Decay math lives in AnimePresentationUniforms so it is pure-C#
+            // + EditMode-testable — the renderer features read these globals
+            // on the next render frame.
+            UpdateAnimePresentationUniforms(state.CurrentTick.Value);
 
             // Slice-4 adapter-local heuristic per blueprint Decision 3:
             // diagonal-attack-lane is NOT bridge-emitted at Phase-3 — the
@@ -351,7 +428,7 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             // for new events. The high-water-mark approach is therefore
             // sound (gameplay-programmer Slice-3 consult Q4).
             IReadOnlyList<ViewerEvent> events = EventBridge.Derive(
-                state, matchSeed, reduceMotionEnabled: false);
+                state, matchSeed, reduceMotionEnabled);
 
             if (events.Count == 0)
             {
@@ -400,7 +477,144 @@ namespace FinalWhistle.Viewer.Adapters.Dots
                 ActiveViewerEvent active = new(ev, elapsed);
                 adapterRoot.PresentShot(active);
 
+                MaybeTriggerAnimePresentation(ev);
+
                 lastProcessedViewerEventId = ev.ViewerEventId;
+            }
+        }
+
+        /// <summary>
+        /// Per-event hook for the anime-presentation surfaces (Slice 5).
+        /// Triggered inside the dispatch loop so a new ViewerEvent can
+        /// raise an impact-frame flash + a screen-tone window in the
+        /// same tick that brought it through the bridge. Reduce-motion
+        /// is honoured via the per-event <see cref="ViewerEvent.ReduceMotionApplied"/>
+        /// flag (the bridge sets it; the adapter just reads).
+        /// </summary>
+        private void MaybeTriggerAnimePresentation(ViewerEvent ev)
+        {
+            ShotCategory category = ResolveCategory(ev);
+            // Stakes-driven impact-frame flash on pass-shot-impact
+            // events at high stakes per blueprint Slice 5 acceptance
+            // criterion. ReduceMotionApplied suppresses the flash
+            // entirely (per ADR-0001 + budget surface #1 reduce-motion
+            // semantics — a flash is a strong vestibular cue).
+            if (category == ShotCategory.PassShotImpact
+                && !ev.ReduceMotionApplied
+                && ev.StakesNormalized.RawValue >= ImpactStakesRaw())
+            {
+                impactFlashStartTick = ev.StartTick.Value;
+            }
+            // Aftermath-freeze drives the screen-tone overlay for the
+            // event's duration. Reduce-motion fully suppresses the
+            // surface — early-return so a reduce-motion event does NOT
+            // overwrite an in-flight non-reduce-motion tone window
+            // (per pr-review-toolkit silent-failure-hunter Slice-5
+            // P1 closure: the prior write-then-clamp shape would have
+            // killed an active overlay early). Symmetric with the
+            // impact-frame branch above.
+            if (category == ShotCategory.AftermathFreeze
+                && !ev.ReduceMotionApplied)
+            {
+                screenToneStartTick = ev.StartTick.Value;
+                screenToneEndTick = ev.EndTick.Value;
+                screenToneBaseStrength = SaturateStakes(ev.StakesNormalized);
+            }
+        }
+
+        /// <summary>
+        /// Resolve a ViewerEvent's <see cref="ShotCategory"/> via the
+        /// catalog. Returns <see cref="ShotCategory.None"/> on a miss
+        /// + emits a one-shot warning (per pr-review-toolkit
+        /// silent-failure-hunter Slice-5 P1 closure: previously the
+        /// miss path was silent, so a content-pack typo or stale
+        /// ShotTypeCatalog produced zero anime-presentation triggers
+        /// with no diagnostic).
+        /// </summary>
+        private ShotCategory ResolveCategory(ViewerEvent ev)
+        {
+            if (ShotTypeCatalog.TryGet(ev.EffectiveShotTypeId, out ShotTypeDefinition def))
+            {
+                return def.Category;
+            }
+            if (!warnedUnknownShotId)
+            {
+                Debug.LogWarning(
+                    $"{nameof(DotsMatchDirector)}: ViewerEvent {ev.ViewerEventId} carries " +
+                    $"unknown EffectiveShotTypeId '{ev.EffectiveShotTypeId}' — anime-presentation " +
+                    "trigger path will skip it. This message logs once per Awake lifecycle.",
+                    this);
+                warnedUnknownShotId = true;
+            }
+            return ShotCategory.None;
+        }
+
+        /// <summary>
+        /// Q32.32 raw value for the impact-frame stakes threshold.
+        /// Computed once-per-call from the inspector float so the
+        /// FixedUpdate hot path stays allocation-free.
+        /// </summary>
+        private long ImpactStakesRaw()
+        {
+            float t = impactFrameStakesThreshold;
+            if (t <= 0f) return 0L;
+            if (t >= 1f) return Fixed.OneRaw;
+            return (long)(t * Fixed.OneRaw);
+        }
+
+        private static float SaturateStakes(Fixed stakes)
+        {
+            // Stakes is canonical [0, 1]. Project to float via the same
+            // double-precision intermediate ActiveViewerEvent uses so the
+            // representation matches across the bridge boundary.
+            const double oneRaw = (double)Fixed.OneRaw;
+            float f = (float)(stakes.RawValue / oneRaw);
+            if (f < 0f) return 0f;
+            if (f > 1f) return 1f;
+            return f;
+        }
+
+        /// <summary>
+        /// Per-tick refresh of the anime-presentation shader globals.
+        /// Decay/strength math lives in <see cref="AnimePresentationUniforms"/>
+        /// so the arithmetic is L1-testable; this method just owns the
+        /// bridge between the canonical Tick stream and the global
+        /// uniforms.
+        /// </summary>
+        private void UpdateAnimePresentationUniforms(long currentTick)
+        {
+            float flashIntensity = AnimePresentationUniforms.ComputeFlashIntensity(
+                currentTick, impactFlashStartTick, impactFrameDecayTicks);
+            float toneStrength = AnimePresentationUniforms.ComputeScreenToneStrength(
+                currentTick, screenToneStartTick, screenToneEndTick,
+                screenToneBaseStrength, screenToneFadeTicks);
+
+            Shader.SetGlobalFloat(flashIntensityId, flashIntensity);
+            Shader.SetGlobalFloat(screenToneStrengthId, toneStrength);
+            // Saturating cast: at >2^31 ticks (~414 days @60Hz) the int
+            // pins to MaxValue rather than wrapping. No real Phase-3 match
+            // hits this, but explicit saturation beats silent overflow.
+            Shader.SetGlobalInt(elapsedTicksId, (int)Math.Min(currentTick, int.MaxValue));
+
+            // Retire spent windows so a future event can re-trigger
+            // cleanly without leaking residual state. Per pr-review-toolkit
+            // feature-dev:code-reviewer Slice-5 P2 closure: the prior
+            // shape included a redundant `currentTick - start >= decayTicks`
+            // guard that left a future-dated start window dormant forever.
+            // ComputeFlashIntensity already returns 0 when elapsed is past
+            // the decay window OR when start is sentinel; retire whenever
+            // the helper returns 0 AND the window is currently held.
+            if (impactFlashStartTick >= 0L
+                && currentTick >= impactFlashStartTick
+                && flashIntensity <= 0f)
+            {
+                impactFlashStartTick = -1L;
+            }
+            if (screenToneStartTick >= 0L && currentTick >= screenToneEndTick)
+            {
+                screenToneStartTick = -1L;
+                screenToneEndTick = -1L;
+                screenToneBaseStrength = 0f;
             }
         }
 
