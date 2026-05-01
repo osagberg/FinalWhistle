@@ -95,6 +95,44 @@ namespace FinalWhistle.Viewer.Tests.EditMode
             Assert.That(resolved, Is.SameAs(tacticalWide));
         }
 
+        [Test]
+        public void ResolveShot_AllBridgeEmittableCategories_DoNotThrowWhenWired()
+        {
+            // Round-2 follow-up against d7faefc closes Codex's P1: the
+            // scene's shotCatalog only included 3 of the 4 bridge-
+            // emittable categories, so a real SignatureBreakthrough
+            // (AftermathFreeze) or LowCutback (PlayerIsolation) event
+            // threw inside ResolveShot — preventing the Slice-5 anime
+            // trigger from running. This regression pins the four
+            // bridge-emittable categories: with all of them registered,
+            // ResolveShot must succeed for each.
+            ShotTypeSO passShotImpact = CreateShot(ShotTypeCatalog.ShotPassShotImpact);
+            ShotTypeSO playerIsolation = CreateShot(ShotTypeCatalog.ShotPlayerIsolation);
+            ShotTypeSO aftermathFreeze = CreateShot(ShotTypeCatalog.ShotAftermathFreeze);
+            try
+            {
+                SetField(root, "shotCatalog",
+                    new[] { tacticalWide, passShotImpact, playerIsolation, aftermathFreeze });
+                root.Initialize(new PitchView());
+
+                // The four bridge-emitted categories per EventBridge.cs:
+                //   Goal / BlindSideRun → PassShotImpact
+                //   FirstTimeDiagonalSwitch → TacticalWide
+                //   LowCutback → PlayerIsolation
+                //   SignatureBreakthrough → AftermathFreeze
+                Assert.DoesNotThrow(() => root.ResolveShot(ShotCategory.TacticalWide));
+                Assert.DoesNotThrow(() => root.ResolveShot(ShotCategory.PassShotImpact));
+                Assert.DoesNotThrow(() => root.ResolveShot(ShotCategory.PlayerIsolation));
+                Assert.DoesNotThrow(() => root.ResolveShot(ShotCategory.AftermathFreeze));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(passShotImpact);
+                UnityEngine.Object.DestroyImmediate(playerIsolation);
+                UnityEngine.Object.DestroyImmediate(aftermathFreeze);
+            }
+        }
+
         // ----- Helpers -----
 
         private static ShotTypeSO CreateShot(string id)

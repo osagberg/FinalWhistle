@@ -36,7 +36,7 @@ namespace FinalWhistle.Viewer.Adapters.Dots
 
         [SerializeField] private ShotCamera shotCamera;
 
-        [Tooltip("ShotTypeSO assets, one per ShotCategory the dots adapter wants to render. Phase-3: tactical-wide / diagonal-attack-lane / pass-shot-impact. Categories not in the array fall back to TacticalWide.")]
+        [Tooltip("ShotTypeSO assets, one per ShotCategory the dots adapter wants to render. Phase-3: tactical-wide / diagonal-attack-lane / pass-shot-impact / aftermath-freeze / player-isolation. ResolveShot throws loudly on unregistered ShotCategories — categories must be explicitly authored + wired here. Bridge-emitted categories that aren't registered are wiring bugs.")]
         [SerializeField] private ShotTypeSO[] shotCatalog;
 
         private PitchView pitch;

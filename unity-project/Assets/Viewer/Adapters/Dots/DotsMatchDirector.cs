@@ -522,9 +522,23 @@ namespace FinalWhistle.Viewer.Adapters.Dots
                 // ActiveViewerEvent.ElapsedTicks contract.
                 int elapsed = Math.Max(0, (int)(preAdvanceTick - ev.StartTick.Value));
                 ActiveViewerEvent active = new(ev, elapsed);
-                adapterRoot.PresentShot(active);
 
+                // Slice-5 round-2 follow-up against d7faefc closes a P1
+                // dispatch-ordering bug Codex caught: previously the
+                // anime trigger fired AFTER PresentShot, so an event
+                // whose category had no registered ShotTypeSO (Phase-3
+                // scene caught only TacticalWide / DiagonalAttackLane /
+                // PassShotImpact) would throw inside ResolveShot before
+                // the screen-tone / impact-frame trigger ran. Anime
+                // triggers must be defended from camera-resolution
+                // failures: fire them FIRST so a SignatureBreakthrough
+                // / LowCutback always opens the anime window even when
+                // an authoring miss prevents the framing from rendering
+                // (combined with the loud-fail in ResolveShot, the dev
+                // sees both the anime effect AND the wiring-bug throw
+                // — fully diagnostic).
                 MaybeTriggerAnimePresentation(ev);
+                adapterRoot.PresentShot(active);
 
                 lastProcessedViewerEventId = ev.ViewerEventId;
             }
