@@ -286,12 +286,53 @@ namespace FinalWhistle.Viewer.Adapters.Dots
                 Time.fixedDeltaTime = priorFixedDeltaTime;
                 fixedDeltaTimeOverrideApplied = false;
             }
+            // Symmetric with Awake's reset (per Codex round-1 closure of
+            // 2b3460e: Shader.SetGlobal* are process-global; OnDisable
+            // restored Time.fixedDeltaTime but not the anime uniforms,
+            // so a director disabled mid-flash left the renderer features
+            // applying the stale globals until another director cleared
+            // them — observable in scene unload, driveSim toggling, or
+            // play→edit transition).
+            ClearAnimePresentationGlobals();
+        }
+
+        private void OnDestroy()
+        {
+            // Belt-and-braces alongside OnDisable: a destroyed director
+            // can't run OnDisable in some teardown orderings, so clear
+            // again here. Idempotent — second clear is a no-op.
+            ClearAnimePresentationGlobals();
+        }
+
+        private void ClearAnimePresentationGlobals()
+        {
+            // PropertyToIDs may not have been cached yet if Awake
+            // hasn't run (e.g. OnDisable from a prefab teardown). Re-
+            // resolve by name in that case so the cleanup is safe to
+            // call from any lifecycle phase.
+            int flashId = flashIntensityId != 0
+                ? flashIntensityId
+                : Shader.PropertyToID(AnimePresentationUniforms.FlashIntensityName);
+            int toneId = screenToneStrengthId != 0
+                ? screenToneStrengthId
+                : Shader.PropertyToID(AnimePresentationUniforms.ScreenToneStrengthName);
+            int elapsedId = elapsedTicksId != 0
+                ? elapsedTicksId
+                : Shader.PropertyToID(AnimePresentationUniforms.ElapsedTicksName);
+            Shader.SetGlobalFloat(flashId, 0f);
+            Shader.SetGlobalFloat(toneId, 0f);
+            Shader.SetGlobalInt(elapsedId, 0);
         }
 
         private void FixedUpdate()
         {
             if (!driveSim || state is null)
             {
+                // driveSim toggled OFF mid-play (or sim never bootstrapped):
+                // keep the anime globals zeroed so a previously-active flash
+                // or screen-tone doesn't visually persist when the sim is
+                // paused via the inspector toggle (per Codex round-1 P2).
+                ClearAnimePresentationGlobals();
                 return;
             }
 
@@ -338,10 +379,16 @@ namespace FinalWhistle.Viewer.Adapters.Dots
 
             // Slice-5 anime-presentation: drive the shader globals each
             // FixedUpdate against the canonical tick stream (NOT Time.time).
-            // Decay math lives in AnimePresentationUniforms so it is pure-C#
-            // + EditMode-testable — the renderer features read these globals
-            // on the next render frame.
-            UpdateAnimePresentationUniforms(state.CurrentTick.Value);
+            // Use preAdvanceTick — the same tick the dispatch loop just
+            // emitted events against — so a brand-new event at tick N
+            // first renders at intensity 1.0 / fade-in tick 0, not at
+            // 11/12 / fade-in tick 1 (per Codex round-1 closure of 2b3460e:
+            // same off-by-one class as the Slice-3 ActiveViewerEvent
+            // ElapsedTicks fix). Decay math lives in
+            // AnimePresentationUniforms so it is pure-C# + EditMode-
+            // testable — the renderer features read these globals on the
+            // next render frame.
+            UpdateAnimePresentationUniforms(preAdvanceTick);
 
             // Slice-4 adapter-local heuristic per blueprint Decision 3:
             // diagonal-attack-lane is NOT bridge-emitted at Phase-3 — the

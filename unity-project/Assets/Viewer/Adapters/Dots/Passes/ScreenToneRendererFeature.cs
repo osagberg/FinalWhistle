@@ -50,6 +50,11 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         private ScreenTonePass pass;
         private bool warnedAddRenderPassesNoMaterial;
 
+        // Cached PropertyToID for the idle-frame skip check in
+        // AddRenderPasses. Looked up once at Create + reused per frame.
+        private static readonly int strengthId =
+            Shader.PropertyToID(AnimePresentationUniforms.ScreenToneStrengthName);
+
         public override void Create()
         {
             // Defer material creation when the shader reference is
@@ -94,6 +99,18 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             // Game cameras only — preview/scene cameras render through
             // their own paths and the overlay is irrelevant there.
             if (renderingData.cameraData.cameraType != CameraType.Game)
+            {
+                return;
+            }
+            // Idle-frame fast path per Codex round-1 P2 closure of 2b3460e:
+            // when the director's screen-tone state has fully retired,
+            // skip enqueueing the pass entirely. The shader's `<= 0` early-
+            // out still bailed on no-op rendering but the BLIT itself ran
+            // (sample + write a fullscreen target every frame on every
+            // game camera). Reading the global is a single hash-lookup +
+            // float-load — orders of magnitude cheaper than a fullscreen
+            // sample-write.
+            if (Shader.GetGlobalFloat(strengthId) <= 0f)
             {
                 return;
             }

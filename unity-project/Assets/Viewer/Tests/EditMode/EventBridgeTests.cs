@@ -277,11 +277,15 @@ namespace FinalWhistle.Viewer.Tests.EditMode
         }
 
         [Test]
-        public void Derive_GoalWithReduceMotion_NoVariantSoNoSubstitution()
+        public void Derive_GoalWithReduceMotion_SubstitutesPassShotImpactVariant()
         {
-            // pass-shot-impact has no reduce_motion_variant defined in the
-            // Phase-3 catalog. The flag stays false even with reduce-motion
-            // requested.
+            // Slice-5 round-1 follow-up against 2b3460e: pass-shot-impact
+            // now has a reduce-motion variant in the catalog so the
+            // dots-adapter Slice-5 anime-presentation surfaces (impact-
+            // frame flash) can gate on ReduceMotionApplied. Prior shape
+            // had NO variant + the bridge produced ReduceMotionApplied=false
+            // even with reduceMotionEnabled requested — the flag never
+            // fired and the suppression contract was broken end-to-end.
             MatchSimulationState state = BuildEmptyState();
             state.KeyEvents.Add(BuildKeyEvent(1200, KeyEventKind.Goal, TeamSide.Home, KeyEvent.JerseyUnspecified));
 
@@ -289,8 +293,32 @@ namespace FinalWhistle.Viewer.Tests.EditMode
                 state, Seed.FromUInt64(0xdeadbeefdeadbeefUL), reduceMotionEnabled: true);
 
             Assert.AreEqual(1, events.Count);
-            Assert.AreEqual(events[0].BaseShotTypeId, events[0].EffectiveShotTypeId);
-            Assert.IsFalse(events[0].ReduceMotionApplied);
+            ViewerEvent ev = events[0];
+            Assert.AreEqual(ShotTypeCatalog.ShotPassShotImpact, ev.BaseShotTypeId);
+            Assert.AreEqual(ShotTypeCatalog.ShotPassShotImpactReduceMotion, ev.EffectiveShotTypeId);
+            Assert.IsTrue(ev.ReduceMotionApplied);
+        }
+
+        [Test]
+        public void Derive_SignatureBreakthroughWithReduceMotion_SubstitutesAftermathFreezeVariant()
+        {
+            // Slice-5 round-1 follow-up against 2b3460e: aftermath-freeze
+            // now has a reduce-motion variant. SignatureBreakthrough →
+            // ShotAftermathFreeze; with reduceMotionEnabled the bridge
+            // substitutes the reduce-motion variant + raises the flag,
+            // letting the dots-adapter Slice-5 screen-tone overlay
+            // suppress through the canonical reduce-motion path.
+            MatchSimulationState state = BuildEmptyState();
+            state.KeyEvents.Add(BuildKeyEvent(2400, KeyEventKind.SignatureBreakthrough, TeamSide.Home, jersey: 6));
+
+            IReadOnlyList<ViewerEvent> events = EventBridge.Derive(
+                state, Seed.FromUInt64(0xdeadbeefdeadbeefUL), reduceMotionEnabled: true);
+
+            Assert.AreEqual(1, events.Count);
+            ViewerEvent ev = events[0];
+            Assert.AreEqual(ShotTypeCatalog.ShotAftermathFreeze, ev.BaseShotTypeId);
+            Assert.AreEqual(ShotTypeCatalog.ShotAftermathFreezeReduceMotion, ev.EffectiveShotTypeId);
+            Assert.IsTrue(ev.ReduceMotionApplied);
         }
 
         // ============================================================
@@ -314,6 +342,29 @@ namespace FinalWhistle.Viewer.Tests.EditMode
             ShotTypeDefinition shot = ShotTypeCatalog.Get(ShotTypeCatalog.ShotPlayerIsolation);
             Assert.AreEqual(ShotCategory.PlayerIsolation, shot.Category);
             Assert.AreEqual(ShotTypeCatalog.ShotPlayerIsolationReduceMotion, shot.ReduceMotionVariantId);
+        }
+
+        [Test]
+        public void ShotTypeCatalog_PassShotImpactHasReduceMotionVariant()
+        {
+            // Slice-5 round-1 follow-up against 2b3460e: required for the
+            // bridge to raise ReduceMotionApplied on Goal events so the
+            // dots-adapter impact-frame flash gates correctly.
+            ShotTypeDefinition shot = ShotTypeCatalog.Get(ShotTypeCatalog.ShotPassShotImpact);
+            Assert.AreEqual(ShotCategory.PassShotImpact, shot.Category);
+            Assert.AreEqual(ShotTypeCatalog.ShotPassShotImpactReduceMotion, shot.ReduceMotionVariantId);
+        }
+
+        [Test]
+        public void ShotTypeCatalog_AftermathFreezeHasReduceMotionVariant()
+        {
+            // Slice-5 round-1 follow-up against 2b3460e: required for the
+            // bridge to raise ReduceMotionApplied on SignatureBreakthrough
+            // events so the dots-adapter screen-tone overlay gates
+            // correctly.
+            ShotTypeDefinition shot = ShotTypeCatalog.Get(ShotTypeCatalog.ShotAftermathFreeze);
+            Assert.AreEqual(ShotCategory.AftermathFreeze, shot.Category);
+            Assert.AreEqual(ShotTypeCatalog.ShotAftermathFreezeReduceMotion, shot.ReduceMotionVariantId);
         }
 
         [Test]

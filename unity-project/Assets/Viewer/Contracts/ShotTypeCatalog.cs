@@ -41,9 +41,21 @@ namespace FinalWhistle.Viewer.Contracts
 
         // Phase-3 reduce-motion variant IDs. Phase-4+ ScriptableObject
         // authoring will add the rest of the 7-shot vocabulary +
-        // adapter-specific reduce-motion overrides.
+        // adapter-specific reduce-motion overrides. The Slice-5
+        // PassShotImpact + AftermathFreeze variants exist so the bridge
+        // can substitute them under reduce-motion + raise
+        // ReduceMotionApplied — the dots-adapter Slice-5 anime-presentation
+        // surfaces (impact-frame flash + diagonal screen-tone) gate on
+        // that flag (per Codex round-1 closure of 2b3460e: prior shape
+        // never set the flag for Goal / SignatureBreakthrough events
+        // because their base IDs lacked variants, breaking the
+        // reduce-motion contract end-to-end).
         public const string ShotPlayerIsolationReduceMotion =
             "fwh.core:shot.player-isolation.reduce-motion";
+        public const string ShotPassShotImpactReduceMotion =
+            "fwh.core:shot.pass-shot-impact.reduce-motion";
+        public const string ShotAftermathFreezeReduceMotion =
+            "fwh.core:shot.aftermath-freeze.reduce-motion";
 
         private static readonly Dictionary<string, ShotTypeDefinition> _byId;
 
@@ -89,10 +101,22 @@ namespace FinalWhistle.Viewer.Contracts
             ShotTypeDefinition passShotImpact = new(
                 id: ShotPassShotImpact,
                 category: ShotCategory.PassShotImpact,
+                durationTicks: Duration4s,
+                reduceMotionVariantId: ShotPassShotImpactReduceMotion);
+
+            ShotTypeDefinition passShotImpactReduceMotion = new(
+                id: ShotPassShotImpactReduceMotion,
+                category: ShotCategory.PassShotImpact,
                 durationTicks: Duration4s);
 
             ShotTypeDefinition aftermathFreeze = new(
                 id: ShotAftermathFreeze,
+                category: ShotCategory.AftermathFreeze,
+                durationTicks: Duration5s,
+                reduceMotionVariantId: ShotAftermathFreezeReduceMotion);
+
+            ShotTypeDefinition aftermathFreezeReduceMotion = new(
+                id: ShotAftermathFreezeReduceMotion,
                 category: ShotCategory.AftermathFreeze,
                 durationTicks: Duration5s);
 
@@ -103,7 +127,9 @@ namespace FinalWhistle.Viewer.Contracts
                 [playerIsolation.Id] = playerIsolation,
                 [playerIsolationReduceMotion.Id] = playerIsolationReduceMotion,
                 [passShotImpact.Id] = passShotImpact,
+                [passShotImpactReduceMotion.Id] = passShotImpactReduceMotion,
                 [aftermathFreeze.Id] = aftermathFreeze,
+                [aftermathFreezeReduceMotion.Id] = aftermathFreezeReduceMotion,
             };
 
             // Consistency assertion per pr-review-toolkit:type-design-analyzer

@@ -561,6 +561,11 @@ MonoBehaviour:
   awayArchetypeName: low-block-counter
   matchSeedHex: 0xdeadbeefdeadbeef
   driveSim: 1
+  diagonalAttackLaneZVelocityThreshold: 8
+  reduceMotionEnabled: 0
+  impactFrameStakesThreshold: 0.7
+  impactFrameDecayTicks: 12
+  screenToneFadeTicks: 6
 --- !u!4 &2056766043
 Transform:
   m_ObjectHideFlags: 0

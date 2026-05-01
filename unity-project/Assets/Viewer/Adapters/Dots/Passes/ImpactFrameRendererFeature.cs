@@ -58,6 +58,11 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         private ImpactFramePass pass;
         private bool warnedAddRenderPassesNoMaterial;
 
+        // Cached PropertyToID for the idle-frame skip check in
+        // AddRenderPasses. Looked up once at Create + reused per frame.
+        private static readonly int intensityId =
+            Shader.PropertyToID(AnimePresentationUniforms.FlashIntensityName);
+
         public override void Create()
         {
             if (impactFrameShader == null)
@@ -93,6 +98,14 @@ namespace FinalWhistle.Viewer.Adapters.Dots
                 return;
             }
             if (renderingData.cameraData.cameraType != CameraType.Game)
+            {
+                return;
+            }
+            // Idle-frame fast path per Codex round-1 P2 closure of 2b3460e:
+            // skip enqueueing the pass when the flash is fully retired.
+            // See ScreenToneRendererFeature.AddRenderPasses for the same
+            // discipline + rationale.
+            if (Shader.GetGlobalFloat(intensityId) <= 0f)
             {
                 return;
             }
