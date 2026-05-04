@@ -697,22 +697,30 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         }
 
         /// <summary>
-        /// Phase-3 placeholder side discrimination — Phase-3 ViewerEvent
-        /// doesn't carry TeamSide directly (the bridge derives it from
-        /// KeyEvent but doesn't pin it on ViewerEvent yet). Until Phase-4+
-        /// adds an explicit Side field on ViewerEvent, use the participant
-        /// ID prefix (home archetype IDs vs away archetype IDs). Per
-        /// Slice-6 round-1 P3 closure (silent-failure-hunter): warn once
-        /// when neither prefix matches so a future fixture rename surfaces
-        /// instead of silently routing to Away tinting.
+        /// Phase-3 placeholder side discrimination via the focal-subject
+        /// string format. Per <c>Viewer.EventBridge.FormatFocalSubject</c>,
+        /// the bridge emits participants as <c>viewer.focal:home.{NN}</c> /
+        /// <c>viewer.focal:away.{NN}</c>. Phase-4+ adds an explicit
+        /// <c>TeamSide</c> field on <see cref="ViewerEvent"/> that retires
+        /// this string-prefix heuristic.
+        ///
+        /// <para>
+        /// Per Slice-6 round-2 P2 closure (Codex review of 67c0905): the
+        /// previous shape checked raw <c>"home"</c> / <c>"away"</c>
+        /// prefixes, which never matched the actual <c>viewer.focal:home.</c>
+        /// format — so EVERY home signature title-card silently fell
+        /// through to Away tinting. Now matches the actual prefix; the
+        /// warn-once still fires for unrecognised formats so a future
+        /// rename surfaces.
+        /// </para>
         /// </summary>
         private TeamSide ResolveTitleCardSide(string playerName)
         {
-            if (playerName.StartsWith("home", StringComparison.Ordinal))
+            if (playerName.StartsWith("viewer.focal:home.", StringComparison.Ordinal))
             {
                 return TeamSide.Home;
             }
-            if (playerName.StartsWith("away", StringComparison.Ordinal))
+            if (playerName.StartsWith("viewer.focal:away.", StringComparison.Ordinal))
             {
                 return TeamSide.Away;
             }
@@ -720,9 +728,10 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             {
                 Debug.LogWarning(
                     $"{nameof(DotsMatchDirector)}: title-card playerName '{playerName}' " +
-                    "does not start with 'home' or 'away'. Phase-3 placeholder side discrimination " +
-                    "defaulting to Away tinting. This message logs once per Awake lifecycle. " +
-                    "Phase-4+ adds an explicit ViewerEvent.Side field that retires this heuristic.",
+                    "does not match the expected 'viewer.focal:home.NN' / 'viewer.focal:away.NN' " +
+                    "format. Phase-3 placeholder side discrimination defaulting to Away tinting. " +
+                    "This message logs once per Awake lifecycle. Phase-4+ adds an explicit " +
+                    "ViewerEvent.Side field that retires this heuristic.",
                     this);
                 warnedTitleCardSidePrefix = true;
             }

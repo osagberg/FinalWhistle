@@ -140,8 +140,17 @@ namespace FinalWhistle.Viewer.Adapters.Dots
 
         private static readonly IReadOnlyList<string> SignatureBreakthroughPool = new[]
         {
+            // Count-neutral copy per Slice-6 round-2 P2 closure (Codex
+            // review of 67c0905): Phase-3 SignatureBreakthrough fires
+            // when a player reaches their per-match cap, but the cap
+            // varies per signature (LowCutback 3, BlindSideNearPostRun
+            // 2, FirstTimeDiagonalSwitch 2). The previous "Third time
+            // in the match" line emitted the wrong count for 2-cap
+            // breakthroughs. None of these reference a specific count;
+            // Phase-4+ may add count-aware split pools when
+            // ViewerEvent carries fired-count metadata.
             "Something's clicked for him this afternoon.",
-            "Third time in the match — that's a player finding his level.",
+            "Repeat performance — that's a player finding his level.",
             "Real moment for him, that. He'll remember this one.",
             "He's doing it on the day. The dressing room will have noticed.",
             "Performance has built into something. He's earned this.",

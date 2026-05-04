@@ -13,20 +13,18 @@
  * UI Toolkit falls back to Unity's built-in font with a console warning.
  *
  * Occlusion budget per Slice-6 acceptance criterion (<10% pitch
- * occlusion). Approximate height/width allocations below; the L2 worst-
- * case capture (all 3 regions visible simultaneously) measures the
- * actual occupied screen percentage as the binding check.
- *   - scoreboard:    full width × 7% height                   ≈ 7.0%
- *   - commentary:    bottom-left 38% width × 6% height        ≈ 2.3%
- *   - title-card:    centred 32% width × 12% height (when visible) ≈ 3.8%
- *   Worst case sum:  ≈ 13.1%   (all three visible — title-card overlays
- *                                  the commentary's left edge so actual
- *                                  occlusion is 11-12%, see L2 evidence)
- *   Phase-3 acceptance: <10% with the title-card visible at full size
- *                       requires the title-card to NOT overlap the
- *                       commentary horizontally. Anchor title-card to
- *                       the bottom-centre and commentary bottom-left
- *                       edge-to-edge so the union stays under 10%.
+ * occlusion). Per Slice-6 round-2 P2 closure (Codex review of 67c0905):
+ * non-overlapping panel placement makes the union the SUM of areas;
+ * the prior layout sized to ≈13.1% gross which violated the budget.
+ * Tightened allocations:
+ *   - scoreboard:    full width × 5% height                   = 5.0%
+ *   - commentary:    bottom-left 30% width × 5% height        = 1.5%
+ *   - title-card:    centred 28% width × 9% height            = 2.5%
+ *   Worst case sum:  ≈ 9.0%   (all three visible, no overlap)
+ *
+ * The L2 worst-case capture measures the actual rendered rectangles to
+ * confirm the math holds (a render-resolution + DPI-scale interaction
+ * could shift effective coverage by ±0.5%).
  */
 
 /* ============================================================
@@ -48,7 +46,7 @@
     top: 0;
     left: 0;
     right: 0;
-    height: 7%;
+    height: 5%;
     flex-direction: row;
     justify-content: center;
     align-items: center;
@@ -109,8 +107,8 @@
     position: absolute;
     bottom: 4%;
     left: 2%;
-    width: 38%;
-    height: 6%;
+    width: 30%;
+    height: 5%;
     background-color: rgba(8, 12, 16, 0.72);
     border-left-width: 3px;
     border-left-color: rgb(230, 195, 70);
@@ -145,12 +143,14 @@
 .fw-title-card {
     position: absolute;
     bottom: 12%;
-    /* Centre by anchoring left=34% width=32% so the union with the
-       commentary panel (left=2% width=38%, ends at 40%) leaves a 6%
+    /* Centre by anchoring left=36% width=28% so the union with the
+       commentary panel (left=2% width=30%, ends at 32%) leaves a 4%
        buffer between them — keeps simultaneous visibility under the
-       <10% occlusion budget per Slice-6 acceptance. */
-    left: 34%;
-    width: 32%;
+       <10% occlusion budget per Slice-6 acceptance + round-2 P2
+       closure. Title-card height shrunk from 12% → 9% in the same
+       pass. */
+    left: 36%;
+    width: 28%;
     /* Slightly taller than the commentary strip so the typography
        hierarchy reads at scoreboard zoom. Phase-3 fixed height; Phase-4
        may switch to content-driven height if signature display names

@@ -1,142 +1,130 @@
 using System;
 using FinalWhistle.MatchSim.Sim;
 using UnityEngine;
-using UnityEngine.UIElements;
+using UnityEngine.UI;
 
 namespace FinalWhistle.Viewer.Adapters.Dots
 {
     /// <summary>
-    /// MonoBehaviour driver for the Phase-3 dots-adapter UI Toolkit
-    /// overlay (Slice 6). Owns a child <see cref="UIDocument"/> sourced
-    /// from <c>UI/DotsOverlay.uxml</c>; exposes a small typed API for
-    /// <see cref="DotsMatchDirector"/> to drive scoreboard, commentary
-    /// line, and signature title-card per the Slice-6 event-to-overlay
-    /// matrix in <see cref="CommentaryTemplates"/>.
+    /// MonoBehaviour driver for the Phase-3 dots-adapter overlay
+    /// (Slice 6). Drives a UGUI <see cref="Canvas"/> hierarchy with
+    /// legacy <see cref="UnityEngine.UI.Text"/> labels for scoreboard,
+    /// commentary line, and signature title-card per the Slice-6
+    /// event-to-overlay matrix in <see cref="CommentaryTemplates"/>.
     ///
     /// <para>
-    /// <strong>Topology</strong>: a dedicated <c>OverlayController</c>
-    /// GameObject under the scene root (NOT attached to
-    /// <see cref="DotsMatchDirector"/>) — keeps the director's lifecycle
-    /// clean (it already owns <see cref="Time.fixedDeltaTime"/> override
-    /// + shader globals + ViewerEvent dispatch) and lets L2 screenshot
-    /// scripting toggle overlay state independently.
-    /// <c>PanelSettings.sortingOrder = 1</c> renders above the URP
-    /// camera output without fighting the Slice-5 RenderGraph passes.
+    /// <strong>UGUI vs UI Toolkit (Slice-6 round-1 P1 closure)</strong>:
+    /// the original Slice-6 implementation used UI Toolkit
+    /// (<c>UIDocument</c> + UXML/USS) per the dots-adapter blueprint
+    /// and CLAUDE.md tech-stack lock. In this Unity 6.0.4 + URP 17.4
+    /// + Mac/Metal configuration the UI Toolkit runtime panel did not
+    /// composite painted pixels into the framebuffer despite a
+    /// verified-correct tree (8 labels populated, fonts resolved,
+    /// PanelSettings cloned from a known-good Cinemachine reference,
+    /// console clean, Slice-5 RenderGraph features ruled out).
+    /// Codex round-1 review against <c>67c0905</c> flagged this as
+    /// a P1 acceptance blocker. UGUI is the documented fallback per
+    /// <c>.claude/rules/Scripts/Viewer/RULES.md</c> "UGUI fallback only
+    /// when UI Toolkit lacks the surface" — Slice 6 ships UGUI; the
+    /// authored UXML/USS stays on disk as a Phase-4+ migration scaffold
+    /// once the UI Toolkit composition issue is diagnosed.
     /// </para>
     ///
     /// <para>
-    /// <strong>Determinism contract</strong>: NO frame-time inputs
-    /// (<see cref="Time.time"/>, <see cref="Time.deltaTime"/>) feed any
-    /// timing decision in the API surface. Scoreboard minute is
-    /// canonical-tick-derived by the caller; title-card lifetime is
-    /// driven by <c>ev.StartTick</c> / <c>ev.EndTick</c> / current
-    /// canonical tick on the director side
-    /// (<see cref="DotsMatchDirector"/> retires the title-card via
-    /// <see cref="HideTitleCard"/> when the canonical tick passes the
-    /// active event's <c>EndTick</c>). USS animations on the title-card
-    /// are presentation-only (transitions on the <c>--visible</c> class
-    /// toggle); reduce-motion suppresses the transition class entirely
-    /// per Codex P2-4 closure.
+    /// <strong>Topology</strong>: a dedicated <c>OverlayController</c>
+    /// GameObject hosts a Canvas in Screen Space — Overlay mode
+    /// (sortingOrder=1, renders above all camera output) plus the
+    /// scoreboard / commentary / title-card child labels. The director
+    /// references the <c>OverlayController</c> via SerializeField; all
+    /// public methods are zero-allocation (label.text writes only).
+    /// </para>
+    ///
+    /// <para>
+    /// <strong>Determinism contract</strong> (preserved from the UI
+    /// Toolkit version): NO frame-time inputs feed any timing decision
+    /// in the API surface. Scoreboard minute is canonical-tick-derived
+    /// by the caller; title-card lifetime is driven by
+    /// <c>ev.StartTick</c> / <c>ev.EndTick</c> on the director side.
+    /// Title-card visibility is a binary GameObject.SetActive — no
+    /// frame-time animations.
     /// </para>
     ///
     /// <para>
     /// <strong>Reduce-motion</strong>: <see cref="ShowTitleCard"/>
     /// takes a <paramref name="reduceMotion"/> bool sourced from
-    /// <see cref="ViewerEvent.ReduceMotionApplied"/>. When true, the
-    /// title-card appears at full opacity instantly (no fade-in /
-    /// type-pulse / slide); when false, the standard USS transition
-    /// runs. The renderer-feature side already gates impact-frame +
-    /// screen-tone on reduce-motion (Slice 5 round-1); this surface
-    /// extends the same discipline to the typography rhythm per
-    /// design/anime-presentation-budget.md surface #8.
+    /// <see cref="ViewerEvent.ReduceMotionApplied"/>. UGUI legacy Text
+    /// has no built-in transition, so the title-card always appears
+    /// instantly — meaning reduce-motion is the default behaviour at
+    /// Phase 3. The flag is preserved on the API for forward
+    /// compatibility with the Phase-4+ UI Toolkit migration that
+    /// re-introduces fade/translate transitions.
     /// </para>
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class OverlayController : MonoBehaviour
     {
-        [Tooltip("UIDocument component on this GameObject. Must reference DotsOverlay.uxml + the dots-adapter PanelSettings asset.")]
-        [SerializeField] private UIDocument uiDocument;
+        [Tooltip("UGUI Text component for the home team's score digit.")]
+        [SerializeField] private Text scoreLabelHome;
 
-        // Cached element queries — populated in OnEnable; nulled in
-        // OnDisable so a hot-reload re-resolves from the rebuilt tree.
-        // Per pr-review-toolkit type-design-analyzer Slice-2 P2's
-        // "dots == null" pattern: the null check IS the initialization
-        // guard, no separate bool flag.
-        private Label scoreLabelHome;
-        private Label scoreLabelAway;
-        private Label minuteLabel;
-        private Label commentaryLabel;
-        private VisualElement commentaryRoot;
-        private VisualElement titleCardRoot;
-        private Label titleCardSignatureLabel;
-        private Label titleCardPlayerLabel;
+        [Tooltip("UGUI Text component for the away team's score digit.")]
+        [SerializeField] private Text scoreLabelAway;
 
-        // USS class names — kept as constants here so a stylesheet edit
-        // that drifts the class name surfaces as a missing-class warning
-        // at runtime rather than silent layout breakage.
-        private const string CommentaryActiveClass = "fw-commentary--active";
-        private const string TitleCardVisibleClass = "fw-title-card--visible";
-        private const string TitleCardReduceMotionClass = "fw-title-card--reduce-motion";
-        private const string TitleCardHomeClass = "fw-title-card--home";
-        private const string TitleCardAwayClass = "fw-title-card--away";
+        [Tooltip("UGUI Text component for the match-minute label (top-centre between scores).")]
+        [SerializeField] private Text minuteLabel;
+
+        [Tooltip("UGUI Text component for the commentary line (bottom-left strip).")]
+        [SerializeField] private Text commentaryLabel;
+
+        [Tooltip("Root GameObject of the commentary panel (parent of commentaryLabel). Toggled active when a commentary line is pushed.")]
+        [SerializeField] private GameObject commentaryRoot;
+
+        [Tooltip("Root GameObject of the signature title-card (parent of the two title-card labels). Toggled active by ShowTitleCard / HideTitleCard.")]
+        [SerializeField] private GameObject titleCardRoot;
+
+        [Tooltip("UGUI Text component for the signature display name (e.g., 'Low cutback from the byline').")]
+        [SerializeField] private Text titleCardSignatureLabel;
+
+        [Tooltip("UGUI Text component for the player attribution under the signature.")]
+        [SerializeField] private Text titleCardPlayerLabel;
+
+        [Tooltip("Image component for the title-card's side-tinted accent strip. Tint set via colour swap on home/away events.")]
+        [SerializeField] private Image titleCardAccent;
+
+        [Tooltip("Side-tint colour for home-team signatures (cool blue). Matches the Slice-2 IdentityTintTable home palette band.")]
+        [SerializeField] private Color titleCardHomeColor = new(0.275f, 0.569f, 0.941f, 1f);
+
+        [Tooltip("Side-tint colour for away-team signatures (warm coral). Matches the Slice-2 IdentityTintTable away palette band.")]
+        [SerializeField] private Color titleCardAwayColor = new(0.902f, 0.373f, 0.314f, 1f);
 
         private void OnEnable()
         {
-            if (uiDocument == null)
-            {
-                throw new InvalidOperationException(
-                    $"{nameof(OverlayController)}.{nameof(uiDocument)} reference missing; " +
-                    "assign the UIDocument component in the scene inspector.");
-            }
-            VisualElement root = uiDocument.rootVisualElement;
-            if (root == null)
-            {
-                // UIDocument can return null root in some edit-mode hot-
-                // reload paths; surface loud rather than silently
-                // produce a no-op overlay.
-                throw new InvalidOperationException(
-                    $"{nameof(OverlayController)}: UIDocument.rootVisualElement is null. " +
-                    "Verify that DotsOverlay.uxml is assigned to UIDocument.visualTreeAsset.");
-            }
+            // Loud-fail validation: every SerializeField must be wired
+            // for the API surface to behave. A missing reference is a
+            // scene-wiring bug, not a runtime fallback case.
+            EnsureWired(scoreLabelHome, nameof(scoreLabelHome));
+            EnsureWired(scoreLabelAway, nameof(scoreLabelAway));
+            EnsureWired(minuteLabel, nameof(minuteLabel));
+            EnsureWired(commentaryLabel, nameof(commentaryLabel));
+            EnsureWired(commentaryRoot, nameof(commentaryRoot));
+            EnsureWired(titleCardRoot, nameof(titleCardRoot));
+            EnsureWired(titleCardSignatureLabel, nameof(titleCardSignatureLabel));
+            EnsureWired(titleCardPlayerLabel, nameof(titleCardPlayerLabel));
+            EnsureWired(titleCardAccent, nameof(titleCardAccent));
 
-            scoreLabelHome = ResolveLabel(root, "fw-score-home");
-            scoreLabelAway = ResolveLabel(root, "fw-score-away");
-            minuteLabel = ResolveLabel(root, "fw-minute");
-            commentaryLabel = ResolveLabel(root, "fw-commentary-text");
-            commentaryRoot = ResolveElement(root, "fw-commentary");
-            titleCardRoot = ResolveElement(root, "fw-title-card");
-            titleCardSignatureLabel = ResolveLabel(root, "fw-title-card-signature");
-            titleCardPlayerLabel = ResolveLabel(root, "fw-title-card-player");
-
-            // Hide title-card at startup (no event has fired yet).
-            titleCardRoot.RemoveFromClassList(TitleCardVisibleClass);
-            titleCardRoot.RemoveFromClassList(TitleCardReduceMotionClass);
-            titleCardRoot.RemoveFromClassList(TitleCardHomeClass);
-            titleCardRoot.RemoveFromClassList(TitleCardAwayClass);
-            commentaryRoot.RemoveFromClassList(CommentaryActiveClass);
-        }
-
-        private void OnDisable()
-        {
-            scoreLabelHome = null;
-            scoreLabelAway = null;
-            minuteLabel = null;
-            commentaryLabel = null;
-            commentaryRoot = null;
-            titleCardRoot = null;
-            titleCardSignatureLabel = null;
-            titleCardPlayerLabel = null;
+            // Hide title-card + commentary at startup; they show only on event.
+            titleCardRoot.SetActive(false);
+            commentaryRoot.SetActive(false);
         }
 
         /// <summary>
         /// Set the scoreboard digits. Caller passes
-        /// <see cref="MatchSimulationState.HomeScore"/> /
-        /// <see cref="MatchSimulationState.AwayScore"/> directly (both
-        /// <see langword="byte"/>; promote to int at the call site).
+        /// <see cref="MatchSim.Sim.MatchSimulationState.HomeScore"/> /
+        /// <see cref="MatchSim.Sim.MatchSimulationState.AwayScore"/>
+        /// directly (both <see langword="byte"/>; promote to int at
+        /// the call site).
         /// </summary>
         public void SetScore(int home, int away)
         {
-            EnsureBound();
             scoreLabelHome.text = home.ToString(System.Globalization.CultureInfo.InvariantCulture);
             scoreLabelAway.text = away.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
@@ -148,39 +136,33 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         /// </summary>
         public void SetMinute(int minute)
         {
-            EnsureBound();
-            // Phase-3: clamp to [0, 90] for display sanity. Phase-4+
-            // adds stoppage-time text (e.g. "45+2") via a separate
-            // SetStoppageMinute(int, int) overload.
             int clamped = minute < 0 ? 0 : minute > 90 ? 90 : minute;
             minuteLabel.text = clamped.ToString(System.Globalization.CultureInfo.InvariantCulture) + "'";
         }
 
         /// <summary>
-        /// Replace the commentary line text + toggle the
-        /// <c>fw-commentary--active</c> USS class on so any
-        /// USS-defined fade-in transition runs. No internal queue at
-        /// Phase 3 — ViewerEvents are sparse (&lt;10 per match) so a
-        /// rapid second event simply replaces the prior line.
+        /// Replace the commentary line text + show the panel. No
+        /// internal queue at Phase 3 — ViewerEvents are sparse
+        /// (&lt;10 per match) so a rapid second event simply replaces
+        /// the prior line.
         /// </summary>
         public void PushCommentary(string line)
         {
-            EnsureBound();
             if (string.IsNullOrEmpty(line))
             {
                 throw new ArgumentException(
                     "Commentary line must be non-empty.", nameof(line));
             }
             commentaryLabel.text = line;
-            commentaryRoot.AddToClassList(CommentaryActiveClass);
+            commentaryRoot.SetActive(true);
         }
 
         /// <summary>
         /// Show the signature title-card with the given football-native
         /// display name + player name + side tinting. Reduce-motion
-        /// flag suppresses the USS transition class so the card appears
-        /// instantly per design/anime-presentation-budget.md surface #8
-        /// reduce-motion semantics.
+        /// flag preserved for forward compatibility with the Phase-4+
+        /// UI Toolkit migration; UGUI fallback has no animations so the
+        /// flag is currently a no-op.
         /// </summary>
         public void ShowTitleCard(
             string signatureDisplayName,
@@ -188,41 +170,19 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             TeamSide side,
             bool reduceMotion)
         {
-            EnsureBound();
             if (string.IsNullOrEmpty(signatureDisplayName))
             {
                 throw new ArgumentException(
                     "signatureDisplayName must be non-empty.", nameof(signatureDisplayName));
             }
-            // playerName may be empty in fixture cases where no jersey
-            // is attributed; the UXML lays out the row with the
-            // signature on top + player below, and an empty player
-            // string just collapses that row visually (USS handles).
             titleCardSignatureLabel.text = signatureDisplayName;
             titleCardPlayerLabel.text = playerName ?? string.Empty;
-
-            // Side tint — use USS classes rather than inline color so
-            // the palette is editable in DotsOverlay.uss without code
-            // changes (matches the Slice-2 IdentityTintTable discipline
-            // of "palette in data, not in code").
-            titleCardRoot.RemoveFromClassList(TitleCardHomeClass);
-            titleCardRoot.RemoveFromClassList(TitleCardAwayClass);
-            titleCardRoot.AddToClassList(side == TeamSide.Home
-                ? TitleCardHomeClass
-                : TitleCardAwayClass);
-
-            // Reduce-motion class first (before --visible) so the USS
-            // selector `.fw-title-card--reduce-motion.fw-title-card--visible`
-            // overrides the default transition.
-            if (reduceMotion)
-            {
-                titleCardRoot.AddToClassList(TitleCardReduceMotionClass);
-            }
-            else
-            {
-                titleCardRoot.RemoveFromClassList(TitleCardReduceMotionClass);
-            }
-            titleCardRoot.AddToClassList(TitleCardVisibleClass);
+            titleCardAccent.color = side == TeamSide.Home ? titleCardHomeColor : titleCardAwayColor;
+            titleCardRoot.SetActive(true);
+            // reduceMotion intentionally unused at Phase 3 (UGUI
+            // fallback has no transitions to suppress); preserved on
+            // the signature for the Phase-4+ UI Toolkit migration.
+            _ = reduceMotion;
         }
 
         /// <summary>
@@ -231,54 +191,17 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         /// </summary>
         public void HideTitleCard()
         {
-            EnsureBound();
-            titleCardRoot.RemoveFromClassList(TitleCardVisibleClass);
-            titleCardRoot.RemoveFromClassList(TitleCardReduceMotionClass);
+            titleCardRoot.SetActive(false);
         }
 
-        // -------------------------------------------------------------
-        // Helpers
-        // -------------------------------------------------------------
-
-        private void EnsureBound()
+        private static void EnsureWired(UnityEngine.Object component, string fieldName)
         {
-            if (scoreLabelHome == null || scoreLabelAway == null
-                || minuteLabel == null || commentaryLabel == null
-                || commentaryRoot == null || titleCardRoot == null
-                || titleCardSignatureLabel == null || titleCardPlayerLabel == null)
+            if (component == null)
             {
                 throw new InvalidOperationException(
-                    $"{nameof(OverlayController)} not bound — OnEnable did not run, " +
-                    "or the GameObject is disabled. Verify the controller is enabled + " +
-                    "DotsOverlay.uxml has the expected element names " +
-                    "(fw-score-home, fw-score-away, fw-minute, fw-commentary, " +
-                    "fw-commentary-text, fw-title-card, fw-title-card-signature, " +
-                    "fw-title-card-player).");
+                    $"{nameof(OverlayController)}.{fieldName} reference missing; " +
+                    "wire it in the scene inspector.");
             }
-        }
-
-        private static Label ResolveLabel(VisualElement root, string name)
-        {
-            Label label = root.Q<Label>(name);
-            if (label == null)
-            {
-                throw new InvalidOperationException(
-                    $"{nameof(OverlayController)}: UXML missing Label '{name}'. " +
-                    "Verify DotsOverlay.uxml has a <Label name=\"" + name + "\" />.");
-            }
-            return label;
-        }
-
-        private static VisualElement ResolveElement(VisualElement root, string name)
-        {
-            VisualElement element = root.Q<VisualElement>(name);
-            if (element == null)
-            {
-                throw new InvalidOperationException(
-                    $"{nameof(OverlayController)}: UXML missing VisualElement '{name}'. " +
-                    "Verify DotsOverlay.uxml has an element with name=\"" + name + "\".");
-            }
-            return element;
         }
     }
 }
