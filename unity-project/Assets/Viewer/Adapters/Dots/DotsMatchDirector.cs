@@ -52,6 +52,9 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         [SerializeField] private DotsAdapterRoot adapterRoot;
         [SerializeField] private ShotCamera shotCamera;
 
+        [Tooltip("Optional — Slice-6 UI Toolkit overlay (scoreboard / commentary / signature title-card). When unwired, the dots scene runs without overlay text; a one-shot warning fires if the bridge produces a signature-execution ViewerEvent + the overlay is null. PanelSettings sortingOrder must be 1 (above the URP camera, above the Slice-5 renderer features).")]
+        [SerializeField] private OverlayController overlayController;
+
         [Tooltip("Archetype slug for the home side; matches a YAML file stem in MatchSim/Content/archetypes/.")]
         [SerializeField] private string homeArchetypeName = "direct-pressing";
 
@@ -154,6 +157,36 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         // back when an impact-frame trigger fires + computed against
         // state.CurrentTick on FixedUpdate.
         private long impactFlashStartTick = -1L;
+
+        // Slice-6 title-card lifecycle — same -1L sentinel pattern as
+        // impactFlashStartTick / screenToneStartTick. The director owns
+        // the active title-card window's EndTick + retires the card via
+        // OverlayController.HideTitleCard when preAdvanceTick passes
+        // EndTick. Canonical-tick driven (Codex Slice-6 P2-3 + Slice-6
+        // round-1 P1 closure): NO Time.time / Time.deltaTime feeds the
+        // title-card lifetime; retirement uses `preAdvanceTick` (the
+        // tick the dispatch loop just emitted events against), NOT
+        // `state.CurrentTick.Value` (which is preAdvanceTick + 1 after
+        // RunTicks advanced). Same off-by-one class as the Slice-3
+        // ActiveViewerEvent.ElapsedTicks fix + Slice-5 round-1
+        // UpdateAnimePresentationUniforms fix. [NonSerialized] mirrors
+        // the Slice-3 P2 pattern on priorFixedDeltaTime so domain reload
+        // can't leak this past the controller's OnDisable null-out.
+        [NonSerialized] private long activeTitleCardEndTick = -1L;
+        // One-shot warn for "signature event arrived but overlayController
+        // is null" — same pattern as warnedAdapterRootMissing.
+        private bool warnedOverlayMissing;
+        // One-shot warn for the title-card branch swallowing a content-
+        // pack drift error (per silent-failure-hunter P1 closure: a bad
+        // SignatureId from a future content pack would otherwise crash
+        // the dispatch loop and skip PresentShot for the same event).
+        private bool warnedOverlayTriggerError;
+        // One-shot warn for unknown TeamSide playerName-prefix per
+        // silent-failure-hunter P3 closure: Phase-3's StartsWith("home")
+        // placeholder silently routes anything-not-home to Away tinting.
+        // A future fixture-rename would mask the drift; warn once on the
+        // first miss so it surfaces.
+        private bool warnedTitleCardSidePrefix;
         // Active screen-tone window [start, end). -1 sentinel = "no
         // tone active." Strength at the trigger-time stakes value, then
         // modulated by the symmetric fade envelope.
@@ -225,6 +258,10 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             awayCommandBuffer = new PlayerCommand[MatchCanonicalState.PlayersPerTeam];
             lastProcessedViewerEventId = null;
             warnedAdapterRootMissing = false;
+            warnedOverlayMissing = false;
+            warnedOverlayTriggerError = false;
+            warnedTitleCardSidePrefix = false;
+            activeTitleCardEndTick = -1L;
             lastKeyEventCount = state.KeyEvents.Count;
             lastSignatureRecipeCount = state.SignatureRecipes.Count;
 
@@ -376,6 +413,37 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             shotCamera.OnSimTick(state.CurrentTick);
 
             DispatchNewViewerEvents(preAdvanceTick);
+
+            // Slice-6 overlay: scoreboard + minute every tick (cheap
+            // label writes; UI Toolkit batches DOM updates). Canonical-
+            // tick driven — NO Time.time. Minute formula is the
+            // ticks-to-seconds-to-minutes conversion clamped at the
+            // controller side.
+            if (overlayController != null)
+            {
+                overlayController.SetScore(state.HomeScore, state.AwayScore);
+                int minute = (int)(preAdvanceTick / Tick.TicksPerSecond / 60);
+                overlayController.SetMinute(minute);
+
+                // Retire the title-card when the active event's window
+                // ends. ev.EndTick is exclusive ([StartTick, EndTick))
+                // so we hide the moment the current canonical tick
+                // reaches EndTick. Per Slice-6 round-1 P1 closure
+                // (feature-dev:code-reviewer): use `preAdvanceTick`
+                // (the tick the dispatch loop just emitted events
+                // against), NOT `state.CurrentTick.Value` (which is
+                // preAdvanceTick + 1 after RunTicks advanced). Same
+                // off-by-one class as the Slice-3 ElapsedTicks fix +
+                // Slice-5 round-1 UpdateAnimePresentationUniforms fix
+                // — staying consistent across all canonical-tick
+                // consumers.
+                if (activeTitleCardEndTick >= 0L
+                    && preAdvanceTick >= activeTitleCardEndTick)
+                {
+                    overlayController.HideTitleCard();
+                    activeTitleCardEndTick = -1L;
+                }
+            }
 
             // Slice-5 anime-presentation: drive the shader globals each
             // FixedUpdate against the canonical tick stream (NOT Time.time).
@@ -538,10 +606,127 @@ namespace FinalWhistle.Viewer.Adapters.Dots
                 // sees both the anime effect AND the wiring-bug throw
                 // — fully diagnostic).
                 MaybeTriggerAnimePresentation(ev);
+                MaybeTriggerOverlay(ev);
                 adapterRoot.PresentShot(active);
 
                 lastProcessedViewerEventId = ev.ViewerEventId;
             }
+        }
+
+        /// <summary>
+        /// Slice-6 commentary + signature title-card trigger per the
+        /// CommentaryTemplates matrix. Fires for every dispatched
+        /// ViewerEvent that has a registered (EventClass, ShotCategory)
+        /// pool — silent for restart events / unknown categories
+        /// (matrix-completeness test pins the contract).
+        ///
+        /// <para>
+        /// Called BEFORE <c>adapterRoot.PresentShot</c> so a missing
+        /// scene wiring on the camera side doesn't block the overlay
+        /// trigger from firing — same defense-in-depth as the Slice-5
+        /// round-2 dispatch reorder.
+        /// </para>
+        /// </summary>
+        private void MaybeTriggerOverlay(ViewerEvent ev)
+        {
+            if (overlayController == null)
+            {
+                if (!warnedOverlayMissing)
+                {
+                    Debug.LogWarning(
+                        $"{nameof(DotsMatchDirector)}: overlayController unwired but " +
+                        $"the bridge dispatched ViewerEvent {ev.ViewerEventId} ({ev.SourceEventClass}). " +
+                        "Slice-6 commentary + title-card will not render. Assign " +
+                        "OverlayController in the scene inspector. This message logs once " +
+                        "per Awake lifecycle.", this);
+                    warnedOverlayMissing = true;
+                }
+                return;
+            }
+
+            // Whole-block try/catch per Slice-6 round-1 P1 closure
+            // (silent-failure-hunter): an unknown SignatureId from a
+            // future content-pack drift would otherwise propagate
+            // KeyNotFoundException out of MaybeTriggerOverlay AND past
+            // the caller's `lastProcessedViewerEventId` increment, so
+            // the camera framing for THIS event is silently skipped
+            // AND the high-water mark advances past it. Narrow the
+            // damage: log loud once, no-op the overlay path for this
+            // event, and let the dispatch loop continue to PresentShot.
+            try
+            {
+                if (CommentaryTemplates.TryPickCommentary(ev, out string line)
+                    && !string.IsNullOrEmpty(line))
+                {
+                    overlayController.PushCommentary(line);
+                }
+
+                ShotCategory category = ResolveCategory(ev);
+                if (CommentaryTemplates.ShouldShowTitleCard(ev.SourceEventClass, category)
+                    && ev.SignatureMetadata != null)
+                {
+                    string displayName = CommentaryTemplates.GetSignatureDisplayName(
+                        ev.SignatureMetadata.SignatureId);
+                    string playerName = ev.ParticipantPlayerIds.Count > 0
+                        ? ev.ParticipantPlayerIds[0]
+                        : string.Empty;
+                    TeamSide side = ResolveTitleCardSide(playerName);
+                    overlayController.ShowTitleCard(
+                        displayName, playerName, side, ev.ReduceMotionApplied);
+                    activeTitleCardEndTick = ev.EndTick.Value;
+                }
+            }
+            catch (Exception ex) when (ex is KeyNotFoundException || ex is ArgumentException)
+            {
+                // One-shot — repeated misses in the same match are
+                // expected to share the same root cause (content-pack
+                // drift). Quiet after the first surface so a long
+                // match doesn't flood the log.
+                if (!warnedOverlayTriggerError)
+                {
+                    Debug.LogError(
+                        $"{nameof(DotsMatchDirector)}: overlay trigger failed for ViewerEvent " +
+                        $"{ev.ViewerEventId} ({ev.SourceEventClass}). The PresentShot dispatch " +
+                        $"continues for this event — only the commentary + title-card overlay " +
+                        $"is suppressed. Most likely cause: a content-pack SignatureId not " +
+                        $"registered in CommentaryTemplates.SignatureDisplayNames. " +
+                        $"Underlying: {ex.GetType().Name}: {ex.Message}", this);
+                    warnedOverlayTriggerError = true;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Phase-3 placeholder side discrimination — Phase-3 ViewerEvent
+        /// doesn't carry TeamSide directly (the bridge derives it from
+        /// KeyEvent but doesn't pin it on ViewerEvent yet). Until Phase-4+
+        /// adds an explicit Side field on ViewerEvent, use the participant
+        /// ID prefix (home archetype IDs vs away archetype IDs). Per
+        /// Slice-6 round-1 P3 closure (silent-failure-hunter): warn once
+        /// when neither prefix matches so a future fixture rename surfaces
+        /// instead of silently routing to Away tinting.
+        /// </summary>
+        private TeamSide ResolveTitleCardSide(string playerName)
+        {
+            if (playerName.StartsWith("home", StringComparison.Ordinal))
+            {
+                return TeamSide.Home;
+            }
+            if (playerName.StartsWith("away", StringComparison.Ordinal))
+            {
+                return TeamSide.Away;
+            }
+            if (!warnedTitleCardSidePrefix)
+            {
+                Debug.LogWarning(
+                    $"{nameof(DotsMatchDirector)}: title-card playerName '{playerName}' " +
+                    "does not start with 'home' or 'away'. Phase-3 placeholder side discrimination " +
+                    "defaulting to Away tinting. This message logs once per Awake lifecycle. " +
+                    "Phase-4+ adds an explicit ViewerEvent.Side field that retires this heuristic.",
+                    this);
+                warnedTitleCardSidePrefix = true;
+            }
+            return TeamSide.Away;
         }
 
         /// <summary>

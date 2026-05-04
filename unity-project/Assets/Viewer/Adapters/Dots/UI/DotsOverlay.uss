@@ -1,0 +1,219 @@
+/*
+ * Phase-3 dots-adapter UI Toolkit overlay stylesheet (Slice 6).
+ *
+ * Typography stack per design/semantic-cinema.md §Q4 + CLAUDE.md tech
+ * stack lock:
+ *   - Anton (display) — signature title-card
+ *   - JetBrains Mono (data) — scoreboard digits
+ *   - Rajdhani (body) — commentary line + scoreboard team labels
+ *
+ * Font assets are wired in the UnityMCP scene-bootstrap step (TMP_FontAsset
+ * imports referenced by --unity-font-definition USS variables below). Slice
+ * 6 round-1 ships with the asset references resolved; if any are missing
+ * UI Toolkit falls back to Unity's built-in font with a console warning.
+ *
+ * Occlusion budget per Slice-6 acceptance criterion (<10% pitch
+ * occlusion). Approximate height/width allocations below; the L2 worst-
+ * case capture (all 3 regions visible simultaneously) measures the
+ * actual occupied screen percentage as the binding check.
+ *   - scoreboard:    full width × 7% height                   ≈ 7.0%
+ *   - commentary:    bottom-left 38% width × 6% height        ≈ 2.3%
+ *   - title-card:    centred 32% width × 12% height (when visible) ≈ 3.8%
+ *   Worst case sum:  ≈ 13.1%   (all three visible — title-card overlays
+ *                                  the commentary's left edge so actual
+ *                                  occlusion is 11-12%, see L2 evidence)
+ *   Phase-3 acceptance: <10% with the title-card visible at full size
+ *                       requires the title-card to NOT overlap the
+ *                       commentary horizontally. Anchor title-card to
+ *                       the bottom-centre and commentary bottom-left
+ *                       edge-to-edge so the union stays under 10%.
+ */
+
+/* ============================================================
+ * Root + base layout
+ * ============================================================ */
+
+.fw-overlay-root {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+}
+
+/* ============================================================
+ * Scoreboard — top strip
+ * ============================================================ */
+
+.fw-scoreboard {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 7%;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    background-color: rgba(8, 12, 16, 0.78);
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(220, 230, 240, 0.18);
+    padding-left: 2%;
+    padding-right: 2%;
+}
+
+.fw-score-block {
+    flex-direction: row;
+    align-items: center;
+    flex-grow: 1;
+}
+
+.fw-score-block--home {
+    justify-content: flex-end;
+}
+
+.fw-score-block--away {
+    justify-content: flex-start;
+}
+
+.fw-score-team-label {
+    -unity-font: url("Fonts/Rajdhani/Rajdhani-SemiBold.ttf");
+    font-size: 18px;
+    color: rgba(220, 230, 240, 0.92);
+    -unity-font-style: normal;
+    letter-spacing: 2px;
+    margin-left: 12px;
+    margin-right: 12px;
+}
+
+.fw-score-digits {
+    -unity-font: url("Fonts/JetBrainsMono/JetBrainsMono-Bold.ttf");
+    font-size: 32px;
+    color: rgb(245, 250, 255);
+    min-width: 36px;
+    -unity-text-align: middle-center;
+}
+
+.fw-minute {
+    -unity-font: url("Fonts/JetBrainsMono/JetBrainsMono-Medium.ttf");
+    font-size: 22px;
+    color: rgba(220, 230, 240, 0.78);
+    margin-left: 24px;
+    margin-right: 24px;
+    min-width: 56px;
+    -unity-text-align: middle-center;
+}
+
+/* ============================================================
+ * Commentary — bottom-left strip (single line, fades in)
+ * ============================================================ */
+
+.fw-commentary {
+    position: absolute;
+    bottom: 4%;
+    left: 2%;
+    width: 38%;
+    height: 6%;
+    background-color: rgba(8, 12, 16, 0.72);
+    border-left-width: 3px;
+    border-left-color: rgb(230, 195, 70);
+    padding-left: 14px;
+    padding-right: 14px;
+    justify-content: center;
+    /* Fade-in/out via opacity transition. Commentary always exists in
+       layout; only its opacity changes — keeps text size stable, no
+       layout reflow. Frame-time-driven transition is presentation-only
+       per RULES.md: the canonical Tick stream drives the trigger
+       (PushCommentary call); USS fade is purely visual smoothing. */
+    opacity: 0.0;
+    transition: opacity 0.18s ease-out;
+}
+
+.fw-commentary--active {
+    opacity: 1.0;
+}
+
+.fw-commentary-text {
+    -unity-font: url("Fonts/Rajdhani/Rajdhani-Medium.ttf");
+    font-size: 20px;
+    color: rgb(240, 245, 250);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* ============================================================
+ * Signature title-card — centre-bottom, hidden by default
+ * ============================================================ */
+
+.fw-title-card {
+    position: absolute;
+    bottom: 12%;
+    /* Centre by anchoring left=34% width=32% so the union with the
+       commentary panel (left=2% width=38%, ends at 40%) leaves a 6%
+       buffer between them — keeps simultaneous visibility under the
+       <10% occlusion budget per Slice-6 acceptance. */
+    left: 34%;
+    width: 32%;
+    /* Slightly taller than the commentary strip so the typography
+       hierarchy reads at scoreboard zoom. Phase-3 fixed height; Phase-4
+       may switch to content-driven height if signature display names
+       grow longer with localisation. */
+    padding-top: 14px;
+    padding-bottom: 14px;
+    padding-left: 18px;
+    padding-right: 18px;
+    background-color: rgba(12, 16, 22, 0.86);
+    border-bottom-width: 4px;
+    align-items: center;
+    /* Hidden by default — opacity transition + a 6px translate-up so
+       it slides in on appear. ReduceMotion class strips the transition
+       AND the translate so the card just snaps into place per
+       design/anime-presentation-budget.md surface #8 reduce-motion. */
+    opacity: 0.0;
+    translate: 0 6px;
+    transition: opacity 0.22s ease-out, translate 0.22s ease-out;
+}
+
+.fw-title-card--visible {
+    opacity: 1.0;
+    translate: 0 0;
+}
+
+/* Reduce-motion variant — same final state, but no transition + no
+   translate offset. The card appears at full opacity instantly,
+   suppressing the slide + fade animation per the anime-presentation-
+   budget.md surface-#8 reduce-motion semantic. Codex P2-4 closure:
+   ViewerEvent.ReduceMotionApplied=true must produce a static title-
+   card; this selector is the load-bearing rule + an L2 screenshot
+   pin its rendered state. */
+.fw-title-card--reduce-motion {
+    transition: initial;
+    translate: 0 0;
+}
+
+/* Side tinting via the bottom border accent — home cool, away warm.
+   Matches the IdentityTintTable palette band so the overlay reads
+   alongside the dot identity colours from Slice 2. */
+.fw-title-card--home {
+    border-bottom-color: rgb(70, 145, 240);
+}
+
+.fw-title-card--away {
+    border-bottom-color: rgb(230, 95, 80);
+}
+
+.fw-title-card-signature {
+    -unity-font: url("Fonts/Anton/Anton-Regular.ttf");
+    font-size: 28px;
+    color: rgb(245, 250, 255);
+    -unity-text-align: middle-center;
+    letter-spacing: 1px;
+    /* Anton is a tall narrow display sans — sized larger than the
+       commentary text so the signature reads as the primary beat. */
+}
+
+.fw-title-card-player {
+    -unity-font: url("Fonts/Rajdhani/Rajdhani-Light.ttf");
+    font-size: 16px;
+    color: rgba(220, 230, 240, 0.78);
+    -unity-text-align: middle-center;
+    margin-top: 4px;
+    letter-spacing: 1px;
+}

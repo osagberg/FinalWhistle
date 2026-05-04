@@ -35,7 +35,9 @@
       "Bash(*Unity* -batchmode -projectPath*)",
       "Bash(claude mcp list*)",
       "Bash(glab --help*)",
-      "Bash(glab auth status*)"
+      "Bash(glab auth status*)",
+      "Bash(curl -fsSL https://github.com/google/fonts/raw/*)",
+      "Bash(curl -fsSL https://github.com/JetBrains/JetBrainsMono/raw/*)"
     ],
     "deny": [
       "Bash(rm -rf /**)",

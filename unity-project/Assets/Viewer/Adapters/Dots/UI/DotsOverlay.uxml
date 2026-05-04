@@ -1,0 +1,51 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <!--
+        Phase-3 dots-adapter UI Toolkit overlay (Slice 6).
+
+        Layout per docs/plans/dots-adapter-blueprint.md §B Slice 6:
+          - fw-scoreboard:     top strip (home score | minute | away score)
+          - fw-commentary:     bottom-left strip (single line, fades in)
+          - fw-title-card:     centre-bottom card (signature display name + player; tinted by side)
+
+        Element naming uses the fw- prefix to namespace the UI Toolkit
+        tree from any future Editor/HDRP/3rd-party UXML that may share the
+        scene. OverlayController resolves elements by name; renaming here
+        without updating the controller surfaces as a loud-fail at
+        OnEnable.
+
+        Vocabulary contract: text content here is structural only
+        ("Home"/"Away" team labels go in the visible strip; per-match team
+        names land Phase-4 when content packs ship). All player-facing
+        copy is set programmatically by OverlayController via
+        CommentaryTemplates — design/ui-vocabulary.md Category-A lint
+        sweeps both source files.
+    -->
+    <ui:Style src="project://database/Assets/Viewer/Adapters/Dots/UI/DotsOverlay.uss" />
+    <ui:VisualElement name="fw-overlay-root" class="fw-overlay-root">
+
+        <!-- Scoreboard strip — top of screen, full width, ~5% height -->
+        <ui:VisualElement name="fw-scoreboard" class="fw-scoreboard">
+            <ui:VisualElement name="fw-score-home-block" class="fw-score-block fw-score-block--home">
+                <ui:Label name="fw-score-home-label" text="HOME" class="fw-score-team-label" />
+                <ui:Label name="fw-score-home" text="0" class="fw-score-digits" />
+            </ui:VisualElement>
+            <ui:Label name="fw-minute" text="0'" class="fw-minute" />
+            <ui:VisualElement name="fw-score-away-block" class="fw-score-block fw-score-block--away">
+                <ui:Label name="fw-score-away" text="0" class="fw-score-digits" />
+                <ui:Label name="fw-score-away-label" text="AWAY" class="fw-score-team-label" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- Commentary strip — bottom-left, single line, fades on push -->
+        <ui:VisualElement name="fw-commentary" class="fw-commentary">
+            <ui:Label name="fw-commentary-text" text="" class="fw-commentary-text" />
+        </ui:VisualElement>
+
+        <!-- Signature title-card — centre-bottom, hidden by default -->
+        <ui:VisualElement name="fw-title-card" class="fw-title-card">
+            <ui:Label name="fw-title-card-signature" text="" class="fw-title-card-signature" />
+            <ui:Label name="fw-title-card-player" text="" class="fw-title-card-player" />
+        </ui:VisualElement>
+
+    </ui:VisualElement>
+</ui:UXML>
