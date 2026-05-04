@@ -74,18 +74,24 @@ namespace FinalWhistle.Viewer.Adapters.Dots
                 }
             }
 
-            // Per pr-review-toolkit feature-dev:code-reviewer Slice-4 P1.2:
-            // TacticalWide is the documented fallback when a shot category
-            // isn't in the catalog. If it's missing the fallback throws —
-            // surface that wiring gap at Initialize time, not at the first
-            // FixedUpdate that produces a ResolveShot call. Loud-fail at
-            // scene-load matches the discipline elsewhere in the adapter.
+            // TacticalWide is the required baseline — it's the dots-adapter
+            // default framing (held when no event-driven shot is active per
+            // ShotCamera.defaultShot) AND a load-bearing entry of the four
+            // bridge-emittable categories. ResolveShot now throws on any
+            // unregistered category (per Slice-4 P1.2 closure + Slice-5
+            // round-2 P1 closure of aaf710e); a missing TacticalWide would
+            // brick the adapter on the first FixedUpdate, so surface the
+            // wiring gap loud at scene-load instead. (Prior comment + throw
+            // message described TacticalWide as a "fallback for unregistered
+            // categories" — stale wording from the silent-fallback era;
+            // updated per Codex round-3 P3 against aaf710e.)
             if (!shotByCategory.ContainsKey(ShotCategory.TacticalWide))
             {
                 throw new InvalidOperationException(
                     $"{nameof(DotsAdapterRoot)}: shotCatalog must include a {nameof(ShotCategory.TacticalWide)} " +
-                    "entry — this is the documented fallback when a non-tactical-wide " +
-                    "category isn't registered. Wire tactical-wide.asset in the scene inspector.");
+                    "entry — this is the required baseline framing (the dots-adapter default + " +
+                    "the bridge category for FirstTimeDiagonalSwitch signature events). " +
+                    "Wire tactical-wide.asset in the scene inspector.");
             }
         }
 
