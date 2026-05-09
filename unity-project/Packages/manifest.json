@@ -12,6 +12,7 @@
     "com.coplaydev.unity-mcp": "https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#b92c05a25820cfc9f59ce4094eb46aaec8632ea2",
     "com.cysharp.unitask": "2.5.10",
     "com.unity.addressables": "2.3.16",
+    "com.unity.ai.assistant": "2.7.0-pre.3",
     "com.unity.cinemachine": "3.1.6",
     "com.unity.inputsystem": "1.13.1",
     "com.unity.recorder": "5.1.2",

@@ -25,9 +25,13 @@
 
 ### Phase 3 — Unity-specific
 
+> **Routing authority:** [`docs/tooling/unity-mcp-routing.md`](docs/tooling/unity-mcp-routing.md) (per [ADR-0011](design/adr/adr-0011-unity-ai-assistant-mcp-migration.md)).
+> **Read it on every subagent invocation that may touch the Editor.**
+
 | Server | Status | Install | Purpose |
 |---|---|---|---|
-| **UnityMCP** (CoplayDev `com.coplaydev.unity-mcp`) | ✅ active (2026-04-28) | Package via `unity-project/Packages/manifest.json` (pinned to commit SHA) + Unity-side `Window → MCP for Unity → Configure` writes the project-scoped `.mcp.json` entry as `UnityMCP` (Pascal case) on `http://localhost:8080/mcp`. CoplayDev distinguishes the npm/UPM package name (`com.coplaydev.unity-mcp`) from the MCP server registration name (`UnityMCP`); both refer to the same tool, in different contexts | Edit scenes + read console + drive Editor APIs + run tests from Claude. **No PostToolUse refresh hook needed** — `manage_script` already calls `AssetDatabase.ImportAsset` + `RequestScriptCompilation` internally, so script edits made through MCP auto-import without manual focus. (The earlier `refresh-unity-on-script.sh` hook was removed in commit `47997fc` after Codex audit P2-04 confirmed it was redundant.) |
+| **UnityAIAssistant** (`com.unity.ai.assistant 2.7.0-pre.3`) — **PRIMARY** | ✅ active (2026-05-09) | Package in `unity-project/Packages/manifest.json` (pinned `2.7.0-pre.3`); relay binary auto-installed by Editor on first run to `~/.unity/relay/relay_mac_arm64.app/...` (Apple Silicon; equivalents on Intel/Windows/Linux); registered in `.mcp.json` as stdio relay with `--mcp --project-path /Users/vibelogic/dev/football/unity-project`. **Requires active Unity Pro/Enterprise seat** (`MaxDirect = 1` direct connection slot per seat). Approval flow: `Edit > Project Settings > AI > Unity MCP Server` → Pending Connections → Allow `claude-code`. | 52 first-party tools: `Unity_RunCommand` (C# in-Editor execution with `IRunCommand` template), `Unity_ManageEditor`, `Unity_ManageMenuItem` (execute any `[MenuItem]` by path), `Unity_SceneView_Capture2DScene` / `Unity_SceneView_CaptureMultiAngleSceneView` / `Unity_Camera_Capture` (visual L2 evidence), 11 `Unity_Profiler_*` tools, `Unity_AssetGeneration_*` (32 first-party AI models — Flux 2, Gemini 3.x, GPT Image 1.5, Tripo P1, ElevenLabs, Lyria 3, etc., **bake-time only**), semantic C# edits via `Unity_ScriptApplyEdits`, `Unity_GetSha`, `Unity_FindInFile`, `Unity_Grep`. See [routing table](docs/tooling/unity-mcp-routing.md) + [playbook](docs/tooling/unity-mcp-playbook.md). |
+| **UnityMCP** (CoplayDev `com.coplaydev.unity-mcp`) — **FALLBACK** | ✅ active (2026-04-28; retained as fallback per ADR-0011) | Package via `unity-project/Packages/manifest.json` (pinned to commit SHA `b92c05a25820cfc9f59ce4094eb46aaec8632ea2`) + Unity-side `Window → MCP for Unity → Configure` writes the project-scoped `.mcp.json` entry as `UnityMCP` on `http://localhost:8080/mcp`. **No PostToolUse refresh hook needed** — `manage_script` already calls `AssetDatabase.ImportAsset` + `RequestScriptCompilation` internally. | Fallback for capability gaps the official MCP doesn't cover: `manage_packages` (UPM install/remove — official `Unity_PackageManager_ExecuteAction` is off-by-default until user-toggled), `manage_prefabs` / `manage_animation` / `manage_vfx` / `manage_probuilder` (granular APIs not in official), `batch_execute` (transactional). Also entitlement-failure recovery if Pro seat lapses. Retirement gates documented in [routing table](docs/tooling/unity-mcp-routing.md#deprecation-candidates-coplaydev-retirement-gates). |
 
 ### Deferred (trigger-based; Phase-5/6 3D spike or later fallback)
 
@@ -124,8 +128,9 @@ At `.claude/hooks/` (13 installed):
 | `update-status-timestamp.sh` | Stop | Rewrite STATUS.md "Last updated" |
 | Plus 11 more shipped with blueprint v2 (session, validation, cross-platform) | | |
 
-UnityMCP refresh — handled by the tool itself, not a hook:
-- The previous `refresh-unity-on-script.sh` PostToolUse hook (matched `mcp__UnityMCP__manage_script`) was removed in commit `47997fc` per Codex audit P2-04. CoplayDev's `manage_script` tool already calls `AssetDatabase.ImportAsset(... ForceSynchronousImport | ForceUpdate)` + `CompilationPipeline.RequestScriptCompilation()` internally on every script edit, so the hook was redundant. No PostToolUse refresh wiring is needed.
+Unity MCP refresh — handled by the tools themselves, not a hook:
+- **`UnityAIAssistant`** (official, primary): `Unity_ScriptApplyEdits` / `Unity_ApplyTextEdits` / `Unity_CreateScript` / `Unity_DeleteScript` all trigger asset re-import + script compilation internally. Use `Unity_ManageEditor GetState` to poll `IsCompiling` / `IsUpdating` after a script change before invoking the next tool.
+- **`UnityMCP`** (CoplayDev, fallback): `manage_script` calls `AssetDatabase.ImportAsset(... ForceSynchronousImport | ForceUpdate)` + `CompilationPipeline.RequestScriptCompilation()` internally on every script edit. The previous `refresh-unity-on-script.sh` PostToolUse hook (matched `mcp__UnityMCP__manage_script`) was removed in commit `47997fc` per Codex audit P2-04 confirming it was redundant.
 
 ---
 
@@ -166,7 +171,7 @@ Deferred until trigger:
 Tools evaluated and rejected. Includes the WHY so future sessions don't re-re-evaluate.
 
 - **Stale / unmaintained Unity MCPs** — anything updated <6 months ago. Unity ecosystem moves fast.
-- **Multiple Unity MCPs simultaneously** — they conflict on message channels.
+- **Multiple Unity MCPs simultaneously, both active in tool dispatch** — they don't conflict on transport (official is stdio relay; CoplayDev is HTTP :8080), but they will fight for the same Editor main thread under load. The migration documented in [ADR-0011](design/adr/adr-0011-unity-ai-assistant-mcp-migration.md) intentionally retains both registered in `.mcp.json` — official as primary, CoplayDev as fallback — but routing must obey [`docs/tooling/unity-mcp-routing.md`](docs/tooling/unity-mcp-routing.md). Do not invoke parallel tool calls hitting both servers in the same logical operation.
 - **Community C# hot-reload plugins with <50 stars** — editor instability risk.
 - **Ollama-backed Unity MCPs** — latency unusable vs local tools.
 - **Token-spam skills** — any skill that imports multi-KB docs on session start. Prefer lazy-load patterns.

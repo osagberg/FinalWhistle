@@ -69,6 +69,7 @@ See `TECH_APPROACH.md` for full blueprint. One-line summary:
 - **Steam:** Steamworks.NET
 - **Rendering:** renderer-agnostic ADR-0008 ShotPresentationContract → adapter implementations. ADR-0009 dots-phase adapter (Phase-3-onward sprite-on-pitch) is shipping-quality candidate. Cel-shaded 3D adapter (ADR-0010, conditional on Phase-5/6 production-feasibility spike per `design/3d-pipeline.md`) is candidate shipping visual. EA visual locked at Phase-7/8 by spike outcome — three outcomes per 2026-04-26 decisions-log entry: spike-green → 3D ships; spike-yellow/red → dots ships if polish bar met (no public 3D promise); dots-not-strong-enough → delay EA
 - **AI:** bake-time only (content compiler). No runtime LLMs. No ML-Agents (behavior trees + hand-authored manager archetypes).
+- **Editor automation surface (Phase 3+):** official Unity AI Assistant MCP (`com.unity.ai.assistant 2.7.0-pre.3`, server name `UnityAIAssistant`) is **primary**; CoplayDev `unity-mcp` (server name `UnityMCP`) is **fallback** for capability gaps + entitlement-failure recovery. Per [ADR-0011](design/adr/adr-0011-unity-ai-assistant-mcp-migration.md). Routing table at [`docs/tooling/unity-mcp-routing.md`](docs/tooling/unity-mcp-routing.md). Requires active Unity Pro seat (`MaxDirect = 1`); Claude holds the slot, Codex stays out of Editor.
 
 **Budget model:** Tier 1 bootstrap (buy-on-pain). Existing owned assets remain tracked in SETUP; GPT Image 2 in use for concepts. 3D-asset / animation subscriptions are deferred until the Phase-5 commercial-license audit + production-feasibility spike; Phase-6 production spend requires spike-green outcome. Steam Direct $100 at Phase 8.
 
@@ -102,8 +103,9 @@ Plugins (verified installed 2026-04-30 at `~/.claude/plugins/installed_plugins.j
 - `pr-review-toolkit` — silent-failure-hunter / type-design-analyzer / code-reviewer / pr-test-analyzer / comment-analyzer / code-simplifier (mandated by §6.3 on substantial code commits)
 - `hookify` — used to author `pr-review-reminder.sh`; available for future hook-from-conversation work
 
-Phase-3-day-1 adoption:
-- CoplayDev `unity-mcp` (project-scoped, post-Unity-project-creation)
+Phase-3 Unity MCP (per [ADR-0011](design/adr/adr-0011-unity-ai-assistant-mcp-migration.md), 2026-05-09):
+- **`UnityAIAssistant`** — official `com.unity.ai.assistant 2.7.0-pre.3` (stdio relay, project-scoped). **Primary** editor automation surface. Requires active Unity Pro seat. Routing per [`docs/tooling/unity-mcp-routing.md`](docs/tooling/unity-mcp-routing.md).
+- **`UnityMCP`** — CoplayDev `com.coplaydev.unity-mcp` (HTTP :8080). **Fallback** for capability gaps (UPM package mutation, granular prefab/animation/VFX/probuilder ops, `batch_execute`) + entitlement-failure recovery.
 
 ---
 
@@ -183,7 +185,7 @@ Solo-dev project; the main thread's context window is precious. Use subagents fo
 |---|---|---|---|
 | **MatchSim code** (≥100 LoC of `MatchSim/Sim/**` or `MatchSim/Content/**`) | New canonical-state surface, BT runner change, Ball / Player / Match-rules math | `gameplay-programmer` (sim/signatures/players) OR `engine-programmer` (primitive math/perf hot path) | `pr-review-toolkit` triple before commit |
 | **MatchSim tests** (≥50 LoC of `MatchSim.Tests/**`) | New fixture, new theory, regression test for a closed bug | `gameplay-programmer` OR `engine-programmer` to draft + `pr-review-toolkit:pr-test-analyzer` to review | Pinned-hash + cross-platform implications named in commit body |
-| **Unity / Viewer** (any change under `unity-project/Assets/Viewer/**` or asmdef edits) | Asmdef graph change, ScriptableObject authoring, Editor-script change | `unity-specialist` (asmdefs / Addressables / Editor APIs) — co-author with `unity-ui-specialist` if UI Toolkit; `ui-programmer` for menu/HUD frameworks | `unity-check` skill at L1 (compile via UnityMCP) minimum; L2/L3 for behavior/visuals |
+| **Unity / Viewer** (any change under `unity-project/Assets/Viewer/**` or asmdef edits) | Asmdef graph change, ScriptableObject authoring, Editor-script change | `unity-specialist` (asmdefs / Addressables / Editor APIs) — co-author with `unity-ui-specialist` if UI Toolkit; `ui-programmer` for menu/HUD frameworks | `unity-check` skill at L1 (compile via `UnityAIAssistant` primary, `UnityMCP` fallback per [routing](docs/tooling/unity-mcp-routing.md)) minimum; L2/L3 for behavior/visuals |
 | **Contracts / asmdefs / ADRs** | New ADR, asmdef-boundary change, cross-system contract change | `lead-programmer` (architecture review) + `feature-dev:code-architect` (blueprint pass before implementation) | Director subagent for the affected discipline (technical-director / game-designer / narrative-director / art-director) reviews the ADR text |
 | **Narrative / identity / signatures content** | IdentityPacket fixtures, scout-prose templates, MemoryEvent reader callbacks, signature presentation recipes | `narrative-director` (memory templates / callback prose / salience tuning) | `pr-review-toolkit` if ≥100 LoC of code lands alongside |
 | **Systems / balance / progression math** | Balance-harness work, gene-model curves, economy formulas, progression-curve tuning | `systems-designer` (economy / progression / balance formulas) | New SPEC decisions-log entry if a coefficient becomes load-bearing |
@@ -212,6 +214,13 @@ Solo-dev project; the main thread's context window is precious. Use subagents fo
 **Smell test:** if you're about to do >30 minutes of focused work in one area, that's a subagent. The main thread should be reading subagent reports, not authoring lines.
 
 **Established cross-model rhythm** (separate from subagent delegation): Claude drafts → external Codex review pass → user pastes findings back → Claude applies → flip Accepted. Codex consistently catches edge cases + invariant violations Claude misses. Do not skip this cycle on architecturally load-bearing work (ADRs, primitives, contracts, decisions-log entries).
+
+**Agent-bus collaboration (cross-model dialog ledger).** The Claude ↔ Codex relay (drafts → external review → user pastes findings → Claude applies) is structurally append-only — but until 2026-05-09 it had no shared transcript. Findings lost framing in copy-paste; both models drifted toward agreeing with the user's last paste; six-months-later "why did we land here?" had no audit trail. The agent-bus protocol fixes this with append-only JSONL topic files at `dialog/<topic>.jsonl`. Full schema + validation rules in [`docs/tooling/agent-bus-spec.md`](docs/tooling/agent-bus-spec.md); CLI shim at `scripts/agent-bus`.
+
+- **When to post:** architectural disagreements between Claude and Codex (where the next round risks re-litigating prior ground); design tradeoffs that warrant a decision-record beyond the eventual SPEC entry; closing-the-loop notes after a Codex review pass (what was applied, what was rejected, why); cross-session questions to the user that need a durable answer.
+- **When NOT to post:** one-shot tasks, single-file edits, mundane naming/style picks, anything Claude or the user can resolve in one turn without external review. Agent-bus is for things worth recording six months from now.
+- **Required.** `severity` (`p0`–`p3`) on every `claim`/`counter`/`evidence` event; forbidden on `note`/`ack`. Specific file:line refs (or git SHAs, or PR/issue URLs) in `links` for every `evidence` event. Use `in_reply_to` (sha256 of the prior event's canonical encoding, printed by `agent-bus post`) to thread replies. **Never rewrite a prior event** — append a new event citing it. Only an event with `from: user` and `type: decision` closes a topic.
+- **Mandate.** At session start, after reading CLAUDE.md / STATUS.md / SPEC.md, run `scripts/agent-bus list --open` and read any topic where Claude is `to:` or has prior events. SPEC decisions-log entries that resolve an agent-bus topic SHOULD cite the topic filename in their review-trail bullet. Agent-bus complements SPEC; SPEC stays the binding outcome ledger, agent-bus is the debate trail.
 
 ### 6.4 Risky actions — confirm first
 
@@ -247,12 +256,13 @@ For MatchSim work: verify via xUnit tests AND headless balance-harness sweep. Fl
 
 1. Read `CLAUDE.md` (this file) — **including §6.3 delegation discipline AND the mandatory rotation table**. Subagent rotation is mandatory, not optional. `/next` MUST name task class + required agent(s) before any code is written.
 2. Read `PROJECT_CONTEXT.md`, `STATUS.md`, `SPEC.md` current state block.
-3. Run `claude mcp list` via Bash — confirm installed MCPs match TOOLING.md catalog. The Phase-3-onward Unity MCP server registers as `UnityMCP` (Pascal); the underlying CoplayDev package is `com.coplaydev.unity-mcp` (UPM). If `UnityMCP` is supposed to be active for the current phase but disconnected, ask the user to start the Unity MCP server (`Window → MCP for Unity → Start Server`).
+3. Run `claude mcp list` via Bash — confirm installed MCPs match `TOOLING.md` catalog. Two Unity MCPs are registered per [ADR-0011](design/adr/adr-0011-unity-ai-assistant-mcp-migration.md): **`UnityAIAssistant`** (official `com.unity.ai.assistant 2.7.0-pre.3`, stdio relay, **primary**) and **`UnityMCP`** (CoplayDev `com.coplaydev.unity-mcp`, HTTP :8080, **fallback**). If `UnityAIAssistant` is disconnected, ask the user to verify Unity Pro seat status + check `Edit > Project Settings > AI > Unity MCP Server` for Pending Connections. If `UnityMCP` is disconnected, ask the user to start the CoplayDev server (`Window → MCP for Unity → Start Server`). Routing per [`docs/tooling/unity-mcp-routing.md`](docs/tooling/unity-mcp-routing.md).
 4. Read `TOOLING.md` to confirm plugin / MCP / subagent / skill state. **`feature-dev`, `pr-review-toolkit`, `hookify` are all installed at user-scope (verified 2026-04-30)** — if a fresh-Claude-session lookup at `~/.claude/plugins/installed_plugins.json` shows any are missing, surface to user as a 2-min high-leverage install before continuing.
 5. Skim `.claude/agents/` so subagent delegation is top-of-mind from turn 1.
-6. Check `git status` + `git log -3` for recent state.
-7. Report current phase + active task + blockers + any TOOLING.md gaps.
-8. Wait for user instruction OR auto-run `/next` if auto mode active.
+6. Run `scripts/agent-bus list --open` per `§6.3` agent-bus mandate. Read any topic where Claude is `to:` or has prior events. If unfamiliar with the protocol, read [`dialog/README.md`](dialog/README.md) + [`docs/tooling/agent-bus-spec.md`](docs/tooling/agent-bus-spec.md).
+7. Check `git status` + `git log -3` for recent state.
+8. Report current phase + active task + blockers + any TOOLING.md gaps + open agent-bus topics.
+9. Wait for user instruction OR auto-run `/next` if auto mode active.
 
 **Anti-pattern to avoid** (logged 2026-04-28): running multiple Phase-3 sessions doing Unity work without realizing `unity-mcp` was queued in TOOLING.md but never installed. Cost: weeks of "describe menu paths to user" instead of driving the Editor directly. Do not repeat by skipping step 4.
 

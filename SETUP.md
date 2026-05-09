@@ -124,10 +124,19 @@ blender-mcp    ✓ already present
 - `chrome` — Claude Code has WebSearch + WebFetch; no genuine gap
 - `desktop-commander` — Claude Code has Read/Write/Edit/Bash; no genuine gap
 
-**Phase 3 — installed 2026-04-28:**
-- `UnityMCP` (CoplayDev `com.coplaydev.unity-mcp`) — project-scoped; installed via `unity-project/Packages/manifest.json` (pinned to commit SHA) + Unity-side `Window → MCP for Unity → Configure` writes the `UnityMCP` (Pascal) entry to `.mcp.json` on `http://localhost:8080/mcp`. CoplayDev's `manage_script` tool already calls `AssetDatabase.ImportAsset` + `RequestScriptCompilation` internally, so no PostToolUse refresh hook is needed (the previous `refresh-unity-on-script.sh` was removed in commit `47997fc`).
+**Phase 3 — both Unity MCPs installed; routing per [ADR-0011](design/adr/adr-0011-unity-ai-assistant-mcp-migration.md) (2026-05-09):**
 
-Verify current state: `claude mcp list` — all three baseline MCPs green.
+- **`UnityAIAssistant`** (`com.unity.ai.assistant 2.7.0-pre.3`) — **PRIMARY** editor automation surface. Project-scoped; pinned in `unity-project/Packages/manifest.json` as `2.7.0-pre.3`. The Editor auto-installs the relay binary on first run to `~/.unity/relay/relay_mac_arm64.app/Contents/MacOS/relay_mac_arm64` (Apple Silicon; equivalents on Intel/Windows/Linux). Registered in `.mcp.json` as a stdio relay with `--mcp --project-path /Users/vibelogic/dev/football/unity-project`. **Requires active Unity Pro/Enterprise seat** (`MaxDirect = 1` direct connection slot per seat). First-time approval flow: open Editor → `Edit > Project Settings > AI > Unity MCP Server` → Pending Connections → **Allow** the `claude-code` entry. If the cap shows `Up to 0 direct connections allowed` instead of `Up to 1`, the seat is not assigned to this Unity ID — assign it via your Unity organisation admin before retrying. Routing per [`docs/tooling/unity-mcp-routing.md`](docs/tooling/unity-mcp-routing.md).
+- **`UnityMCP`** (CoplayDev `com.coplaydev.unity-mcp`) — **FALLBACK**. Project-scoped; installed via `unity-project/Packages/manifest.json` (pinned to commit SHA `b92c05a25820cfc9f59ce4094eb46aaec8632ea2`) + Unity-side `Window → MCP for Unity → Configure` writes the `UnityMCP` entry to `.mcp.json` on `http://localhost:8080/mcp`. CoplayDev's `manage_script` tool already calls `AssetDatabase.ImportAsset` + `RequestScriptCompilation` internally, so no PostToolUse refresh hook is needed (the previous `refresh-unity-on-script.sh` was removed in commit `47997fc`). Retained for capability gaps the official MCP doesn't cover (UPM package install/remove off-by-default; granular `manage_prefabs` / `manage_animation` / `manage_vfx` / `manage_probuilder`; explicit `batch_execute`) + entitlement-failure recovery if the Pro seat lapses.
+
+Verify current state: `claude mcp list` — both Unity MCPs should appear:
+
+```
+UnityAIAssistant: /Users/vibelogic/.unity/relay/relay_mac_arm64.app/Contents/MacOS/relay_mac_arm64 --mcp --project-path /Users/vibelogic/dev/football/unity-project - ✓ Connected
+UnityMCP: http://127.0.0.1:8080/mcp (HTTP) - ✓ Connected
+```
+
+If `UnityAIAssistant` shows red / disconnected: (1) verify Unity Editor is running on this project, (2) verify Pro seat assignment in `Edit > Project Settings > AI > Unity MCP Server`, (3) Stop/Start the Unity Bridge from that page, (4) restart the Claude Code session. The relay binary is launched by Claude Code (not by Unity), so a Claude restart re-spawns it cleanly.
 
 ---
 

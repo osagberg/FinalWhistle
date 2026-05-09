@@ -1,0 +1,346 @@
+#!/usr/bin/env bash
+# agent-bus — append-only JSONL dialog CLI for Claude/Codex/user collaboration.
+#
+# Usage: agent-bus <subcommand> [args...]
+# Subcommands: post | claim | read | list | help | version
+#
+# Env: AGENT_BUS_AUTHOR = claude | codex | user (default: user)
+#      AGENT_BUS_DIR    = path to dialog dir (default: ./dialog)
+#
+# Exit codes:
+#   0  success
+#   1  generic failure (file IO, internal)
+#   2  validation error (bad input from caller)
+#   3  not found (topic missing on read)
+#   4  closed-topic write warning (still writes; advisory)
+#
+# See docs/tooling/agent-bus-spec.md for the protocol.
+
+set -euo pipefail
+
+VERSION="0.1.0"
+DIALOG_DIR="${AGENT_BUS_DIR:-dialog}"
+AUTHOR="${AGENT_BUS_AUTHOR:-user}"
+MAX_BODY_BYTES=4096
+
+# ---------- utilities ----------
+
+die() { printf 'agent-bus: error: %s\n' "$1" >&2; exit "${2:-1}"; }
+warn() { printf 'agent-bus: warning: %s\n' "$1" >&2; }
+
+# jq is REQUIRED — silent-failure-hunter 2026-05-09 audit identified jq/awk
+# json_escape inconsistency (trailing-newline drop on awk path; locale-dependent
+# multi-byte handling on gawk) as a P0: same logical body would produce
+# different sha256 hashes across hosts, breaking in_reply_to linkage.
+# jq is in CLAUDE.md/TOOLING.md baseline (`brew install jq` on macOS; pre-installed
+# on most Linux distros). Failing fast at startup beats silent corruption.
+require_jq() {
+    if ! command -v jq >/dev/null 2>&1; then
+        die "jq is required (install via 'brew install jq' on macOS, 'apt install jq' on Linux). Reason: cross-host sha256 stability for in_reply_to linkage; awk-based JSON escaping diverges on trailing newlines + multi-byte UTF-8 + gawk locales." 1
+    fi
+}
+
+have_shasum() { command -v shasum >/dev/null 2>&1; }
+have_sha256sum() { command -v sha256sum >/dev/null 2>&1; }
+
+sha256_hex() {
+    if have_sha256sum; then
+        printf '%s' "$1" | sha256sum | awk '{print $1}'
+    elif have_shasum; then
+        printf '%s' "$1" | shasum -a 256 | awk '{print $1}'
+    else
+        die "neither sha256sum nor shasum found; install one" 1
+    fi
+}
+
+now_iso_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# JSON-string-escape stdin (raw -> safe JSON string contents, no surrounding quotes).
+# Uses jq -Rs (jq is required; see require_jq).
+json_escape() {
+    local out
+    out="$(printf '%s' "$1" | jq -Rs .)"
+    # Strip surrounding quotes that jq adds. The output is the JSON-string
+    # form of the input, with one trailing newline added by jq -Rs that we
+    # need to preserve as part of the encoded string.
+    printf '%s' "${out:1:${#out}-2}"
+}
+
+# ---------- validation ----------
+
+valid_enum() {
+    local val="$1"; shift
+    for opt in "$@"; do
+        [ "$val" = "$opt" ] && return 0
+    done
+    return 1
+}
+
+valid_topic() {
+    [[ "$1" =~ ^[a-z0-9-]+$ ]]
+}
+
+valid_iso() {
+    [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
+}
+
+valid_sha256() {
+    [[ "$1" =~ ^[0-9a-f]{64}$ ]]
+}
+
+# ---------- canonical encoding ----------
+
+# Build canonical JSON line in fixed key order:
+# time, from, to, topic, type, severity, body, links, in_reply_to.
+canonical_line() {
+    local time="$1" from="$2" to="$3" topic="$4" type="$5"
+    local severity="$6" body="$7" links_csv="$8" in_reply_to="$9"
+
+    local body_esc; body_esc="$(json_escape "$body")"
+    local sev_field
+    if [ -z "$severity" ]; then sev_field='null'; else sev_field='"'"$severity"'"'; fi
+
+    local links_field='null'
+    if [ -n "$links_csv" ]; then
+        local IFS=','
+        # shellcheck disable=SC2206
+        local arr=($links_csv)
+        local out=''
+        local first=1
+        local item
+        for item in "${arr[@]}"; do
+            local trimmed="${item## }"; trimmed="${trimmed%% }"
+            [ -z "$trimmed" ] && continue
+            local esc; esc="$(json_escape "$trimmed")"
+            if [ $first -eq 1 ]; then out='"'"$esc"'"'; first=0
+            else out="$out"',"'"$esc"'"'
+            fi
+        done
+        if [ -n "$out" ]; then links_field='['"$out"']'; fi
+    fi
+
+    local irt_field='null'
+    if [ -n "$in_reply_to" ]; then irt_field='"'"$in_reply_to"'"'; fi
+
+    printf '{"time":"%s","from":"%s","to":"%s","topic":"%s","type":"%s","severity":%s,"body":"%s","links":%s,"in_reply_to":%s}' \
+        "$time" "$from" "$to" "$topic" "$type" "$sev_field" "$body_esc" "$links_field" "$irt_field"
+}
+
+# ---------- core operations ----------
+
+cmd_post() {
+    local topic='' type='' severity='' body='' in_reply_to='' links_csv='' to='all' from="$AUTHOR"
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --topic) topic="${2:-}"; shift 2 ;;
+            --type) type="${2:-}"; shift 2 ;;
+            --severity) severity="${2:-}"; shift 2 ;;
+            --body) body="${2:-}"; shift 2 ;;
+            --in-reply-to) in_reply_to="${2:-}"; shift 2 ;;
+            --links) links_csv="${2:-}"; shift 2 ;;
+            --to) to="${2:-}"; shift 2 ;;
+            --from) from="${2:-}"; shift 2 ;;
+            *) die "unknown post flag: $1" 2 ;;
+        esac
+    done
+
+    [ -n "$topic" ] || die "--topic required" 2
+    [ -n "$type" ]  || die "--type required" 2
+    [ -n "$body" ]  || die "--body required (non-empty)" 2
+
+    valid_topic "$topic" || die "topic must match ^[a-z0-9-]+$ (got: $topic)" 2
+    valid_enum "$from" claude codex user || die "--from must be claude|codex|user (got: $from)" 2
+    valid_enum "$to" claude codex user all || die "--to must be claude|codex|user|all (got: $to)" 2
+    valid_enum "$type" claim counter evidence question decision ack note \
+        || die "--type must be one of: claim counter evidence question decision ack note (got: $type)" 2
+
+    case "$type" in
+        claim|counter|evidence)
+            [ -n "$severity" ] || die "severity required for type=$type" 2
+            valid_enum "$severity" p0 p1 p2 p3 || die "severity must be p0|p1|p2|p3 (got: $severity)" 2
+            ;;
+        note|ack)
+            if [ -n "$severity" ]; then
+                die "severity must be null/empty for type=$type" 2
+            fi
+            ;;
+        question|decision)
+            if [ -n "$severity" ]; then
+                valid_enum "$severity" p0 p1 p2 p3 || die "severity must be p0|p1|p2|p3 if set (got: $severity)" 2
+            fi
+            ;;
+    esac
+
+    local blen; blen="$(printf '%s' "$body" | wc -c | tr -d ' ')"
+    if [ "$blen" -gt "$MAX_BODY_BYTES" ]; then
+        die "body length $blen exceeds cap of $MAX_BODY_BYTES bytes; split into multiple events or trim" 2
+    fi
+
+    if [ -n "$in_reply_to" ]; then
+        valid_sha256 "$in_reply_to" || die "--in-reply-to must be 64-hex sha256 (got: $in_reply_to)" 2
+    fi
+
+    mkdir -p "$DIALOG_DIR" || die "cannot create $DIALOG_DIR" 1
+    local file="$DIALOG_DIR/$topic.jsonl"
+    local time; time="$(now_iso_utc)"
+
+    # Closure detection: parse each line as JSON via jq instead of grep regex
+    # (silent-failure-hunter P1 — grep regex had false-positive cases on bodies
+    # containing literal "from":"user","type":"decision" substring).
+    if [ -f "$file" ]; then
+        if jq -se 'any(.[]; .from == "user" and .type == "decision")' "$file" 2>/dev/null | grep -q '^true$'; then
+            warn "topic '$topic' is closed (user decision present); appending advisory event"
+        fi
+    fi
+
+    local line; line="$(canonical_line "$time" "$from" "$to" "$topic" "$type" "$severity" "$body" "$links_csv" "$in_reply_to")"
+
+    # jq is required (see require_jq); validate the generated line is parseable.
+    printf '%s' "$line" | jq -e . >/dev/null 2>&1 \
+        || die "internal: generated line is not valid JSON; please file a bug" 1
+
+    local tmp; tmp="$(mktemp "${file}.XXXXXX")"
+    if [ -f "$file" ]; then cat "$file" > "$tmp"; fi
+    printf '%s\n' "$line" >> "$tmp"
+    mv "$tmp" "$file"
+
+    sha256_hex "$line"
+}
+
+cmd_claim() {
+    cmd_post --type claim "$@"
+}
+
+cmd_read() {
+    local topic='' since='' filter_from='' filter_type='' filter_severity=''
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --topic) topic="${2:-}"; shift 2 ;;
+            --since) since="${2:-}"; shift 2 ;;
+            --from) filter_from="${2:-}"; shift 2 ;;
+            --type) filter_type="${2:-}"; shift 2 ;;
+            --severity) filter_severity="${2:-}"; shift 2 ;;
+            *) die "unknown read flag: $1" 2 ;;
+        esac
+    done
+    [ -n "$topic" ] || die "--topic required" 2
+    valid_topic "$topic" || die "invalid topic" 2
+    if [ -n "$since" ]; then valid_iso "$since" || die "--since must be ISO 8601 UTC (e.g. 2026-05-08T00:00:00Z)" 2; fi
+
+    local file="$DIALOG_DIR/$topic.jsonl"
+    [ -f "$file" ] || die "topic not found: $topic" 3
+
+    local line lineno=0
+    while IFS= read -r line || [ -n "$line" ]; do
+        lineno=$((lineno + 1))
+        [ -z "$line" ] && continue
+
+        # Parse-or-skip per silent-failure-hunter P1 — a malformed line must
+        # not abort the read of subsequent valid lines (worst failure mode for
+        # an audit-trail tool). Validate with jq -e first; warn + continue on
+        # parse error.
+        local parsed
+        if ! parsed="$(printf '%s' "$line" | jq -ce . 2>/dev/null)"; then
+            warn "skipping malformed line $lineno in $file (not valid JSON)"
+            continue
+        fi
+
+        local t f ty sev to body
+        t="$(printf '%s' "$parsed" | jq -r '.time // ""')"
+        f="$(printf '%s' "$parsed" | jq -r '.from // ""')"
+        ty="$(printf '%s' "$parsed" | jq -r '.type // ""')"
+        sev="$(printf '%s' "$parsed" | jq -r '.severity // ""')"
+        to="$(printf '%s' "$parsed" | jq -r '.to // ""')"
+        body="$(printf '%s' "$parsed" | jq -r '.body // ""')"
+
+        [ -n "$since" ] && [ -n "$t" ] && [ "$t" \< "$since" ] && continue
+        [ -n "$filter_from" ] && [ "$f" != "$filter_from" ] && continue
+        [ -n "$filter_type" ] && [ "$ty" != "$filter_type" ] && continue
+        [ -n "$filter_severity" ] && [ "$sev" != "$filter_severity" ] && continue
+
+        local sev_disp; sev_disp="${sev:--}"
+        printf '%s  %-6s -> %-6s  %-8s  [%s]\n' "$t" "$f" "$to" "$ty" "$sev_disp"
+        printf '  %s\n\n' "${body//$'\n'/$'\n  '}"
+    done < "$file"
+}
+
+cmd_list() {
+    local mode='all'
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --open) mode='open'; shift ;;
+            --closed) mode='closed'; shift ;;
+            --all) mode='all'; shift ;;
+            *) die "unknown list flag: $1" 2 ;;
+        esac
+    done
+
+    [ -d "$DIALOG_DIR" ] || { printf '(no dialog directory at %s)\n' "$DIALOG_DIR"; return 0; }
+
+    local f topic status n_events
+    local found=0
+    for f in "$DIALOG_DIR"/*.jsonl; do
+        [ -f "$f" ] || continue
+        found=1
+        topic="$(basename "$f" .jsonl)"
+        # Closure detection via jq parser (silent-failure-hunter P1 fix).
+        if jq -se 'any(.[]; .from == "user" and .type == "decision")' "$f" 2>/dev/null | grep -q '^true$'; then
+            status='closed'
+        else
+            status='open'
+        fi
+        case "$mode" in
+            open)   [ "$status" = 'open' ]   || continue ;;
+            closed) [ "$status" = 'closed' ] || continue ;;
+        esac
+        n_events="$(wc -l < "$f" | tr -d ' ')"
+        printf '%-8s  %4s events  %s\n' "$status" "$n_events" "$topic"
+    done
+    [ $found -eq 0 ] && printf '(no topics in %s)\n' "$DIALOG_DIR"
+}
+
+cmd_help() {
+    cat <<'EOF'
+agent-bus — append-only JSONL dialog CLI
+
+Usage:
+  agent-bus post   --topic <id> --type <t> [--severity <p0|p1|p2|p3>]
+                   --body <text> [--to <claude|codex|user|all>]
+                   [--in-reply-to <sha256>] [--links <csv>]
+  agent-bus claim  --topic <id> [--severity <p0..p3>] --body <text> [...]
+  agent-bus read   --topic <id> [--since <iso>] [--from <e>]
+                   [--type <e>] [--severity <e>]
+  agent-bus list   [--open | --closed | --all]
+  agent-bus help
+  agent-bus version
+
+Env:
+  AGENT_BUS_AUTHOR  claude | codex | user (default: user)
+  AGENT_BUS_DIR     dialog directory (default: ./dialog)
+
+Types:    claim counter evidence question decision ack note
+Severity: p0 p1 p2 p3 (required for claim/counter/evidence;
+                       forbidden for note/ack; optional for question/decision)
+
+Closure: a topic is closed when an event with from=user and type=decision exists.
+
+Spec: docs/tooling/agent-bus-spec.md
+EOF
+}
+
+cmd_version() { printf 'agent-bus %s\n' "$VERSION"; }
+
+# ---------- dispatch ----------
+
+if [ $# -eq 0 ]; then cmd_help; exit 0; fi
+sub="$1"; shift
+case "$sub" in
+    post)    require_jq; cmd_post "$@" ;;
+    claim)   require_jq; cmd_claim "$@" ;;
+    read)    require_jq; cmd_read "$@" ;;
+    list)    require_jq; cmd_list "$@" ;;
+    help|-h|--help) cmd_help ;;
+    version|-v|--version) cmd_version ;;
+    *) die "unknown subcommand: $sub (try 'agent-bus help')" 2 ;;
+esac
