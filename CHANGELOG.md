@@ -2,6 +2,76 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-05-09 (Codex round-2 follow-up against 47e7403: STATUS line 69 + DotsMatchDirector tooltip + curl-allow rules)
+
+Closes Codex round-2 review against commit `47e7403` (Slice-6 round-1 follow-up). Three small fixes:
+
+- **`STATUS.md` line 69** — was "Next /next picks up: Slice 6 of 7 — UI Toolkit overlay"; now marks Slice 6 shipped with UGUI fallback + L2 screenshots + Slice 7 as next pickup. Codex P1: directly controls the next Claude handoff.
+- **`unity-project/Assets/Viewer/Adapters/Dots/DotsMatchDirector.cs:55`** SerializeField tooltip — was "UI Toolkit overlay... PanelSettings sortingOrder must be 1"; now describes UGUI Canvas in Screen Space - Overlay mode with sortingOrder=1, includes the UI Toolkit composition issue context, flags Phase-4+ migration scaffold. Codex P3: editor-facing guidance on the exact scene field people will touch.
+- **`.claude/settings.json`** — removed 2 stale curl-allow rules for `github.com/google/fonts/raw/*` and `github.com/JetBrains/JetBrainsMono/raw/*`. Fonts checked into `unity-project/Assets/Viewer/Adapters/Dots/UI/Fonts/` since Slice-6; one-time fetch permissions no longer needed. Codex P3: weakens the risky-action boundary if left in place.
+
+Cross-refs: SPEC.md decisions-log 2026-05-09 entry; ADR-0011 § "Acceptance criteria" (deferred-Codex-review-trail bullet for next session).
+
+## 2026-05-09 (Claude ↔ Codex agent-bus protocol v0.1.0 shipped)
+
+Append-only JSONL dialog ledger replacing ad-hoc copy-paste relay between Claude and Codex. Structured claim / counter / evidence / decision protocol with strict schema validation. Closes the "context loss in copy-paste / agreement-loop risk / no audit trail" failure modes called out by Codex's 2026-05-08 review of the routing-discussion thread.
+
+**What landed:**
+
+- `docs/tooling/agent-bus-spec.md` (NEW) — protocol specification v0.1.0. Covers schema (`time, from, to, topic, type, severity, body, links, in_reply_to`), type enum (`claim, counter, evidence, question, decision, ack, note`), severity enum (`p0..p3`; required for claim/counter/evidence; forbidden for note/ack), closure semantics (only `from: user` + `type: decision` closes), canonical-encoding sha256 for `in_reply_to` threading, append-only enforcement contract, validation rules.
+
+- `scripts/agent-bus` (NEW; ~290 LoC bash, executable) — POSIX-portable CLI shim. Subcommands: `post / claim / read / list / help / version`. JSONL writes are atomic (tmp file + mv). `jq` optional (used when present, fallback to awk-based escape + grep when absent). Exit codes: 0 success / 1 generic / 2 validation / 3 not-found / 4 closed-topic-warning. Strict mode (`set -euo pipefail`).
+
+- `dialog/README.md` (NEW) — user-facing protocol documentation: how to read / post / close, file layout, topic naming, lifecycle, examples + anti-patterns.
+
+- `dialog/example-topic.jsonl` (NEW) — worked example showing claim → counter → evidence → ack → question → note flow with realistic content. Topic intentionally kept open.
+
+- `dialog/.gitkeep` (NEW) — preserves dialog/ directory in git.
+
+- `CLAUDE.md` §6.3 (MODIFIED) — added "Agent-bus collaboration (cross-model dialog ledger)" subsection with when-to-post / when-not-to / required fields / mandate at session start.
+
+- `CLAUDE.md` §8 first-session directive (MODIFIED) — added step 6 "Run `scripts/agent-bus list --open` per §6.3 agent-bus mandate."
+
+- `TECH_APPROACH.md` §12 (NEW SECTION) — cross-agent dialog architecture summary.
+
+**Smoke-tested 2026-05-09**: post → read → list round-trip succeeded; severity-required-on-claim validation rejected with exit 2; closure-detection regex correctly identifies `from=user + type=decision` events.
+
+Pre-commit hook enforcement (`.claude/hooks/protect-dialog-append-only.sh`) deferred to a future task. Append-only invariant is a social contract for now, documented at the top of `dialog/README.md` + spec §6.
+
+Cross-refs: SPEC.md decisions-log 2026-05-09 entry; ADR-0011 (the migration debate informed the agent-bus design); CLAUDE.md §6.3 cross-model rhythm.
+
+## 2026-05-09 (Unity MCP migration: official UnityAIAssistant primary, CoplayDev UnityMCP fallback)
+
+Migrated editor automation surface from CoplayDev `unity-mcp` (HTTP :8080) to the official Unity AI Assistant MCP (`com.unity.ai.assistant 2.7.0-pre.3`, stdio relay) as PRIMARY. CoplayDev retained as FALLBACK for capability gaps + entitlement-failure recovery. ADR-0011 Accepted in autonomous mode per user instruction; Codex round-trip explicitly deferred to next session.
+
+**What landed:**
+
+- `design/adr/adr-0011-unity-ai-assistant-mcp-migration.md` (NEW) — ADR-0011, status Accepted. Decision: official primary, CoplayDev fallback. Reversibility: two-way door, both servers stay registered in `.mcp.json`. Alternatives considered (keep CoplayDev only / deprecate CoplayDev now / wait for stable / co-equal primaries) all rejected with rationale. Acceptance criteria + review trail. Cross-refs ADR-0008 + ADR-0009.
+
+- `docs/tooling/unity-mcp-routing.md` (NEW) — operational routing matrix. ~30 task classes with primary tool / fallback tool / rationale / status (live / experimental / not-yet-tested). Single-driver rule (Claude holds cap=1; Codex stays out of Editor). CoplayDev retirement gates documented (5 conditions all required).
+
+- `docs/tooling/unity-mcp-playbook.md` (NEW) — deep-research artifact informing the ADR. Architecture summary (relay binary + IPC + bridge), security/entitlement model (`MaxDirect` from `ConnectionCensus.Policy`, per-binary-signature re-approval), complete tool inventory (52 tools across 11 families), custom-tool registration patterns (`[McpTool]` external + `[AgentTool]` Assistant; 4 patterns), AssistantApi public surface, capability comparison vs CoplayDev, 7 proposed FW menu items as substrate, risks + reversibility.
+
+- `TECH_APPROACH.md` §11 + §12 (NEW SECTIONS) — Editor automation surface + cross-agent dialog architectural sections. Names ADR-0011 + routing table + agent-bus spec.
+
+- `TOOLING.md` (MODIFIED) — Phase-3 Unity-specific section restructured. New `UnityAIAssistant` row marked PRIMARY; `UnityMCP` row marked FALLBACK; routing-table pointer at section header. Hook footnote covers both MCPs. Anti-pattern entry on "multiple Unity MCPs simultaneously" reframed as the migration's intentional posture.
+
+- `CLAUDE.md` §3 (MODIFIED) — tech-stack lock now lists "Editor automation surface" with primary + fallback + ADR-0011 reference.
+
+- `CLAUDE.md` §4 (MODIFIED) — Phase-3 adoption section names both servers explicitly.
+
+- `CLAUDE.md` §6.3 (MODIFIED) — mandatory rotation table row for Unity / Viewer changed `unity-check skill at L1 (compile via UnityMCP)` to `(compile via UnityAIAssistant primary, UnityMCP fallback per routing)`.
+
+- `CLAUDE.md` §8 first-session directive step 3 (MODIFIED) — server discovery now names both `UnityAIAssistant` and `UnityMCP`; Pro-seat troubleshooting steps for `UnityAIAssistant` failure path.
+
+- `SETUP.md` Phase-3 install procedure (MODIFIED) — both Unity MCPs documented; `UnityAIAssistant` first as primary with seat-assignment + approval-flow walkthrough; `UnityMCP` retained as fallback. `claude mcp list` verification example shows both servers ✓ Connected.
+
+**Live-tested 2026-05-09** (12+ tools end-to-end against `UnityAIAssistant`): `Unity_RunCommand` with `IRunCommand` template (full C# in-Editor execution; reads 36 .cs files under `Assets/Viewer`, returns Editor version + active scene), `Unity_ManageEditor GetState` (`IsCompiling: false`), `Unity_ManageMenuItem List` (found `Final Whistle/Setup/Repair URP Renderer`), `Unity_SceneView_Capture2DScene` (purpose-built for L2 evidence), `Unity_GetSha` (file SHA256 + size + last-modified), `Unity_FindInFile` (regex + line+col + per-result SHA), `Unity_AssetGeneration_GetModels` (32 first-party models exposed: Flux 2 Pro, Gemini 3.x, GPT Image 1/1.5, Tripo P1, ElevenLabs, Lyria 3, MusicGen, Seedance/Kling video, Unity Text-to-Motion, skybox-cinematic/standard, etc.), `Unity_ManageScript_capabilities` (8 structured ops + 4 text ops + 256 KB max payload + `using_guard` enabled).
+
+Pinned 60-tick `MatchCanonicalState` hash UNCHANGED — this migration touches Editor automation only.
+
+Cross-refs: ADR-0011 (full decision text); routing table (operational reference); SPEC.md decisions-log 2026-05-09 entry (consolidated entry covering this + agent-bus + round-2 closure); CLAUDE.md §3/§4/§6.3/§8 (blueprint surface).
+
 ## 2026-05-01 (Dots-phase render adapter — Slice 4 of 7: camera shot framing for tactical-wide / diagonal-attack-lane / pass-shot-impact)
 
 Fourth slice of the 7-slice dots-adapter ladder per `docs/plans/dots-adapter-blueprint.md` shipped. SPEC line 149 partially advanced (full task stays `[ ]` until Slices 5-7 land). The camera now cuts to the appropriate framing when a `ViewerEvent` fires: goal events trigger pass-shot-impact (close-in tilt-zoom on the focal subject, or ball when null); the adapter-local diagonal-attack-lane heuristic fires when ball Z-velocity magnitude exceeds the inspector-tunable threshold (default 8 m/s); default state is tactical-wide. Smooth Lerp over 0.2s (12 ticks) between framings.

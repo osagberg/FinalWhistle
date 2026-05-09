@@ -52,7 +52,7 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         [SerializeField] private DotsAdapterRoot adapterRoot;
         [SerializeField] private ShotCamera shotCamera;
 
-        [Tooltip("Optional — Slice-6 UI Toolkit overlay (scoreboard / commentary / signature title-card). When unwired, the dots scene runs without overlay text; a one-shot warning fires if the bridge produces a signature-execution ViewerEvent + the overlay is null. PanelSettings sortingOrder must be 1 (above the URP camera, above the Slice-5 renderer features).")]
+        [Tooltip("Optional — Slice-6 UGUI overlay (scoreboard / commentary / signature title-card). The Slice-6 round-1 implementation used UI Toolkit but UI Toolkit runtime panels did not composite on Unity 6.0.4 + URP 17.4 + Mac/Metal; UGUI is the fallback per .claude/rules/Scripts/Viewer/RULES.md. When unwired, the dots scene runs without overlay text; a one-shot warning fires if the bridge produces a signature-execution ViewerEvent + the overlay is null. The OverlayController hosts a Canvas in Screen Space - Overlay mode with sortingOrder=1 (renders above all camera output, above the Slice-5 renderer features). UI Toolkit migration tracked for Phase 4+ once the composition issue is diagnosed.")]
         [SerializeField] private OverlayController overlayController;
 
         [Tooltip("Archetype slug for the home side; matches a YAML file stem in MatchSim/Content/archetypes/.")]
