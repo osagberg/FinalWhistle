@@ -117,6 +117,9 @@ steamworks/sdk/
 # Pre-compact hook auto-generates snapshots here; ephemera, not source
 .claude/session-snapshots/
 
+# ScheduleWakeup transient lockfile (per-session state, not source)
+.claude/scheduled_tasks.lock
+
 # ==========================================
 # Agent / skill ports (not yet deliberately ported — contain absolute
 # blueprint paths + claude-mcp references; revisit when porting is
