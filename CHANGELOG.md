@@ -2,6 +2,46 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-05-09 (Autonomous Tier-2 implementation protocol designed + agent-bus → v0.2.0 + workflow-cleanup from agent-bus dogfood)
+
+ADR-0012 Proposed (Accepted-pending Codex review + Slice-7 dogfood + user sign-off). Layered protocol: Tier 1 (`/duo-debate`, ships now) for review/brainstorm autonomous discussion; Tier 2 (`/duo-implement`, ships later) for bounded coding tasks with scope contract + reviewer-gate-before-commit + auto-rollback + escalation triggers + cost/time/turn caps; Tier 3 (phase-spanning "agent builds the game") explicitly OUT of scope — creative + scope + money decisions stay with the user.
+
+**What landed:**
+
+- `design/adr/adr-0012-autonomous-implementation-protocol.md` (NEW) — ADR-0012, status Proposed. 5 binding components for Tier 2 (scope contract / reviewer-gate / auto-rollback / escalation triggers / cost+time caps). 5 alternatives considered + rejected. Acceptance criteria 7/11 done; remaining 4 gated on Codex review of this ADR via agent-bus topic `2026-05-10-adr-0012-autonomous-tier-2-review`, Slice-7 dogfood, user sign-off.
+
+- `docs/tooling/agent-bus-spec.md` (MODIFIED → v0.2.0) — 3 new event types added (`task-spec` from=user opening event of an implementation topic; `escalation` hard-stop signal with severity required; `task-complete` posted by implementing agent on acceptance + reviewer-ack + commit-landed). §1 gained a fourth Why bullet on cap=1 single-driver as the load-bearing operational reason for the protocol (per `2026-05-09-mcp-migration-debate` mutual-fade closure). New §13 cost/time/turn caps section. New §14 escalation triggers section (full list). New §15 task-spec event format with required structured-markdown fields. Backwards-compatible (Tier-1 topics keep working with original 7 types).
+
+- `scripts/agent-bus` (MODIFIED) — 3 new subcommands. `task-spec` (validates from=user; wraps `cmd_post`). `archive` (moves closed topics older than `--age-days N` (default 30) to `dialog/archive/YYYY-MM/`; cross-platform BSD/GNU date parsing; `--dry-run` flag; never archives open topics). `stats` (event count + body-bytes-KB per topic + grand totals; `--topic` filter). The `cmd_list` `set -e` exit-1 bug fixed (was `[ $found -eq 0 ] && printf...` short-circuit; now `if/fi` with explicit `return 0`). Help text updated to v0.2.0 with new env vars (`AGENT_BUS_MAX_TOKENS` / `AGENT_BUS_MAX_WALL_CLOCK` / `AGENT_BUS_MAX_TURNS`).
+
+- `.claude/hooks/protect-dialog-append-only.sh` (NEW; +x; ~80 LoC) — PreToolUse on Edit/Write/MultiEdit. Blocks any tool call that would mutate a prior line in `dialog/*.jsonl`. Edit + MultiEdit always blocked; Write blocked only when target file already exists (lets first-time topic creation through). Auto-promoted from P2 to P1 per the mechanical trigger named in the `2026-05-09-mcp-migration-debate` mutual-fade closure: tonight's SPEC entry citing `dialog/2026-05-09-mcp-migration-debate.jsonl` in its review-trail bullet IS the auto-promote trigger.
+
+- `.claude/hooks/canonical-hash-guard.sh` (NEW; +x; ~95 LoC) — PreToolUse on `Bash(git commit*)`. If staged diff touches `MatchSim/Sim/**` or `MatchSim/Content/**` AND the targeted `Match_SmokeFixture60TicksWithSignaturePackets_ProducesIdenticalPinnedHash` regression test fails, BLOCKS commit with exit 2. ~2s overhead via `dotnet test --no-build --filter`. Surfaces resolution path including `--no-verify` escape hatch with SPEC-entry discipline for authorized hash bumps.
+
+- `.claude/skills/duo-debate/SKILL.md` (NEW) — Tier-1 wrapper documenting the autonomous-debate workflow that was dogfooded tonight. Frontmatter triggers ("duo debate", "discuss with codex", "agent-bus debate", etc.). Workflow: opening-event posts → user-relayable Codex prompt → `ScheduleWakeup` polling → mutual-ack-and-fade or user-decision termination → final summary post + user report. Verified registered via deferred-tools list. Cost expectation ~$1-2 per discussion at current Claude pricing.
+
+- `CLAUDE.md` §6.3 (MODIFIED) — gained "Autonomous-implementation discipline (Tier 2 — bounded coding tasks)" subsection. Names in-scope work (MatchSim/Sim, MatchSim/Content, unity-project/Assets/Viewer within named scope; tests; STATUS/CHANGELOG sync). Names out-of-scope mandatory-escalation work (design/**.md, SPEC decisions log, CLAUDE/TECH_APPROACH/TOOLING/PROJECT_CONTEXT/SETUP, manifest.json, asset-generation tools, unauthorized canonical-hash drift). Tier 3 explicitly OUT of scope.
+
+- `TECH_APPROACH.md` (MODIFIED) — §12 updated (append-only invariant now hook-enforced, was social contract). New §13 documents the Tier-2 protocol architecture: 3-tier layering, 5 binding components, cap=1 sequencing, env-var caps. Footer updated.
+
+- `docs/tooling/unity-mcp-routing.md` (MODIFIED) — preamble gained explicit row-scoped wording per Codex's `d93bbd27…` counter from the agent-bus debate: "Routing is row-scoped. Where a row says official, Claude uses official as the active driver. Where a row says CoplayDev, CoplayDev is the tool-of-record until the deprecation gates close. Primary never means ignore fallback rows." Citation chain to the mutual-fade closure included.
+
+- `dialog/2026-05-09-mcp-migration-debate.jsonl` (existing; +1 final note) — already at 25 events from tonight's mutual-fade closure. No further events posted in this commit; the topic file IS the binding debate-trail.
+
+**Verification:**
+
+- agent-bus smoke-tests all pass: `task-spec` accepted from=user; rejected from=claude with exit 2; `escalation` accepted with required severity; `task-complete` accepted without severity; `task-complete` rejected when severity present; `list` exit=0 (was exit=1); `stats` shows accurate counts; `archive --dry-run` correctly identifies eligible topics.
+- `/duo-debate` skill registered (visible in available-skills list).
+- `scripts/fw verify` green (re-verified post-changes).
+- Pinned 60-tick `MatchCanonicalState` hash UNCHANGED — this work touches protocol scaffolding + agent-bus extensions + tooling docs only, not MatchSim canonical state.
+
+**Skipped per autonomous mode (user explicitly authorized):**
+
+- Codex review pass on ADR-0012. Topic `2026-05-10-adr-0012-autonomous-tier-2-review` opened in this commit for Codex's async review at next session.
+- pr-review-toolkit triple. The bash-script changes are extensions to the existing scripts/agent-bus that was already silent-failure-hunter-reviewed; the new hooks are small focused defensive guards. Logged here for traceability.
+
+**Cross-refs:** ADR-0012 binding design; agent-bus-spec.md v0.2.0 binding protocol; ADR-0011 (Editor MCP routing — cap=1 constraint informs Tier-2 sequencing); CLAUDE.md §6.3 (binding process doc); SPEC.md decisions-log 2026-05-09 entry (consolidated entry covering this); `2026-05-09-mcp-migration-debate.jsonl` (the dogfood that proved Tier 1).
+
 ## 2026-05-09 (Codex round-2 follow-up against 47e7403: STATUS line 69 + DotsMatchDirector tooltip + curl-allow rules)
 
 Closes Codex round-2 review against commit `47e7403` (Slice-6 round-1 follow-up). Three small fixes:

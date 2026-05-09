@@ -401,8 +401,32 @@ Bake-time content discipline is unchanged. The asset-generation tools surfaced b
 
 Append-only JSONL ledger at `dialog/<topic>.jsonl`, driven via `scripts/agent-bus`. Replaces ad-hoc copy-paste relay between Claude and Codex with a structured claim / counter / evidence / decision protocol. Spec: [`docs/tooling/agent-bus-spec.md`](docs/tooling/agent-bus-spec.md). User mandate in `CLAUDE.md §6.3` (agent-bus collaboration subsection): at session start, after reading CLAUDE.md / STATUS.md / SPEC.md, run `scripts/agent-bus list --open` and read any topic where Claude is `to:` or has prior events.
 
-Append-only invariant is currently a social contract; pre-commit hook enforcement (`.claude/hooks/protect-dialog-append-only.sh`) is deferred to a future task. SPEC.md decisions-log entries that resolve an agent-bus topic SHOULD cite the topic filename in their review-trail bullet. Agent-bus complements SPEC; SPEC is the binding outcome ledger, agent-bus is the debate trail.
+Append-only invariant is enforced by `.claude/hooks/protect-dialog-append-only.sh` PreToolUse hook on Edit/Write/MultiEdit (auto-promoted from P2 to P1 on 2026-05-10 per the mutual-fade closure of `2026-05-09-mcp-migration-debate`, when the SPEC decisions-log entry first cited a dialog topic in its review-trail bullet — that citation was the mechanical promotion trigger documented in the topic's wrap-up summary). The hook BLOCKS any tool call that would modify a prior line in `dialog/*.jsonl`; the only valid mutation is appending NEW lines via `scripts/agent-bus post`. SPEC.md decisions-log entries that resolve an agent-bus topic SHOULD cite the topic filename in their review-trail bullet. Agent-bus complements SPEC; SPEC is the binding outcome ledger, agent-bus is the debate trail.
+
+## 13. Autonomous Tier-2 implementation protocol (post-2026-05-09)
+
+Per [ADR-0012](design/adr/adr-0012-autonomous-implementation-protocol.md) (Proposed 2026-05-09; Accepted-pending Codex review + Slice-7 dogfood + user sign-off). Layered protocol for Claude + Codex executing **bounded coding tasks** autonomously between user check-ins. The user defines the task; agents execute the implementation; reviewer agent gates the commit; both agents escalate to the user when triggers fire.
+
+The protocol is **layered** by autonomy level:
+
+- **Tier 1 (`/duo-debate`)** — review / brainstorm / architectural debate. No repo changes. **Ships now**, dogfooded successfully via `2026-05-09-mcp-migration-debate` (25 events, 5 rounds, mutual-ack-and-fade closure with zero user relay).
+- **Tier 2 (`/duo-implement`)** — bounded coding task with scope contract + reviewer gate + auto-rollback + escalation triggers. **Designed in ADR-0012; skill ships in a future commit** after Codex review of the ADR + dogfood on Slice 7.
+- **Tier 3** (phase-spanning autonomous work, "agent builds the game without human in the loop") — **explicitly OUT of scope**. Creative + scope + money decisions stay with the user. The protocol is grunt-work-tier only.
+
+Five binding components for Tier 2 (full design in ADR-0012):
+
+1. **Scope contract (`type: task-spec` event)** — user-issued opening event with falsifiable acceptance criteria, files-in-scope glob list, files-out-of-scope denylist (always includes `design/**.md`, `SPEC.md`, `CLAUDE.md`, etc. — the pillar / process / creative-authority surface), `max_tokens`, `max_wall_clock_seconds`, `max_turns`, escalation_triggers, required_subagents per CLAUDE.md §6.3 mandatory rotation.
+
+2. **Reviewer-gate-before-commit** — implementing agent posts `commit-proposal` (a `claim` event with body header `commit-proposal:` + diff summary + verification output); reviewing agent posts `ack` (approve) or `counter` (block + reasons). Commit lands ONLY after reviewer ack. Differs from current `pr-review-toolkit` rhythm where review runs post-commit.
+
+3. **Auto-rollback on canonical-hash drift** — `.claude/hooks/canonical-hash-guard.sh` PreToolUse on `Bash(git commit*)`. If the staged diff includes any `MatchSim/**` change AND the targeted regression test (`Match_SmokeFixture60TicksWithSignaturePackets_ProducesIdenticalPinnedHash`) would fail, the commit is BLOCKED with exit 2. Hook re-runs that single test (~2s) — narrow, targeted, fast.
+
+4. **User-escalation triggers** (full list in `docs/tooling/agent-bus-spec.md §14`): out-of-scope file change attempted; `fw verify` red >2 attempts; canonical-hash drift not authorized; `design/**.md` / SPEC / CLAUDE / pillar-doc mutation proposed; `manifest.json` mutation proposed; any `Unity_AssetGeneration_*` invocation proposed (credit burn risk, user pre-approval mandatory); deadlock 3+ counter rounds without convergence; token / wall-clock / turn budgets 80% exhausted. Escalation is a HARD STOP — agent posts `type: escalation, severity: p0`, stops polling, waits for user `type: decision` event resolving it.
+
+5. **Hard cost + time + turn caps** — env-var-driven enforcement in `scripts/agent-bus`: `AGENT_BUS_MAX_TOKENS` (per-topic body-byte cap; ~4 bytes/token proxy); `AGENT_BUS_MAX_WALL_CLOCK` (seconds since first event); `AGENT_BUS_MAX_TURNS` (per-author event cap). Best-effort defenses, not bulletproof — bound runaway loops + force escalation.
+
+Cap=1 single-driver constraint from ADR-0011 informs Tier-2 sequencing: implementing agent holds the Editor MCP slot during implementation; reviewing agent reviews via filesystem + diff + bus (no Editor access required for code review). Visual L2/L3 verification happens post-commit on the next user check-in if the verification floor is `scripts/fw verify` + canonical-hash check (which it is). This makes Tier 2 viable on a single-seat license.
 
 ---
 
-*Authored 2026-04-22. Editor automation surface §11 + cross-agent dialog §12 added 2026-05-09 per ADR-0011. Revise at each phase transition + whenever a major tech decision is logged in SPEC.md decisions log.*
+*Authored 2026-04-22. Editor automation surface §11 + cross-agent dialog §12 added 2026-05-09 per ADR-0011. Autonomous Tier-2 implementation protocol §13 added 2026-05-09 per ADR-0012. Revise at each phase transition + whenever a major tech decision is logged in SPEC.md decisions log.*

@@ -97,23 +97,22 @@ if echo "$STAGED" | grep -qE '(^|/)SPEC\.md$'; then
       # Build the staged post-image (cwd version is normally identical, but
       # check `:0:SPEC.md` for accuracy if files have unstaged tweaks).
       if git show ":0:SPEC.md" >"$spec_staged_tmp" 2>/dev/null; then
-        missing_lines=""
-        missing_count=0
-        while IFS= read -r line; do
-          case "$line" in
-            "- **"[0-9][0-9][0-9][0-9]-*)
-              if ! grep -qF -- "$line" "$spec_staged_tmp" 2>/dev/null; then
-                missing_count=$((missing_count + 1))
-                if [ "$missing_count" -le 3 ]; then
-                  missing_lines="$missing_lines
-    $line"
-                fi
-              fi
-              ;;
-          esac
-        done < "$spec_head_tmp"
-        if [ "$missing_count" -gt 0 ]; then
-          SPEC_DELETIONS="$missing_count decisions-log entry/entries removed from SPEC.md.$missing_lines"
+        # Bullet-comparison via `comm` on sorted bullet sets. The previous
+        # implementation used per-line `grep -qF -- "$line" staged` which
+        # false-positive-blocks on bullets longer than macOS BSD grep's
+        # pattern-length limit (~4 KB per BSD libc; the 2026-05-09 SPEC
+        # entry hit ~7636 bytes and broke the check). Hash-or-sort-based
+        # set-diff sidesteps any pattern-length limit. Per autonomous
+        # Tier-2 commit follow-up 2026-05-09.
+        head_bullets=$(grep -E '^- \*\*[0-9]{4}-' "$spec_head_tmp" 2>/dev/null | sort -u)
+        staged_bullets=$(grep -E '^- \*\*[0-9]{4}-' "$spec_staged_tmp" 2>/dev/null | sort -u)
+        # Lines in head but not in staged = bullets that were removed.
+        missing_bullets=$(comm -23 <(printf '%s\n' "$head_bullets") <(printf '%s\n' "$staged_bullets"))
+        if [ -n "$missing_bullets" ]; then
+          missing_count=$(printf '%s\n' "$missing_bullets" | grep -c '^- ' || true)
+          missing_lines=$(printf '%s\n' "$missing_bullets" | head -3 | sed 's/^/    /')
+          SPEC_DELETIONS="$missing_count decisions-log entry/entries removed from SPEC.md.
+$missing_lines"
         fi
       else
         # Staged-read failed despite SPEC.md being in $STAGED — index race,

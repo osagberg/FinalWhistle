@@ -31,6 +31,14 @@ audit rounds, but the relay layer has three failure modes:
    not capture the debate, the alternatives Codex flagged, or the evidence
    Claude cited. Six months from now nobody will remember why row 3 of the
    slice-6 routing table reads the way it does.
+4. **Cap=1 single-driver.** With Unity AI Assistant `MaxDirect = 1` per
+   Pro seat (per ADR-0011), Claude AND Codex cannot both hold the Editor
+   MCP at the same time. The bus is the only viable async-coordination
+   channel between us when one is actively driving the Editor and the
+   other cannot connect. Confirmed by 2026-05-09 local-test: Codex hit
+   `ValidationReason: Your MCP connections limit is reached (1/1)` while
+   Claude was approved as the active driver. The bus exists to let us
+   coordinate work *despite* this constraint, not in spite of it.
 
 The agent-bus fixes those by giving both models (and the user) a shared,
 append-only transcript per topic. Claude reads it at session start. Codex
@@ -95,6 +103,8 @@ Canonical record:
 
 ### 4.2 Type enum
 
+**Tier-1 types (review / brainstorm / debate — protocol v0.1.0 base):**
+
 - **claim** — a position the author is taking. Most opening shots are claims.
 - **counter** — a position that disagrees with a prior claim/counter. MUST set `in_reply_to`.
 - **evidence** — supporting data for a claim/counter. SHOULD set `in_reply_to` and SHOULD populate `links`.
@@ -102,6 +112,18 @@ Canonical record:
 - **decision** — an authoritative ruling. **Only `from: user` decisions close a topic.** Agents may post `decision`-type events to record their own concurrence or proposed ruling, but those do not close the topic.
 - **ack** — explicit acknowledgement of a prior event without adding new content. Use sparingly; silence is also acknowledgement.
 - **note** — out-of-band annotation (timing, context, cross-ref). Does not advance the debate.
+
+**Tier-2 types (autonomous bounded-coding tasks — added v0.2.0 per [ADR-0012](../../design/adr/adr-0012-autonomous-implementation-protocol.md)):**
+
+- **task-spec** — a structured task brief from the user that opens an autonomous-implementation topic. Body MUST include the fields named in §15 (acceptance, files_in_scope, files_out_of_scope, max_tokens, max_wall_clock_seconds, escalation_triggers, required_subagents). Severity OPTIONAL (defaults to p1). Posted by `from: user` only — agents must not self-issue task specs.
+- **escalation** — a hard-stop signal. The implementing or reviewing agent posts when an escalation trigger fires (out-of-scope file change attempted, fw-verify red >2 attempts, canonical-hash drift unauthorized, design-doc/SPEC mutation proposed, manifest.json mutation proposed, asset-generation tool invocation proposed, deadlock 3+ counter rounds, token/wall-clock budget 80% exhausted). Body MUST name the trigger + the proposed action + the decision the user needs to make. Severity REQUIRED (typically p0 or p1). Agent stops polling until user posts a `decision` event resolving it.
+- **task-complete** — implementing agent posts when all task-spec acceptance criteria are met + reviewer agent has acked the commit-proposal + the commit has landed. Body summarizes work done, files touched, verification output. Severity FORBIDDEN. Topic stays OPEN (only `from: user, type: decision` closes); user reviews on next check-in and may post a `decision` to close, or a `counter` if regression discovered later.
+
+**Tier-2 reviewer-gate events (use existing `commit-proposal` / `commit-approval` / `commit-block` semantics via existing types):**
+
+- **commit-proposal** — implementing agent posts a `claim` (severity p1) with body header `commit-proposal:` and the diff summary + verification output. Reviewer responds with `ack` (approve) or `counter` (block + reasons). Commit lands ONLY after reviewer `ack`. Different semantic from current `pr-review-toolkit` rhythm where review runs post-commit.
+
+The Tier-2 types extend Tier-1 — they do not replace it. A `/duo-debate` topic uses only Tier-1 types; a `/duo-implement` topic uses both.
 
 ### 4.3 Severity enum
 
@@ -214,12 +236,141 @@ A consumer MAY warn (not reject) if:
 
 ## 12. Versioning
 
-This is spec v0.1.0. Schema additions (new optional fields) are
+This is spec v0.2.0 (was v0.1.0 at first ship 2026-05-09; v0.2.0 adds
+Tier-2 type enum + §13-§15 sections per [ADR-0012](../../design/adr/adr-0012-autonomous-implementation-protocol.md)).
+Schema additions (new optional fields, new enum values) are
 backwards-compatible. Schema removals or enum-value removals require a
 new major version + migration plan. Topic files do not embed a version —
 the CLI version (`scripts/agent-bus version`) is the source of truth for what
 schema is being written.
 
+## 13. Cost + time + turn caps (Tier-2 enforcement)
+
+Autonomous Tier-2 implementation runs need hard ceilings to bound runaway
+loops + cost surprise. The CLI enforces three caps via env vars set by
+the user when issuing the task spec:
+
+- **`AGENT_BUS_MAX_TOKENS`** — sum of `body` byte counts across all events
+  on the topic, used as a proxy for combined Claude+Codex token spend
+  (rough; a 4-byte body roughly equals 1 token). Default 400000 bytes
+  (~$5-15 USD per task at current pricing depending on cache hit rate).
+  Behavior: agent posts `escalation` at 80% reached; CLI rejects further
+  posts at 100% reached.
+- **`AGENT_BUS_MAX_WALL_CLOCK`** — seconds since the topic's first event.
+  Default 7200 (2 hours). Agent posts `escalation` at 80%; CLI rejects
+  posts at 100%.
+- **`AGENT_BUS_MAX_TURNS`** — max events per agent author before mandatory
+  user check-in. Default 50 per agent. Agent posts `escalation` at limit;
+  CLI rejects further posts from that author until the user posts an
+  `ack` resetting the count.
+
+These are best-effort defenses, not bulletproof. The implementing agent's
+own `ScheduleWakeup` chain is the primary cost driver — caps cannot
+prevent every runaway, but they bound it and force escalation. Caps are
+optional for Tier-1 review/brainstorm topics (debate is naturally
+self-limiting via mutual-ack-and-fade).
+
+## 14. Escalation triggers (Tier-2)
+
+The implementing or reviewing agent posts a `type: escalation` event when
+any of these fire. Escalation is a HARD STOP: the agent stops polling
+until the user posts a `decision` event resolving it.
+
+**Scope-violation triggers:**
+
+- Out-of-scope file change attempted (touches a path not in `files_in_scope`
+  or matched by `files_out_of_scope`).
+- `design/**.md` modification proposed (creative-judgment domain).
+- `SPEC.md` decisions-log mutation proposed (architecture-bearing).
+- `CLAUDE.md` / `TECH_APPROACH.md` / `TOOLING.md` / `PROJECT_CONTEXT.md`
+  modification proposed (process / pillar domain).
+- `unity-project/Packages/manifest.json` mutation proposed (paid-package
+  risk).
+- `Unity_AssetGeneration_*` tool invocation proposed (Unity AI credit burn
+  risk; user pre-approval mandatory).
+
+**Quality-violation triggers:**
+
+- `scripts/fw verify` red after 2+ fix attempts.
+- Canonical-hash drift not authorized in the task spec (the
+  `.claude/hooks/canonical-hash-guard.sh` hook also blocks the commit, but
+  the agent should escalate before reaching commit time).
+- Pre-existing test suite (`MatchSim.Tests` 644 / EditMode 89+) regresses
+  with no fix in 2+ attempts.
+
+**Coordination-violation triggers:**
+
+- Deadlock: 3+ rounds of `counter` between Claude and Codex without
+  convergence. (Counts only when severity p1 or p0; p2-p3 disagreements
+  aren't escalation-worthy.)
+- Reviewer agent does not ack a `commit-proposal` within
+  `max_wall_clock_seconds * 0.5` (default 60 min). Implementing agent
+  must NOT auto-commit without ack.
+- Token budget 80% exhausted (per §13).
+- Wall-clock 80% exhausted (per §13).
+- Turn count 80% exhausted (per §13).
+
+User responds to escalation with a `type: decision` event naming the
+resolution: "approve, proceed", "deny, revert", "expand scope", "extend
+budget", "pivot". Agent resumes after decision (topic stays open).
+
+## 15. Task-spec event format (Tier-2)
+
+The opening event of a `/duo-implement` topic. Posted by `from: user`. Body
+is structured markdown with these required fields:
+
+```
+acceptance:
+  - <falsifiable acceptance criterion 1>
+  - <falsifiable acceptance criterion 2>
+  - ...
+
+files_in_scope:
+  - <glob pattern 1>
+  - <glob pattern 2>
+  - ...
+
+files_out_of_scope:
+  - design/**.md
+  - SPEC.md
+  - CLAUDE.md
+  - TECH_APPROACH.md
+  - TOOLING.md
+  - PROJECT_CONTEXT.md
+  - SETUP.md
+  - .claude/agents/**
+  - .claude/rules/**
+  - .claude/hooks/**
+  - MatchSim/Sim/Q3232.cs
+  - MatchSim/Sim/Tick.cs
+  - MatchSim/Sim/Seed.cs
+  - <any task-specific additions>
+
+max_tokens: 400000
+max_wall_clock_seconds: 7200
+max_turns: 50
+
+escalation_triggers:
+  - <any custom triggers; default set in §14 always applies>
+
+required_subagents:
+  - <subagent ID per CLAUDE.md §6.3 mandatory rotation table>
+  - <e.g. unity-specialist if the task touches Unity/Viewer>
+  - <e.g. pr-review-toolkit:silent-failure-hunter for the pre-commit triple>
+
+implementing_agent: claude    # or codex
+reviewing_agent: codex        # the other
+
+notes:
+  <free-form context, links to design docs, prior-art, anything the
+   implementing agent needs to know that doesn't fit the structured
+   fields above>
+```
+
+The CLI's `task-spec` subcommand validates the structure on post.
+Agents read the spec on first poll + acknowledge with `ack` before
+proceeding.
+
 ## Last verified
 
-2026-05-09 — schema validated round-trip via the example dialog at `dialog/example-topic.jsonl`. CLI smoke-test (post / read / list) succeeded.
+2026-05-09 — Tier-1 schema validated end-to-end via `2026-05-09-mcp-migration-debate` topic (25 events, mutual-ack-and-fade closure). Tier-2 schema introduced v0.2.0; not yet dogfooded — Slice 7 is the proposed first dogfood per [ADR-0012](../../design/adr/adr-0012-autonomous-implementation-protocol.md) §Acceptance criteria.

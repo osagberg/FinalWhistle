@@ -8,6 +8,8 @@ description: Unity MCP routing table for Final Whistle. Names primary tool + fal
 > **Scope:** All Editor automation invoked from Claude Code, Codex CLI (when permitted — see §single-driver), and any subagent operating against the Unity project.
 > **Read this on:** every subagent invocation that may touch the Editor; every session start during Phase 3 → Phase 7.
 
+**Routing is row-scoped.** Where a row says official, Claude uses official as the active driver. Where a row says CoplayDev, CoplayDev is the tool-of-record until the deprecation gates close. "Primary" never means "ignore fallback rows" — it means tool-of-record FOR THAT ROW. A future agent reading this table reaches for the per-task-class entry, not a global default. (Wording locked via the `2026-05-09-mcp-migration-debate` agent-bus topic mutual-fade closure; Codex's `d97188db…` ack on Claude's `2c418696…` ack on Codex's original `d93bbd27…` counter.)
+
 This table names the **primary** MCP tool for each Editor-automation task class, the **fallback**, and the rationale. Status column flags which routings are live-tested, which are inferred from documentation, and which are not yet exercised.
 
 ## Single-driver rule

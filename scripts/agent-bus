@@ -152,23 +152,33 @@ cmd_post() {
     valid_topic "$topic" || die "topic must match ^[a-z0-9-]+$ (got: $topic)" 2
     valid_enum "$from" claude codex user || die "--from must be claude|codex|user (got: $from)" 2
     valid_enum "$to" claude codex user all || die "--to must be claude|codex|user|all (got: $to)" 2
-    valid_enum "$type" claim counter evidence question decision ack note \
-        || die "--type must be one of: claim counter evidence question decision ack note (got: $type)" 2
+    valid_enum "$type" claim counter evidence question decision ack note task-spec escalation task-complete \
+        || die "--type must be one of: claim counter evidence question decision ack note task-spec escalation task-complete (got: $type)" 2
 
     case "$type" in
-        claim|counter|evidence)
+        claim|counter|evidence|escalation)
             [ -n "$severity" ] || die "severity required for type=$type" 2
             valid_enum "$severity" p0 p1 p2 p3 || die "severity must be p0|p1|p2|p3 (got: $severity)" 2
             ;;
-        note|ack)
+        note|ack|task-complete)
             if [ -n "$severity" ]; then
                 die "severity must be null/empty for type=$type" 2
             fi
             ;;
-        question|decision)
+        question|decision|task-spec)
             if [ -n "$severity" ]; then
                 valid_enum "$severity" p0 p1 p2 p3 || die "severity must be p0|p1|p2|p3 if set (got: $severity)" 2
             fi
+            ;;
+    esac
+
+    # Tier-2 v0.2.0 author-only checks (post-validation; cheap to enforce here).
+    case "$type" in
+        task-spec)
+            [ "$from" = "user" ] || die "type=task-spec MUST be from=user (got from=$from); agents cannot self-issue task specs per spec §15" 2
+            ;;
+        task-complete)
+            valid_enum "$from" claude codex || die "type=task-complete must be from=claude or from=codex (got: $from); user does not post task-complete events" 2
             ;;
     esac
 
@@ -297,35 +307,195 @@ cmd_list() {
         n_events="$(wc -l < "$f" | tr -d ' ')"
         printf '%-8s  %4s events  %s\n' "$status" "$n_events" "$topic"
     done
-    [ $found -eq 0 ] && printf '(no topics in %s)\n' "$DIALOG_DIR"
+    # Explicit return 0 — silent-failure-hunter 2026-05-09 P3 fix:
+    # the prior `[ $found -eq 0 ] && printf ...` short-circuit returned
+    # exit 1 when found=1 (printf not run), tripping `set -e` at end-of-fn.
+    if [ $found -eq 0 ]; then
+        printf '(no topics in %s)\n' "$DIALOG_DIR"
+    fi
+    return 0
+}
+
+cmd_archive() {
+    local age_days=30
+    local dry_run=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --age-days) age_days="${2:-}"; shift 2 ;;
+            --dry-run) dry_run=1; shift ;;
+            *) die "unknown archive flag: $1" 2 ;;
+        esac
+    done
+
+    [ -d "$DIALOG_DIR" ] || { printf '(no dialog directory at %s)\n' "$DIALOG_DIR"; return 0; }
+
+    # Strict-positive integer for --age-days.
+    case "$age_days" in
+        ''|*[!0-9]*) die "--age-days must be a non-negative integer (got: $age_days)" 2 ;;
+    esac
+
+    local archive_root="$DIALOG_DIR/archive"
+    local f topic last_event_iso ym dest archived=0
+    local now_epoch; now_epoch="$(date -u +%s)"
+    local cutoff_epoch=$((now_epoch - age_days * 86400))
+
+    for f in "$DIALOG_DIR"/*.jsonl; do
+        [ -f "$f" ] || continue
+        topic="$(basename "$f" .jsonl)"
+
+        # Closed only — never archive open topics.
+        if ! jq -se 'any(.[]; .from == "user" and .type == "decision")' "$f" 2>/dev/null | grep -q '^true$'; then
+            continue
+        fi
+
+        # Use the most recent event's `time` field as the topic's age.
+        last_event_iso="$(tail -n1 "$f" | jq -r '.time // ""' 2>/dev/null || true)"
+        if [ -z "$last_event_iso" ]; then
+            warn "skipping $topic: cannot read last-event time"
+            continue
+        fi
+
+        # Convert ISO to epoch (BSD vs GNU date — BSD on macOS needs -j -f).
+        local last_epoch=''
+        if last_epoch="$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$last_event_iso" +%s 2>/dev/null)"; then
+            :  # macOS BSD path succeeded
+        elif last_epoch="$(date -u -d "$last_event_iso" +%s 2>/dev/null)"; then
+            :  # GNU coreutils path succeeded
+        else
+            warn "skipping $topic: cannot parse ISO time '$last_event_iso'"
+            continue
+        fi
+
+        if [ "$last_epoch" -ge "$cutoff_epoch" ]; then
+            continue   # too recent
+        fi
+
+        ym="$(printf '%s' "$last_event_iso" | cut -c1-7)"   # YYYY-MM
+        dest="$archive_root/$ym"
+
+        if [ "$dry_run" -eq 1 ]; then
+            printf 'would archive: %-50s -> %s/\n' "$topic" "$dest"
+        else
+            mkdir -p "$dest"
+            mv "$f" "$dest/"
+            printf 'archived: %-50s -> %s/\n' "$topic" "$dest"
+        fi
+        archived=$((archived + 1))
+    done
+
+    if [ "$archived" -eq 0 ]; then
+        printf '(no closed topics older than %s days to archive)\n' "$age_days"
+    fi
+    return 0
+}
+
+cmd_stats() {
+    local topic_filter=''
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --topic) topic_filter="${2:-}"; shift 2 ;;
+            *) die "unknown stats flag: $1" 2 ;;
+        esac
+    done
+
+    [ -d "$DIALOG_DIR" ] || { printf '(no dialog directory at %s)\n' "$DIALOG_DIR"; return 0; }
+
+    local f topic n_events body_bytes total_bytes status
+    local total_topics=0 total_events=0 total_body_bytes=0
+
+    printf '%-8s  %5s  %9s  %s\n' 'STATUS' 'EVENT' 'BODY-KB' 'TOPIC'
+    printf '%-8s  %5s  %9s  %s\n' '------' '-----' '-------' '-----'
+    for f in "$DIALOG_DIR"/*.jsonl; do
+        [ -f "$f" ] || continue
+        topic="$(basename "$f" .jsonl)"
+        if [ -n "$topic_filter" ] && [ "$topic" != "$topic_filter" ]; then continue; fi
+
+        n_events="$(wc -l < "$f" | tr -d ' ')"
+        body_bytes="$(jq -r '.body | length' "$f" 2>/dev/null | awk '{s+=$1} END {print s+0}')"
+
+        if jq -se 'any(.[]; .from == "user" and .type == "decision")' "$f" 2>/dev/null | grep -q '^true$'; then
+            status='closed'
+        else
+            status='open'
+        fi
+
+        printf '%-8s  %5s  %9.1f  %s\n' "$status" "$n_events" "$(awk "BEGIN{print $body_bytes / 1024}")" "$topic"
+        total_topics=$((total_topics + 1))
+        total_events=$((total_events + n_events))
+        total_body_bytes=$((total_body_bytes + body_bytes))
+    done
+
+    if [ "$total_topics" -eq 0 ]; then
+        printf '(no topics)\n'
+        return 0
+    fi
+    printf -- '------\n'
+    printf 'totals: %d topic(s), %d event(s), %.1f KB body content\n' \
+        "$total_topics" "$total_events" "$(awk "BEGIN{print $total_body_bytes / 1024}")"
+    return 0
+}
+
+cmd_task_spec() {
+    # Issue an opening type=task-spec event. Wrapper around cmd_post that
+    # validates the structured-fields pattern from spec §15. The CLI does
+    # NOT enforce field-by-field structure on the body string (intentional —
+    # the body is markdown the agents read). It DOES enforce: from=user,
+    # type=task-spec, body non-empty.
+    cmd_post --type task-spec --from user "$@"
 }
 
 cmd_help() {
     cat <<'EOF'
-agent-bus — append-only JSONL dialog CLI
+agent-bus — append-only JSONL dialog CLI (spec v0.2.0)
 
 Usage:
-  agent-bus post   --topic <id> --type <t> [--severity <p0|p1|p2|p3>]
-                   --body <text> [--to <claude|codex|user|all>]
-                   [--in-reply-to <sha256>] [--links <csv>]
-  agent-bus claim  --topic <id> [--severity <p0..p3>] --body <text> [...]
-  agent-bus read   --topic <id> [--since <iso>] [--from <e>]
-                   [--type <e>] [--severity <e>]
-  agent-bus list   [--open | --closed | --all]
+  agent-bus post       --topic <id> --type <t> [--severity <p0|p1|p2|p3>]
+                       --body <text> [--to <claude|codex|user|all>]
+                       [--in-reply-to <sha256>] [--links <csv>]
+  agent-bus claim      --topic <id> [--severity <p0..p3>] --body <text> [...]
+  agent-bus task-spec  --topic <id> --body <markdown-task-spec> [...]
+                       (issues type=task-spec; from=user only; spec §15)
+  agent-bus read       --topic <id> [--since <iso>] [--from <e>]
+                       [--type <e>] [--severity <e>]
+  agent-bus list       [--open | --closed | --all]
+  agent-bus stats      [--topic <id>]
+                       (event count + body-bytes per topic; cost estimation)
+  agent-bus archive    [--age-days <N>] [--dry-run]
+                       (move closed topics older than N days, default 30,
+                        to dialog/archive/YYYY-MM/; preserves audit trail)
   agent-bus help
   agent-bus version
 
 Env:
-  AGENT_BUS_AUTHOR  claude | codex | user (default: user)
-  AGENT_BUS_DIR     dialog directory (default: ./dialog)
+  AGENT_BUS_AUTHOR        claude | codex | user (default: user)
+  AGENT_BUS_DIR           dialog directory (default: ./dialog)
+  AGENT_BUS_MAX_TOKENS    Tier-2 cost cap (per-topic body bytes; ~4 bytes/token)
+  AGENT_BUS_MAX_WALL_CLOCK Tier-2 wall-clock cap (seconds)
+  AGENT_BUS_MAX_TURNS     Tier-2 turn cap (events per author)
 
-Types:    claim counter evidence question decision ack note
-Severity: p0 p1 p2 p3 (required for claim/counter/evidence;
-                       forbidden for note/ack; optional for question/decision)
+Types (Tier-1, debate/brainstorm):
+  claim counter evidence question decision ack note
 
-Closure: a topic is closed when an event with from=user and type=decision exists.
+Types (Tier-2, autonomous bounded-coding tasks per ADR-0012):
+  task-spec      from=user only; opening event of /duo-implement topic
+  escalation     hard stop on trigger; severity required (typically p0/p1)
+  task-complete  agent posts when acceptance met + reviewer ack + commit landed
+
+Severity: p0 p1 p2 p3
+  required: claim, counter, evidence, escalation
+  forbidden: note, ack, task-complete
+  optional: question, decision, task-spec
+
+Closure: a topic is closed when an event with from=user and type=decision
+exists. Subsequent advisory events are allowed but do not re-open. To
+overturn, open a new topic that cites the closed one in --links.
+
+Append-only: dialog/*.jsonl files are immutable line-by-line; only line
+additions at end-of-file are permitted. Enforced by
+.claude/hooks/protect-dialog-append-only.sh PreToolUse hook.
 
 Spec: docs/tooling/agent-bus-spec.md
+ADRs: design/adr/adr-0011 (Editor MCP routing) + adr-0012 (autonomous Tier-2)
 EOF
 }
 
@@ -336,10 +506,13 @@ cmd_version() { printf 'agent-bus %s\n' "$VERSION"; }
 if [ $# -eq 0 ]; then cmd_help; exit 0; fi
 sub="$1"; shift
 case "$sub" in
-    post)    require_jq; cmd_post "$@" ;;
-    claim)   require_jq; cmd_claim "$@" ;;
-    read)    require_jq; cmd_read "$@" ;;
-    list)    require_jq; cmd_list "$@" ;;
+    post)      require_jq; cmd_post "$@" ;;
+    claim)     require_jq; cmd_claim "$@" ;;
+    task-spec) require_jq; cmd_task_spec "$@" ;;
+    read)      require_jq; cmd_read "$@" ;;
+    list)      require_jq; cmd_list "$@" ;;
+    stats)     require_jq; cmd_stats "$@" ;;
+    archive)   require_jq; cmd_archive "$@" ;;
     help|-h|--help) cmd_help ;;
     version|-v|--version) cmd_version ;;
     *) die "unknown subcommand: $sub (try 'agent-bus help')" 2 ;;
