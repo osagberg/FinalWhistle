@@ -196,6 +196,30 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         // holds the last event's stakes until the next event arrives.
         // Starts at 0 (transparent) on Awake.
         private float currentStakesForPressure;
+
+        // 2026-05-11 C1a Memory-layer integration. Per ADR-0004 hard line:
+        // MatchSim does NOT touch the ledger. The bridge lives OUTSIDE
+        // MatchSim, and the director is the natural owner — it has
+        // post-RunTicks access to the new KeyEvents stream + holds the
+        // Readers for future UI surfacing. Without this wiring the
+        // Memory layer is implemented + tested but never composed in
+        // the live loop (same class as the pass-the-ball regression
+        // closed by commit b153678). The Phase-3 minimum here is
+        // "Ledger gains events on goals + signature breakthroughs" + a
+        // one-shot Debug.Log line per emission as L1 evidence; UI
+        // surfacing of callbacks is Phase-4+ polish.
+        private FinalWhistle.MatchSim.Memory.Ledger memoryLedger;
+        private FinalWhistle.MatchSim.Memory.PressFanReader pressFanReader;
+        private FinalWhistle.MatchSim.Memory.BreakthroughReader breakthroughReader;
+        // Tracks how many KeyEvents have been translated into
+        // MemoryEvents so far this match — we slice the new ones each
+        // FixedUpdate. Distinct from lastKeyEventCount above (which is
+        // for EventBridge dispatch).
+        private int lastEmittedKeyEventCount;
+        // Match ID for ledger event-id generation. Phase-3 placeholder
+        // derived from the match seed; Phase-4+ derives from the
+        // career/match-instance ID once the save layer lands.
+        private string matchIdForMemory;
         // Active screen-tone window [start, end). -1 sentinel = "no
         // tone active." Strength at the trigger-time stakes value, then
         // modulated by the symmetric fade envelope.
@@ -272,6 +296,21 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             warnedTitleCardSidePrefix = false;
             activeTitleCardEndTick = -1L;
             currentStakesForPressure = 0f;
+
+            // C1a Memory integration. Ledger lives on the director (NOT
+            // MatchSim per ADR-0004). PressFan + Breakthrough readers
+            // instantiated for future UI surfacing — they're query-only
+            // in the Phase-3 minimum; the actual surfacing (commentary
+            // string for the on-screen press callback) is Phase-4+ UI
+            // polish.
+            memoryLedger = new FinalWhistle.MatchSim.Memory.Ledger();
+            pressFanReader = new FinalWhistle.MatchSim.Memory.PressFanReader(memoryLedger);
+            breakthroughReader = new FinalWhistle.MatchSim.Memory.BreakthroughReader(memoryLedger);
+            lastEmittedKeyEventCount = 0;
+            // Phase-3 match-id: derived from the seed string so the ledger
+            // event-ids are reproducible across reruns of the same fixture.
+            // Phase-4+ swaps to a real career/match-instance ID.
+            matchIdForMemory = $"phase3-smoke:{matchSeedHex}";
             lastKeyEventCount = state.KeyEvents.Count;
             lastSignatureRecipeCount = state.SignatureRecipes.Count;
 
@@ -431,6 +470,13 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             adapterRoot?.OnSimTick((int)preAdvanceTick);
 
             DispatchNewViewerEvents(preAdvanceTick);
+
+            // C1a Memory integration: translate the new KeyEvents that
+            // landed this tick into MemoryEvents and append to the
+            // ledger. Slice the keyEvents list from lastEmittedKeyEventCount
+            // forward so chunked-tick callers (driveSim toggled, replay
+            // loops driving ticks=1 repeatedly) don't double-emit.
+            EmitNewMemoryEvents();
 
             // Slice-6 overlay: scoreboard + minute every tick (cheap
             // label writes; UI Toolkit batches DOM updates). Canonical-
@@ -902,6 +948,142 @@ namespace FinalWhistle.Viewer.Adapters.Dots
                 screenToneStartTick = -1L;
                 screenToneEndTick = -1L;
                 screenToneBaseStrength = 0f;
+            }
+        }
+
+        /// <summary>
+        /// C1a Memory integration: translate KeyEvents that have landed
+        /// since the last call into MemoryEvents + append to the ledger.
+        /// Slice the keyEvents list to avoid double-emit; honors the
+        /// chunked-tick discipline the rest of FixedUpdate uses.
+        /// </summary>
+        /// <remarks>
+        /// Per ADR-0004 the ledger lives OUTSIDE MatchSim; MatchSim emits
+        /// canonical <see cref="KeyEvent"/>s, the director translates
+        /// them. <see cref="FinalWhistle.MatchSim.Memory.MemoryEmissionRules.EmitForKeyEvents"/>
+        /// filters to the Phase-3 translatable kinds (Goal + SignatureBreakthrough);
+        /// restart-events stay as routine-band telemetry.
+        ///
+        /// <para>
+        /// Phase-3 L1 evidence: a single Debug.Log per emission so a
+        /// natural-play observer can see "memory engaged" in the Console.
+        /// Phase-4+ replaces with proper UI surfacing of the callback
+        /// strings via OverlayController.
+        /// </para>
+        /// </remarks>
+        private void EmitNewMemoryEvents()
+        {
+            lastEmittedKeyEventCount = EmitMemoryEventsCore(
+                state.KeyEvents,
+                lastEmittedKeyEventCount,
+                matchIdForMemory,
+                memoryLedger,
+                homePackets,
+                awayPackets,
+                onEmitted: me =>
+                {
+                    var band = FinalWhistle.MatchSim.Memory.SalienceEngine.ClassifyBand(me.Salience);
+                    Debug.Log($"[MemoryLedger] +1 {me.What} id={me.Id} salience={me.Salience} band={band}; ledger size {memoryLedger.Count}", this);
+                },
+                onError: ex =>
+                {
+                    Debug.LogError(
+                        $"{nameof(DotsMatchDirector)}.{nameof(EmitNewMemoryEvents)}: " +
+                        $"failed to translate KeyEvent batch into MemoryEvents — " +
+                        $"{ex.GetType().Name}: {ex.Message}. Match continues; memory layer " +
+                        "did not record this batch. Counter NOT advanced; next FixedUpdate " +
+                        "will retry the same batch.", this);
+                });
+        }
+
+        /// <summary>
+        /// Pure-static C1a emission helper, factored out of the instance
+        /// method for testability (Codex 2026-05-11 P1 finding on commit-
+        /// proposal edcac998: the original instance-method shape was
+        /// guarded only by manual Console evidence + had an eager-counter-
+        /// advance bug where <c>lastEmittedKeyEventCount</c> was bumped
+        /// BEFORE emission completed, so an exception during emit would
+        /// silently mark the batch as processed). This shape returns the
+        /// NEW <c>lastEmitted</c> count from the actual completion point —
+        /// on exception, the input value is returned unchanged so the
+        /// next FixedUpdate will retry the same batch.
+        /// </summary>
+        /// <param name="keyEvents">Full canonical KeyEvent stream (live + already-emitted).</param>
+        /// <param name="previouslyEmittedCount">How many entries have already been translated + appended to <paramref name="ledger"/>.</param>
+        /// <param name="matchId">Match identifier for MemoryEvent id-generation.</param>
+        /// <param name="ledger">Ledger to append emitted MemoryEvents to.</param>
+        /// <param name="homePackets">Home roster identity packets (passed through to emission rules).</param>
+        /// <param name="awayPackets">Away roster identity packets.</param>
+        /// <param name="onEmitted">Optional callback fired once per emitted MemoryEvent AFTER the ledger append (so <c>ledger.Count</c> reflects this entry when the callback runs — see the order-discipline comment in the for-loop body). Used by the instance method for Debug.Log; null-tolerant for tests that don't need it.</param>
+        /// <param name="onError">Optional callback fired with the caught exception if emission throws. Used by the instance method for Debug.LogError; null-tolerant for tests.</param>
+        /// <returns>The new value to store in <c>lastEmittedKeyEventCount</c>. Equal to <paramref name="previouslyEmittedCount"/> on no-op OR on exception (retry semantics).</returns>
+        internal static int EmitMemoryEventsCore(
+            System.Collections.Generic.IReadOnlyList<FinalWhistle.MatchSim.Sim.KeyEvent> keyEvents,
+            int previouslyEmittedCount,
+            string matchId,
+            FinalWhistle.MatchSim.Memory.Ledger ledger,
+            IdentityPacket[] homePackets,
+            IdentityPacket[] awayPackets,
+            System.Action<FinalWhistle.MatchSim.Memory.Contracts.MemoryEvent> onEmitted = null,
+            System.Action<Exception> onError = null)
+        {
+            int totalKeyEvents = keyEvents.Count;
+            if (totalKeyEvents <= previouslyEmittedCount)
+            {
+                return previouslyEmittedCount;
+            }
+
+            int newCount = totalKeyEvents - previouslyEmittedCount;
+            var newKeyEvents = new System.Collections.Generic.List<FinalWhistle.MatchSim.Sim.KeyEvent>(newCount);
+            for (int i = previouslyEmittedCount; i < totalKeyEvents; i++)
+            {
+                newKeyEvents.Add(keyEvents[i]);
+            }
+
+            const ushort phase3PlaceholderSeason = 1;
+            var phase3PlaceholderDate = new FinalWhistle.MatchSim.Memory.Contracts.CareerDate(
+                season: phase3PlaceholderSeason, week: 1, day: 1);
+
+            try
+            {
+                var emitted = FinalWhistle.MatchSim.Memory.MemoryEmissionRules.EmitForKeyEvents(
+                    newKeyEvents,
+                    matchId,
+                    phase3PlaceholderSeason,
+                    phase3PlaceholderDate,
+                    FinalWhistle.MatchSim.Memory.SalienceWeights.Phase3Defaults,
+                    eventSeqStart: ledger.Count,
+                    homePackets: homePackets,
+                    awayPackets: awayPackets);
+
+                for (int i = 0; i < emitted.Count; i++)
+                {
+                    var me = emitted[i];
+                    // Codex 2026-05-11 P2 round-3 fix: Emit FIRST so that
+                    // when onEmitted runs, ledger.Count already reflects
+                    // this entry. The instance method's Debug.Log uses
+                    // ledger.Count to render "ledger size N"; with the
+                    // pre-fix order (onEmitted before Emit) the first
+                    // log line read "ledger size 0" instead of "ledger
+                    // size 1" — contradicting the round-1 natural-play
+                    // L2 evidence + breaking the L1-evidence contract
+                    // the task acceptance relies on.
+                    ledger.Emit(me);
+                    onEmitted?.Invoke(me);
+                }
+
+                // ONLY now — after the full batch has emitted successfully
+                // — advance the counter. Codex 2026-05-11 P1 fix: if the
+                // try-block above throws partway through, we return
+                // previouslyEmittedCount so the next call retries.
+                return totalKeyEvents;
+            }
+            catch (Exception ex)
+            {
+                onError?.Invoke(ex);
+                // Retry-semantics: leave counter at the input value so the
+                // next FixedUpdate sees the same batch as "new" again.
+                return previouslyEmittedCount;
             }
         }
 
