@@ -45,7 +45,7 @@ Built on the pieces that landed Slices 1-7 of the dots-adapter ladder (per [`doc
 
 ### Step 1 — Validate seed + corpus
 
-**Canonicalize first + client-side membership check.** The user may provide a seed in several forms (`0xdeadbeefdeadbeef`, `0XDEADBEEFDEADBEEF`, raw `deadbeefdeadbeef`). `scripts/fw replay` at Phase 3 only matches the **exact lowercase 0x-prefixed canonical string** `0xdeadbeefdeadbeef` — anything else prints a friendly "only the Tier-A smoke seed is implemented at Phase 3" message and **exits rc=2** (verified at HEAD: `scripts/fw replay deadbeefdeadbeef --compare-corpus` and `scripts/fw replay 0x0000000000000000 --compare-corpus` both rc=2). The skill must therefore CHECK SEED MEMBERSHIP CLIENT-SIDE before invoking `fw replay`, otherwise an unsupported-seed rc=2 gets mislabeled as a canonical-determinism break further down the failure-modes table. Canonicalize BEFORE invoking:
+**Canonicalize first + client-side membership check.** The user may provide a seed in several forms (`0xdeadbeefdeadbeef`, `0XDEADBEEFDEADBEEF`, raw `deadbeefdeadbeef`). `scripts/fw replay` at Phase 3 supports exactly **two** lowercase 0x-prefixed canonical seeds: `0xdeadbeefdeadbeef` (Tier-A smoke fixture, no signatures fire naturally) and `0xfeedbeefcafefade` (C4 LowCutback primed fixture, signatures fire tick 0 — added 2026-05-11). Anything else prints a friendly per-seed list and **exits rc=2** (verified at HEAD: `scripts/fw replay deadbeefdeadbeef --compare-corpus` and `scripts/fw replay 0x0000000000000000 --compare-corpus` both rc=2). The skill must therefore CHECK SEED MEMBERSHIP CLIENT-SIDE before invoking `fw replay`, otherwise an unsupported-seed rc=2 gets mislabeled as a canonical-determinism break further down the failure-modes table. Canonicalize BEFORE invoking:
 
 ```sh
 # Pseudocode canonicalization (skill orchestrator does this):
@@ -63,8 +63,8 @@ seed_canonical="0x${seed_lower}"
 Then **client-side membership check** before any `fw replay` invocation:
 
 ```sh
-# Phase-3 supported set:
-SUPPORTED_SEEDS=("0xdeadbeefdeadbeef")
+# Phase-3 supported set (extended 2026-05-11 by C4 commit 10efbdf):
+SUPPORTED_SEEDS=("0xdeadbeefdeadbeef" "0xfeedbeefcafefade")
 is_supported=false
 for s in "${SUPPORTED_SEEDS[@]}"; do
   if [ "$seed_canonical" = "$s" ]; then is_supported=true; break; fi
@@ -86,7 +86,7 @@ Only when the supported-seed gate passes, run the actual hash compare:
 scripts/fw replay "$seed_canonical" --compare-corpus
 ```
 
-For the supported seed: locates `MatchSim.Tests/fixtures/replay-corpus/0xdeadbeefdeadbeef.json` + runs `MatchSimulationRunner` + computes `MatchCanonicalState` hash + compares. **rc=0 on match; rc non-zero on hash mismatch — and at this point the only way to get non-zero is a real determinism/tooling failure (because the unsupported-seed rc=2 path was filtered out client-side).**
+For the supported seed: locates the matching corpus fixture (`MatchSim.Tests/fixtures/replay-corpus/<seed>.json`) + runs `MatchSimulationRunner` (via `FromArchetypeFormations` for the smoke fixture or `FromLowCutbackPrimedFixture` for the C4 primed fixture per the `fixture_factory` field in the JSON) + computes `MatchCanonicalState` hash + compares. **rc=0 on match; rc non-zero on hash mismatch — and at this point the only way to get non-zero is a real determinism/tooling failure (because the unsupported-seed rc=2 path was filtered out client-side).**
 
 **Fail-paths:**
 - Malformed seed (canonicalization fails the 16-hex regex) → user-facing error; abort skill, do NOT capture.
@@ -202,15 +202,15 @@ Return to user:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `fw replay --compare-corpus` exit non-zero **after passing the client-side supported-seed gate** | Real canonical determinism break (hash mismatch) — only reachable for `0xdeadbeefdeadbeef` at Phase 3 | DO NOT capture. Escalate to user. The replay would propagate the regression. |
-| Canonicalized seed is not in the supported-set (`{0xdeadbeefdeadbeef}` at Phase 3) | User asked for a seed Phase-3 doesn't have a corpus fixture for | Skill prompts "capture without the determinism gate? [y/N]"; default abort. **Do NOT invoke `fw replay` here — it would rc=2 with "only the Tier-A smoke seed is implemented" and conflate with the genuine determinism-break row above.** Phase-6 corpus expansion lifts the restriction. |
+| `fw replay --compare-corpus` exit non-zero **after passing the client-side supported-seed gate** | Real canonical determinism break (hash mismatch) — only reachable for the two Phase-3 supported seeds | DO NOT capture. Escalate to user. The replay would propagate the regression. |
+| Canonicalized seed is not in the supported-set (`{0xdeadbeefdeadbeef, 0xfeedbeefcafefade}` at Phase 3) | User asked for a seed Phase-3 doesn't have a corpus fixture for | Skill prompts "capture without the determinism gate? [y/N]"; default abort. **Do NOT invoke `fw replay` here — it would rc=2 with a per-seed list and conflate with the genuine determinism-break row above.** Phase-6 corpus expansion lifts the restriction. |
 | Canonicalization step rejects the seed as malformed | Seed not 16 hex digits (post-`0x`-strip) | User error — return the canonicalization error verbatim so they can correct the input. |
 | State-poll via `execute_code` reflection returns null / throws | `DotsMatchDirector` not in the active scene OR field rename | Verify DotsViewer.unity is the active scene + `state` field still private+named that way. Fix the reflection or escalate if a refactor renamed the field. |
 | Sim doesn't advance to target tick within timeout | Director paused / driveSim toggled off / Editor not playing | Abort capture (do NOT ship tick-NNN labelled frames at the wrong tick). Verify director's `driveSim` is true + Play mode is active. |
 | UnityMCP `manage_scene` returns "scene not found" | DotsViewer scene unsaved or path drifted | Open Unity → verify scene path → save. |
 | `manage_editor action=play` returns "compilation errors" | Compile broke since last verify | Run `scripts/fw verify` + read Unity console → fix → retry. |
 | Screenshots written but appear blank/black | Editor window not focused OR scene not finished loading | Increase the per-target polling timeout. UnityMCP `manage_camera screenshot` is async — wait for the response before next call. |
-| Camera shows tactical-wide only (no signature shots) | The smoke fixture (0xdeadbeefdeadbeef) doesn't fire signature events naturally | Either wait for Phase-4+ trigger-rich seeds or synthetically inject via `execute_code` per the Slice 7 L2 capture pattern. |
+| Camera shows tactical-wide only (no signature shots) | Smoke fixture (0xdeadbeefdeadbeef) doesn't fire signature events naturally (the chaotic 22-player pressing never satisfies trigger gates per C1 audit bb136866 + C4 closure). | **Use 0xfeedbeefcafefade instead** (C4 primed-for-LowCutback fixture, commit 10efbdf): signature fires tick 0, goal scored ~tick 50, commentary banner shows. Toggle `DotsMatchDirector.usePrimedFixture=true` in scene inspector. For seeds Phase-3 doesn't yet support, wait for Phase-6 corpus expansion. |
 
 ## Cross-references
 
@@ -232,7 +232,7 @@ Return to user:
 ## Sanity checklist before invoking
 
 - [ ] Does the user-provided seed canonicalize to a 16-hex-digit `0x`-prefixed lowercase form (after `0x`/`0X` strip + lowercase + 16-hex regex)? If no → user error; return the validation message.
-- [ ] Does the canonicalized seed match `0xdeadbeefdeadbeef` at Phase 3? Phase-6 corpus expansion adds more; until then any other seed gets the "soft-skip + capture-without-gate? [y/N]" prompt.
+- [ ] Does the canonicalized seed match one of `{0xdeadbeefdeadbeef, 0xfeedbeefcafefade}` at Phase 3? Phase-6 corpus expansion adds more; until then any other seed gets the "soft-skip + capture-without-gate? [y/N]" prompt.
 - [ ] Is `scripts/fw verify` currently green? If no → fix that first.
 - [ ] Is the Unity Editor open with the project loaded? If no → CoplayDev UnityMCP can't reach the Editor.
 - [ ] Have you cleaned old captures from `unity-project/Assets/Screenshots/`? If no → captures may collide.
