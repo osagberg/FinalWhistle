@@ -96,6 +96,16 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         [Tooltip("Side-tint colour for away-team signatures (warm coral). Matches the Slice-2 IdentityTintTable away palette band.")]
         [SerializeField] private Color titleCardAwayColor = new(0.902f, 0.373f, 0.314f, 1f);
 
+        [Tooltip("Slice-7 pressure indicator: UGUI Image component on the scoreboard panel that Lerps from transparent → faint amber proportional to ActiveViewerEvent.StakesNormalized. Optional; null = pressure indicator is not wired in this scene.")]
+        [SerializeField] private Image pressureIndicatorTint;
+
+        [Tooltip("Slice-7 pressure indicator: amber colour applied at full stakes (StakesNormalized = 1). Default = faint amber (rgba 224/255, 164/255, 72/255, 80/255) per blueprint §B Slice 7.")]
+        [SerializeField] private Color pressureTintHighStakes = new(224f / 255f, 164f / 255f, 72f / 255f, 80f / 255f);
+
+        // Cached transparent colour at low stakes (alpha 0).
+        private Color pressureTintLowStakes;
+        private bool pressureTintInitialized;
+
         private void OnEnable()
         {
             // Loud-fail validation: every SerializeField must be wired
@@ -114,7 +124,67 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             // Hide title-card + commentary at startup; they show only on event.
             titleCardRoot.SetActive(false);
             commentaryRoot.SetActive(false);
+
+            // Slice-7: cache the low-stakes (transparent) colour as the
+            // same RGB as the high-stakes colour with alpha=0, so the Lerp
+            // is a smooth alpha rise rather than a hue blend.
+            pressureTintLowStakes = new Color(
+                pressureTintHighStakes.r,
+                pressureTintHighStakes.g,
+                pressureTintHighStakes.b,
+                0f);
+            if (pressureIndicatorTint != null)
+            {
+                pressureIndicatorTint.color = pressureTintLowStakes;
+                pressureTintInitialized = true;
+            }
         }
+
+        /// <summary>
+        /// Slice-7 pressure indicator: set the scoreboard-panel tint
+        /// proportional to <paramref name="stakesNormalized"/> (∈ [0, 1]).
+        /// Called per FixedUpdate by <see cref="DotsMatchDirector"/>; the
+        /// indicator is a continuous read of the current event's stakes
+        /// (not an event-driven flash).
+        /// </summary>
+        /// <param name="stakesNormalized">
+        /// Stakes in [0, 1]; values outside the range clamp to [0, 1].
+        /// NaN is treated as 0 (transparent) so a bad upstream stakes
+        /// value can't crash the tint write.
+        /// </param>
+        public void SetPressureTint(float stakesNormalized)
+        {
+            if (pressureIndicatorTint == null)
+            {
+                return;
+            }
+            if (!pressureTintInitialized)
+            {
+                pressureTintLowStakes = new Color(
+                    pressureTintHighStakes.r,
+                    pressureTintHighStakes.g,
+                    pressureTintHighStakes.b,
+                    0f);
+                pressureTintInitialized = true;
+            }
+            float t = float.IsNaN(stakesNormalized)
+                ? 0f
+                : Mathf.Clamp01(stakesNormalized);
+            pressureIndicatorTint.color = Color.Lerp(pressureTintLowStakes, pressureTintHighStakes, t);
+        }
+
+        /// <summary>
+        /// Test/diagnostic accessor for the resolved pressure tint colour.
+        /// </summary>
+        internal Color CurrentPressureTint => pressureIndicatorTint != null
+            ? pressureIndicatorTint.color
+            : pressureTintLowStakes;
+
+        /// <summary>
+        /// Test/diagnostic accessor: indicates whether the pressure
+        /// indicator Image was wired in this instance.
+        /// </summary>
+        internal bool HasPressureIndicator => pressureIndicatorTint != null;
 
         /// <summary>
         /// Set the scoreboard digits. Caller passes

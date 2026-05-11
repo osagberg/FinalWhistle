@@ -318,34 +318,120 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         // "camera centred on ball, not focal player."
         private bool warnedFocalSubjectStubbed;
 
+        // Slice-7 IndexForFocalSubject: strict parser for the
+        // "viewer.focal:<side>.<jersey>" format produced by
+        // Viewer.EventBridge per ADR-0008 / blueprint Q3. Phase-3 fixtures
+        // pin jerseys 1-11 inclusive (matches the formation roster slots
+        // in BehaviorTreeArchetypes); dot indices are roster-slot-ordered
+        // because MatchSimulationState.FromArchetypeFormations fills by
+        // FormationSlot.RosterSlot. So jersey N maps to dot index (N-1)
+        // for home + (PlayersPerSide + N - 1) for away. The parser is
+        // strict — no scientific notation, no leading-+, no whitespace,
+        // no jerseys outside [1, 11].
+        private const string FocalSubjectPrefix = "viewer.focal:";
+        private const string FocalSideHome = "home";
+        private const string FocalSideAway = "away";
+
+        /// <summary>
+        /// Resolve a focal-subject literal (<c>"viewer.focal:home.06"</c>
+        /// per blueprint Q3) to the corresponding dot index in this pool,
+        /// or <c>-1</c> when the input is null, empty, malformed, or
+        /// names a jersey outside the Phase-3 roster range [1, 11].
+        /// </summary>
+        /// <remarks>
+        /// Dot indices: home jerseys 1-11 → dot indices 0-10; away
+        /// jerseys 1-11 → dot indices 11-21. Ball is at <see cref="BallIndex"/>
+        /// and is NEVER returned by this method (focal-subject literals
+        /// never name the ball; see <see cref="ViewerEvent.FocalSubject"/>).
+        /// Parse rules: prefix MUST be exact "viewer.focal:"; side MUST be
+        /// "home" or "away" (lowercase only); separator MUST be "."; jersey
+        /// is a positive decimal integer 1-11 inclusive (accepts both "06"
+        /// and "6" forms; rejects "+6", "06.5", scientific notation, hex,
+        /// negative numbers, leading/trailing whitespace, embedded NULs).
+        /// </remarks>
+        public int IndexForFocalSubject(string focalSubject)
+        {
+            if (string.IsNullOrEmpty(focalSubject))
+            {
+                return -1;
+            }
+            if (!focalSubject.StartsWith(FocalSubjectPrefix, StringComparison.Ordinal))
+            {
+                return -1;
+            }
+
+            int afterPrefix = FocalSubjectPrefix.Length;
+            int dotIndex = focalSubject.IndexOf('.', afterPrefix);
+            if (dotIndex < 0 || dotIndex == afterPrefix || dotIndex == focalSubject.Length - 1)
+            {
+                return -1;
+            }
+
+            string side = focalSubject.Substring(afterPrefix, dotIndex - afterPrefix);
+            string jerseyText = focalSubject.Substring(dotIndex + 1);
+
+            int sideOffset;
+            if (side == FocalSideHome)
+            {
+                sideOffset = 0;
+            }
+            else if (side == FocalSideAway)
+            {
+                sideOffset = PlayersPerSide;
+            }
+            else
+            {
+                return -1;
+            }
+
+            // Strict integer parse: only digits 0-9, no sign, no exponent,
+            // no decimal point. int.TryParse(NumberStyles.None, Invariant)
+            // rejects whitespace + signs but allows leading zeroes ("06"
+            // → 6) which is the format example in blueprint Q3.
+            if (!int.TryParse(
+                jerseyText,
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out int jersey))
+            {
+                return -1;
+            }
+            if (jersey < 1 || jersey > PlayersPerSide)
+            {
+                return -1;
+            }
+
+            return sideOffset + (jersey - 1);
+        }
+
         /// <summary>
         /// Resolve a focal-subject string (<c>"viewer.focal:home.06"</c>
-        /// per blueprint Q3) to a world-space position. Phase-3 stub:
-        /// always returns false; the camera falls back to ball-tracking
-        /// per the SO's <c>BallFocalMidpoint</c> /
-        /// <see cref="ShotTypeSO.TargetAnchor.FocalSubject"/> contracts.
-        /// Phase-4+ IdentityPacket-driven roster work surfaces the
-        /// jersey ↔ dot mapping needed for a real lookup. The first
-        /// non-null focal-subject miss logs a one-shot warning so a
-        /// Slice-7 observer reporting "camera not following the focal
-        /// player" sees the stubbed-ness in the Console without bisecting
-        /// through the camera + bridge stack.
+        /// per blueprint Q3) to a world-space position. Slice-7: now
+        /// delegates to <see cref="IndexForFocalSubject"/>; returns true
+        /// + the dot's interpolated transform.position when the parse
+        /// resolves; false otherwise. Camera + SelectionRing consume this.
         /// </summary>
         public bool TryGetFocalWorldPosition(string focalSubject, out Vector3 worldPos)
         {
             EnsureInitialized();
-            if (!string.IsNullOrEmpty(focalSubject) && !warnedFocalSubjectStubbed)
+            int dotIdx = IndexForFocalSubject(focalSubject);
+            if (dotIdx < 0)
             {
-                Debug.LogWarning(
-                    $"{nameof(DotPool)}.{nameof(TryGetFocalWorldPosition)}: focal-subject " +
-                    $"'{focalSubject}' is non-null but Phase-3 stub returns false — camera " +
-                    "falls back to ball-tracking. This message logs once per session; " +
-                    "Phase-4+ IdentityPacket-driven roster lands the real jersey↔dot lookup.",
-                    this);
-                warnedFocalSubjectStubbed = true;
+                if (!string.IsNullOrEmpty(focalSubject) && !warnedFocalSubjectStubbed)
+                {
+                    Debug.LogWarning(
+                        $"{nameof(DotPool)}.{nameof(TryGetFocalWorldPosition)}: focal-subject " +
+                        $"'{focalSubject}' did not resolve via {nameof(IndexForFocalSubject)} " +
+                        "(unrecognized format or jersey out of range [1,11]). This message " +
+                        "logs once per session.",
+                        this);
+                    warnedFocalSubjectStubbed = true;
+                }
+                worldPos = default;
+                return false;
             }
-            worldPos = default;
-            return false;
+            worldPos = dots[dotIdx].transform.position;
+            return true;
         }
 
         private void EnsureInitialized()

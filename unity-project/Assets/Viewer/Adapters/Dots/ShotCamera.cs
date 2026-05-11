@@ -100,6 +100,14 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         private long activeShotEndTick;
         private bool hasActiveShot;
 
+        // Slice-7: most-recently-resolved cadence tier. Internal test
+        // surface for the Slice-7 contract that BeginShot reads stakes
+        // → resolves tier → overrides per-shot duration. Production
+        // callers MUST NOT depend on this.
+        private CadenceTier lastResolvedCadenceTier;
+
+        internal CadenceTier LastResolvedCadenceTier => lastResolvedCadenceTier;
+
         // Telemetry: one-shot warning the first time SetAdapterShot is
         // called while hasActiveShot is true. Per pr-review-toolkit
         // silent-failure-hunter Slice-4 P2-B: distinguishes "heuristic
@@ -214,7 +222,19 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             }
             ValidateShotResolves(shot);
 
+            // Slice-7 camera rhythm: resolve the cadence tier from the
+            // event's normalized stakes + override the per-shot transition
+            // duration with the tier's tick count. The SO's
+            // TransitionDurationSeconds becomes the Phase-4+ fallback for
+            // adapter-local shots (SetAdapterShot path) that don't carry
+            // an ActiveViewerEvent — see the comment in StartTransitionTo
+            // for why the override is applied here, not inside the helper.
+            CadenceTier tier = CadenceTierResolver.Resolve(active.StakesFloat);
+            float cadenceSeconds = CadenceTierResolver.TransitionSecondsForCadence(tier);
+
             StartTransitionTo(shot, active.Event.FocalSubject);
+            transitionDurationSeconds = cadenceSeconds;
+            lastResolvedCadenceTier = tier;
 
             activeShotEndTick = active.Event.EndTick.Value;
             hasActiveShot = true;
@@ -306,6 +326,17 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         /// always to <see cref="defaultShot"/>) keeps a sustained heuristic
         /// alive across a transient event-driven interruption.
         /// </summary>
+        /// <summary>
+        /// Slice-7: fired when the active event-driven shot retires
+        /// (canonical-tick expiry; see <see cref="OnSimTick"/>). Adapter-
+        /// root subscribes to disengage <see cref="SelectionRing"/> so
+        /// the focal-player highlighter does NOT persist into post-event
+        /// quiet play. Codex 2026-05-11 finding #3 closure: the ring
+        /// previously stayed visible until the NEXT non-selection shot
+        /// arrived, leaving it on-screen indefinitely between events.
+        /// </summary>
+        public event System.Action ShotEnded;
+
         public void OnSimTick(Tick currentSimTick)
         {
             if (pitchView == null || !hasActiveShot)
@@ -320,6 +351,7 @@ namespace FinalWhistle.Viewer.Adapters.Dots
                 {
                     StartTransitionTo(returnTo, focal: null);
                 }
+                ShotEnded?.Invoke();
             }
         }
 

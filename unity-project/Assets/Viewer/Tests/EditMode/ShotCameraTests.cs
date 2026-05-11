@@ -160,6 +160,83 @@ namespace FinalWhistle.Viewer.Tests.EditMode
             Assert.That(shotCamera.TransitionStartCount, Is.EqualTo(2));
         }
 
+        // ----- Slice-7 finding #3: ShotEnded event fires on canonical retire -----
+
+        [Test]
+        public void OnSimTick_AfterEventEnd_FiresShotEndedEvent()
+        {
+            // Codex 2026-05-11 finding #3 regression: SelectionRing needs
+            // a hook to disengage when the active event-driven shot retires
+            // on tick expiry. The ShotEnded event is that hook.
+            int firedCount = 0;
+            shotCamera.ShotEnded += () => firedCount++;
+
+            ActiveViewerEvent active = BuildActiveEvent(passShotImpact, startTickValue: 100, endTickValue: 160);
+            shotCamera.BeginShot(passShotImpact, active);
+            Assert.AreEqual(0, firedCount, "Begin must not raise ShotEnded.");
+
+            // Pre-expiry tick: still active, no event.
+            shotCamera.OnSimTick(Tick.Zero + 150L);
+            Assert.AreEqual(0, firedCount, "Pre-expiry OnSimTick must not raise ShotEnded.");
+
+            // Expiry: ShotEnded fires exactly once.
+            shotCamera.OnSimTick(Tick.Zero + 160L);
+            Assert.AreEqual(1, firedCount, "Expiry must raise ShotEnded exactly once.");
+
+            // Post-expiry: no further fires.
+            shotCamera.OnSimTick(Tick.Zero + 161L);
+            Assert.AreEqual(1, firedCount, "Post-expiry OnSimTick must not re-raise.");
+        }
+
+        // ----- Slice-7 cadence tier wiring: BeginShot resolves tier from stakes -----
+
+        [Test]
+        public void BeginShot_LowStakes_ResolvesCalmCadence()
+        {
+            ActiveViewerEvent active = BuildActiveEventWithStakes(passShotImpact, stakesRaw: Fixed.OneRaw / 5L);  // ~0.2 → Calm
+            shotCamera.BeginShot(passShotImpact, active);
+            Assert.AreEqual(CadenceTier.Calm, shotCamera.LastResolvedCadenceTier);
+        }
+
+        [Test]
+        public void BeginShot_MidStakes_ResolvesStandardCadence()
+        {
+            ActiveViewerEvent active = BuildActiveEventWithStakes(passShotImpact, stakesRaw: Fixed.OneRaw / 2L);  // 0.5 → Standard
+            shotCamera.BeginShot(passShotImpact, active);
+            Assert.AreEqual(CadenceTier.Standard, shotCamera.LastResolvedCadenceTier);
+        }
+
+        [Test]
+        public void BeginShot_HighStakes_ResolvesTensionCadence()
+        {
+            ActiveViewerEvent active = BuildActiveEventWithStakes(passShotImpact, stakesRaw: Fixed.OneRaw * 9L / 10L);  // 0.9 → Tension
+            shotCamera.BeginShot(passShotImpact, active);
+            Assert.AreEqual(CadenceTier.Tension, shotCamera.LastResolvedCadenceTier);
+        }
+
+        private static ActiveViewerEvent BuildActiveEventWithStakes(ShotTypeSO shot, long stakesRaw)
+        {
+            ViewerEvent ev = new(
+                viewerEventId: 1UL,
+                sourceEventId: 1UL,
+                sourceEventOrdinal: 0,
+                baseShotTypeId: shot.ShotTypeId,
+                effectiveShotTypeId: shot.ShotTypeId,
+                reduceMotionApplied: false,
+                startTick: Tick.Zero + 100L,
+                endTick: Tick.Zero + 160L,
+                seed: Seed.Zero,
+                stakesNormalized: Fixed.FromRaw(stakesRaw),
+                memoryRelevance: Fixed.Zero,
+                focalSubject: null,
+                participantPlayerIds: Array.Empty<string>(),
+                memoryHits: Array.Empty<MemoryHit>(),
+                sourceEventClass: EventClass.GoalScored,
+                sourceEntityId: null,
+                signatureMetadata: null);
+            return new ActiveViewerEvent(ev, elapsedTicks: 0);
+        }
+
         // ----- Helpers -----
 
         private static ShotTypeSO CreateShot(string id, float ortho, float tilt)

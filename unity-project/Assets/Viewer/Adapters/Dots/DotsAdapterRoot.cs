@@ -35,12 +35,16 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         public AdapterId AdapterId => AdapterId.Dots;
 
         [SerializeField] private ShotCamera shotCamera;
+        [SerializeField] private SelectionRing selectionRing;
+        [SerializeField] private MotionLineEmitter motionLineEmitter;
+        [SerializeField] private DotPool dotPool;
 
         [Tooltip("ShotTypeSO assets, one per ShotCategory the dots adapter wants to render. Phase-3: tactical-wide / diagonal-attack-lane / pass-shot-impact / aftermath-freeze / player-isolation. ResolveShot throws loudly on unregistered ShotCategories — categories must be explicitly authored + wired here. Bridge-emitted categories that aren't registered are wiring bugs.")]
         [SerializeField] private ShotTypeSO[] shotCatalog;
 
         private PitchView pitch;
         private Dictionary<ShotCategory, ShotTypeSO> shotByCategory;
+        private bool warnedUnroutedCategory;
 
         public void Initialize(PitchView pitchView)
         {
@@ -93,6 +97,67 @@ namespace FinalWhistle.Viewer.Adapters.Dots
                     "the bridge category for FirstTimeDiagonalSwitch signature events). " +
                     "Wire tactical-wide.asset in the scene inspector.");
             }
+
+            // Slice-7: initialize SelectionRing + MotionLineEmitter if
+            // their inspector references are wired. Both tolerate missing
+            // wiring at PresentShot time (warn-once + skip); the explicit
+            // null-checks here let scenes that don't need them (e.g.
+            // EditMode tests of the camera path alone) ship without
+            // the new sub-components.
+            if (selectionRing != null)
+            {
+                if (dotPool == null)
+                {
+                    throw new InvalidOperationException(
+                        $"{nameof(DotsAdapterRoot)}.{nameof(dotPool)} reference missing; " +
+                        $"required by {nameof(SelectionRing)}. Assign the DotPool in the scene inspector.");
+                }
+                selectionRing.Initialize(dotPool, pitch);
+            }
+            if (motionLineEmitter != null)
+            {
+                if (dotPool == null)
+                {
+                    throw new InvalidOperationException(
+                        $"{nameof(DotsAdapterRoot)}.{nameof(dotPool)} reference missing; " +
+                        $"required by {nameof(MotionLineEmitter)}. Assign the DotPool in the scene inspector.");
+                }
+                motionLineEmitter.Initialize(dotPool, pitch);
+            }
+            warnedUnroutedCategory = false;
+
+            // Slice-7 finding #3 closure: subscribe to ShotCamera.ShotEnded
+            // so SelectionRing disengages when the active event-driven shot
+            // retires (canonical-tick expiry). Without this, the focal-
+            // player ring stayed on-screen until the NEXT non-selection
+            // shot arrived. Unsubscribe in Teardown to prevent leaks across
+            // re-initializations (scene reload / EditMode test re-init).
+            if (shotCamera != null)
+            {
+                shotCamera.ShotEnded += OnShotCameraShotEnded;
+            }
+        }
+
+        private void OnShotCameraShotEnded()
+        {
+            if (selectionRing != null)
+            {
+                selectionRing.Disengage();
+            }
+        }
+
+        /// <summary>
+        /// Per-tick hook for the Slice-7 <see cref="MotionLineEmitter"/>
+        /// fade advance. Called from <see cref="DotsMatchDirector"/>'s
+        /// FixedUpdate after the canonical tick advances + before the
+        /// per-event PresentShot dispatch.
+        /// </summary>
+        public void OnSimTick(int currentTick)
+        {
+            if (motionLineEmitter != null)
+            {
+                motionLineEmitter.Tick(currentTick);
+            }
         }
 
         public void PresentShot(ActiveViewerEvent active)
@@ -120,10 +185,66 @@ namespace FinalWhistle.Viewer.Adapters.Dots
 
             ShotTypeSO shot = ResolveShot(active.ShotCategory);
             shotCamera.BeginShot(shot, active);
+
+            // Slice-7 routing: SelectionRing on focal-subject shots;
+            // MotionLineEmitter on signature-execution shots (the bridge
+            // marks these with a non-null FocalSubject in the Phase-3
+            // schema). All routings tolerate missing inspector wiring at
+            // PresentShot time: a null SelectionRing / MotionLineEmitter
+            // gets a single warn-once log per Initialize lifecycle so
+            // wiring gaps surface in the Console without bricking the
+            // camera-side rendering.
+            string focal = active.Event.FocalSubject;
+            bool hasFocal = !string.IsNullOrEmpty(focal);
+            ShotCategory cat = active.ShotCategory;
+            bool isSelectionShot = hasFocal &&
+                (cat == ShotCategory.PlayerIsolation || cat == ShotCategory.PassShotImpact);
+            bool isSignatureBurstShot = hasFocal &&
+                (cat == ShotCategory.PlayerIsolation
+                 || cat == ShotCategory.PassShotImpact
+                 || cat == ShotCategory.AftermathFreeze);
+
+            if (selectionRing != null)
+            {
+                if (isSelectionShot)
+                {
+                    selectionRing.Engage(focal);
+                }
+                else
+                {
+                    selectionRing.Disengage();
+                }
+            }
+
+            if (motionLineEmitter != null && isSignatureBurstShot)
+            {
+                // Pass the canonical start tick of this event. MotionLineEmitter.Tick
+                // (driven from DotsMatchDirector per FixedUpdate) will advance the fade.
+                motionLineEmitter.EmitBurst(active, (int)active.Event.StartTick.Value);
+            }
+
+            if (cat != ShotCategory.TacticalWide
+                && cat != ShotCategory.DiagonalAttackLane
+                && cat != ShotCategory.PassShotImpact
+                && cat != ShotCategory.PlayerIsolation
+                && cat != ShotCategory.AftermathFreeze
+                && !warnedUnroutedCategory)
+            {
+                Debug.LogWarning(
+                    $"{nameof(DotsAdapterRoot)}: ShotCategory.{cat} reached PresentShot but " +
+                    "no Slice-7 routing path engages SelectionRing or MotionLineEmitter for " +
+                    "it. ShotCamera still renders the framing. This message logs once per " +
+                    nameof(Initialize) + " lifecycle.", this);
+                warnedUnroutedCategory = true;
+            }
         }
 
         public void Teardown()
         {
+            if (shotCamera != null)
+            {
+                shotCamera.ShotEnded -= OnShotCameraShotEnded;
+            }
             pitch = null;
             shotByCategory = null;
         }

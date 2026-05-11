@@ -187,6 +187,15 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         // A future fixture-rename would mask the drift; warn once on the
         // first miss so it surfaces.
         private bool warnedTitleCardSidePrefix;
+
+        // Slice-7 pressure indicator: most-recent ViewerEvent's
+        // StakesNormalized projected to float, persisted across ticks.
+        // OverlayController.SetPressureTint reads this each tick from
+        // the director's FixedUpdate hook. Per blueprint §B Slice 7:
+        // "continuous (per-tick), not event-driven" — the indicator
+        // holds the last event's stakes until the next event arrives.
+        // Starts at 0 (transparent) on Awake.
+        private float currentStakesForPressure;
         // Active screen-tone window [start, end). -1 sentinel = "no
         // tone active." Strength at the trigger-time stakes value, then
         // modulated by the symmetric fade envelope.
@@ -262,6 +271,7 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             warnedOverlayTriggerError = false;
             warnedTitleCardSidePrefix = false;
             activeTitleCardEndTick = -1L;
+            currentStakesForPressure = 0f;
             lastKeyEventCount = state.KeyEvents.Count;
             lastSignatureRecipeCount = state.SignatureRecipes.Count;
 
@@ -412,6 +422,14 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             // framing when the active shot's duration envelope expires.
             shotCamera.OnSimTick(state.CurrentTick);
 
+            // Slice-7 finding #1 closure: advance MotionLineEmitter fade
+            // (alpha Lerp toward 0 over FadeTicks=18). DotsAdapterRoot
+            // owns the fade-advance hook; canonical-tick driven against
+            // preAdvanceTick to match every other Slice-3+ off-by-one
+            // discipline (the runner has advanced state.CurrentTick to
+            // preAdvanceTick + 1 by this point).
+            adapterRoot?.OnSimTick((int)preAdvanceTick);
+
             DispatchNewViewerEvents(preAdvanceTick);
 
             // Slice-6 overlay: scoreboard + minute every tick (cheap
@@ -424,6 +442,13 @@ namespace FinalWhistle.Viewer.Adapters.Dots
                 overlayController.SetScore(state.HomeScore, state.AwayScore);
                 int minute = (int)(preAdvanceTick / Tick.TicksPerSecond / 60);
                 overlayController.SetMinute(minute);
+
+                // Slice-7 finding #2 closure: continuous per-tick pressure
+                // tint write proportional to the most-recent ViewerEvent's
+                // StakesNormalized. Per blueprint §B Slice 7: continuous
+                // (not event-driven). Persists last event's stakes until
+                // a new event arrives (mutated in DispatchNewViewerEvents).
+                overlayController.SetPressureTint(currentStakesForPressure);
 
                 // Retire the title-card when the active event's window
                 // ends. ev.EndTick is exclusive ([StartTick, EndTick))
@@ -608,6 +633,13 @@ namespace FinalWhistle.Viewer.Adapters.Dots
                 MaybeTriggerAnimePresentation(ev);
                 MaybeTriggerOverlay(ev);
                 adapterRoot.PresentShot(active);
+
+                // Slice-7 finding #2 closure: update the pressure-indicator
+                // input on every dispatched ViewerEvent. SaturateStakes
+                // clamps the canonical [0, 1] projection to float-space
+                // [0, 1]; the indicator holds this value across quiet
+                // ticks until a new event mutates it.
+                currentStakesForPressure = SaturateStakes(ev.StakesNormalized);
 
                 lastProcessedViewerEventId = ev.ViewerEventId;
             }
