@@ -136,6 +136,20 @@ public static class BehaviorTreeRunner
     private static readonly Fixed PitchLateralHalfExtentMetres =
         Fixed.FromInt(34);
 
+    // Phase-3 polish-pass round 3 #1 (2026-05-11) coordinated press cap.
+    // Before round 3 #1, EVERY outfield player within PressRadiusMetres of
+    // the ball would sprint at it — at the 25m default radius this is often
+    // 5-7 players swarming. Reads as a "puck swarm" not football. Real
+    // football: 2-3 players close down, others mark space.
+
+    /// <summary>Cap on simultaneous pressers per own team. Outfield (non-GK)
+    /// players within `PressRadiusMetres` of the ball compete for the press
+    /// slots; only the K nearest engage; the rest fall through to hold-shape
+    /// (Option-3 ball-translated formation). Hardcoded for Phase-3; Phase-4
+    /// may move to per-archetype YAML for tactical-style differentiation
+    /// (low block: 1-2 pressers; high press: 4-5).</summary>
+    private const int MaxPressersPerTeam = 3;
+
     /// <summary>
     /// Tick the BT for one team. Writes 11 <see cref="PlayerCommand"/>s
     /// into <paramref name="commandsOut"/> in the same order as
@@ -197,16 +211,33 @@ public static class BehaviorTreeRunner
             ? -(Fixed.FromInt(105) / Fixed.FromInt(2))
             : Fixed.FromInt(105) / Fixed.FromInt(2);
 
+        // Phase-3 polish-pass round 3 #1 (2026-05-11): pre-compute the
+        // K-nearest outfield pressers. Only these slots actually press; the
+        // rest of the in-range outfield falls through to hold-shape.
+        // Skipped for own-team-in-possession (no press fires in that case).
+        // Stack-allocated 10-slot scratch (max 10 outfield candidates).
+        Span<int> topPresserIndices = stackalloc int[MaxPressersPerTeam];
+        int topPresserCount = 0;
+        if (!ownTeamInPossession)
+        {
+            topPresserCount = ResolveTopKPressers(
+                ballPitchPosition, ownTeam, archetype, pressRadiusSq, topPresserIndices);
+        }
+
         for (int i = 0; i < 11; i++)
         {
             PlayerState player = ownTeam[i];
             FormationSlot slot = FormationSlotForRosterIndex(archetype, (byte)(i + 1));
             Vector3Fixed basePosition = side == TeamSide.Home ? slot.HomeBasePosition : slot.AwayBasePosition();
 
-            // Press check: any opponent within PressRadius of this player AND
-            // opponents have possession → press the ball.
+            // Distance from this player to the ball — used by the GK branch
+            // (for ChoosePassKick possession-radius check) AND a few downstream
+            // pieces of logic. The press eligibility check itself now lives in
+            // the K-nearest pre-computation above (round 3 #1), so a per-player
+            // `inPressRange` boolean is no longer enough — a player may be in
+            // range but NOT in the top-K and therefore not press.
             Fixed distFromPlayerToBallSq = Vector3Fixed.DistanceSquared(player.Position, ballPitchPosition);
-            bool inPressRange = distFromPlayerToBallSq <= pressRadiusSq;
+            bool inPressTopK = IndexIsInTopK(i, topPresserIndices, topPresserCount);
 
             // Phase-3 Option-2 (2026-05-11): goalkeeper branch fires BEFORE
             // press / build-up / hold-shape. Closes the user-caught polish-
@@ -260,9 +291,11 @@ public static class BehaviorTreeRunner
                 continue;
             }
 
-            if (!ownTeamInPossession && inPressRange)
+            if (!ownTeamInPossession && inPressTopK)
             {
-                // Press: head to ball at full speed.
+                // Press: head to ball at full speed. Round 3 #1: gated by
+                // K-nearest selection so the team caps at MaxPressersPerTeam
+                // simultaneous pressers (no 5-7 player puck swarm).
                 commandsOut[i] = new PlayerCommand(ballPitchPosition, kinematics.MaxSpeed);
                 continue;
             }
@@ -324,6 +357,98 @@ public static class BehaviorTreeRunner
         Fixed ownNearestSq = NearestDistanceSquared(ballPosition, ownTeam);
         Fixed oppNearestSq = NearestDistanceSquared(ballPosition, opponents);
         return ownNearestSq < oppNearestSq;
+    }
+
+    /// <summary>
+    /// Phase-3 polish-pass round 3 #1 (2026-05-11) coordinated press cap.
+    /// Returns the count of own-team OUTFIELD (non-GK) players eligible to
+    /// press (within <paramref name="pressRadiusSq"/> of the ball), filling
+    /// <paramref name="topKIndicesOut"/> with the indices of the
+    /// <see cref="MaxPressersPerTeam"/> nearest of them.
+    ///
+    /// <para>Deterministic: ties on squared distance break by lower roster
+    /// index. Hot-path allocation-free (stackalloc candidate buffer +
+    /// in-place partial-sort).</para>
+    ///
+    /// <para>Returns 0 if no candidates exist (no outfield in range).
+    /// Returned count is min(candidates, MaxPressersPerTeam) and indexes
+    /// into <paramref name="ownTeam"/>. GK (slot 1, index 0) is skipped:
+    /// GK has its own branch in <see cref="Tick"/> per Option-2 and never
+    /// enters the press code path.</para>
+    /// </summary>
+    private static int ResolveTopKPressers(
+        Vector3Fixed ballPitchPosition,
+        ReadOnlySpan<PlayerState> ownTeam,
+        BehaviorTreeArchetype archetype,
+        Fixed pressRadiusSq,
+        Span<int> topKIndicesOut)
+    {
+        // Candidate buffer: (playerIndex, distSq) pairs for outfield players
+        // within press radius. Stackalloc bounds: 10 outfield slots max.
+        Span<int> candidateIndices = stackalloc int[10];
+        Span<long> candidateDistSqRaw = stackalloc long[10];
+        int candidateCount = 0;
+
+        for (int i = 0; i < ownTeam.Length; i++)
+        {
+            FormationSlot slot = FormationSlotForRosterIndex(archetype, (byte)(i + 1));
+            if (slot.RosterSlot == GoalkeeperRosterSlot) continue;
+
+            Fixed distSq = Vector3Fixed.DistanceSquared(ownTeam[i].Position, ballPitchPosition);
+            if (distSq > pressRadiusSq) continue;
+
+            candidateIndices[candidateCount] = i;
+            candidateDistSqRaw[candidateCount] = distSq.RawValue;
+            candidateCount++;
+        }
+
+        // Select top-K nearest. With K <= 3 and candidates <= 10, a
+        // selection-sort pass is bounded at 30 comparisons — cheaper than
+        // a heap or full sort + the result is naturally deterministic.
+        int k = candidateCount < MaxPressersPerTeam ? candidateCount : MaxPressersPerTeam;
+        for (int slot = 0; slot < k; slot++)
+        {
+            int bestPos = slot;
+            long bestDistSq = candidateDistSqRaw[slot];
+            int bestIndex = candidateIndices[slot];
+            for (int scan = slot + 1; scan < candidateCount; scan++)
+            {
+                long scanDistSq = candidateDistSqRaw[scan];
+                int scanIndex = candidateIndices[scan];
+                // Strictly closer wins. Equal-distance ties: lower roster
+                // index wins (deterministic tie-break consistent with
+                // NearestPlayerIndex).
+                if (scanDistSq < bestDistSq ||
+                    (scanDistSq == bestDistSq && scanIndex < bestIndex))
+                {
+                    bestPos = scan;
+                    bestDistSq = scanDistSq;
+                    bestIndex = scanIndex;
+                }
+            }
+            // Swap best into position `slot`.
+            if (bestPos != slot)
+            {
+                (candidateIndices[slot], candidateIndices[bestPos]) =
+                    (candidateIndices[bestPos], candidateIndices[slot]);
+                (candidateDistSqRaw[slot], candidateDistSqRaw[bestPos]) =
+                    (candidateDistSqRaw[bestPos], candidateDistSqRaw[slot]);
+            }
+            topKIndicesOut[slot] = candidateIndices[slot];
+        }
+        return k;
+    }
+
+    /// <summary>Linear scan of the top-K presser indices for membership.
+    /// Bounded at K (= 3) comparisons; cheaper than any container for this
+    /// size.</summary>
+    private static bool IndexIsInTopK(int index, ReadOnlySpan<int> topK, int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            if (topK[i] == index) return true;
+        }
+        return false;
     }
 
     /// <summary>

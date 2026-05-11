@@ -93,7 +93,7 @@ public sealed class LowCutbackPrimedFixtureTests
             config,
             ticks: 60);
 
-        const string SmokeSeed60TickHash = "sha256:7e851976f6a5eea467797e90400ca030c6ab955e21c2f92466cffa00c880f50e";
+        const string SmokeSeed60TickHash = "sha256:adb52d32aa2018efdf1cd8b00bcd5f2e9c08cf21ef535fa3eb7529a5ca629e0a";
         string actual = MatchCanonicalState.ComputeHash(smokeState);
         Assert.Equal(SmokeSeed60TickHash, actual);
     }
@@ -134,6 +134,7 @@ public sealed class LowCutbackPrimedFixtureTests
         const string expected = "sha256:815a90e5b21b7b6340e8d0b08e4b860bf021e49459bff0e8ca987827e3277050";
         Assert.Equal(expected, actual);
     }
+
 
     [Fact]
     public void FromLowCutbackPrimedFixture_TwoRuns_ByteIdenticalCanonicalState()

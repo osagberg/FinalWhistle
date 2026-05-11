@@ -158,20 +158,20 @@ public sealed class PassTheBallTests
         string actual = MatchCanonicalState.ComputeHash(state);
 
         // History (newest first):
+        //   sha256:6b0dcfb6da8c33fd459f728a9c227939d3b7ec693f6af3461e8e2045a0d919c2 —
+        //     polish-pass round 3 #1 (2026-05-11 coordinated press cap).
+        //     Authorized re-baseline per round-3 task-spec — press branch
+        //     now caps at K=3 simultaneous pressers; over 600 ticks the
+        //     possession-trajectory diverges from Option-3 baseline.
         //   sha256:01a32f1e723bc9b81f4c99237178570b34b7ebfc2d9aa9028fbc78b5f616d98f —
         //     polish-pass Option 3 (2026-05-11 off-ball formation translation).
-        //     Authorized drift per option3 task-spec — hold-shape branch now
-        //     commands BALL-TRANSLATED basePosition; over 600 ticks the
-        //     outfield positions diverge from Option-2 baseline as the ball
-        //     moves. 60-tick smoke hash UNCHANGED (smoke ball stays at
-        //     origin in first 60 ticks → translation = zero vector).
         //   sha256:17ca85e287227c44d743c142ea9adcac3f2325d04bd807f4c38bf87e9bc63bd0 —
         //     polish-pass Option 2 (2026-05-11 goalkeeper specialization).
         //   sha256:9ef285ab87f9e49c99a09d61544a217dd6fec72f46a2e6a0d7e358b133b10cac —
         //     polish-pass Option 1 (2026-05-11 inter-player soft collision).
         //   sha256:c5ab9e5265724dc79ef5bf038123fbaadb686c3e9d35e79f682ee16882fed1d2 —
         //     pass-the-ball v1 (2026-05-11 first kick logic).
-        const string expected = "sha256:01a32f1e723bc9b81f4c99237178570b34b7ebfc2d9aa9028fbc78b5f616d98f";
+        const string expected = "sha256:6b0dcfb6da8c33fd459f728a9c227939d3b7ec693f6af3461e8e2045a0d919c2";
         Assert.Equal(expected, actual);
     }
 }

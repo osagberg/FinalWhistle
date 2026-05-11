@@ -51,7 +51,19 @@ public sealed class MatchDeterminismTests
     /// code because <c>MatchCanonicalState.Write</c> now emits the v1 layout.
     /// CI matrix on Win/Mac/Linux verifies the v1 hash holds across platforms.
     /// </summary>
-    private const string SmokeSeed60TickHash = "sha256:7e851976f6a5eea467797e90400ca030c6ab955e21c2f92466cffa00c880f50e";
+    // History (newest first):
+    //   sha256:adb52d32aa2018efdf1cd8b00bcd5f2e9c08cf21ef535fa3eb7529a5ca629e0a —
+    //     polish-pass round 3 #1 (2026-05-11 coordinated press cap).
+    //     Authorized re-baseline per round-3 task-spec — press branch
+    //     now caps at K=3 simultaneous pressers; in smoke fixture, slots
+    //     6+7+8+9+10 are all within press range at tick 0 (formation
+    //     midfield 4 + strikers near centre), but only the K=3 nearest
+    //     now press; the rest fall through to hold-shape. Tick-0+ canon
+    //     diverges from Option-3 baseline.
+    //   sha256:7e851976f6a5eea467797e90400ca030c6ab955e21c2f92466cffa00c880f50e —
+    //     baseline through Options 1-2-3 (UNCHANGED — those three never
+    //     touched the smoke-fixture first-60-tick canon).
+    private const string SmokeSeed60TickHash = "sha256:adb52d32aa2018efdf1cd8b00bcd5f2e9c08cf21ef535fa3eb7529a5ca629e0a";
 
     #region Composition helper — runs the full BT + Player + Ball stack
 
