@@ -319,6 +319,8 @@ budget", "pivot". Agent resumes after decision (topic stays open).
 The opening event of a `/duo-implement` topic. Posted by `from: user`. Body
 is structured markdown with these required fields:
 
+**Required fields** (CLI rejects a task-spec missing any of these with exit 2):
+
 ```
 acceptance:
   - <falsifiable acceptance criterion 1>
@@ -348,6 +350,11 @@ files_out_of_scope:
 
 max_tokens: 400000
 max_wall_clock_seconds: 7200
+```
+
+**Recommended fields** (strongly encouraged for Tier-2 implementation tasks; not CLI-enforced because some flows legitimately omit them — e.g. a task-spec posted manually for a hotfix may not name `implementing_agent` because it's implicit context):
+
+```
 max_turns: 50
 
 escalation_triggers:
@@ -371,9 +378,9 @@ notes:
    fields above>
 ```
 
-The CLI's `task-spec` subcommand validates the structure on post.
-Agents read the spec on first poll + acknowledge with `ack` before
-proceeding.
+Per Codex 2026-05-11 P1 (ca1cc8ff): the prior spec text listed all 10 fields as required, but cmd_task_spec only validated 5. Two options were considered: (a) tighten the CLI to enforce all 10, (b) narrow the spec text to match the 5 actually-enforced. Option (b) chosen because the recommended-5 set has legitimate omission cases — see inline notes. Strict workflows (e.g. autonomous Tier-2 via `/duo-implement`) SHOULD provide all 10; manual/hotfix workflows MAY omit recommended-5 without rejection.
+
+The CLI's `task-spec` subcommand validates the required-5 structure on post. Agents read the spec on first poll + acknowledge with `ack` before proceeding.
 
 The `depends_on` field is OPTIONAL but RECOMMENDED for any task that's
 logically downstream of another. It feeds two systems: (a) the cascade-

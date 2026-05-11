@@ -196,7 +196,11 @@ cmd_post() {
     local time; time="$(now_iso_utc)"
 
     # Enforce per-topic caps per spec §13. Env-var-driven; absent = no cap.
-    enforce_caps "$topic"
+    # Pass the candidate body bytes + the resolved --from so the cap check
+    # is correct under --from overrides (per Codex 2026-05-11 P1 fix).
+    local candidate_body_bytes
+    candidate_body_bytes="$(printf '%s' "$body" | wc -c | tr -d ' ')"
+    enforce_caps "$topic" "$candidate_body_bytes" "$from"
 
     # Closure detection: parse each line as JSON via jq instead of grep regex
     # (silent-failure-hunter P1 — grep regex had false-positive cases on bodies
@@ -493,26 +497,40 @@ Recommended: max_turns, escalation_triggers, required_subagents, implementing_ag
 # caps per spec §13. Called from cmd_post BEFORE writing. Env-var-driven
 # enforcement; absent vars = no cap (current behavior).
 # Hard cap (100%) = die with exit 1; warn at 80%.
+#
+# Per Codex 2026-05-11 P1 (ca1cc8ff): the prior signature only checked
+# current topic bytes BEFORE writing, so a post that pushes total over
+# the cap would land (current=9, cap=10, new=9 → wrote 18 bytes).
+# Also, MAX_TURNS counted global AUTHOR env-var instead of the resolved
+# --from flag, so AGENT_BUS_AUTHOR=user with --from claude bypassed the
+# cap for claude. Both fixed.
+#
+# Signature: enforce_caps <topic> <candidate_body_bytes> <resolved_from>
 enforce_caps() {
     local topic="$1"
+    local candidate_body_bytes="${2:-0}"
+    local resolved_from="${3:-$AUTHOR}"
     local file="$DIALOG_DIR/$topic.jsonl"
-    if [ ! -f "$file" ]; then return 0; fi
 
     # AGENT_BUS_MAX_TOKENS (body-byte budget, per spec §13 — ~4 bytes/token).
+    # Check current + new against cap, not just current.
     if [ -n "${AGENT_BUS_MAX_TOKENS:-}" ]; then
-        local current_bytes
-        current_bytes="$(jq -r '.body | length' "$file" 2>/dev/null | awk '{s+=$1} END {print s+0}')"
-        if [ "$current_bytes" -ge "$AGENT_BUS_MAX_TOKENS" ]; then
-            die "AGENT_BUS_MAX_TOKENS=$AGENT_BUS_MAX_TOKENS reached on topic '$topic' (current: $current_bytes body bytes). Hard ceiling per spec §13. Post type=escalation + stop polling; user check-in needed." 1
+        local current_bytes=0
+        if [ -f "$file" ]; then
+            current_bytes="$(jq -r '.body | length' "$file" 2>/dev/null | awk '{s+=$1} END {print s+0}')"
+        fi
+        local projected_bytes=$((current_bytes + candidate_body_bytes))
+        if [ "$projected_bytes" -gt "$AGENT_BUS_MAX_TOKENS" ]; then
+            die "AGENT_BUS_MAX_TOKENS=$AGENT_BUS_MAX_TOKENS exceeded by this post on topic '$topic' (current $current_bytes + new $candidate_body_bytes = $projected_bytes). Hard ceiling per spec §13. Post type=escalation + stop polling; user check-in needed." 1
         fi
         local threshold_80=$((AGENT_BUS_MAX_TOKENS * 8 / 10))
-        if [ "$current_bytes" -ge "$threshold_80" ]; then
-            warn "AGENT_BUS_MAX_TOKENS at 80%+ on topic '$topic' ($current_bytes / $AGENT_BUS_MAX_TOKENS bytes)"
+        if [ "$projected_bytes" -ge "$threshold_80" ]; then
+            warn "AGENT_BUS_MAX_TOKENS at 80%+ on topic '$topic' (projected $projected_bytes / $AGENT_BUS_MAX_TOKENS bytes)"
         fi
     fi
 
     # AGENT_BUS_MAX_WALL_CLOCK (seconds since first event).
-    if [ -n "${AGENT_BUS_MAX_WALL_CLOCK:-}" ]; then
+    if [ -n "${AGENT_BUS_MAX_WALL_CLOCK:-}" ] && [ -f "$file" ]; then
         local first_time_iso
         first_time_iso="$(jq -r '.time' "$file" 2>/dev/null | head -1)"
         if [ -n "$first_time_iso" ]; then
@@ -535,16 +553,22 @@ enforce_caps() {
         fi
     fi
 
-    # AGENT_BUS_MAX_TURNS (per-author event count on this topic).
+    # AGENT_BUS_MAX_TURNS (per-author event count on this topic). Count
+    # by the resolved --from author (after the --from override), not by
+    # the global AGENT_BUS_AUTHOR env var. The current post would push
+    # the count from N to N+1, so check N+1 > cap.
     if [ -n "${AGENT_BUS_MAX_TURNS:-}" ]; then
-        local author_count
-        author_count="$(jq -r --arg a "$AUTHOR" 'select(.from == $a) | .from' "$file" 2>/dev/null | wc -l | tr -d ' ')"
-        if [ "$author_count" -ge "$AGENT_BUS_MAX_TURNS" ]; then
-            die "AGENT_BUS_MAX_TURNS=$AGENT_BUS_MAX_TURNS reached for from=$AUTHOR on topic '$topic' (current: $author_count). Hard ceiling per spec §13. Mandatory user check-in." 1
+        local author_count=0
+        if [ -f "$file" ]; then
+            author_count="$(jq -r --arg a "$resolved_from" 'select(.from == $a) | .from' "$file" 2>/dev/null | wc -l | tr -d ' ')"
+        fi
+        local projected_count=$((author_count + 1))
+        if [ "$projected_count" -gt "$AGENT_BUS_MAX_TURNS" ]; then
+            die "AGENT_BUS_MAX_TURNS=$AGENT_BUS_MAX_TURNS exceeded by this post for from=$resolved_from on topic '$topic' (current: $author_count, this post: +1 = $projected_count). Hard ceiling per spec §13. Mandatory user check-in." 1
         fi
         local t_threshold_80=$((AGENT_BUS_MAX_TURNS * 8 / 10))
-        if [ "$author_count" -ge "$t_threshold_80" ]; then
-            warn "AGENT_BUS_MAX_TURNS at 80%+ for from=$AUTHOR on topic '$topic' ($author_count / $AGENT_BUS_MAX_TURNS events)"
+        if [ "$projected_count" -ge "$t_threshold_80" ]; then
+            warn "AGENT_BUS_MAX_TURNS at 80%+ for from=$resolved_from on topic '$topic' ($projected_count / $AGENT_BUS_MAX_TURNS events)"
         fi
     fi
 
@@ -601,18 +625,18 @@ cmd_pending_reviews() {
         proposals_file="$(mktemp)"
         responses_file="$(mktemp)"
 
-        # All commit-proposal sha256s (one per line).
+        # All commit-proposal sha256s with their iso times (sha + tab + iso),
+        # in file order (= chronological order, append-only).
         while IFS= read -r line; do
             if [ -z "$line" ]; then continue; fi
-            # Parse type+body via jq; if it's a commit-proposal, hash the
-            # raw line bytes.
-            local _type _body_prefix
+            local _type _body_prefix _iso
             _type="$(printf '%s' "$line" | jq -r '.type // ""' 2>/dev/null || printf '')"
             if [ "$_type" != "claim" ]; then continue; fi
             _body_prefix="$(printf '%s' "$line" | jq -r '.body // ""' 2>/dev/null | head -c 30 | tr '[:upper:]' '[:lower:]')"
             case "$_body_prefix" in
                 commit-proposal:*)
-                    printf '%s\n' "$(sha256_hex "$line")" >> "$proposals_file"
+                    _iso="$(printf '%s' "$line" | jq -r '.time // ""' 2>/dev/null)"
+                    printf '%s\t%s\n' "$(sha256_hex "$line")" "$_iso" >> "$proposals_file"
                     ;;
             esac
         done < "$f"
@@ -624,23 +648,25 @@ cmd_pending_reviews() {
             'select((.type == "ack" or .type == "counter") and .from == $rev) | .in_reply_to // empty' \
             "$f" 2>/dev/null > "$responses_file" || true
 
-        # For each commit-proposal sha, check if it has a corresponding
-        # ack/counter in_reply_to. If not, the topic has a pending review.
+        # Per Codex 2026-05-11 P2 fabc57a2: pending-reviews must only
+        # check the LATEST commit-proposal per topic, not all of them.
+        # An old unresponded proposal followed by a new responded
+        # proposal should NOT mark the topic pending. File order is
+        # chronological (append-only); the last commit-proposal in the
+        # file is the latest.
         local has_unreplied=0
         local latest_pending_iso=''
         if [ -s "$proposals_file" ]; then
-            while IFS= read -r proposal_sha; do
-                if [ -z "$proposal_sha" ]; then continue; fi
-                if ! grep -qFx -- "$proposal_sha" "$responses_file"; then
+            local latest_proposal_line latest_proposal_sha latest_proposal_iso
+            latest_proposal_line="$(tail -1 "$proposals_file")"
+            latest_proposal_sha="$(printf '%s' "$latest_proposal_line" | cut -f1)"
+            latest_proposal_iso="$(printf '%s' "$latest_proposal_line" | cut -f2)"
+            if [ -n "$latest_proposal_sha" ]; then
+                if ! grep -qFx -- "$latest_proposal_sha" "$responses_file"; then
                     has_unreplied=1
-                    # Pull the iso time of this commit-proposal for display.
-                    latest_pending_iso="$(
-                        jq -r --arg s "$proposal_sha" \
-                            'select(.type == "claim") | .time' "$f" 2>/dev/null | tail -1
-                    )"
-                    break
+                    latest_pending_iso="$latest_proposal_iso"
                 fi
-            done < "$proposals_file"
+            fi
         fi
 
         rm -f "$proposals_file" "$responses_file"
@@ -702,6 +728,15 @@ cmd_unhandled_findings() {
 
         # Skip closed topics.
         if jq -se 'any(.[]; .from == "user" and .type == "decision")' "$f" 2>/dev/null | grep -q '^true$'; then
+            continue
+        fi
+
+        # Tier-2 filter (per Codex 2026-05-11 P1 9f5fcb18): only consider
+        # topics that have at least one task-spec event. Tier-1 topics
+        # (debate, brainstorm, example) don't participate in the
+        # implementation review-pickup flow; including them produces
+        # false review-pickups.
+        if ! jq -se 'any(.[]; .type == "task-spec")' "$f" 2>/dev/null | grep -q '^true$'; then
             continue
         fi
 

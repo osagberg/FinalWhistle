@@ -89,21 +89,27 @@ Exit codes:
 
 ### Step 5a — Cascade-safe: apply the fix
 
-Open the original topic, post Claude's acknowledgment of the finding:
+**Per-finding ack convention (per Codex 2026-05-11 P1 fix to unhandled-findings clearance semantics):** `unhandled-findings` uses strict `in_reply_to` threading to determine which Codex events Claude has addressed. A single batch commit-proposal that fixes multiple findings does NOT automatically mark each finding handled — you need a per-finding `ack` event with `in_reply_to` set to the finding's sha256. This keeps the audit trail tight + lets `unhandled-findings` count drop to zero when work is complete.
+
+Post Claude's per-finding acknowledgment for EACH finding being addressed:
 
 ```sh
-scripts/agent-bus post --topic <topic-name> --type ack --from claude --to codex \
-  --in-reply-to <codex-finding-sha> --body "ack — applying fix"
+for finding_sha in <sha1> <sha2> <sha3>; do
+  scripts/agent-bus post --topic <topic-name> --type ack --from claude --to codex \
+    --in-reply-to "$finding_sha" --body "ack — addressing in upcoming commit-proposal"
+done
 ```
 
-Apply the fix using Edit / Write / the appropriate `Unity_*` MCP tool. Run `scripts/fw verify`. Post a new `commit-proposal`:
+Then apply the fix using Edit / Write / the appropriate `Unity_*` MCP tool. Run `scripts/fw verify`. Post a new `commit-proposal`:
 
 ```sh
 scripts/agent-bus claim --topic <topic-name> --severity p1 --from claude --to codex \
-  --body "commit-proposal: applied Codex review-finding <finding-sha>. Files touched: <list>. Verification: <output>. Awaiting reviewer ack."
+  --body "commit-proposal: applied Codex review-findings <sha1>, <sha2>, <sha3>. Files touched: <list>. Verification: <output>. Awaiting reviewer ack."
 ```
 
 Wait for new ack, then commit. (This is essentially a mini `/duo-implement` cycle on the same topic.)
+
+**Why per-finding acks (not just the batch commit-proposal):** spec §16 + the protocol convention require `in_reply_to` threading for audit-trail purity. A batch commit-proposal addresses findings in body text, which is fine for human reading but doesn't let `unhandled-findings` mechanically detect handled state. The per-finding ack is the machine-readable signal. Future convention (P2 deferred per Codex 2026-05-11): allow commit-proposal body to include an `addresses: sha1,sha2,sha3` line that `unhandled-findings` parses, eliminating the per-finding-ack overhead. For now, post the per-finding acks.
 
 ### Step 5b — Cascade-risk: DEFER to user triage
 
