@@ -2,6 +2,24 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-05-11 (C4 signatures fire in natural play; commit `10efbdf`)
+
+Closes the 2nd C1-audit P1 hole: signature events never fired in 70+ seconds of natural smoke-fixture play, so Slice-7 visual surfaces (selection rings / motion lines / pressure tint / Tension cadence) that depend on signatures also never fired naturally. The chaotic 22-player pressing in the smoke fixture never satisfies the Phase-3 trigger gates (winger-at-byline / striker-in-area / CM-with-moving-ball). Approach (b) from the C1 audit recommendation: author a new corpus fixture pre-positioned to satisfy the LowCutback gates at construction; existing smoke fixture stays sacrosanct.
+
+**New code**: `MatchSimulationState.FromLowCutbackPrimedFixture` factory pre-positions home Winger jersey 6 (Pielke / RoleFamily=Winger / LowCutback affinity per `direct-pressing/06.json`) at (X=50, Y=0, Z=22) with velocity (0, 0, -2). All four `SignatureConfig.Phase3Defaults` LowCutback gates pre-satisfied (Byline ≤3m: 2.5m ✓; |Z|>20m: 22 ✓; |Vel.Z|>1: 2 ✓; carrier-on-ball within `Kinematics.Radius` ✓). Ball coincident.
+
+**New tests** (`LowCutbackPrimedFixtureTests.cs`, 4 cases): signature-fires-in-2-ticks; smoke-hash-doesnt-drift (cross-contamination defense); two-runs-byte-identical determinism; 60-tick-canonical-hash pin `sha256:2f5cc063374b43cfd822043401add3ebddc2e174a1bb0a440e4d10b0e33a4ef6`.
+
+**New corpus fixture** `MatchSim.Tests/fixtures/replay-corpus/0xfeedbeefcafefade.json` with 60-tick pin + new `fixture_factory: "FromLowCutbackPrimedFixture"` field. `scripts/fw replay` extended with per-seed test-filter routing: both `0xdeadbeefdeadbeef` + `0xfeedbeefcafefade` rc=0 on `--compare-corpus`; unsupported seeds still rc=2.
+
+**DotsMatchDirector** gains `SerializeField bool usePrimedFixture` + Awake-time matchSeedHex override (so ledger event-ids reflect the actual fixture in use, not the default smoke seed — fixes the reproducibility ambiguity Codex caught in round 2). Scene `DotsViewer.unity` updated with `usePrimedFixture=true` + `matchSeedHex=0xfeedbeefcafefade`.
+
+**2-round Codex review cycle** on `dialog/2026-05-11-c4-signatures-natural-play.jsonl`: task-spec `bf697abc` → round-1 commit-proposal `b9c3cc13` → P1 counter `fa1e1777` (load-bearing acceptance items deferred: missing corpus JSON, `scripts/fw` not extended, scene seed mismatch) → round-2 commit-proposal `64e1588d` → ack `ed91414b`. All items landed; Codex verified locally that both seeds rc=0, unsupported seeds rc=2, 651/651 MatchSim, fw verify green.
+
+**Natural-play L2 evidence**: toggled `usePrimedFixture=true` in DotsViewer.unity, pressed Play, watched 7s. **Tick 0**: LowCutback signature fires. **Tick 203**: GOAL. **Console**: `[MemoryLedger] +1 GoalScored ... ledger size 1` + `ShotCamera: adapter-local heuristic shot 'fwh.core:shot.diagonal-attack-lane' suppressed by an active event-driven shot`. **Visual** (`docs/screenshots/c4-signature-natural-tick-0455-signature-fired.png`): scoreboard 1-0; Slice-6 commentary "And that's the opener." banner; camera framing shifted by event-driven shot. The entire Slice-7→6→5→Memory chain validates end-to-end naturally.
+
+651/651 MatchSim (+4 new); pinned 60-tick smoke hash UNCHANGED; fw verify Tier-A GREEN.
+
 ## 2026-05-11 (C1 audit + C1a Memory integration — closing 2nd "exists + never composed" hole; commit `ca46b45`)
 
 Step C1 of the polish-pass mandate audited Phase-3 systems for the "unit-tested but never composed in the live loop" bug class (same shape as pass-the-ball). Found 2 P1 integration holes: (1) **Memory layer** — `Ledger` / `MemoryEvent` / `MemoryEmissionRules.EmitForKeyEvents` / `PressFanReader` / `BreakthroughReader` are implemented + 42 tests pass + SPEC line 137 claims "end-to-end Unity Mono load verified" but that was synthetic `execute_code` injection at SPEC-closure; in live play Ledger was never instantiated, emit-rules never called. Fixed by C1a (commit `ca46b45`). (2) **Signatures don't fire in natural play** — 70-second smoke-fixture natural play produced 1 Goal but 0 SignatureRecipes; Slice-7 visual surfaces (selection rings / motion lines / pressure tint / Tension cadence) all depend on signatures and therefore also don't fire naturally. Next polish cycle (C4) will fix this.
