@@ -45,13 +45,19 @@ namespace FinalWhistle.Viewer.Adapters.Dots
 
         // Radial offset from focal centre to each line's start point, in
         // metres. Keeps lines outside the dot itself + reads as energy
-        // radiating from the player.
-        private const float RadialOffsetMetres = 1.0f;
+        // radiating from the player. 2026-05-11 (C5 polish): bumped from
+        // 1.0 → 2.5 so lines clear the dot at tactical-wide zoom.
+        private const float RadialOffsetMetres = 2.5f;
 
         // Visual scale of each line (sprite is 2×16 px @ PPU=16 → 0.125×1.0
-        // world-units at WorldUnitsPerMeter=1). Multiplier extends to ~1.5m.
-        private const float LineLengthMultiplier = 1.5f;
-        private const float LineWidthMultiplier = 1.0f;
+        // world-units at WorldUnitsPerMeter=1). 2026-05-11 (C5 polish):
+        // Codex L2 feedback flagged the original 1.5m × 0.125m sprites as
+        // "may read too small at orthoSize=38". Bumped to 5m × 0.4m so
+        // lines are ~7% of view height / clearly legible without being
+        // absurd. FadeTicks=18 (~0.3s @60Hz) unchanged — quick-fade
+        // discipline preserved.
+        private const float LineLengthMultiplier = 5.0f;
+        private const float LineWidthMultiplier = 3.2f;
 
         [SerializeField] private Sprite lineSprite;
         [SerializeField] private Color lineColor = Color.white;
