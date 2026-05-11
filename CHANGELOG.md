@@ -2,6 +2,26 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-05-11 (Polish-pass round 2 — Option-1 inter-player soft collision; commit `ca96e3a`)
+
+Closes user feedback from polish-pass review: *"Goalkeepers running through all other players with the ball. Just straight line running for the most part. Not football at all."* Option-1 of three sim-side polish items addressing the visible "22 dots phase through each other" symptom. Topic `2026-05-11-option1-player-collision` (6 events; 1 review round).
+
+**What shipped**:
+- `MatchSim/Sim/PlayerSeparation.cs` (new, 135 LoC): global positional-correction pass, runs between `PlayerActuator.Step×22` and `ApplyTeamKickIfAny`. For each pair within `2 × kinematics.Radius` (= 1.0m at Phase3Defaults), pushes each player half-overlap apart along `(b - a)`. Velocity untouched. Pitch-plane projected. Stable pair iteration: home self → away self → home×away. Coincident-pair (zero-magnitude direction) fallback: +X push by convention.
+- `MatchSim/Sim/MatchSimulationRunner.cs` (+8 lines): wired separation into the per-tick loop in the exact slot Codex asked for — after actuator stepping, before kick apply, before ball physics.
+- `MatchSim.Tests/Sim/PlayerSeparationTests.cs` (new, 7 facts): overlap / disjoint / coincident / determinism-100x / cross-team + Codex-requested regressions `Step_DoesNotMutateBallState` (direct contract) + `StepOrderInRunner_DoesNotChangeBallState_WhenNoCarrier` (full-runner integration; pure-physics ball-state equivalence).
+- `MatchSim.Tests/Sim/PassTheBallTests.cs`: 600-tick `PassTheBall_600TickPlayback_HashMatchesPin` re-pinned `c5ab9e52→9ef285ab` (authorized drift; history preserved in test-file comment).
+- `unity-project/Assets/Plugins/MatchSim/FinalWhistle.MatchSim.{dll,pdb}` refreshed via `scripts/fw build-unity-plugins`.
+- `docs/screenshots/c5-option1-collision-natural-frame172k.png` L2 evidence: 22 dots in football-shaped positions, min pair distance 2.525m, ZERO MinSep=1m violations across 172,546 unforced natural-play frames (~48 min wall-clock). No synthetic injection per `CLAUDE.md §6.3 Step 4.1`.
+
+**Hash drift**: 600-tick pass-the-ball rebaselined (separation fires whenever ≥2 players come within 1.0m, which happens any time a presser converges). 60-tick smoke (`7e851976...50e`) + 60-tick primed (`2f5cc063...4ef6`) hashes UNCHANGED (no overlap occurs in first 60 ticks; formation positions are 10+m apart). Replay corpus JSONs UNCHANGED.
+
+**Review cycle**: Codex round-1 countered with **P1** (out-of-scope Unity-AI-Assistant Settings.json drift) + **P2** (missing runner/order regression test). v2 reverted Settings.json + added both regression tests. First v2 re-post was silently invisible to `scripts/agent-bus pending-reviews` because the body prefix `"commit-proposal v2:"` failed the script's `commit-proposal:*` regex — re-posted with `commit-proposal:` prefix; spawned a follow-up to fix the regex (versioned proposals should be allowed). Codex ACK at `959adf54`.
+
+**Tests**: 658/658 PASS (+2 from prior 656). **fw verify**: GREEN. **Natural-play L2**: captured + saved.
+
+Options 2 (GK specialization — BT roster-slot-1 gets own branch, stays in penalty area, kicks long-ball when in possession) and 3 (off-ball formation translation — non-carrier non-presser players hold formation-relative-to-ball, not static positions) queued next per user direction "do option 1 2 and 3 autonomously with codex."
+
 ## 2026-05-11 (Polish-pass autonomous run wrap: C2 + C3 + C5; commits `f12c85f` + `f16f175` + `cfb5c83`)
 
 After C1/C1a/C4 closed the two P1 integration holes, the polish-pass mandate continued with three smaller audit-and-tune cycles:
