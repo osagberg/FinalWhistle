@@ -2,6 +2,34 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-05-11 (Polish-pass round 2 — Option-3 off-ball formation translation; commit `afedc06`) — Options 1-2-3 trilogy CLOSED
+
+Final Option of the polish-pass round 2 trilogy addressing user feedback *"Goalkeepers running through all other players with the ball. Just straight line running for the most part. Not football at all."* Closes the "11 disconnected pucks" symptom: before Option-3, the hold-shape branch commanded STATIC formation base positions, so outfield players never shifted with the ball. After: formation SHAPE preserved, CENTROID shifts toward ball position. Topic `2026-05-11-option3-offball-formation-translation` (5 events; 2-round Codex review).
+
+**What shipped**:
+- `MatchSim/Sim/BehaviorTreeRunner.cs` (+~50 LoC): four new constants — `FormationBallShiftFactor = 0.5` (axial), `LateralBallShiftFactor = 0.3` (smaller because the pitch is narrower 68m vs longer 105m), `PitchAxialHalfExtentMetres = 52.5`, `PitchLateralHalfExtentMetres = 34`. Two private helpers: `BallTranslatedBasePosition(basePosition, ballPitchPosition)` returns `basePosition + (ball.X × 0.5, 0, ball.Z × 0.3)` clamped to pitch bounds; `Clamp(value, min, max)` via raw-value comparison. Hold-shape branch (ONLY) now uses the translated base. Press + build-up + GK branches UNCHANGED.
+- `MatchSim.Tests/Sim/OffBallFormationTranslationTests.cs` (new, 5 facts, ~190 LoC): `BallAtCentre_HoldShapeProducesUnshiftedBasePosition`; `BallInAttackingThird_HomeOutfieldShiftsForward` (slot 2 base (-25, 20) shifts to (-5, 20) when ball at +40 X); `BallInDefendingThird_HomeOutfieldRetreats` (slot 11 base (20, -5) shifts to (0, -5) when ball at -40 X); `BallNearSideline_LateralTranslationClampedToPitchBounds` (slot 6 with ball at Z=60 clamps to Z=34); `Deterministic_AcrossManyRuns`.
+- `MatchSim.Tests/Sim/PassTheBallTests.cs`: 600-tick `PassTheBall_600TickPlayback_HashMatchesPin` re-pinned `17ca85e2→01a32f1e` (authorized drift; history preserved, now four entries deep: `c5ab9e52 → 9ef285ab → 17ca85e2 → 01a32f1e`).
+- `MatchSim.Tests/Sim/LowCutbackPrimedFixtureTests.cs`: 60-tick primed-fixture hash re-pinned `34a31b3b→815a90e5` (authorized drift; primed fixture ball at cutback zone X=50 → all hold-shape outfield translate at tick 0; history preserved).
+- `MatchSim.Tests/fixtures/replay-corpus/0xfeedbeefcafefade.json`: `final_canonical_state_hash` updated to `815a90e5...`. `scripts/fw replay 0xfeedbeefcafefade --compare-corpus` rc=0.
+- `unity-project/Assets/Plugins/MatchSim/FinalWhistle.MatchSim.{dll,pdb}` refreshed via `scripts/fw build-unity-plugins`.
+- `docs/screenshots/c5-option3-formation-translation-natural-frame57962.png` L2 evidence.
+
+**Hash drift summary**: 600-tick + 60-tick primed re-pinned; 60-tick smoke (`7e851976...50e`) + smoke corpus JSON `0xdeadbeefdeadbeef.json` UNCHANGED (smoke fixture ball stays at origin in the first 60 ticks → translation = zero vector for all hold-shape outfield → hold-shape commands equal raw basePosition).
+
+**Review cycle**: Codex round-1 countered with **P3** evidence-path mismatch — the L2 screenshot filename `c5-option3-formation-translation-natural.png` did not match the task-spec glob `c5-option3-formation-translation-natural-*.png` (missing the trailing `-suffix`). v2 fix: renamed file to `c5-option3-formation-translation-natural-frame57962.png`. No code/test/hash changes between v1 and v2. Codex acked v2 cleanly: `scripts/fw verify` GREEN with 668/668 tests, both replay corpus compares rc=0, `git diff --check` clean.
+
+**Tests**: 668/668 PASS (+5 from 663). **fw verify**: GREEN.
+
+**Natural-play L2** (DotsViewer.unity + `usePrimedFixture=true` + `driveSim=true`, ~35s wall-clock, ZERO synthetic injection, frame 57962): ball at `(-48.73, 0.05, -0.37)` — deep in home defensive third. Home outfield centroid X = `-33.76` (was static `-10`; expected with translation = `-10 + (-48.73 × 0.5) = -34.4` ✓). Home strikers slots 10 + 11 base X = `+20`, actual X = `-3.3` and `-3.0` — retreated ~23m from base because ball is in defensive third. Match: `20 + (-48.73 × 0.5) = -4.4 ≈ -3`. **Team plays as a compact block, not 11 disconnected pucks**. This is the load-bearing visual proof Option-3 closes its acceptance criterion.
+
+**Options 1-2-3 trilogy CLOSED** (commits `ca96e3a` → `13a3b7b` → `afedc06`):
+- Option 1: inter-player soft collision → no more "22 dots phase through each other"
+- Option 2: goalkeeper specialization → GK stays in penalty area, never sprints upfield with ball
+- Option 3: off-ball formation translation → team plays as compact block, shifts with ball
+
+User direction for what's next: *"When done with that, i will have a new look at the game, and see what else to do. Before doing phase 4, we probably have to have a look at the phases and tasks we have planned. I think we probably have to update it a bit. It's kinda outdated."* Handoff to user review now.
+
 ## 2026-05-11 (Polish-pass round 2 — Option-2 goalkeeper specialization; commit `13a3b7b`)
 
 Closes user feedback from polish-pass review: *"Goalkeepers running through all other players with the ball."* Option-2 of three sim-side polish items addressing the GK-runs-upfield-with-ball symptom. Topic `2026-05-11-option2-goalkeeper-specialization` (3 events; clean first-round Codex ack).
