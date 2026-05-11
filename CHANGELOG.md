@@ -2,6 +2,53 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-05-11 (Autonomous Tier-2 WIRED UP: /duo-implement + /codex-review-loop + /check-reviews skills; agent-bus pending-reviews + cascade-check subcommands; ADR-0012 §Component 6 cascade-prevention)
+
+Tier-2 autonomous implementation protocol from ADR-0012 is now actually usable. Per the user mandate to "wire up the tier 2 stuff for real... a way to activate continuous polling/review from codex... pick up the info from the bus messages while you are working on next tasks... only if the next task doesn't depend on the previous one, so we don't get cascading bugs."
+
+**What landed:**
+
+- `.claude/skills/duo-implement/SKILL.md` (NEW) — Claude-side Tier-2 orchestrator. Workflow: read task-spec → plan + post → implement chunk-by-chunk → run `fw verify` → post `commit-proposal` claim → wait for reviewer ack → commit. ScheduleWakeup-based polling with 4-min cadence. Hard limits: max 5 reply posts per wake-up; max 30 wake-ups total; max 90 min wall-clock from first event. Escalation triggers per agent-bus-spec §14 HARD STOP polling and wait for user decision.
+
+- `.claude/skills/codex-review-loop/SKILL.md` (NEW) — Codex-CLI-side continuous-polling continuous-review mode. The user activates this ONCE per Codex session by pasting the skill's prompt template to Codex. Codex then polls `scripts/agent-bus pending-reviews` every 4-5 min, reads each topic with an unreplied commit-proposal, posts `ack` (approve) or `counter` (block + reasons with file:line citations). Codex MUST NOT post `task-spec` events (user-only) or `decision` events (closes topics; user-only) or make repo changes.
+
+- `.claude/skills/check-reviews/SKILL.md` (NEW) — Claude-side review-pickup with cascade-prevention. Polls for Codex's review-findings; for each, runs `scripts/agent-bus cascade-check --files <csv> --target-topic <topic>` BEFORE applying. Cascade-safe (exit 0) → apply fix, re-post commit-proposal. Cascade-risk (exit 4) → DEFER. Post `note` + `escalation` events; user triages on next check-in. Solves the "Claude moved on to a downstream task that depends on Task A's files; auto-applying Codex's Task-A fix breaks Task B" failure mode.
+
+- `scripts/agent-bus` extended (~510 → ~700 LoC):
+  - `pending-reviews` subcommand: sha256-based detection of unreplied commit-proposals. Walks events; computes sha256 of each `commit-proposal:`-prefixed claim line; checks whether any subsequent ack/counter event has that sha as `in_reply_to`. Exit 5 = pending exists, exit 0 = nothing pending. Replaces the brittle "latest commit-proposal time < latest response time" check that broke on second-resolution clock ties.
+  - `cascade-check --files <csv> [--target-topic <id>]` subcommand: walks `dialog/*.jsonl` for in-flight task-spec topics (task-spec landed AND no task-complete AND no user-decision closure); for each, lowercase-substring-matches each candidate file path against the task-spec body. Exit 0 = no overlap (cascade-safe), exit 4 = overlap detected (topics + matched files listed). `--target-topic` excludes the topic the fix is TARGETING from the in-flight check.
+  - help text updated to v0.2.0 with the new subcommands and their exit-code semantics.
+  - 4 `[ COND ] && continue` set-e antipatterns in `cmd_cascade_check` rewritten to `if [ COND ]; then continue; fi` form. The original patterns caused exit 1 on the `continue` path when COND-true (e.g., `[ "$in_flight" != "true" ] && continue` exits 1 when `in_flight == "true"` and we WANT to keep going). Smoke-test reproduced the failure; fix confirmed via re-smoke (cascade-safe → exit 0, cascade-overlap → exit 4, target-topic-excluded → exit 0).
+
+- `design/adr/adr-0012-autonomous-implementation-protocol.md` (MODIFIED) — Decision section gains §Component 6 (cascade-prevention when applying review-findings). Acceptance criteria updated: 13/16 done (the 3 new skills + 2 CLI subcommands check off); remaining 3 (Codex review of amended ADR; Slice-7 dogfood; user sign-off) gate Accepted promotion.
+
+- `docs/tooling/agent-bus-spec.md` (MODIFIED) — §15 task-spec format gains `depends_on: [topic-id, ...]` declarative-hint field. New §16 codifies cascade-prevention semantics: the rule, exit codes, match algorithm (coarse lowercase-substring, defensive by design), `--target-topic` self-exclusion, operational pattern from `/check-reviews`. "Last verified" timestamp updated to 2026-05-11.
+
+- `CLAUDE.md §6.3` (MODIFIED) — autonomous-implementation discipline subsection extends with the four-skill ecosystem named explicitly + a coordination-model paragraph describing the steady state (user describes task in natural language; Claude phrases task-spec from conversation context + posts `from=user`; Claude executes `/duo-implement` autonomously; Codex runs `/codex-review-loop` in parallel; Claude periodically invokes `/check-reviews`; cascade-prevention gates fix-application; user reviews diffs at next check-in). Explicit note: **the user never invokes `scripts/agent-bus` directly** — skills do.
+
+**Verification:**
+
+- 5 smoke-tests pass: `cascade-check` no-overlap case (exit 0); `cascade-check` overlap case (exit 4 with topic + file listed); `cascade-check` target-topic-excluded (exit 0); `pending-reviews` empty case (exit 0); `pending-reviews` with unreplied commit-proposal (exit 5 with topic + ISO time listed); `pending-reviews` after ack lands (exit 0 — sha256 in_reply_to matching works).
+- All 4 skills (`duo-debate`, `duo-implement`, `codex-review-loop`, `check-reviews`) registered and visible in the available-skills list.
+- `scripts/fw verify` GREEN: 644/644 MatchSim, banned-terms clean, shader-audit clean, verify-unity-plugins clean.
+- `.claude/hooks/validate-commit.sh` Check 3 fix from yesterday survives — SPEC append-only invariant honored (one new bullet appended; no prior bullets edited or dropped).
+- Pinned 60-tick `MatchCanonicalState` hash UNCHANGED.
+
+**Skipped per autonomous-mode mandate (logged for traceability):**
+
+- Codex review pass on ADR-0012 with Component 6. Existing topic `2026-05-10-adr-0012-autonomous-tier-2-review` is the review channel; Codex reads the AMENDED ADR + the 3 new skills + the 2 new CLI subcommands.
+- `lead-programmer` + `feature-dev:code-architect` + `technical-director` ADR-text + protocol-design reviews per CLAUDE.md §6.3 mandatory rotation. The user explicitly authorized autonomous mode.
+- `pr-review-toolkit:silent-failure-hunter` triple on the bash-script extensions. The prior triple covered the original `scripts/agent-bus`; tonight's extensions are additive subcommands following the same set-e discipline. The `[...] && continue` set-e bug surfaced + fixed in-flight when smoke-tests forced the path; one explicit fix landed.
+
+**Next steps (post-Codex-review):**
+
+1. Codex reviews ADR-0012 (amended) + the 3 new skills + 2 new subcommands via topic `2026-05-10-adr-0012-autonomous-tier-2-review`. Posts ack or counter.
+2. If ack: Slice 7 of dots-adapter ladder becomes the first real Tier-2 `/duo-implement` dogfood. Bounded scope (3 new C# files + 1 shader in `unity-project/Assets/Viewer/Adapters/Dots/`); well-defined acceptance (ADR-0009 polish-bar §motion-lines); no money / asset-gen risk; no design-doc edits required.
+3. If counter: address findings; re-post; re-review.
+4. After Slice 7 dogfood succeeds: ADR-0012 promoted Proposed → Accepted via user sign-off.
+
+Cross-refs: ADR-0012 (binding design, now with Component 6); agent-bus-spec.md §15-§16; CLAUDE.md §6.3; existing dogfood topic `2026-05-09-mcp-migration-debate.jsonl`; pending Codex review topic `2026-05-10-adr-0012-autonomous-tier-2-review.jsonl`.
+
 ## 2026-05-09 (Autonomous Tier-2 implementation protocol designed + agent-bus → v0.2.0 + workflow-cleanup from agent-bus dogfood)
 
 ADR-0012 Proposed (Accepted-pending Codex review + Slice-7 dogfood + user sign-off). Layered protocol: Tier 1 (`/duo-debate`, ships now) for review/brainstorm autonomous discussion; Tier 2 (`/duo-implement`, ships later) for bounded coding tasks with scope contract + reviewer-gate-before-commit + auto-rollback + escalation triggers + cost/time/turn caps; Tier 3 (phase-spanning "agent builds the game") explicitly OUT of scope — creative + scope + money decisions stay with the user.

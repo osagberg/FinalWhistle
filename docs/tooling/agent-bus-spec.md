@@ -361,6 +361,10 @@ required_subagents:
 implementing_agent: claude    # or codex
 reviewing_agent: codex        # the other
 
+depends_on:
+  - <other-topic-id-that-must-task-complete-before-this-one-starts>
+  - <or that this one is logically downstream of>
+
 notes:
   <free-form context, links to design docs, prior-art, anything the
    implementing agent needs to know that doesn't fit the structured
@@ -371,6 +375,61 @@ The CLI's `task-spec` subcommand validates the structure on post.
 Agents read the spec on first poll + acknowledge with `ack` before
 proceeding.
 
+The `depends_on` field is OPTIONAL but RECOMMENDED for any task that's
+logically downstream of another. It feeds two systems: (a) the cascade-
+prevention check in §16 reads `depends_on` as a declarative hint
+alongside the mechanical file-overlap check; (b) future tooling may
+gate a task's start on its `depends_on` topics reaching `task-complete`.
+The field is informational at v0.2.0 — the spec doesn't enforce
+ordering yet. Agents SHOULD respect it; the user MAY override.
+
+## 16. Cascade-prevention semantics (Tier-2 review-finding application)
+
+When a Tier-2 task ships, Codex reviews post-commit and posts findings
+(`counter` / `evidence` events). If Claude has moved on to a downstream
+task that depends on the same files, naive auto-application of the
+finding produces cascading bugs (the downstream task was built against
+the pre-fix state; the fix mutates that state; the downstream task
+breaks).
+
+The cascade-prevention rule: **before applying any review-fix that would
+mutate a file, run `scripts/agent-bus cascade-check --files <csv>
+--target-topic <orig-topic>`**. The CLI walks all in-flight task-spec
+topics (task-spec landed AND no `task-complete` AND no user-decision
+closure) and reports overlap between the candidate files and the
+in-flight `files_in_scope` lists.
+
+Exit codes:
+- **0** — no overlap; cascade-safe; apply the fix.
+- **4** — overlap detected; defer to user triage. Post a `note` on the
+  affected topic naming the cross-reference + an `escalation` event
+  with proposed-action alternatives.
+- **2** — argument error.
+
+Match semantics: lowercase-substring match of each candidate file path
+against the task-spec body. **Coarse and defensive by design**: false-
+positive (over-counting overlap → triggers user check-in → safe) is
+preferred over false-negative (missing real overlap → cascade bug ships).
+Glob-aware matching is a future precision improvement (P3; tracked but
+not blocking).
+
+The `--target-topic <orig-topic>` flag excludes the topic the fix is
+TARGETING from the in-flight overlap check — overlap with self is
+expected (the fix is on the task's own files; that's allowed).
+
+Operational pattern (from [/check-reviews](../../.claude/skills/check-reviews/SKILL.md)):
+
+1. `scripts/agent-bus pending-reviews` — find topics with unreplied
+   commit-proposals (exit 5 = pending exists).
+2. For each pending topic, read Codex's latest counter/evidence/question.
+3. Identify files the fix would touch (from Codex's body + links).
+4. `scripts/agent-bus cascade-check --files <csv> --target-topic <topic>` —
+   exit 0 means safe to apply; exit 4 means defer + escalate.
+5. If safe: apply, run `fw verify`, re-post commit-proposal on the
+   original topic, wait for new reviewer ack, commit.
+6. If risky: post `note` + `escalation` on the original topic; wait for
+   user decision. Continue with primary work uninterrupted.
+
 ## Last verified
 
-2026-05-09 — Tier-1 schema validated end-to-end via `2026-05-09-mcp-migration-debate` topic (25 events, mutual-ack-and-fade closure). Tier-2 schema introduced v0.2.0; not yet dogfooded — Slice 7 is the proposed first dogfood per [ADR-0012](../../design/adr/adr-0012-autonomous-implementation-protocol.md) §Acceptance criteria.
+2026-05-09 — Tier-1 schema validated end-to-end via `2026-05-09-mcp-migration-debate` topic (25 events, mutual-ack-and-fade closure). Tier-2 schema v0.2.0; cascade-prevention §16 + `cascade-check` / `pending-reviews` CLI subcommands smoke-tested 2026-05-11. Not yet dogfooded on a real Tier-2 task — Slice 7 is the proposed first dogfood per [ADR-0012](../../design/adr/adr-0012-autonomous-implementation-protocol.md) §Acceptance criteria.

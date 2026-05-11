@@ -128,6 +128,27 @@ Implemented via env-var-driven enforcement in `scripts/agent-bus`:
 
 These are best-effort defenses, not bulletproof. The implementing agent's own `ScheduleWakeup` chain is the primary cost driver — caps cannot prevent every runaway, but they bound it and force escalation.
 
+### Component 6 — Cascade-prevention when applying review-findings
+
+When Codex reviews a task post-commit and posts a `counter` event with findings, Claude (via `/check-reviews`) may want to apply the fix. But if Claude has moved on to a downstream task that depends on the same files, naive auto-application produces cascading bugs:
+
+1. Task A ships → Codex reviews → finds bug → Claude moves on.
+2. Claude implements Task B; Task B's `files_in_scope` overlaps with Task A's affected files.
+3. Codex's Task-A finding lands; Claude auto-applies the fix.
+4. Task A's files now differ from what Task B was built against.
+5. Task B is broken; verification fails; cascade.
+
+The cascade-prevention rule: **before applying any review-fix that would mutate a file, run `scripts/agent-bus cascade-check --files <csv> --target-topic <orig-topic>`**. The CLI walks all in-flight task-spec topics (task-spec landed, no task-complete, no user-decision closure) and reports overlap between the candidate files and the in-flight `files_in_scope` lists.
+
+Exit codes:
+- **0** — no overlap; cascade-safe; apply the fix.
+- **4** — overlap detected; defer to user triage. Post a `note` on the affected topic + an `escalation` event with the proposed-action alternatives ((a) abandon in-flight; (b) apply after in-flight lands; (c) merge into combined task-spec).
+- **2** — argument error.
+
+The check is **coarse and defensive by design**: false-positive (over-counting overlap) is safe (just triggers a user check-in); false-negative (missing real overlap) ships the cascade bug. Match algorithm: lowercase-substring match of each candidate file path against the task-spec body. Glob-aware matching is a future precision improvement (P3 follow-up; tracked but not blocking the protocol).
+
+Dependency-tracking hint: task-spec body MAY include a `depends_on: [other-topic-id, ...]` field per agent-bus-spec §15. The implementing agent uses this for declarative dependency reasoning beyond the file-overlap check. Cascade-prevention is the **mechanical floor**; `depends_on` is the **declarative semantics layer**.
+
 ## Consequences
 
 ### Positive
@@ -178,9 +199,14 @@ Two-way door at multiple levels:
 - [x] CLAUDE.md §6.3 gains autonomous-implementation discipline subsection.
 - [x] TECH_APPROACH.md §13 documents the protocol.
 - [x] `/duo-debate` skill ships (Tier 1 wrapper, ready-to-use today).
-- [ ] **Codex review** of this ADR via agent-bus topic `2026-05-10-adr-0012-autonomous-tier-2-review`. Required for Accepted promotion.
-- [ ] **`/duo-implement` skill** ships in a future commit after Codex review + dogfood.
-- [ ] **Slice 7 dogfood** — first real Tier-2 task. Required for Accepted promotion.
+- [x] **`/duo-implement` skill ships** (2026-05-11; Claude-side Tier-2 orchestrator with ScheduleWakeup polling + commit-proposal flow + reviewer-gate-before-commit + escalation-trigger discipline).
+- [x] **`/codex-review-loop` skill ships** (2026-05-11; Codex-CLI-side continuous-polling continuous-review mode).
+- [x] **`/check-reviews` skill ships** (2026-05-11; Claude-side review-inbox with cascade-prevention via `scripts/agent-bus cascade-check`).
+- [x] **`scripts/agent-bus pending-reviews`** subcommand ships — lists open topics with unreplied commit-proposals; exit 5 when found, exit 0 when none. Detection via sha256-of-commit-proposal vs `in_reply_to` of subsequent ack/counter events.
+- [x] **`scripts/agent-bus cascade-check`** subcommand ships — overlap-detection for Component 6 cascade-prevention; exit 4 on overlap, exit 0 cascade-safe.
+- [x] **Component 6 cascade-prevention** designed + scaffolded (this ADR amendment + agent-bus-spec §16 + `/check-reviews` skill).
+- [ ] **Codex review** of this ADR via agent-bus topic `2026-05-10-adr-0012-autonomous-tier-2-review`. Required for Accepted promotion. The 5 opening events posted 2026-05-09 are unchanged; Codex's review of the amended ADR (Component 6 added) is part of this review pass.
+- [ ] **Slice 7 dogfood** — first real Tier-2 task using `/duo-implement` end-to-end. Required for Accepted promotion.
 - [ ] **User sign-off** on ADR + Slice 7 dogfood outcome. Required for Accepted promotion.
 
 ## Review trail

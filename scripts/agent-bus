@@ -444,6 +444,189 @@ cmd_task_spec() {
     cmd_post --type task-spec --from user "$@"
 }
 
+cmd_pending_reviews() {
+    # List topics that have at least one commit-proposal event without a
+    # subsequent ack event from the reviewing agent. Used by /duo-implement
+    # to surface "I posted a commit-proposal; reviewer hasn't responded yet"
+    # state, and by /check-reviews / /codex-review-loop to surface "this
+    # topic needs my review attention."
+    [ -d "$DIALOG_DIR" ] || { printf '(no dialog directory at %s)\n' "$DIALOG_DIR"; return 0; }
+
+    local f topic latest_commit_proposal_iso latest_ack_iso has_pending
+    local found=0
+    printf '%-50s  %s\n' 'TOPIC' 'STATE'
+    printf '%-50s  %s\n' '-----' '-----'
+
+    for f in "$DIALOG_DIR"/*.jsonl; do
+        [ -f "$f" ] || continue
+        topic="$(basename "$f" .jsonl)"
+
+        # Skip closed topics (from=user + type=decision).
+        if jq -se 'any(.[]; .from == "user" and .type == "decision")' "$f" 2>/dev/null | grep -q '^true$'; then
+            continue
+        fi
+
+        # A commit-proposal is a claim event whose body starts with
+        # 'commit-proposal:' (case-insensitive). We need to find the latest
+        # one's sha256 + check whether any subsequent event references it
+        # via in_reply_to.
+        #
+        # Computing the sha256 requires reading the raw line bytes (the
+        # canonical encoding the post-time sha256 was computed from).
+        # Approach: walk lines in order; identify commit-proposal lines;
+        # hash each; collect; then walk again and collect ack/counter
+        # in_reply_to values; set-diff.
+        local proposals_file responses_file
+        proposals_file="$(mktemp)"
+        responses_file="$(mktemp)"
+
+        # All commit-proposal sha256s (one per line).
+        while IFS= read -r line; do
+            if [ -z "$line" ]; then continue; fi
+            # Parse type+body via jq; if it's a commit-proposal, hash the
+            # raw line bytes.
+            local _type _body_prefix
+            _type="$(printf '%s' "$line" | jq -r '.type // ""' 2>/dev/null || printf '')"
+            if [ "$_type" != "claim" ]; then continue; fi
+            _body_prefix="$(printf '%s' "$line" | jq -r '.body // ""' 2>/dev/null | head -c 30 | tr '[:upper:]' '[:lower:]')"
+            case "$_body_prefix" in
+                commit-proposal:*)
+                    printf '%s\n' "$(sha256_hex "$line")" >> "$proposals_file"
+                    ;;
+            esac
+        done < "$f"
+
+        # All ack/counter in_reply_to references (one per line, "" filtered out).
+        jq -r 'select(.type == "ack" or .type == "counter") | .in_reply_to // empty' "$f" 2>/dev/null > "$responses_file" || true
+
+        # For each commit-proposal sha, check if it has a corresponding
+        # ack/counter in_reply_to. If not, the topic has a pending review.
+        local has_unreplied=0
+        local latest_pending_iso=''
+        if [ -s "$proposals_file" ]; then
+            while IFS= read -r proposal_sha; do
+                if [ -z "$proposal_sha" ]; then continue; fi
+                if ! grep -qFx -- "$proposal_sha" "$responses_file"; then
+                    has_unreplied=1
+                    # Pull the iso time of this commit-proposal for display.
+                    latest_pending_iso="$(
+                        jq -r --arg s "$proposal_sha" \
+                            'select(.type == "claim") | .time' "$f" 2>/dev/null | tail -1
+                    )"
+                    break
+                fi
+            done < "$proposals_file"
+        fi
+
+        rm -f "$proposals_file" "$responses_file"
+
+        if [ "$has_unreplied" -eq 1 ]; then
+            found=1
+            printf '%-50s  awaiting-review (proposal: %s)\n' "$topic" "$latest_pending_iso"
+        fi
+    done
+
+    if [ "$found" -eq 0 ]; then
+        printf '(no topics with pending review)\n'
+        return 0
+    fi
+    # Exit 5 when pending reviews exist — caller can branch on this to
+    # decide whether to wake the reviewer agent. exit 0 = nothing pending.
+    return 5
+}
+
+cmd_cascade_check() {
+    # Given a list of candidate files (--files comma-separated) representing
+    # the files a candidate fix would touch, report which IN-FLIGHT topics
+    # have overlapping files_in_scope. In-flight = task-spec landed AND no
+    # task-complete posted AND no user-decision closure. If any overlap is
+    # found, the fix carries cascade risk and should be deferred to user
+    # triage per ADR-0012 §Component 6.
+    local candidate_files_csv=''
+    local target_topic=''
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --files) candidate_files_csv="${2:-}"; shift 2 ;;
+            --target-topic) target_topic="${2:-}"; shift 2 ;;
+            *) die "unknown cascade-check flag: $1" 2 ;;
+        esac
+    done
+
+    [ -n "$candidate_files_csv" ] || die "--files required (comma-separated list of candidate file paths)" 2
+
+    [ -d "$DIALOG_DIR" ] || { printf '(no dialog directory at %s)\n' "$DIALOG_DIR"; return 0; }
+
+    # Split candidate files into newline-separated for grep -F.
+    local candidates
+    candidates="$(printf '%s' "$candidate_files_csv" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep -v '^$' || true)"
+
+    local f topic body_lower in_flight overlap_found
+    overlap_found=0
+
+    printf '%-50s  %s\n' 'IN-FLIGHT TOPIC' 'OVERLAP'
+    printf '%-50s  %s\n' '---------------' '-------'
+
+    for f in "$DIALOG_DIR"/*.jsonl; do
+        if [ ! -f "$f" ]; then continue; fi
+        topic="$(basename "$f" .jsonl)"
+
+        # Skip the target topic itself (we're applying a fix TO it; overlap
+        # with itself is expected).
+        if [ -n "$target_topic" ] && [ "$topic" = "$target_topic" ]; then
+            continue
+        fi
+
+        # In-flight = task-spec landed AND no task-complete AND no closure.
+        # If jq fails (file has malformed JSON), treat as not-in-flight.
+        in_flight="$(
+            jq -se '
+                any(.[]; .type == "task-spec") and
+                (any(.[]; .type == "task-complete") | not) and
+                (any(.[]; .from == "user" and .type == "decision") | not)
+            ' "$f" 2>/dev/null || printf 'false'
+        )"
+        if [ "$in_flight" != "true" ]; then continue; fi
+
+        # Pull the FULL task-spec body (multi-line; lowercased for
+        # case-insensitive matching). Earlier draft used `| head -1` which
+        # truncated to the first line of the markdown body and silently
+        # missed any file paths listed after `files_in_scope:`. The body
+        # is expected to be multi-line markdown per spec §15.
+        body_lower="$(
+            jq -r 'select(.type == "task-spec") | .body' "$f" 2>/dev/null \
+                | tr '[:upper:]' '[:lower:]' || printf ''
+        )"
+        if [ -z "$body_lower" ]; then continue; fi
+
+        # Any candidate file substring-match in the task-spec body's
+        # files_in_scope section? Coarse but defensive: false-positive
+        # (saying "overlap" when none) is safe per ADR-0012; false-negative
+        # is dangerous.
+        local overlapped_files=""
+        while IFS= read -r candidate; do
+            [ -z "$candidate" ] && continue
+            local candidate_lower; candidate_lower="$(printf '%s' "$candidate" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$body_lower" | grep -qF -- "$candidate_lower"; then
+                overlapped_files="$overlapped_files $candidate"
+            fi
+        done <<< "$candidates"
+
+        if [ -n "$overlapped_files" ]; then
+            overlap_found=1
+            printf '%-50s  %s\n' "$topic" "$(printf '%s' "$overlapped_files" | sed 's/^ //')"
+        fi
+    done
+
+    # Exit 0 on no overlap; exit 4 on overlap detected (advisory; caller
+    # decides what to do — typically defer + escalate to user). Explicit
+    # returns at each branch to avoid `set -e` killing on edge cases.
+    if [ "$overlap_found" -eq 0 ]; then
+        printf '(no in-flight topics overlap candidate files; cascade-safe per coarse check)\n'
+        return 0
+    fi
+    return 4
+}
+
 cmd_help() {
     cat <<'EOF'
 agent-bus — append-only JSONL dialog CLI (spec v0.2.0)
@@ -463,6 +646,20 @@ Usage:
   agent-bus archive    [--age-days <N>] [--dry-run]
                        (move closed topics older than N days, default 30,
                         to dialog/archive/YYYY-MM/; preserves audit trail)
+  agent-bus pending-reviews
+                       (list open topics with a commit-proposal claim event
+                        but no subsequent ack/counter from the reviewer;
+                        used by /duo-implement to track "awaiting review"
+                        state, by /codex-review-loop to find topics needing
+                        attention, and by /check-reviews to track Claude's
+                        own commit-proposals awaiting Codex's response)
+  agent-bus cascade-check --files <csv> [--target-topic <id>]
+                       (given candidate files a fix would touch, report
+                        in-flight task-spec topics with overlapping scope;
+                        exit 4 on overlap, exit 0 on cascade-safe. Used by
+                        /check-reviews to gate fixes per ADR-0012 §6
+                        cascade-prevention semantics. --target-topic
+                        excludes the topic the fix targets itself.)
   agent-bus help
   agent-bus version
 
@@ -506,14 +703,16 @@ cmd_version() { printf 'agent-bus %s\n' "$VERSION"; }
 if [ $# -eq 0 ]; then cmd_help; exit 0; fi
 sub="$1"; shift
 case "$sub" in
-    post)      require_jq; cmd_post "$@" ;;
-    claim)     require_jq; cmd_claim "$@" ;;
-    task-spec) require_jq; cmd_task_spec "$@" ;;
-    read)      require_jq; cmd_read "$@" ;;
-    list)      require_jq; cmd_list "$@" ;;
-    stats)     require_jq; cmd_stats "$@" ;;
-    archive)   require_jq; cmd_archive "$@" ;;
-    help|-h|--help) cmd_help ;;
+    post)             require_jq; cmd_post "$@" ;;
+    claim)            require_jq; cmd_claim "$@" ;;
+    task-spec)        require_jq; cmd_task_spec "$@" ;;
+    read)             require_jq; cmd_read "$@" ;;
+    list)             require_jq; cmd_list "$@" ;;
+    stats)            require_jq; cmd_stats "$@" ;;
+    archive)          require_jq; cmd_archive "$@" ;;
+    pending-reviews)  require_jq; cmd_pending_reviews "$@" ;;
+    cascade-check)    require_jq; cmd_cascade_check "$@" ;;
+    help|-h|--help)   cmd_help ;;
     version|-v|--version) cmd_version ;;
     *) die "unknown subcommand: $sub (try 'agent-bus help')" 2 ;;
 esac
