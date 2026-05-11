@@ -150,6 +150,32 @@ public static class BehaviorTreeRunner
     /// (low block: 1-2 pressers; high press: 4-5).</summary>
     private const int MaxPressersPerTeam = 3;
 
+    // Phase-3 polish-pass round 3 #2 (2026-05-11) pass-target opponent-
+    // pressure scoring. Before round 3 #2, ChoosePassKick picked the
+    // FORWARD-MOST eligible teammate within [8, 35]m — carriers threaded
+    // passes into traffic if the forward teammate was marked tight. After:
+    // scoring penalises each opponent within `OpponentPressureRadiusMetres`
+    // of the candidate teammate by `OpponentPressurePenalty` metres of
+    // effective forwardness. Less-forward-but-free teammates outscore
+    // forward-but-marked ones.
+
+    /// <summary>Radius (metres) around a pass-candidate teammate within which
+    /// opponents count as "marking" the candidate. 3m matches the radius
+    /// SignatureRules uses for "tight contest" gates.</summary>
+    private static readonly Fixed OpponentPressureRadiusMetres = Fixed.FromInt(3);
+
+    /// <summary>Squared form for sqrt-free distance comparison.</summary>
+    private static readonly Fixed OpponentPressureRadiusSquared =
+        OpponentPressureRadiusMetres * OpponentPressureRadiusMetres;
+
+    /// <summary>Per-marker penalty (metres of effective forwardness) deducted
+    /// from a teammate's score for each opponent within
+    /// `OpponentPressureRadiusMetres` of them. 4m means a teammate marked by
+    /// 1 opponent loses ~4m of "advance value"; marked by 2 loses 8m. Tuning
+    /// dial — Phase-4 archetype/personality params may differentiate
+    /// risk-tolerant vs cautious tactical styles.</summary>
+    private static readonly Fixed OpponentPressurePenalty = Fixed.FromInt(4);
+
     /// <summary>
     /// Tick the BT for one team. Writes 11 <see cref="PlayerCommand"/>s
     /// into <paramref name="commandsOut"/> in the same order as
@@ -270,7 +296,7 @@ public static class BehaviorTreeRunner
                     bool ballSettled = ball.Velocity.LengthSquared() <= CarrierKickGateMetresPerSecondSquared;
                     if (carrierOnBall && ballSettled)
                     {
-                        KickIntent kick = ChoosePassKick(ball, ownTeam, i, side, opponentGoal);
+                        KickIntent kick = ChoosePassKick(ball, ownTeam, opponents, i, side, opponentGoal);
                         gkCommand = gkCommand.WithKick(kick);
                     }
 
@@ -324,7 +350,7 @@ public static class BehaviorTreeRunner
                 if (carrierOnBall && ballSettled)
                 {
                     KickIntent kick = ChoosePassKick(
-                        ball, ownTeam, i, side, opponentGoal);
+                        ball, ownTeam, opponents, i, side, opponentGoal);
                     carrierCommand = carrierCommand.WithKick(kick);
                 }
 
@@ -449,6 +475,26 @@ public static class BehaviorTreeRunner
             if (topK[i] == index) return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Phase-3 polish-pass round 3 #2 (2026-05-11) opponent-pressure
+    /// counter. Returns the number of opponents whose position is within
+    /// <paramref name="radiusSq"/> of <paramref name="referencePos"/>.
+    /// Used by <see cref="ChoosePassKick"/> to penalise pass candidates
+    /// that are marked tight by multiple opponents. Bounded at 11
+    /// comparisons; allocation-free.
+    /// </summary>
+    private static int CountOpponentsWithinRadius(
+        Vector3Fixed referencePos, ReadOnlySpan<PlayerState> opponents, Fixed radiusSq)
+    {
+        int count = 0;
+        for (int i = 0; i < opponents.Length; i++)
+        {
+            Fixed distSq = Vector3Fixed.DistanceSquared(referencePos, opponents[i].Position);
+            if (distSq <= radiusSq) count++;
+        }
+        return count;
     }
 
     /// <summary>
@@ -581,6 +627,7 @@ public static class BehaviorTreeRunner
     private static KickIntent ChoosePassKick(
         BallState ball,
         ReadOnlySpan<PlayerState> ownTeam,
+        ReadOnlySpan<PlayerState> opponents,
         int carrierIndex,
         TeamSide side,
         Vector3Fixed opponentGoal)
@@ -593,9 +640,17 @@ public static class BehaviorTreeRunner
         Fixed forwardSign = side == TeamSide.Home ? Fixed.One : -Fixed.One;
 
         int bestTeammateIndex = -1;
-        // Highest "forwardness score" seen so far: tpos.X * forwardSign.
-        // Initialize to Fixed.MinValue so any candidate beats it.
-        Fixed bestForwardness = Fixed.MinValue;
+        // Highest "pass score" seen so far. Score = teammateForwardX -
+        // (markerCount × OpponentPressurePenalty). Phase-3 round 3 #2:
+        // free-but-behind teammates can outscore marked-but-forward ones.
+        // A candidate must score STRICTLY POSITIVE to be picked — if the
+        // sole eligible teammate is heavily marked enough to score ≤ 0,
+        // the carrier falls back to long-ball at opponent goal. This is
+        // the "risk threshold" pin per the task-spec: don't thread a pass
+        // into hopeless traffic just because the teammate is marginally
+        // forward. Phase-4 may parameterise the threshold per archetype
+        // (risk-tolerant attackers may accept zero/negative scores).
+        Fixed bestScore = Fixed.Zero;
 
         for (int t = 0; t < ownTeam.Length; t++)
         {
@@ -610,10 +665,30 @@ public static class BehaviorTreeRunner
             Fixed teammateForwardX = teammatePos.X * forwardSign;
             if (teammateForwardX <= carrierForwardX) continue;
 
-            // Among eligible teammates, prefer the one furthest forward.
-            if (teammateForwardX > bestForwardness)
+            // Round 3 #2 (2026-05-11): subtract opponent-pressure penalty.
+            // Each opponent within OpponentPressureRadiusMetres of the
+            // candidate teammate counts as a marker; each marker deducts
+            // OpponentPressurePenalty (= 4m by default) from the score.
+            int markers = CountOpponentsWithinRadius(
+                teammatePos, opponents, OpponentPressureRadiusSquared);
+            Fixed score = teammateForwardX -
+                (Fixed.FromInt(markers) * OpponentPressurePenalty);
+
+            // Candidate must score STRICTLY POSITIVE to be considered. If
+            // bestScore is the Fixed.Zero floor (no candidate found yet),
+            // we require score > 0. If a positive-scoring candidate is
+            // already in bestScore, we require strictly higher (or equal
+            // with lower roster index for the deterministic tie-break).
+            bool firstCandidate = bestTeammateIndex < 0;
+            bool strictlyBetter = score.RawValue > bestScore.RawValue;
+            bool tiedWithLowerIndex =
+                score.RawValue == bestScore.RawValue &&
+                !firstCandidate && t < bestTeammateIndex;
+
+            if ((firstCandidate && score.RawValue > Fixed.Zero.RawValue) ||
+                strictlyBetter || tiedWithLowerIndex)
             {
-                bestForwardness = teammateForwardX;
+                bestScore = score;
                 bestTeammateIndex = t;
             }
         }
