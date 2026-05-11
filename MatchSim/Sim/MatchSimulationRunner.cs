@@ -256,6 +256,23 @@ public static class MatchSimulationRunner
                     awayCommandBuffer[i].DesiredSpeed, kinematics);
             }
 
+            // Phase-3 pass-the-ball: apply any KickIntent from the carrier
+            // BEFORE BallPhysics.Step so the kicked velocity gets integrated
+            // by gravity / drag / friction this tick. Order: home kicks
+            // applied first, then away — last-writer-wins on the rare same-
+            // tick double-emit. The BT's carrier-kick gate (ball velocity <
+            // threshold + carrier-on-ball) suppresses double-emit in
+            // practice because if Home's BT just kicked, ball.Velocity is
+            // immediately above the gate when Away's BT runs.
+            //
+            // Why apply AFTER PlayerActuator + BEFORE BallPhysics: the
+            // actuator doesn't read kicks, so order vs actuator is free;
+            // applying BEFORE BallPhysics gives the kick instant effect
+            // (gravity + drag integrate the kicked velocity this tick) —
+            // applying AFTER would idle the ball for one tick before motion.
+            state.Ball = ApplyTeamKickIfAny(state.Ball, homeCommandBuffer);
+            state.Ball = ApplyTeamKickIfAny(state.Ball, awayCommandBuffer);
+
             // Cache pre-step ball before BallPhysics mutates state.Ball, so
             // MatchRules.Step has both pre and post available for crossing
             // detection.
@@ -272,5 +289,34 @@ public static class MatchSimulationRunner
 
             state.CurrentTick = state.CurrentTick + 1L;
         }
+    }
+
+    /// <summary>
+    /// Phase-3 pass-the-ball: scan one team's command buffer for a
+    /// <see cref="KickIntent"/> and write it onto <paramref name="ball"/>.
+    /// At most one entry per team has a non-null Kick (the carrier; per
+    /// <see cref="BehaviorTreeRunner"/>'s emission gate); first-found wins
+    /// — same deterministic order as the buffer write.
+    /// </summary>
+    /// <remarks>
+    /// Spin currently always Zero per the Magnus-stub policy; the field is
+    /// plumbed through KickIntent so a Phase-4+ spin-aware ball physics
+    /// pass picks it up without further schema changes.
+    /// </remarks>
+    private static BallState ApplyTeamKickIfAny(BallState ball, PlayerCommand[] commandBuffer)
+    {
+        for (int i = 0; i < commandBuffer.Length; i++)
+        {
+            KickIntent? kick = commandBuffer[i].Kick;
+            if (kick.HasValue)
+            {
+                // Position is unchanged — the carrier is on the ball;
+                // re-stating ball.Position keeps the canonical-state
+                // encoding stable. Velocity = kick.Velocity (pitch plane).
+                // Spin = kick.Spin (Zero for Phase 3).
+                return new BallState(ball.Position, kick.Value.Velocity, kick.Value.Spin);
+            }
+        }
+        return ball;
     }
 }

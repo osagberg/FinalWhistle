@@ -38,6 +38,54 @@ namespace FinalWhistle.MatchSim.Sim;
 /// </summary>
 public static class BehaviorTreeRunner
 {
+    // Phase-3 pass-the-ball coefficients. Hard-coded (NOT inspector-tunable)
+    // because they're canonical-state-bearing — a Phase-4+ refactor that
+    // makes these per-archetype YAML values must re-pin the corpus hash.
+    // Documented in the per-field comments so SPEC closure prose can
+    // reference the source.
+
+    /// <summary>Ball-velocity-magnitude (m/s) below which the carrier may
+    /// emit a fresh kick. Suppresses "kick the already-rolling ball"
+    /// double-fires; lets the ball settle for ~30 ticks after each kick
+    /// before the next kick is allowed.</summary>
+    private static readonly Fixed CarrierKickGateMetresPerSecond = Fixed.FromInt(2);
+
+    /// <summary>Squared form of the above for sqrt-free comparison against
+    /// <see cref="Vector3Fixed.LengthSquared"/>.</summary>
+    private static readonly Fixed CarrierKickGateMetresPerSecondSquared =
+        CarrierKickGateMetresPerSecond * CarrierKickGateMetresPerSecond;
+
+    /// <summary>Carrier-to-ball squared-distance below which the carrier is
+    /// considered "on the ball" + eligible to kick. Matches the
+    /// PlayerKinematics.Radius (default 0.5m) squared — same surface
+    /// PlayerActuator.HasPossession uses.</summary>
+    private static Fixed CarrierPossessionRadiusSquared(PlayerKinematics kinematics)
+        => kinematics.Radius * kinematics.Radius;
+
+    /// <summary>Minimum pass-target distance (metres). Below this the
+    /// teammate is too close — kicking would skip past them; the carrier
+    /// keeps the ball + looks further forward.</summary>
+    private static readonly Fixed MinPassDistanceMetres = Fixed.FromInt(8);
+
+    /// <summary>Maximum pass-target distance (metres). Above this the ball
+    /// won't reach with Phase-3 kick speeds before drag kills it.</summary>
+    private static readonly Fixed MaxPassDistanceMetres = Fixed.FromInt(35);
+
+    /// <summary>Squared bounds for sqrt-free range checks.</summary>
+    private static readonly Fixed MinPassDistanceSquared =
+        MinPassDistanceMetres * MinPassDistanceMetres;
+    private static readonly Fixed MaxPassDistanceSquared =
+        MaxPassDistanceMetres * MaxPassDistanceMetres;
+
+    /// <summary>Pass kick speed (m/s). Calibrated so a 20m pass arrives in
+    /// ~1.5s with Phase-3 drag coefficients — fast enough to look like
+    /// football, slow enough to be intercept-able.</summary>
+    private static readonly Fixed PassSpeedMetresPerSecond = Fixed.FromInt(14);
+
+    /// <summary>Long-ball kick speed (m/s). Used when no eligible pass
+    /// target exists — carrier hoists toward opponent goal.</summary>
+    private static readonly Fixed LongBallSpeedMetresPerSecond = Fixed.FromInt(18);
+
     /// <summary>
     /// Tick the BT for one team. Writes 11 <see cref="PlayerCommand"/>s
     /// into <paramref name="commandsOut"/> in the same order as
@@ -114,7 +162,31 @@ public static class BehaviorTreeRunner
             {
                 // Build-up: ball-carrier heads toward opponent goal at the
                 // archetype's build-up speed.
-                commandsOut[i] = new PlayerCommand(opponentGoal, kinematics.MaxSpeed * archetype.BuildupSpeedFactor);
+                PlayerCommand carrierCommand = new(opponentGoal, kinematics.MaxSpeed * archetype.BuildupSpeedFactor);
+
+                // Phase-3 pass-the-ball: if the carrier is "on the ball"
+                // (within possession radius) AND the ball is moving slowly
+                // (below the kick gate), emit a KickIntent aimed at the
+                // forward-most eligible teammate. Falls back to long-ball
+                // toward the opponent goal if no teammate is in pass range.
+                // Without this emission the BT only moves players toward
+                // the ball but never APPLIES VELOCITY to the ball, so the
+                // ball stays glued to its starting spot — the Slice-7
+                // static-ball regression that blueprint patch 8e2dc1b
+                // flagged.
+                Fixed carrierToBallSq = distFromPlayerToBallSq;
+                Fixed possessionRadiusSq = CarrierPossessionRadiusSquared(kinematics);
+                bool carrierOnBall = carrierToBallSq <= possessionRadiusSq;
+                bool ballSettled = ball.Velocity.LengthSquared() <= CarrierKickGateMetresPerSecondSquared;
+
+                if (carrierOnBall && ballSettled)
+                {
+                    KickIntent kick = ChoosePassKick(
+                        ball, ownTeam, i, side, opponentGoal);
+                    carrierCommand = carrierCommand.WithKick(kick);
+                }
+
+                commandsOut[i] = carrierCommand;
                 continue;
             }
 
@@ -206,4 +278,101 @@ public static class BehaviorTreeRunner
 
     private static Vector3Fixed ProjectToPitchPlane(Vector3Fixed position)
         => new(position.X, Fixed.Zero, position.Z);
+
+    /// <summary>
+    /// Phase-3 pass-the-ball aim heuristic. Picks the FORWARD-MOST teammate
+    /// within pass-distance range whose X is strictly ahead of the carrier
+    /// in the attacking direction; falls back to a long-ball at the
+    /// opponent goal if no eligible teammate is in range. Pitch-plane kick
+    /// (Y=0) per the Magnus-stub policy.
+    ///
+    /// <para>
+    /// Deterministic + sqrt-free until the final normalize: distance bounds
+    /// are compared via <see cref="Vector3Fixed.LengthSquared"/>;
+    /// forward-most ranking is on raw X · forwardSign. Ties on X (same
+    /// forwardness) resolve to the lower roster index per the iteration
+    /// order — same determinism discipline as
+    /// <see cref="NearestPlayerIndex"/>.
+    /// </para>
+    ///
+    /// <para>
+    /// <strong>Phase-4+ follow-up</strong>: this aim doesn't model opponent
+    /// pressure (a forward teammate marked tight by 2 opponents should
+    /// score lower than a free teammate slightly further back), nor pass
+    /// accuracy (perfect aim now; gene-driven error variance later), nor
+    /// risk-vs-reward (long-ball-to-goal is currently the fallback, but a
+    /// "risk-it-when-trailing" tuning is reasonable Phase-4+). Logged here
+    /// so the heuristic doesn't ossify silently.
+    /// </para>
+    /// </summary>
+    private static KickIntent ChoosePassKick(
+        BallState ball,
+        ReadOnlySpan<PlayerState> ownTeam,
+        int carrierIndex,
+        TeamSide side,
+        Vector3Fixed opponentGoal)
+    {
+        Vector3Fixed carrierPos = ProjectToPitchPlane(ownTeam[carrierIndex].Position);
+
+        // Home attacks +X; Away attacks -X. forwardSign multiplies into the
+        // "is this teammate ahead of carrier" comparison so the test is
+        // sign-invariant across sides.
+        Fixed forwardSign = side == TeamSide.Home ? Fixed.One : -Fixed.One;
+
+        int bestTeammateIndex = -1;
+        // Highest "forwardness score" seen so far: tpos.X * forwardSign.
+        // Initialize to Fixed.MinValue so any candidate beats it.
+        Fixed bestForwardness = Fixed.MinValue;
+
+        for (int t = 0; t < ownTeam.Length; t++)
+        {
+            if (t == carrierIndex) continue;
+            Vector3Fixed teammatePos = ProjectToPitchPlane(ownTeam[t].Position);
+            Fixed distSq = Vector3Fixed.DistanceSquared(carrierPos, teammatePos);
+            if (distSq < MinPassDistanceSquared) continue;
+            if (distSq > MaxPassDistanceSquared) continue;
+
+            // Must be strictly ahead of carrier in attacking direction.
+            Fixed carrierForwardX = carrierPos.X * forwardSign;
+            Fixed teammateForwardX = teammatePos.X * forwardSign;
+            if (teammateForwardX <= carrierForwardX) continue;
+
+            // Among eligible teammates, prefer the one furthest forward.
+            if (teammateForwardX > bestForwardness)
+            {
+                bestForwardness = teammateForwardX;
+                bestTeammateIndex = t;
+            }
+        }
+
+        Vector3Fixed kickTarget;
+        Fixed kickSpeed;
+        if (bestTeammateIndex >= 0)
+        {
+            kickTarget = ProjectToPitchPlane(ownTeam[bestTeammateIndex].Position);
+            kickSpeed = PassSpeedMetresPerSecond;
+        }
+        else
+        {
+            // No eligible pass target — long-ball at the opponent goal.
+            // opponentGoal is already pitch-plane (Y=0) from caller.
+            kickTarget = opponentGoal;
+            kickSpeed = LongBallSpeedMetresPerSecond;
+        }
+
+        Vector3Fixed delta = kickTarget - carrierPos;
+        Fixed deltaLenSq = delta.LengthSquared();
+        if (deltaLenSq == Fixed.Zero)
+        {
+            // Degenerate — kick target coincident with carrier. Hoist
+            // forward at the long-ball speed so the ball doesn't sit
+            // stuck on the carrier dot. Forward direction = (forwardSign, 0, 0).
+            Vector3Fixed forwardDir = new(forwardSign, Fixed.Zero, Fixed.Zero);
+            return KickIntent.Ground(forwardDir * LongBallSpeedMetresPerSecond);
+        }
+
+        Vector3Fixed direction = delta.Normalize();
+        Vector3Fixed kickVelocity = direction * kickSpeed;
+        return KickIntent.Ground(kickVelocity);
+    }
 }
