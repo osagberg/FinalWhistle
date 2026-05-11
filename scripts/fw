@@ -65,9 +65,11 @@ COMMANDS (implemented)
     replay <seed> --compare-corpus
                     Run a corpus seed + compare against the matching
                     fixture under MatchSim.Tests/fixtures/replay-corpus/.
-                    Phase-3: only 0xdeadbeefdeadbeef supported (Tier-A
-                    smoke seed); other seeds gate on Phase 6 corpus
-                    expansion per golden-replay-corpus.md.
+                    Phase-3 supported seeds: 0xdeadbeefdeadbeef (Tier-A
+                    smoke fixture, FromArchetypeFormations) +
+                    0xfeedbeefcafefade (C4 primed-for-LowCutback fixture,
+                    FromLowCutbackPrimedFixture). Other seeds gate on
+                    Phase 6 corpus expansion per golden-replay-corpus.md.
     save-migration-test
                     Run save-migration fixture suite. Phase-3 stub-active:
                     exits 0 when no fixtures present. First real fixture
@@ -653,16 +655,37 @@ EOF
             exit 2
         fi
 
-        # Phase-3 covers the smoke seed only. Other seeds trigger when
-        # additional fixtures land in Phase-6 corpus expansion.
-        if [ "$seed" != "0xdeadbeefdeadbeef" ]; then
-            cat >&2 <<EOF
-fw replay: only the Tier-A smoke seed (0xdeadbeefdeadbeef) is implemented at
-Phase 3. Other seeds gate on Phase-6 corpus expansion (20-50 fixtures per
-the corpus growth policy in design/specs/golden-replay-corpus.md).
+        # Phase-3 covers the smoke seed + the C4 primed-for-LowCutback
+        # seed (2026-05-11 polish-pass — see C1 audit topic). Other seeds
+        # trigger when additional fixtures land in Phase-6 corpus expansion.
+        case "$seed" in
+            0xdeadbeefdeadbeef)
+                # Tier-A smoke fixture (FromArchetypeFormations).
+                test_filter="FullyQualifiedName~Replay_SmokeCorpusFixture_AgreesWithPinnedInCodeHash|FullyQualifiedName~Match_SmokeFixture60Ticks_ProducesPinnedCanonicalStateHash"
+                ;;
+            0xfeedbeefcafefade)
+                # C4 primed-for-LowCutback fixture (FromLowCutbackPrimedFixture).
+                # Per the corpus JSON at MatchSim.Tests/fixtures/replay-corpus/0xfeedbeefcafefade.json:
+                # 60-tick playback from the primed initial state; LowCutback signature
+                # fires tick 0 → ball kicked toward goal → goal scored ~tick 50.
+                # The in-code hash pin lives in
+                # LowCutbackPrimedFixtureTests.FromLowCutbackPrimedFixture_60TickPlayback_HashMatchesPin.
+                test_filter="FullyQualifiedName~FromLowCutbackPrimedFixture_60TickPlayback_HashMatchesPin|FullyQualifiedName~FromLowCutbackPrimedFixture_FiresSignatureWithinFirstTicks"
+                ;;
+            *)
+                cat >&2 <<EOF
+fw replay: seed $seed not in the Phase-3 supported set.
+
+Phase-3 supports:
+  0xdeadbeefdeadbeef — Tier-A smoke fixture (FromArchetypeFormations).
+  0xfeedbeefcafefade — C4 primed-for-LowCutback fixture (FromLowCutbackPrimedFixture).
+
+Other seeds gate on Phase-6 corpus expansion (20-50 fixtures per the corpus
+growth policy in design/specs/golden-replay-corpus.md).
 EOF
-            exit 2
-        fi
+                exit 2
+                ;;
+        esac
 
         if ! command -v dotnet >/dev/null 2>&1; then
             echo "FAIL: dotnet SDK not found on PATH." >&2
@@ -673,7 +696,7 @@ EOF
         # The fixture-validating Fact + the actual-run Fact together form
         # the corpus contract. Both must pass for a green replay.
         exec dotnet test "$ROOT/FinalWhistle.slnx" \
-            --filter "FullyQualifiedName~Replay_SmokeCorpusFixture_AgreesWithPinnedInCodeHash|FullyQualifiedName~Match_SmokeFixture60Ticks_ProducesPinnedCanonicalStateHash" \
+            --filter "$test_filter" \
             --nologo
         ;;
 

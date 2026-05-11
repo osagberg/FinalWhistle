@@ -1,0 +1,41 @@
+{
+  "corpus_schema_version": 1,
+
+  "match_seed": "0xfeedbeefcafefade",
+  "content_pack_version": "fwh.core@0.1.0",
+
+  "home_archetype_id": "fwh.core:archetype.direct-pressing",
+  "away_archetype_id": "fwh.core:archetype.low-block-counter",
+
+  "reduce_motion": false,
+
+  "sim_length_ticks": 60,
+  "tick_rate_hz": 60,
+
+  "fixture_factory": "FromLowCutbackPrimedFixture",
+
+  "expected": {
+    "final_score_note": "Home likely 1-0 by tick ~50 (LowCutback emitted tick 0 → kick toward opponent goal → goal). Score field intentionally left unpinned at corpus_schema_version=1 because Phase-4+ may move the goal-respawn timing; the canonical_state_hash is the load-bearing pin.",
+
+    "key_event_hashes": [],
+
+    "final_canonical_state_hash": "sha256:2f5cc063374b43cfd822043401add3ebddc2e174a1bb0a440e4d10b0e33a4ef6",
+
+    "pass_activation_log_hashes": {},
+
+    "locale_pin": null
+  },
+
+  "verification_scope": "tier-a-primed-for-low-cutback",
+  "generated_at": "2026-05-11T18:40:00Z",
+  "generated_by": {
+    "tool": "scripts/fw replay --regenerate-corpus (manual pin from LowCutbackPrimedFixtureTests.FromLowCutbackPrimedFixture_60TickPlayback_HashMatchesPin)",
+    "build_info": {
+      "unity_version": null,
+      "matchsim_commit": "c4-primed-fixture-2026-05-11",
+      "content_pack_hash": "sha256:phase-3-content-pack-not-yet-pinned"
+    }
+  },
+  "description": "C4 Phase-3 polish (2026-05-11) — primed-for-LowCutback fixture. Per C1 audit (2026-05-11-c1-matchsim-integration-audit topic): the 0xdeadbeefdeadbeef smoke fixture's chaotic 22-player pressing never satisfies the SignatureConfig.Phase3Defaults spatial+role+velocity gates within 70+ seconds of natural play (verified live in DotsViewer.unity); Slice-7 visual surfaces (selection rings, motion lines, pressure tint, Tension cadence) all depend on signature events firing, so without this fixture those visuals never fire naturally. The primed fixture pre-positions home Winger jersey 6 (Pielke / RoleFamily=Winger / LowCutback affinity per direct-pressing/06.json) at (X=50, Y=0, Z=22) with velocity (0,0,-2) and ball coincident — all four LowCutback trigger gates (BylineProximity ≤3m, |Z|>20m wide channel, |Vel.Z|>1 lateral, carrier-on-ball within Kinematics.Radius) pre-satisfied at construction. Signature fires tick 0; ball gets kicked toward opponent goal; goal scored ~tick 50; ball respawns. Canonical state at tick 60 is the post-respawn pose. Replaces the prior Phase-3 'signatures never fire naturally' state with a fixture that proves the Slice-3→4→5→6→7→C1a chain works end-to-end naturally (LowCutback → ShotCamera player-isolation → Slice-6 commentary template → MemoryLedger emit). Sits ALONGSIDE the smoke fixture; the smoke fixture's pinned 60-tick hash sha256:7e851976...50e stays sacrosanct.",
+  "notes": "Use scripts/fw replay 0xfeedbeefcafefade --compare-corpus locally. Set DotsMatchDirector.usePrimedFixture=true in DotsViewer.unity inspector to render this fixture (matchSeedHex auto-overrides to 0xfeedbeefcafefade in Awake). If this final_canonical_state_hash drifts unexpectedly, investigate the SignatureRules trigger gates, the BehaviorTreeRunner kick coefficients, or the BallPhysics integration before re-baselining — silent regeneration is a hard-ban per golden-replay-corpus.md."
+}

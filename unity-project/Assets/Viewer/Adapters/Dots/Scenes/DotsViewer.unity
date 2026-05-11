@@ -1798,7 +1798,8 @@ MonoBehaviour:
   overlayController: {fileID: 1503225044}
   homeArchetypeName: direct-pressing
   awayArchetypeName: low-block-counter
-  matchSeedHex: 0xdeadbeefdeadbeef
+  matchSeedHex: 0xfeedbeefcafefade
+  usePrimedFixture: 1
   driveSim: 1
   diagonalAttackLaneZVelocityThreshold: 8
   reduceMotionEnabled: 0

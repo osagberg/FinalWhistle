@@ -61,8 +61,11 @@ namespace FinalWhistle.Viewer.Adapters.Dots
         [Tooltip("Archetype slug for the away side; matches a YAML file stem in MatchSim/Content/archetypes/.")]
         [SerializeField] private string awayArchetypeName = "low-block-counter";
 
-        [Tooltip("Match seed for deterministic playback. 0xdeadbeefdeadbeef is the Phase-3 smoke-fixture seed per design/specs/golden-replay-corpus.md.")]
+        [Tooltip("Match seed for deterministic playback. 0xdeadbeefdeadbeef is the Phase-3 smoke-fixture seed per design/specs/golden-replay-corpus.md. 0xfeedbeefcafefade is the C4 primed-for-LowCutback fixture (use with usePrimedFixture=true).")]
         [SerializeField] private string matchSeedHex = "0xdeadbeefdeadbeef";
+
+        [Tooltip("C4 2026-05-11: when true, use MatchSimulationState.FromLowCutbackPrimedFixture (home Winger #6 pre-positioned at byline with lateral velocity) so the LowCutback signature fires within the first 2 ticks of natural play. Without this, the smoke fixture never satisfies the spatial+role+velocity gates and Slice-7 visual surfaces (selection ring, motion lines, pressure tint, Tension cadence) don't fire. Set matchSeedHex to 0xfeedbeefcafefade when this is true for ledger event-id reproducibility.")]
+        [SerializeField] private bool usePrimedFixture = false;
 
         [Tooltip("If true, RunTicks runs every FixedUpdate. Toggle off for static-formation Slice-2-style debugging.")]
         [SerializeField] private bool driveSim = true;
@@ -279,10 +282,31 @@ namespace FinalWhistle.Viewer.Adapters.Dots
             awayArchetype = BehaviorTreeArchetypes.Load(awayArchetypeName);
             homePackets = LoadPackets(homeArchetypeName);
             awayPackets = LoadPackets(awayArchetypeName);
+
+            // C4 2026-05-11 round-2 fix (Codex P1 on fa1e1777): when
+            // usePrimedFixture is enabled, override matchSeedHex BEFORE
+            // ParseMatchSeed so both the seed used for canonical-state
+            // derivation AND the matchIdForMemory used by the ledger
+            // reflect the primed fixture's identity. Without this override
+            // the natural-play evidence recorded primed-fixture goals
+            // under the smoke-seed match-id — exactly the reproducibility
+            // ambiguity the new seed was meant to avoid.
+            if (usePrimedFixture)
+            {
+                matchSeedHex = "0xfeedbeefcafefade";
+            }
             matchSeed = ParseMatchSeed(matchSeedHex);
             config = new MatchSimulationConfig(matchSeed);
-            state = MatchSimulationState.FromArchetypeFormations(
-                Tick.Zero, BallState.AtRest, homeArchetype, awayArchetype);
+            // C4: pick between the smoke fixture (default) and the LowCutback-
+            // primed fixture (pre-positioned winger to trigger a signature
+            // naturally). Both fixtures use the same archetypes; only the
+            // initial player/ball state differs. Pinned 60-tick smoke hash
+            // unaffected by this branch — primed fixture has its own pin.
+            state = usePrimedFixture
+                ? MatchSimulationState.FromLowCutbackPrimedFixture(
+                    Tick.Zero, homeArchetype, awayArchetype)
+                : MatchSimulationState.FromArchetypeFormations(
+                    Tick.Zero, BallState.AtRest, homeArchetype, awayArchetype);
             // Pre-allocate scratch buffers once at match start for the
             // buffer-reusing RunTicks overload (per the field doc-comment
             // above; eliminates 22 PlayerCommand[] entries × 60Hz of
