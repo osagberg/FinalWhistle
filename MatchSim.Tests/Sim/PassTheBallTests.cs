@@ -158,12 +158,14 @@ public sealed class PassTheBallTests
         string actual = MatchCanonicalState.ComputeHash(state);
 
         // History (newest first):
+        //   sha256:9ef285ab87f9e49c99a09d61544a217dd6fec72f46a2e6a0d7e358b133b10cac —
+        //     polish-pass Option 1 (2026-05-11 inter-player soft collision).
+        //     Authorized hash drift per the C5-option1 task-spec. 60-tick smoke
+        //     hash + 60-tick primed-fixture hash both UNCHANGED (no overlap
+        //     within those windows).
         //   sha256:c5ab9e5265724dc79ef5bf038123fbaadb686c3e9d35e79f682ee16882fed1d2 —
-        //     pass-the-ball v1 (2026-05-11 first kick logic landed). KickIntent
-        //     emission at 600-tick mark = ball has moved across multiple kicks +
-        //     pressers have switched possession at least once.
-        // (No prior pin — test introduced alongside pass-the-ball.)
-        const string expected = "sha256:c5ab9e5265724dc79ef5bf038123fbaadb686c3e9d35e79f682ee16882fed1d2";
+        //     pass-the-ball v1 (2026-05-11 first kick logic).
+        const string expected = "sha256:9ef285ab87f9e49c99a09d61544a217dd6fec72f46a2e6a0d7e358b133b10cac";
         Assert.Equal(expected, actual);
     }
 }

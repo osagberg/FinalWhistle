@@ -256,6 +256,14 @@ public static class MatchSimulationRunner
                     awayCommandBuffer[i].DesiredSpeed, kinematics);
             }
 
+            // Phase-3 polish-pass Option 1 (2026-05-11): inter-player soft
+            // collision. Runs AFTER PlayerActuator.Step×22 + BEFORE the
+            // kick-apply step. Mutates player positions in-place to enforce
+            // 2×Kinematics.Radius minimum spacing. Velocity unchanged.
+            // Single pass per tick — no convergence loop; next tick's BT
+            // redistributes naturally.
+            PlayerSeparation.Step(state, kinematics);
+
             // Phase-3 pass-the-ball: apply any KickIntent from the carrier
             // BEFORE BallPhysics.Step so the kicked velocity gets integrated
             // by gravity / drag / friction this tick. Order: home kicks
