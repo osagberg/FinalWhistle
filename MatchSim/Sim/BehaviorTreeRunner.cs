@@ -86,6 +86,23 @@ public static class BehaviorTreeRunner
     /// target exists — carrier hoists toward opponent goal.</summary>
     private static readonly Fixed LongBallSpeedMetresPerSecond = Fixed.FromInt(18);
 
+    // Phase-3 Option-2 (2026-05-11) goalkeeper-specialization constants.
+    // The "goalkeeper" detection is purely structural: roster slot 1 is the
+    // GK by both authored YAML archetypes (direct-pressing + low-block-
+    // counter). A Phase-4+ role-system refactor that decouples GK from
+    // RosterSlot==1 must re-route this branch.
+
+    /// <summary>FIFA-spec penalty-area depth (16.5m). Used to gate the GK's
+    /// "charge at the ball" behaviour — outside this depth the GK holds
+    /// formation rather than chasing.</summary>
+    private static readonly Fixed PenaltyAreaDepthMetres =
+        Fixed.FromInt(16) + Fixed.FromInt(1) / Fixed.FromInt(2);
+
+    /// <summary>The roster slot reserved for goalkeeper by both shipped
+    /// archetype YAMLs. Hardcoded for Month-3 / Phase-3; Phase-4 role-
+    /// system will replace this with a typed role enum.</summary>
+    private const byte GoalkeeperRosterSlot = 1;
+
     /// <summary>
     /// Tick the BT for one team. Writes 11 <see cref="PlayerCommand"/>s
     /// into <paramref name="commandsOut"/> in the same order as
@@ -140,6 +157,13 @@ public static class BehaviorTreeRunner
         // build-up "head to opponent goal" command.
         int nearestToBallIndex = NearestPlayerIndex(ballPitchPosition, ownTeam);
 
+        // Own goal line for GK gating (Phase-3 Option-2). Home defends -X,
+        // Away defends +X. Pitch is 105m on X centred on origin; goal lines
+        // at X = ±52.5.
+        Fixed ownGoalLine = side == TeamSide.Home
+            ? -(Fixed.FromInt(105) / Fixed.FromInt(2))
+            : Fixed.FromInt(105) / Fixed.FromInt(2);
+
         for (int i = 0; i < 11; i++)
         {
             PlayerState player = ownTeam[i];
@@ -150,6 +174,58 @@ public static class BehaviorTreeRunner
             // opponents have possession → press the ball.
             Fixed distFromPlayerToBallSq = Vector3Fixed.DistanceSquared(player.Position, ballPitchPosition);
             bool inPressRange = distFromPlayerToBallSq <= pressRadiusSq;
+
+            // Phase-3 Option-2 (2026-05-11): goalkeeper branch fires BEFORE
+            // press / build-up / hold-shape. Closes the user-caught polish-
+            // pass review symptom "Goalkeepers running through all other
+            // players with the ball" — the prior tree treated roster slot 1
+            // identically to outfield, so the GK would sprint upfield with
+            // possession or chase a ball at midfield.
+            //
+            // GK behaviours:
+            //   1. In possession (own team + GK is nearest-to-ball):
+            //      emit long-ball KickIntent toward forward-most eligible
+            //      teammate (or opponent goal fallback). Move command =
+            //      basePosition. GK never sprints upfield with the ball.
+            //   2. Without possession, ball inside own penalty area
+            //      (|ball.X - ownGoalLine| <= 16.5m): charge at the ball at
+            //      MaxSpeed.
+            //   3. Otherwise: hold formation (basePosition at half speed).
+            if (slot.RosterSlot == GoalkeeperRosterSlot)
+            {
+                Fixed ballAxialDistanceFromGoal = Fixed.Abs(ballPitchPosition.X - ownGoalLine);
+                bool ballInOwnPenaltyArea = ballAxialDistanceFromGoal <= PenaltyAreaDepthMetres;
+
+                if (ownTeamInPossession && i == nearestToBallIndex)
+                {
+                    // GK with the ball: kick long, hold goal-line.
+                    PlayerCommand gkCommand = new(basePosition, kinematics.MaxSpeed * Fixed.Half);
+
+                    Fixed possessionRadiusSq = CarrierPossessionRadiusSquared(kinematics);
+                    bool carrierOnBall = distFromPlayerToBallSq <= possessionRadiusSq;
+                    bool ballSettled = ball.Velocity.LengthSquared() <= CarrierKickGateMetresPerSecondSquared;
+                    if (carrierOnBall && ballSettled)
+                    {
+                        KickIntent kick = ChoosePassKick(ball, ownTeam, i, side, opponentGoal);
+                        gkCommand = gkCommand.WithKick(kick);
+                    }
+
+                    commandsOut[i] = gkCommand;
+                    continue;
+                }
+
+                if (!ownTeamInPossession && ballInOwnPenaltyArea)
+                {
+                    // Ball in our box, we don't have it: GK charges.
+                    commandsOut[i] = new PlayerCommand(ballPitchPosition, kinematics.MaxSpeed);
+                    continue;
+                }
+
+                // Default GK: hold formation slot at jog. Never chase a
+                // ball that's outside our penalty area.
+                commandsOut[i] = new PlayerCommand(basePosition, kinematics.MaxSpeed * Fixed.Half);
+                continue;
+            }
 
             if (!ownTeamInPossession && inPressRange)
             {
