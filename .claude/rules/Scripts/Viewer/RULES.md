@@ -26,6 +26,7 @@ Reference graph: `Adapters.Dots → Core → Contracts`. One-way; Contracts is t
 - Order ViewerEvents by `(StartTick, ViewerEventId)` per ADR-0008 §Determinism contract. Stable across replays.
 - Never read `_Time` / `_SinTime` / `_CosTime` / `_DeltaTime` / `_TimeParameters` / ShaderGraph `TimeNode` in viewer-adapter shaders. The match-replay corpus pins adapter-keyed pass-activation hashes per seed; frame-time intrinsics break replay reproducibility. `scripts/fw shader-audit` enforces this on `Assets/Viewer/**` at Tier-A CI.
 - Verify visual work with runtime evidence: UnityMCP screenshot/capture or exported match-replay clip. Comments + diff alone are insufficient for adapter-rendering changes.
+- **Natural-play discipline**: visual L2 captures MUST come from natural sim play (load DotsViewer, press Play, watch for ≥30s of wall-clock with `driveSim=true` and zero `execute_code` injection), not from synthetic state mutation. If the feature you're shipping doesn't fire naturally in the Phase-3 smoke fixture, say so in the commit-proposal and mark the natural-play criterion as DEFERRED — do not paper over a non-firing feature with synthetic injection screenshots. See `/duo-implement` Step 4.1 for the rule + origin story (Slice 7 shipped 4 visual features on a viewer with a static ball nobody noticed).
 - Respect `design/ui-vocabulary.md` — no capitalized state nouns in overlays or commentary.
 
 ## SHOULD

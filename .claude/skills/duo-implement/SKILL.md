@@ -125,8 +125,27 @@ Run all gates that the user named in `acceptance`:
 - `scripts/fw verify` — 644 MatchSim + banned-terms + shader-audit + verify-unity-plugins
 - L1 / L2 / L3 verification via `unity-check` skill if Unity changed
 - Pinned canonical-hash check (run the targeted test; should pass — the `.claude/hooks/canonical-hash-guard.sh` will block commit otherwise)
+- **MANDATORY for any feature that adds, modifies, or renders visual elements**: natural-play L2 evidence per Step 4.1 below. NO synthetic-injection captures, NO `execute_code` shortcuts that force the feature to fire. If the feature doesn't naturally fire during a ≥30-second smoke-fixture play, the feature is NOT shipped — escalate.
 
 Collect verification output for the commit-proposal body.
+
+### Step 4.1 — Natural-play L2 evidence (MANDATORY for visual features)
+
+**Origin story / why this exists**: 2026-05-11 Slice 7 shipped motion-lines, selection-rings, camera-rhythm, and pressure-indicators on a dots viewer where the ball never moved. The 22 players all converged on a static centre-spot ball and stood there. 644 MatchSim tests passed; 206 EditMode tests passed; `fw verify` was green; pinned canonical hash was UNCHANGED across 7 slices. **Nobody noticed because nobody actually watched the sim run.** L2 captures used either (a) static formation snapshots called "football-shaped pressing" by closure-note wishful thinking or (b) synthetic event injection via `execute_code` that force-engaged selection rings + motion bursts on a sim that doesn't naturally produce those events. User caught it at the Month-3 gate self-assessment: "I literally only see some dots from either team converging on a static ball that never moves."
+
+**The rule**: for any commit-proposal that claims a visual or behavioral feature works, the proposal body MUST include a **natural-play observation** that meets ALL of these:
+
+1. **Natural sim** — load the DotsViewer scene, press Play, let it run **at least 30 seconds of wall-clock** with `driveSim=true` and ZERO synthetic injection. No `execute_code` calls that force a component to engage. No manual state mutation. The sim plays itself.
+2. **Plain-English description of what you SAW** — not what you intended to see. Examples:
+   - GOOD: "Watched 45s of smoke fixture. Players converge on ball; ball moves laterally ~3m after first contact; throw-in fires at tick 540 when ball crosses sideline; camera transitions to pass-shot-impact framing at tick 780 (signature fired); motion-line sprites visible around the home #6 dot for ~18 ticks before fading; pressure tint subtly amber at scoreboard during signature window."
+   - BAD: "Slice works. L2 captures attached."
+   - BAD: "Synthetic test injection confirms SelectionRing.Engage() positions the ring correctly."
+3. **Honest failure-mode reporting** — if a feature DIDN'T fire during natural play, say so. "Watched 60s of smoke fixture; no signature events fired (smoke fixture's formation conditions don't satisfy any trigger). Tested SelectionRing wiring via synthetic injection separately for L1 evidence only. Acceptance criterion 'ring visible in natural play' is NOT met yet — escalating."
+4. **Capture evidence** — at least one L2 screenshot from natural play (not synthetic). Filename convention: `docs/screenshots/<slice|feature>-natural-tick-NNNN.png` where NNNN is the actual canonical tick (use the state-driven tick-poll pattern from `/match-replay`).
+
+**Exemption process**: if the feature genuinely cannot be triggered in the Phase-3 smoke fixture (e.g. a future Phase-4 stochastic event), the commit-proposal must explicitly call this out, propose a Phase-4 follow-up to add a triggering fixture, AND the acceptance criterion that requires natural-play evidence must be marked DEFERRED (not PASSED) with the deferral reason. Codex review will block any commit-proposal that claims natural-play acceptance without the four points above.
+
+**Reviewer gate**: Codex SHOULD counter any commit-proposal for a visual feature that lacks the natural-play observation. Synthetic injection screenshots are L1 wiring evidence at best — they do NOT prove the feature works in production. Treat synthetic-only evidence the same way you'd treat "the unit test passes" without an integration test for a function that's never called from main.
 
 ### Step 5 — Post commit-proposal + wait for reviewer ack
 
