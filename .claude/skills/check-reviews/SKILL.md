@@ -42,19 +42,21 @@ Cascade-prevention guards against this by checking `files_in_scope` overlap betw
 
 - Mid-chunk during an active task implementation (interrupts flow; do at chunk boundaries)
 - When `/duo-implement` is escalated (waiting for user decision; don't add noise)
-- When no commit-proposal events are pending (cheap check; just `scripts/agent-bus pending-reviews` exits 0)
+- When `scripts/agent-bus unhandled-findings` exits 0 (cheap check; nothing to handle)
 
 ## Workflow
 
-### Step 1 — Inventory pending reviews
+### Step 1 — Inventory unhandled Codex findings
 
 ```sh
-scripts/agent-bus pending-reviews
+scripts/agent-bus unhandled-findings
 ```
 
-Exit 0 = nothing pending → done. Exit 5 = topics listed → continue.
+Exit 0 = nothing unhandled → done. Exit 5 = topics listed with per-topic unhandled counts → continue.
 
-### Step 2 — For each pending review topic, read the latest counter / evidence / question
+**Why `unhandled-findings`, not `pending-reviews`** (per Codex 2026-05-11 P1 review): `pending-reviews` detects topics with unreplied COMMIT-PROPOSALS. Once Codex posts a counter on a commit-proposal, the topic drops off `pending-reviews` (the counter IS Codex's response). But CLAUDE hasn't yet replied to the counter — and that's exactly the state this skill is supposed to detect. `unhandled-findings` is keyed on the OTHER direction: Codex events (counter/evidence/question) that Claude has not yet acked via `in_reply_to` threading. This is the correct inbox primitive for the review-pickup loop. `pending-reviews` stays useful for `/duo-implement` (Claude tracking its own commit-proposals awaiting review) and `/codex-review-loop` (Codex finding what to review).
+
+### Step 2 — For each topic, read Codex's unhandled events
 
 ```sh
 scripts/agent-bus read --topic <topic-name> --from codex --type counter
@@ -150,10 +152,10 @@ The check is **coarse and defensive** by design: false-positive (over-counting o
 
 ## Quick-check shortcut
 
-Just want to see what's pending without applying?
+Just want to see what's unhandled without applying?
 
 ```sh
-scripts/agent-bus pending-reviews
+scripts/agent-bus unhandled-findings
 ```
 
 That's the whole check. If nothing's listed → no action needed.

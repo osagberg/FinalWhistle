@@ -6,7 +6,7 @@ description: ADR-0012 — Autonomous Tier-2 implementation protocol. Bounded cod
 
 ## Status
 
-**Proposed** — 2026-05-09. Drafted by Claude in autonomous mode per user instruction. Codex review pass owed via agent-bus topic `2026-05-10-adr-0012-autonomous-tier-2-review` (opened alongside this ADR's commit). Promotion to **Accepted** gated on (a) Codex's review pass landing on the bus, (b) at least one successful dogfood of `/duo-implement` against a real bounded task (proposed first dogfood: Slice 7 of dots-adapter ladder), and (c) user sign-off on both. Until Accepted, the protocol is documented but the `/duo-implement` skill is NOT shipped — only the Tier-1 `/duo-debate` skill (review/brainstorm only, no repo changes) is enabled.
+**Proposed** — 2026-05-09; amended 2026-05-11 with §Component 6 cascade-prevention. Drafted by Claude in autonomous mode per user instruction. **All four skills (`/duo-debate`, `/duo-implement`, `/codex-review-loop`, `/check-reviews`) shipped 2026-05-09 → 2026-05-11** alongside the agent-bus extensions; Codex review pass IS NOW IN PROGRESS via agent-bus topic `2026-05-10-adr-0012-autonomous-tier-2-review` (Codex's 5 P1/P2 counters posted 2026-05-11; fixes in progress). Promotion to **Accepted** gated on (a) Codex's review pass landing on the bus (in progress; 5 P1/P2 blockers identified, fix commits expected before promotion), (b) at least one successful dogfood of `/duo-implement` against a real bounded task (proposed first dogfood: Slice 7 of dots-adapter ladder, post-P1-blocker-fixes per Codex's 2026-05-11 ack), and (c) user sign-off on both. The protocol scaffolding (skills + CLI subcommands + hooks + spec) is shipped; the structural review pass + first dogfood are the remaining acceptance gates.
 
 ## Date
 
@@ -26,8 +26,8 @@ osagberg (project owner — defined the scope: "for the grunt work, the stuff yo
 
 A protocol that lets Claude + Codex execute **bounded coding tasks** autonomously between user check-ins, with the user retaining authority over creative + scope + money decisions. The user writes a task spec; the implementing agent works the spec; the reviewing agent gates the commit; both agents escalate to the user when triggers fire. Verification via `scripts/fw verify` + canonical-hash regression check is mandatory pre-commit. Hard cost + time caps prevent runaway loops. Implementation is layered:
 
-- **Tier 1 — `/duo-debate`**: review / brainstorm / architectural debate. No repo changes. **Ships now alongside this ADR.** Already proven by the `2026-05-09-mcp-migration-debate` dogfood.
-- **Tier 2 — `/duo-implement`**: bounded coding task with scope contract + reviewer gate + auto-rollback + escalation triggers. **Designed in this ADR; skill ships in a future commit after Codex review + dogfood on Slice 7.**
+- **Tier 1 — `/duo-debate`**: review / brainstorm / architectural debate. No repo changes. **Ships 2026-05-09.** Proven by the `2026-05-09-mcp-migration-debate` dogfood.
+- **Tier 2 — `/duo-implement`**: bounded coding task with scope contract + reviewer gate + auto-rollback + escalation triggers. **Skill ships 2026-05-11** alongside `/codex-review-loop` (Codex-CLI continuous-poll continuous-review mode) and `/check-reviews` (Claude-side review-pickup with cascade-prevention). First operational dogfood (Slice 7) gated on Codex's 2026-05-11 P1 blockers being addressed.
 - **Tier 3 — phase-spanning autonomous work**: explicitly OUT of scope. Creative judgment + scope + money decisions stay with the user. The protocol is grunt-work-tier only.
 
 ## Engine Compatibility

@@ -19,8 +19,11 @@
 #   - Exits 0 if commit is allowed.
 #   - Exits 2 with stderr message if commit is blocked.
 #
-# Performance budget: ~2-5s. The targeted test runs only one canonical-state
-# regression theory, not the full 644-test suite.
+# Performance budget: ~3-7s. The targeted test runs only one canonical-state
+# regression theory, not the full 644-test suite. We do NOT pass --no-build:
+# Codex 2026-05-11 P1 flagged that stale binaries would let the hook silently
+# pass after MatchSim source changes. The trade-off is +2-3s for incremental
+# build, which is acceptable on a pre-commit gate.
 
 set -euo pipefail
 
@@ -77,7 +80,6 @@ fi
 # allow drift.
 TEST_FILTER='Match_SmokeFixture60TicksWithSignaturePackets_ProducesIdenticalPinnedHash'
 TEST_OUTPUT="$(dotnet test MatchSim.Tests/MatchSim.Tests.csproj \
-    --no-build \
     --nologo \
     --logger 'console;verbosity=minimal' \
     --filter "$TEST_FILTER" 2>&1 || true)"

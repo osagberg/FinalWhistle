@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 DIALOG_DIR="${AGENT_BUS_DIR:-dialog}"
 AUTHOR="${AGENT_BUS_AUTHOR:-user}"
 MAX_BODY_BYTES=4096
@@ -194,6 +194,9 @@ cmd_post() {
     mkdir -p "$DIALOG_DIR" || die "cannot create $DIALOG_DIR" 1
     local file="$DIALOG_DIR/$topic.jsonl"
     local time; time="$(now_iso_utc)"
+
+    # Enforce per-topic caps per spec §13. Env-var-driven; absent = no cap.
+    enforce_caps "$topic"
 
     # Closure detection: parse each line as JSON via jq instead of grep regex
     # (silent-failure-hunter P1 — grep regex had false-positive cases on bodies
@@ -437,20 +440,138 @@ cmd_stats() {
 
 cmd_task_spec() {
     # Issue an opening type=task-spec event. Wrapper around cmd_post that
-    # validates the structured-fields pattern from spec §15. The CLI does
-    # NOT enforce field-by-field structure on the body string (intentional —
-    # the body is markdown the agents read). It DOES enforce: from=user,
-    # type=task-spec, body non-empty.
-    cmd_post --type task-spec --from user "$@"
+    # validates the required structured fields per spec §15.
+    #
+    # Per Codex 2026-05-11 P1: cmd_post alone only enforced from=user +
+    # non-empty body. That let task-specs ship without acceptance,
+    # files_in_scope, files_out_of_scope, max_tokens, or
+    # max_wall_clock_seconds — the protocol's safety contract. The CLI
+    # now rejects task-specs missing any of the §15-required fields.
+    #
+    # The body is markdown the agents read; we don't validate VALUE shapes
+    # (still permissive) but we DO validate that the section headers exist.
+    local body_arg=''
+    local args=()
+    local skip_next=0
+    local i
+    for ((i=1; i<=$#; i++)); do
+        if [ "$skip_next" -eq 1 ]; then
+            args+=("${!i}")
+            skip_next=0
+            continue
+        fi
+        case "${!i}" in
+            --body)
+                local next_idx=$((i+1))
+                body_arg="${!next_idx:-}"
+                args+=("${!i}")
+                skip_next=1
+                ;;
+            *) args+=("${!i}") ;;
+        esac
+    done
+
+    if [ -n "$body_arg" ]; then
+        local missing=""
+        local field
+        for field in "acceptance:" "files_in_scope:" "files_out_of_scope:" "max_tokens:" "max_wall_clock_seconds:"; do
+            if ! printf '%s\n' "$body_arg" | grep -qE "^${field}"; then
+                missing="$missing $field"
+            fi
+        done
+        if [ -n "$missing" ]; then
+            die "task-spec body missing required fields:${missing}
+Required per docs/tooling/agent-bus-spec.md §15: acceptance, files_in_scope, files_out_of_scope, max_tokens, max_wall_clock_seconds.
+Recommended: max_turns, escalation_triggers, required_subagents, implementing_agent, reviewing_agent, depends_on, notes." 2
+        fi
+    fi
+
+    cmd_post --type task-spec --from user "${args[@]}"
+}
+
+# Enforce AGENT_BUS_MAX_TOKENS / AGENT_BUS_MAX_WALL_CLOCK / AGENT_BUS_MAX_TURNS
+# caps per spec §13. Called from cmd_post BEFORE writing. Env-var-driven
+# enforcement; absent vars = no cap (current behavior).
+# Hard cap (100%) = die with exit 1; warn at 80%.
+enforce_caps() {
+    local topic="$1"
+    local file="$DIALOG_DIR/$topic.jsonl"
+    if [ ! -f "$file" ]; then return 0; fi
+
+    # AGENT_BUS_MAX_TOKENS (body-byte budget, per spec §13 — ~4 bytes/token).
+    if [ -n "${AGENT_BUS_MAX_TOKENS:-}" ]; then
+        local current_bytes
+        current_bytes="$(jq -r '.body | length' "$file" 2>/dev/null | awk '{s+=$1} END {print s+0}')"
+        if [ "$current_bytes" -ge "$AGENT_BUS_MAX_TOKENS" ]; then
+            die "AGENT_BUS_MAX_TOKENS=$AGENT_BUS_MAX_TOKENS reached on topic '$topic' (current: $current_bytes body bytes). Hard ceiling per spec §13. Post type=escalation + stop polling; user check-in needed." 1
+        fi
+        local threshold_80=$((AGENT_BUS_MAX_TOKENS * 8 / 10))
+        if [ "$current_bytes" -ge "$threshold_80" ]; then
+            warn "AGENT_BUS_MAX_TOKENS at 80%+ on topic '$topic' ($current_bytes / $AGENT_BUS_MAX_TOKENS bytes)"
+        fi
+    fi
+
+    # AGENT_BUS_MAX_WALL_CLOCK (seconds since first event).
+    if [ -n "${AGENT_BUS_MAX_WALL_CLOCK:-}" ]; then
+        local first_time_iso
+        first_time_iso="$(jq -r '.time' "$file" 2>/dev/null | head -1)"
+        if [ -n "$first_time_iso" ]; then
+            local first_epoch=""
+            if first_epoch="$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$first_time_iso" +%s 2>/dev/null)"; then :
+            elif first_epoch="$(date -u -d "$first_time_iso" +%s 2>/dev/null)"; then :
+            else first_epoch=""; fi
+            if [ -n "$first_epoch" ]; then
+                local now_epoch elapsed
+                now_epoch="$(date -u +%s)"
+                elapsed=$((now_epoch - first_epoch))
+                if [ "$elapsed" -ge "$AGENT_BUS_MAX_WALL_CLOCK" ]; then
+                    die "AGENT_BUS_MAX_WALL_CLOCK=$AGENT_BUS_MAX_WALL_CLOCK reached on topic '$topic' (elapsed: ${elapsed}s). Hard ceiling per spec §13. Post type=escalation + stop polling; user check-in needed." 1
+                fi
+                local wc_threshold_80=$((AGENT_BUS_MAX_WALL_CLOCK * 8 / 10))
+                if [ "$elapsed" -ge "$wc_threshold_80" ]; then
+                    warn "AGENT_BUS_MAX_WALL_CLOCK at 80%+ on topic '$topic' (${elapsed}s / ${AGENT_BUS_MAX_WALL_CLOCK}s)"
+                fi
+            fi
+        fi
+    fi
+
+    # AGENT_BUS_MAX_TURNS (per-author event count on this topic).
+    if [ -n "${AGENT_BUS_MAX_TURNS:-}" ]; then
+        local author_count
+        author_count="$(jq -r --arg a "$AUTHOR" 'select(.from == $a) | .from' "$file" 2>/dev/null | wc -l | tr -d ' ')"
+        if [ "$author_count" -ge "$AGENT_BUS_MAX_TURNS" ]; then
+            die "AGENT_BUS_MAX_TURNS=$AGENT_BUS_MAX_TURNS reached for from=$AUTHOR on topic '$topic' (current: $author_count). Hard ceiling per spec §13. Mandatory user check-in." 1
+        fi
+        local t_threshold_80=$((AGENT_BUS_MAX_TURNS * 8 / 10))
+        if [ "$author_count" -ge "$t_threshold_80" ]; then
+            warn "AGENT_BUS_MAX_TURNS at 80%+ for from=$AUTHOR on topic '$topic' ($author_count / $AGENT_BUS_MAX_TURNS events)"
+        fi
+    fi
+
+    return 0
 }
 
 cmd_pending_reviews() {
     # List topics that have at least one commit-proposal event without a
-    # subsequent ack event from the reviewing agent. Used by /duo-implement
-    # to surface "I posted a commit-proposal; reviewer hasn't responded yet"
-    # state, and by /check-reviews / /codex-review-loop to surface "this
-    # topic needs my review attention."
-    [ -d "$DIALOG_DIR" ] || { printf '(no dialog directory at %s)\n' "$DIALOG_DIR"; return 0; }
+    # subsequent ack/counter event FROM THE REVIEWING AGENT.
+    #
+    # Per Codex 2026-05-11 P2 (Q1 answer): the prior implementation counted
+    # any ack/counter event as a response regardless of who posted it. With
+    # the from-filter, the result is "topics where the named reviewer
+    # (default: codex) has not yet responded to the latest commit-proposal."
+    # --reviewer overrides the default for non-standard topic configs.
+    local reviewer="codex"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --reviewer) reviewer="${2:-}"; shift 2 ;;
+            *) die "unknown pending-reviews flag: $1" 2 ;;
+        esac
+    done
+
+    if [ ! -d "$DIALOG_DIR" ]; then
+        printf '(no dialog directory at %s)\n' "$DIALOG_DIR"
+        return 0
+    fi
 
     local f topic latest_commit_proposal_iso latest_ack_iso has_pending
     local found=0
@@ -496,8 +617,12 @@ cmd_pending_reviews() {
             esac
         done < "$f"
 
-        # All ack/counter in_reply_to references (one per line, "" filtered out).
-        jq -r 'select(.type == "ack" or .type == "counter") | .in_reply_to // empty' "$f" 2>/dev/null > "$responses_file" || true
+        # All ack/counter in_reply_to references FROM THE REVIEWER (one per
+        # line, "" filtered out). Per Codex P2 (Q1): require from=$reviewer
+        # so a non-reviewer ack doesn't accidentally clear the pending state.
+        jq -r --arg rev "$reviewer" \
+            'select((.type == "ack" or .type == "counter") and .from == $rev) | .in_reply_to // empty' \
+            "$f" 2>/dev/null > "$responses_file" || true
 
         # For each commit-proposal sha, check if it has a corresponding
         # ack/counter in_reply_to. If not, the topic has a pending review.
@@ -532,6 +657,100 @@ cmd_pending_reviews() {
     fi
     # Exit 5 when pending reviews exist — caller can branch on this to
     # decide whether to wake the reviewer agent. exit 0 = nothing pending.
+    return 5
+}
+
+cmd_unhandled_findings() {
+    # List open topics where the reviewing agent (Codex by default) has
+    # posted at least one event of type counter/evidence/question that
+    # the implementing agent (Claude by default) has NOT yet replied to.
+    # "Replied to" = some subsequent event from=claude with in_reply_to
+    # matching the codex event's sha256.
+    #
+    # Why this exists (per Codex 2026-05-11 P1 review): `pending-reviews`
+    # detects unreplied commit-proposals. After the reviewer posts a
+    # counter, pending-reviews STOPS listing the topic (the counter IS the
+    # response). That makes pending-reviews unsuitable as the inbox for
+    # the implementing agent's review-pickup loop, because Claude needs to
+    # see Codex's findings AFTER they land, not before. This subcommand
+    # fills that gap.
+    #
+    # Exit codes: 0 = nothing unhandled; 5 = unhandled findings exist
+    # (topics listed); 2 = arg error.
+    local reviewer="codex"
+    local implementer="claude"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --reviewer)    reviewer="${2:-}"; shift 2 ;;
+            --implementer) implementer="${2:-}"; shift 2 ;;
+            *) die "unknown unhandled-findings flag: $1" 2 ;;
+        esac
+    done
+
+    if [ ! -d "$DIALOG_DIR" ]; then
+        printf '(no dialog directory at %s)\n' "$DIALOG_DIR"
+        return 0
+    fi
+
+    local f topic found=0
+    printf '%-50s  %s\n' 'TOPIC' 'UNHANDLED-COUNT'
+    printf '%-50s  %s\n' '-----' '---------------'
+
+    for f in "$DIALOG_DIR"/*.jsonl; do
+        if [ ! -f "$f" ]; then continue; fi
+        topic="$(basename "$f" .jsonl)"
+
+        # Skip closed topics.
+        if jq -se 'any(.[]; .from == "user" and .type == "decision")' "$f" 2>/dev/null | grep -q '^true$'; then
+            continue
+        fi
+
+        # Collect sha256 of every reviewer event of relevant type.
+        local findings_file responses_file
+        findings_file="$(mktemp)"
+        responses_file="$(mktemp)"
+
+        while IFS= read -r line; do
+            if [ -z "$line" ]; then continue; fi
+            local _from _type
+            _from="$(printf '%s' "$line" | jq -r '.from // ""' 2>/dev/null || printf '')"
+            _type="$(printf '%s' "$line" | jq -r '.type // ""' 2>/dev/null || printf '')"
+            if [ "$_from" != "$reviewer" ]; then continue; fi
+            case "$_type" in
+                counter|evidence|question)
+                    printf '%s\n' "$(sha256_hex "$line")" >> "$findings_file"
+                    ;;
+            esac
+        done < "$f"
+
+        # Collect in_reply_to from every implementer event (any type).
+        jq -r --arg impl "$implementer" \
+            'select(.from == $impl) | .in_reply_to // empty' \
+            "$f" 2>/dev/null > "$responses_file" || true
+
+        # Count findings without a matching response.
+        local unhandled_count=0
+        if [ -s "$findings_file" ]; then
+            while IFS= read -r finding_sha; do
+                if [ -z "$finding_sha" ]; then continue; fi
+                if ! grep -qFx -- "$finding_sha" "$responses_file"; then
+                    unhandled_count=$((unhandled_count + 1))
+                fi
+            done < "$findings_file"
+        fi
+
+        rm -f "$findings_file" "$responses_file"
+
+        if [ "$unhandled_count" -gt 0 ]; then
+            found=1
+            printf '%-50s  %d\n' "$topic" "$unhandled_count"
+        fi
+    done
+
+    if [ "$found" -eq 0 ]; then
+        printf '(no unhandled %s findings on open topics)\n' "$reviewer"
+        return 0
+    fi
     return 5
 }
 
@@ -587,29 +806,83 @@ cmd_cascade_check() {
         )"
         if [ "$in_flight" != "true" ]; then continue; fi
 
-        # Pull the FULL task-spec body (multi-line; lowercased for
-        # case-insensitive matching). Earlier draft used `| head -1` which
-        # truncated to the first line of the markdown body and silently
-        # missed any file paths listed after `files_in_scope:`. The body
-        # is expected to be multi-line markdown per spec §15.
-        body_lower="$(
+        # Pull the FULL task-spec body (multi-line).
+        local body_raw
+        body_raw="$(
             jq -r 'select(.type == "task-spec") | .body' "$f" 2>/dev/null \
-                | tr '[:upper:]' '[:lower:]' || printf ''
+                || printf ''
         )"
-        if [ -z "$body_lower" ]; then continue; fi
+        if [ -z "$body_raw" ]; then continue; fi
 
-        # Any candidate file substring-match in the task-spec body's
-        # files_in_scope section? Coarse but defensive: false-positive
-        # (saying "overlap" when none) is safe per ADR-0012; false-negative
-        # is dangerous.
+        # Codex 2026-05-11 P1 fix: substring-matching the whole body
+        # missed wildcard scope entries (e.g. files_in_scope contains
+        # `Dots/**` but candidate `Dots/Foo.cs` is not a substring of
+        # `Dots/**`). Fix: parse the files_in_scope section, normalize
+        # trailing `/**` and `/*` into prefix-match form, then check
+        # each candidate as either literal-exact OR prefix-match.
+        local scope_paths
+        scope_paths="$(printf '%s\n' "$body_raw" | awk '
+            /^files_in_scope:/ { in_scope=1; next }
+            in_scope && /^[A-Za-z_]+:/ { in_scope=0 }
+            in_scope && /^[[:space:]]+-[[:space:]]/ {
+                sub(/^[[:space:]]+-[[:space:]]+/, "")
+                sub(/[[:space:]]+$/, "")
+                if (length($0) > 0) print tolower($0)
+            }
+        ')"
+
         local overlapped_files=""
-        while IFS= read -r candidate; do
-            [ -z "$candidate" ] && continue
-            local candidate_lower; candidate_lower="$(printf '%s' "$candidate" | tr '[:upper:]' '[:lower:]')"
-            if printf '%s' "$body_lower" | grep -qF -- "$candidate_lower"; then
-                overlapped_files="$overlapped_files $candidate"
-            fi
-        done <<< "$candidates"
+        if [ -z "$scope_paths" ]; then
+            # Fallback when files_in_scope section absent: coarse-substring
+            # match on the whole body. False-positive is safe per ADR-0012.
+            local body_lower
+            body_lower="$(printf '%s' "$body_raw" | tr '[:upper:]' '[:lower:]')"
+            while IFS= read -r candidate; do
+                if [ -z "$candidate" ]; then continue; fi
+                local candidate_lower
+                candidate_lower="$(printf '%s' "$candidate" | tr '[:upper:]' '[:lower:]')"
+                if printf '%s' "$body_lower" | grep -qF -- "$candidate_lower"; then
+                    overlapped_files="$overlapped_files $candidate"
+                fi
+            done <<< "$candidates"
+        else
+            # Structured prefix-aware match. Per ADR-0012 §Component 6,
+            # false-positive is safe (over-counts overlap → user triage);
+            # false-negative is dangerous (cascade bug ships).
+            while IFS= read -r candidate; do
+                if [ -z "$candidate" ]; then continue; fi
+                local candidate_lower
+                candidate_lower="$(printf '%s' "$candidate" | tr '[:upper:]' '[:lower:]')"
+                while IFS= read -r path; do
+                    if [ -z "$path" ]; then continue; fi
+                    # Strip trailing wildcard variants:
+                    #   foo/bar/**  -> foo/bar/  (prefix match)
+                    #   foo/bar/*   -> foo/bar/  (prefix match)
+                    #   foo/bar     -> foo/bar   (exact match)
+                    local prefix="$path"
+                    local has_wildcard=0
+                    case "$prefix" in
+                        *'**') has_wildcard=1; prefix="${prefix%\*\*}" ;;
+                    esac
+                    case "$prefix" in
+                        *'*')  has_wildcard=1; prefix="${prefix%\*}" ;;
+                    esac
+                    if [ "$has_wildcard" -eq 1 ]; then
+                        case "$candidate_lower" in
+                            "$prefix"*)
+                                overlapped_files="$overlapped_files $candidate"
+                                break
+                                ;;
+                        esac
+                    else
+                        if [ "$candidate_lower" = "$prefix" ]; then
+                            overlapped_files="$overlapped_files $candidate"
+                            break
+                        fi
+                    fi
+                done <<< "$scope_paths"
+            done <<< "$candidates"
+        fi
 
         if [ -n "$overlapped_files" ]; then
             overlap_found=1
@@ -646,13 +919,22 @@ Usage:
   agent-bus archive    [--age-days <N>] [--dry-run]
                        (move closed topics older than N days, default 30,
                         to dialog/archive/YYYY-MM/; preserves audit trail)
-  agent-bus pending-reviews
+  agent-bus pending-reviews [--reviewer <name>]
                        (list open topics with a commit-proposal claim event
-                        but no subsequent ack/counter from the reviewer;
-                        used by /duo-implement to track "awaiting review"
-                        state, by /codex-review-loop to find topics needing
-                        attention, and by /check-reviews to track Claude's
-                        own commit-proposals awaiting Codex's response)
+                        but no subsequent ack/counter FROM THE REVIEWER;
+                        default reviewer=codex. Used by /duo-implement to
+                        track "awaiting review" state and by /codex-review-
+                        loop to find topics needing reviewer attention.
+                        NOT the right primitive for /check-reviews — use
+                        unhandled-findings.)
+  agent-bus unhandled-findings [--reviewer <name>] [--implementer <name>]
+                       (list open topics where the reviewer has posted
+                        counter/evidence/question events that the
+                        implementer has NOT yet replied to via in_reply_to.
+                        Defaults: reviewer=codex, implementer=claude. Used
+                        by /check-reviews to find findings Claude needs
+                        to address with cascade-prevention. Exit 5 = found,
+                        exit 0 = nothing unhandled.)
   agent-bus cascade-check --files <csv> [--target-topic <id>]
                        (given candidate files a fix would touch, report
                         in-flight task-spec topics with overlapping scope;
@@ -710,8 +992,9 @@ case "$sub" in
     list)             require_jq; cmd_list "$@" ;;
     stats)            require_jq; cmd_stats "$@" ;;
     archive)          require_jq; cmd_archive "$@" ;;
-    pending-reviews)  require_jq; cmd_pending_reviews "$@" ;;
-    cascade-check)    require_jq; cmd_cascade_check "$@" ;;
+    pending-reviews)       require_jq; cmd_pending_reviews "$@" ;;
+    unhandled-findings)    require_jq; cmd_unhandled_findings "$@" ;;
+    cascade-check)         require_jq; cmd_cascade_check "$@" ;;
     help|-h|--help)   cmd_help ;;
     version|-v|--version) cmd_version ;;
     *) die "unknown subcommand: $sub (try 'agent-bus help')" 2 ;;
