@@ -2,6 +2,29 @@
 
 Append-only record of ship events. Newest entries at the top. Every SPEC.md `[x]` checkbox should have a matching entry here — enforced by `/refresh-docs` drift check.
 
+## 2026-05-11 (Polish-pass round 2 — Option-2 goalkeeper specialization; commit `13a3b7b`)
+
+Closes user feedback from polish-pass review: *"Goalkeepers running through all other players with the ball."* Option-2 of three sim-side polish items addressing the GK-runs-upfield-with-ball symptom. Topic `2026-05-11-option2-goalkeeper-specialization` (3 events; clean first-round Codex ack).
+
+**What shipped**:
+- `MatchSim/Sim/BehaviorTreeRunner.cs` (+58 LoC): `BehaviorTreeRunner.Tick` now branches on `slot.RosterSlot == GoalkeeperRosterSlot` (== 1) BEFORE press/build-up/hold-shape branches. Three deterministic GK behaviours: (1) in possession → emit long-ball KickIntent via existing `ChoosePassKick`, but move-target = base formation slot (NEVER sprint upfield with the ball); (2) without possession + ball inside own penalty area (`|ball.X - ownGoalLine| <= 16.5m` FIFA spec) → charge at ball at `MaxSpeed`; (3) otherwise → hold formation at half speed. Two new constants — `PenaltyAreaDepthMetres = 16.5m` and `GoalkeeperRosterSlot = 1` (hardcoded per archetype YAMLs; Phase-4 role-system replaces).
+- `MatchSim.Tests/Sim/GoalkeeperBehaviorTests.cs` (new, 5 facts, ~200 LoC): `InPossession_DoesNotHeadToOpponentGoal`; `InPossession_EmitsLongBallKick`; `WithoutPossession_BallOutsidePenaltyArea_HoldsFormation`; `WithoutPossession_BallInsidePenaltyArea_ChargesAtBall`; `Deterministic_AcrossManyRuns`.
+- `MatchSim.Tests/Sim/PassTheBallTests.cs`: 600-tick `PassTheBall_600TickPlayback_HashMatchesPin` re-pinned `9ef285ab→17ca85e2` (authorized drift; full history preserved in test-file comment, now three entries deep).
+- `MatchSim.Tests/Sim/LowCutbackPrimedFixtureTests.cs`: 60-tick primed-fixture hash re-pinned `2f5cc063→34a31b3b` (authorized drift — primed fixture starts with AWAY GK in possession at the cutback zone; Option-2's "GK doesn't sprint upfield + emits long-ball immediately" changes the tick-0 trajectory).
+- `MatchSim.Tests/fixtures/replay-corpus/0xfeedbeefcafefade.json`: `final_canonical_state_hash` updated to `34a31b3b...` matching the new 60-tick primed-fixture hash. `scripts/fw replay 0xfeedbeefcafefade --compare-corpus` rc=0.
+- `unity-project/Assets/Plugins/MatchSim/FinalWhistle.MatchSim.{dll,pdb}` refreshed via `scripts/fw build-unity-plugins`.
+- `docs/screenshots/c5-option2-gk-specialization-natural-frame{66k,105k}.png` L2 evidence.
+
+**Hash drift summary**: 600-tick + 60-tick primed re-pinned; 60-tick smoke (`7e851976...50e`) + smoke corpus JSON `0xdeadbeefdeadbeef.json` UNCHANGED (smoke fixture's home GK is never the nearest-to-ball in the first 60 ticks).
+
+**Review cycle**: clean first-round ack from Codex. Task-spec was precise enough that no counter was needed — Codex verified locally with `scripts/fw verify` (663/663 green), both `scripts/fw replay` seeds rc=0, `git diff --check` clean, GK branch ordering correct, kick emission preserved, defensive charging gated to own-box, tests cover requested cases, corpus hash updated to match.
+
+**Tests**: 663/663 PASS (+5 from 658). **fw verify**: GREEN.
+
+**Natural-play L2** (DotsViewer.unity + `usePrimedFixture=true` + `driveSim=true`, ~35s wall-clock, ZERO synthetic injection): position dump at frame 128542 confirms Home GK at `(-45.39, 0.09)` — 7.62m from own goal-line (essentially on its formation slot); Away GK at `(47.70, 0.48)` — 4.77m from own goal-line (well inside the 16.5m penalty area); ball at `(7.11, -0.23)` mid-pitch with away outfield possession; home outfield in football-realistic formation (back-four spread −25 to −30 X with ±20 Z, midfield 4 around X=−15, strikers pulled back to press position at mid-pitch). NEITHER GK at midfield. NEITHER GK running with the ball. This is the load-bearing visual proof Option-2 closes its acceptance criterion.
+
+Option 3 (off-ball formation translation — non-carrier non-presser players hold formation-relative-to-ball, not static positions) queued next.
+
 ## 2026-05-11 (Polish-pass round 2 — Option-1 inter-player soft collision; commit `ca96e3a`)
 
 Closes user feedback from polish-pass review: *"Goalkeepers running through all other players with the ball. Just straight line running for the most part. Not football at all."* Option-1 of three sim-side polish items addressing the visible "22 dots phase through each other" symptom. Topic `2026-05-11-option1-player-collision` (6 events; 1 review round).
