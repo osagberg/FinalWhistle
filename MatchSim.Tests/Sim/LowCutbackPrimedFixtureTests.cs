@@ -118,19 +118,20 @@ public sealed class LowCutbackPrimedFixtureTests
 
         string actual = MatchCanonicalState.ComputeHash(state);
         // History (newest first):
+        //   sha256:815a90e5b21b7b6340e8d0b08e4b860bf021e49459bff0e8ca987827e3277050 —
+        //     polish-pass Option 3 (2026-05-11 off-ball formation translation).
+        //     Authorized drift per option3 task-spec — primed fixture ball
+        //     at cutback zone (X=50) → all outfield in hold-shape branch
+        //     translate at tick 0. Signature still fires; downstream
+        //     positions diverge from Option-2 baseline.
         //   sha256:34a31b3b9d2426b2639140bec6696a1787e09aa6ce4aed7eaaaa298202e4fb94 —
         //     polish-pass Option 2 (2026-05-11 goalkeeper specialization).
-        //     Authorized drift per option2 task-spec — primed fixture starts
-        //     with AWAY GK in possession at the cutback zone, so Option-2's
-        //     "GK doesn't sprint upfield + emits long-ball immediately"
-        //     changes tick-0 trajectory. The signature still fires; the
-        //     downstream ball positions differ.
         //   sha256:2f5cc063374b43cfd822043401add3ebddc2e174a1bb0a440e4d10b0e33a4ef6 —
         //     C4 primed-for-LowCutback v1 (2026-05-11). 60-tick playback from
         //     FromLowCutbackPrimedFixture starting position; LowCutback signature
         //     fires at tick 0 → ball kicked toward goal → goal scored by ~tick 50;
         //     ball respawns. Canonical state at tick 60 is the post-respawn pose.
-        const string expected = "sha256:34a31b3b9d2426b2639140bec6696a1787e09aa6ce4aed7eaaaa298202e4fb94";
+        const string expected = "sha256:815a90e5b21b7b6340e8d0b08e4b860bf021e49459bff0e8ca987827e3277050";
         Assert.Equal(expected, actual);
     }
 

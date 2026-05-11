@@ -103,6 +103,39 @@ public static class BehaviorTreeRunner
     /// system will replace this with a typed role enum.</summary>
     private const byte GoalkeeperRosterSlot = 1;
 
+    // Phase-3 Option-3 (2026-05-11) off-ball formation-translation constants.
+    // Closes user-caught polish-pass review symptom "Just straight line running
+    // for the most part." Prior to Option-3, hold-shape branch commanded
+    // STATIC formation base positions — outfield players never shifted with
+    // the ball, so the team played as 11 disconnected pucks. Football reality:
+    // formation SHAPE preserved, CENTROID shifts toward ball position.
+
+    /// <summary>Axial (X) formation shift factor. Translates the formation's
+    /// X centre by `factor × ball.X`. 0.5 means the team shifts halfway
+    /// toward the ball's longitudinal position — preserves formation depth
+    /// while making the team compact toward the action.</summary>
+    private static readonly Fixed FormationBallShiftFactor =
+        Fixed.FromInt(1) / Fixed.FromInt(2);
+
+    /// <summary>Lateral (Z) formation shift factor. Smaller than axial
+    /// because the pitch is narrower (68m) than long (105m); a full lateral
+    /// shift would push wide players off the touchline. 0.3 preserves
+    /// formation width while letting the team drift toward the ball's
+    /// lateral position.</summary>
+    private static readonly Fixed LateralBallShiftFactor =
+        Fixed.FromInt(3) / Fixed.FromInt(10);
+
+    /// <summary>Pitch axial half-extent (X). 105m / 2 = 52.5m FIFA spec.
+    /// Translated formation positions are clamped to ±this so a
+    /// ball-relative shift cannot push players off the pitch.</summary>
+    private static readonly Fixed PitchAxialHalfExtentMetres =
+        Fixed.FromInt(105) / Fixed.FromInt(2);
+
+    /// <summary>Pitch lateral half-extent (Z). 68m / 2 = 34m FIFA spec.
+    /// </summary>
+    private static readonly Fixed PitchLateralHalfExtentMetres =
+        Fixed.FromInt(34);
+
     /// <summary>
     /// Tick the BT for one team. Writes 11 <see cref="PlayerCommand"/>s
     /// into <paramref name="commandsOut"/> in the same order as
@@ -266,8 +299,14 @@ public static class BehaviorTreeRunner
                 continue;
             }
 
-            // Hold shape: head toward base position at jog (half speed).
-            commandsOut[i] = new PlayerCommand(basePosition, kinematics.MaxSpeed * Fixed.Half);
+            // Hold shape: head toward BALL-TRANSLATED base position at jog
+            // (half speed). Option-3 (2026-05-11): the formation centroid
+            // shifts toward the ball's longitudinal + lateral position so
+            // the team plays as a compact block instead of 11 disconnected
+            // pucks. Translation factors live in FormationBallShiftFactor +
+            // LateralBallShiftFactor; clamped to pitch boundaries.
+            Vector3Fixed translatedBase = BallTranslatedBasePosition(basePosition, ballPitchPosition);
+            commandsOut[i] = new PlayerCommand(translatedBase, kinematics.MaxSpeed * Fixed.Half);
         }
     }
 
@@ -285,6 +324,39 @@ public static class BehaviorTreeRunner
         Fixed ownNearestSq = NearestDistanceSquared(ballPosition, ownTeam);
         Fixed oppNearestSq = NearestDistanceSquared(ballPosition, opponents);
         return ownNearestSq < oppNearestSq;
+    }
+
+    /// <summary>
+    /// Phase-3 Option-3 (2026-05-11) off-ball formation translation. Returns
+    /// <paramref name="basePosition"/> shifted by
+    /// <c>(ball.X × FormationBallShiftFactor, 0, ball.Z × LateralBallShiftFactor)</c>,
+    /// clamped to pitch boundaries (±52.5 X, ±34 Z) so a ball-relative shift
+    /// cannot push players off the touchline / goal-line.
+    ///
+    /// <para>Effect: when the ball is at midfield centre, translation is
+    /// zero — basePosition unchanged. When the ball moves to +40 X
+    /// (attacking third), the formation centroid shifts +20 X — back-four
+    /// at -30 X effectively becomes -10 X (pushing up); strikers at +20 X
+    /// become +40 X (advancing into attack). Symmetric for AWAY since
+    /// <see cref="FormationSlot.AwayBasePosition"/> already mirrors X.</para>
+    /// </summary>
+    private static Vector3Fixed BallTranslatedBasePosition(
+        Vector3Fixed basePosition, Vector3Fixed ballPitchPosition)
+    {
+        Fixed shiftedX = basePosition.X + ballPitchPosition.X * FormationBallShiftFactor;
+        Fixed shiftedZ = basePosition.Z + ballPitchPosition.Z * LateralBallShiftFactor;
+
+        Fixed clampedX = Clamp(shiftedX, -PitchAxialHalfExtentMetres, PitchAxialHalfExtentMetres);
+        Fixed clampedZ = Clamp(shiftedZ, -PitchLateralHalfExtentMetres, PitchLateralHalfExtentMetres);
+
+        return new Vector3Fixed(clampedX, Fixed.Zero, clampedZ);
+    }
+
+    private static Fixed Clamp(Fixed value, Fixed min, Fixed max)
+    {
+        if (value.RawValue < min.RawValue) return min;
+        if (value.RawValue > max.RawValue) return max;
+        return value;
     }
 
     /// <summary>Smallest squared-distance from <paramref name="ballPosition"/> to any player in the team.</summary>
