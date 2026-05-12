@@ -1,0 +1,20 @@
+[package]
+name = "fw-scouting"
+description = "Scouting model — disagreeing biased scouts. T3 lands the real logic; T0 stub."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+# Scouting is a canonical-state crate (scout reports + memory both flow
+# through the determinism gate). Floats are forbidden — scouting noise is
+# Q32, surfaced as text by fw-tauri only.
+[lints.clippy]
+float_arithmetic = "deny"
+
+[dependencies]
+fw-core   = { workspace = true }
+serde     = { workspace = true }
+thiserror = { workspace = true }

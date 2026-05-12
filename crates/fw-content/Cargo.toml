@@ -1,0 +1,29 @@
+[package]
+name = "fw-content"
+description = "Content schema — team templates, player templates, behavior archetypes. RON-backed."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints.clippy]
+# fw-content holds canonical schema types (loaded by the sim). Floats are
+# forbidden — gene vectors and template values are Q32, surfaced as text
+# in the UI via fw-tauri only.
+float_arithmetic = "deny"
+
+[dependencies]
+fw-core     = { workspace = true }
+serde       = { workspace = true }
+ron         = { workspace = true }
+thiserror   = { workspace = true }
+# Runtime sampling layer — added in scaffold for the content pipeline.
+# tokio / reqwest / async are FORBIDDEN here; they live in fw-content-baker.
+rand_chacha = { workspace = true }
+rand        = "0.8"
+blake3      = { workspace = true }
+
+[dev-dependencies]
+insta       = { workspace = true }

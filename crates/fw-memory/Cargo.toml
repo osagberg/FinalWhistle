@@ -1,0 +1,19 @@
+[package]
+name = "fw-memory"
+description = "Event-sourced career ledger — careers that remember. T3 lands the real logic; T0 stub."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints.clippy]
+# Canonical-state crate. The ledger is append-only and replays
+# deterministically; floats are forbidden.
+float_arithmetic = "deny"
+
+[dependencies]
+fw-core   = { workspace = true }
+serde     = { workspace = true }
+thiserror = { workspace = true }

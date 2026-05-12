@@ -1,0 +1,12 @@
+{
+    "asset": "4ec536fa8ee4641a7aa7ffbda78c7683",
+    "fileName": "019e1dd0-8957-7137-9510-e4663494318b_Preview.png",
+    "prompt": "seamless professional football pitch grass texture, short cut, deep green, subtle lawn mower stripes, top-down view, high detail, realistic",
+    "negativePrompt": "",
+    "model": "gemini-3.1-flash-texture",
+    "modelName": "Gemini 3.1 Nano Banana 2",
+    "customSeed": 397648282,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "refinementMode": "Generation"
+}

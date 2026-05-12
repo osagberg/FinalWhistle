@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # canonical-hash-guard.sh — PreToolUse hook on Bash(git commit*).
 #
-# Purpose: defensive auto-rollback for the pinned MatchCanonicalState hash
-# regression test. If the staged diff includes any MatchSim/** change AND
-# the targeted regression test would fail post-commit, this hook BLOCKS
-# the commit with exit 2.
+# Defensive auto-rollback for the pinned canonical-state hash regression
+# test. If the staged diff includes any change to canonical-state-bearing
+# Rust source (fw-core, fw-match-sim, fw-memory, fw-replay, fw-save,
+# fw-content) AND the targeted determinism test would fail post-commit,
+# this hook BLOCKS the commit with exit 2.
 #
-# Per ADR-0012 §Component 3 (auto-rollback on canonical-hash drift). Per
-# CLAUDE.md §6.3 mandatory rotation: MatchSim code requires gameplay-/
-# engine-programmer subagent + pr-review-toolkit triple — but autonomous
-# Tier-2 implementations might bypass review on a small change. This hook
-# is the structural floor: even if review missed it, hash drift cannot
-# silently land.
+# Ported from FW v1's .claude/hooks/canonical-hash-guard.sh, retargeted
+# from `dotnet test` → `cargo test` and from MatchSim/{Sim,Content} →
+# the six Rust canonical-state crates.
+#
+# Per docs/specs/determinism-gate.md §12: this hook is one of the four
+# Phase-0 acceptance-gate boxes. Even if subagent review missed a hash-
+# affecting change, the structural floor here prevents silent drift from
+# landing.
 #
 # Hook contract:
 #   - PreToolUse on Bash(git commit*).
@@ -19,11 +22,10 @@
 #   - Exits 0 if commit is allowed.
 #   - Exits 2 with stderr message if commit is blocked.
 #
-# Performance budget: ~3-7s. The targeted test runs only one canonical-state
-# regression theory, not the full 644-test suite. We do NOT pass --no-build:
-# Codex 2026-05-11 P1 flagged that stale binaries would let the hook silently
-# pass after MatchSim source changes. The trade-off is +2-3s for incremental
-# build, which is acceptable on a pre-commit gate.
+# Performance budget: ~5-12s on a warm cargo cache. Cold cache is slower;
+# the hook is designed to be skippable (with stderr warning) when the
+# user has explicitly authorized a re-baseline via --no-verify + a
+# matching DECISIONS.md entry. See block-message escape-hatch text.
 
 set -euo pipefail
 
@@ -34,9 +36,8 @@ if ! command -v jq >/dev/null 2>&1; then
     exit 0
 fi
 
-# Parse the tool input. We only inspect Bash tool calls whose command starts
-# with "git commit" (anything matching the pre-existing pre-tool-use matcher
-# pattern in .claude/settings.json on Bash(git commit*)).
+# Parse the tool input. We only inspect Bash tool calls whose command
+# starts with "git commit".
 TOOL_NAME="$(printf '%s' "$INPUT" | jq -r '.tool_name // ""')"
 COMMAND="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // ""')"
 
@@ -54,67 +55,82 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -z "$REPO_ROOT" ]; then exit 0; fi
 cd "$REPO_ROOT"
 
-# Check if the staged diff touches MatchSim/** (Sim or Content; tests
-# exempt because tests don't change canonical state, only assert on it).
-TOUCHES_MATCHSIM=0
-if git diff --cached --name-only 2>/dev/null | grep -E '^MatchSim/(Sim|Content)/' >/dev/null 2>&1; then
-    TOUCHES_MATCHSIM=1
+# Check if the staged diff touches any canonical-state-bearing crate.
+# Tests are EXEMPT because tests don't change canonical state, only
+# assert on it — and we want to allow tests to add new regression
+# assertions without round-tripping through the gate.
+#
+# Crate list mirrors the determinism-gate spec §3 + CLAUDE.md §7:
+#   fw-core, fw-match-sim, fw-memory, fw-replay, fw-save, fw-content
+TOUCHES_CANONICAL=0
+if git diff --cached --name-only 2>/dev/null \
+    | grep -E '^crates/(fw-core|fw-match-sim|fw-memory|fw-replay|fw-save|fw-content)/src/' \
+    >/dev/null 2>&1; then
+    TOUCHES_CANONICAL=1
 fi
 
-if [ "$TOUCHES_MATCHSIM" -eq 0 ]; then
-    # No MatchSim canonical-state-bearing change. Allow.
+if [ "$TOUCHES_CANONICAL" -eq 0 ]; then
+    # No canonical-state-bearing change. Allow.
     exit 0
 fi
 
-# Check for an explicit allow marker in any staged file's commit message
-# preview (commit-msg is not yet finalized at PreToolUse time, so this is
-# best-effort: look for the marker in the staged content of files known
-# to carry such markers, e.g. a top-of-commit-message file convention or
-# the ADR / SPEC entry for the change). For now: skip the deep parsing
-# and rely on the user to use --no-verify if they have an authorized
-# canonical-state change (escape hatch, surfaced in the block message).
+# Cargo is required. If missing, the hook can't run — fail open with a
+# stderr warning so the user knows to install cargo or repair PATH,
+# rather than silently disabling the gate.
+if ! command -v cargo >/dev/null 2>&1; then
+    printf 'canonical-hash-guard.sh: cargo not found on PATH; allowing commit. Install rustup/cargo or repair PATH.\n' >&2
+    exit 0
+fi
 
-# Run the narrow regression test. Only one theory; ~2s on a warm cache.
-# Test name is brittle to renames; if it breaks the hook fails open and
-# logs to stderr so the user knows to repair the hook, not to silently
-# allow drift.
-TEST_FILTER='Match_SmokeFixture60TicksWithSignaturePackets_ProducesIdenticalPinnedHash'
-TEST_OUTPUT="$(dotnet test MatchSim.Tests/MatchSim.Tests.csproj \
-    --nologo \
-    --logger 'console;verbosity=minimal' \
-    --filter "$TEST_FILTER" 2>&1 || true)"
+# Run the narrow regression test. Release mode per the determinism-gate
+# spec §11: debug-mode overflow checks can mask hash-affecting bugs by
+# panicking instead of producing a different hash; release mode lets the
+# hash itself be the contract.
+#
+# We capture stdout+stderr together; cargo test returns 0 on pass and
+# non-zero on failure. `set -e` would fire on the non-zero exit, so we
+# defang with `|| true` and detect explicitly below.
+TEST_OUTPUT="$(cargo test --release -p fw-replay --test canonical_hash --no-fail-fast 2>&1 || true)"
+TEST_EXIT="$?"
 
-# Detect explicit pass/fail. dotnet test returns 1 on failure; we already
-# captured stderr so set -e doesn't fire. Look for the result line.
-if printf '%s' "$TEST_OUTPUT" | grep -E 'Failed:[[:space:]]*0' >/dev/null 2>&1; then
+# `set -e` defanging: re-check the captured exit. Cargo test exits 0 on
+# pass, 101 on test failure, other codes on infrastructure failure.
+# 0 → allow; 101 → block; anything else → fail open with stderr (the
+# hook is broken, not the source).
+if printf '%s' "$TEST_OUTPUT" | grep -E 'test result: ok' >/dev/null 2>&1; then
     # Test passed. Hash unchanged. Allow commit.
     exit 0
 fi
 
-if printf '%s' "$TEST_OUTPUT" | grep -E 'Failed:[[:space:]]*[1-9]' >/dev/null 2>&1; then
+if printf '%s' "$TEST_OUTPUT" | grep -E 'test result: FAILED' >/dev/null 2>&1; then
     # Test failed. Hash drifted. Block commit.
     cat <<EOF >&2
 ========================================================================
-BLOCKED: pinned MatchCanonicalState hash regression detected.
+BLOCKED: pinned canonical-state hash regression detected.
 
-The staged diff modifies MatchSim/Sim/** or MatchSim/Content/** AND the
-targeted regression test '$TEST_FILTER' fails. The pinned 60-tick
-canonical-state hash has drifted.
+The staged diff modifies a canonical-state-bearing crate AND the
+targeted determinism test (cargo test --release -p fw-replay --test
+canonical_hash) fails. The pinned 60-tick canonical-state hash has
+drifted on this machine.
 
-Per ADR-0012 §Component 3 (auto-rollback on canonical-hash drift) +
-CLAUDE.md §3 (Q32.32 fixed-point determinism contract): unauthorized
-hash drift is a hard-block. Determinism is non-negotiable for the
-golden-replay-corpus + cross-platform-determinism gate.
+Per docs/specs/determinism-gate.md §12 (Phase-0 acceptance gate) and
+CLAUDE.md §7 (Q32.32 determinism contract): unauthorized hash drift is
+a hard block. Determinism is non-negotiable for the replay-corpus +
+save-migration + anti-cheat contract.
 
 Resolution path:
   (a) Revert the offending change. Re-stage. Re-commit.
-  (b) If the hash drift is INTENTIONAL (rare; requires SPEC entry +
-      cross-platform CI matrix re-pin per the schema-version protocol):
-      - Append a new SPEC.md decisions-log entry naming the schema bump.
-      - Update the pinned literal in MatchDeterminismTests.cs alongside.
-      - Bypass this hook ONLY ON THIS COMMIT via:
+  (b) If the hash drift is INTENTIONAL (rare; requires DECISIONS.md
+      entry + cross-platform CI matrix re-pin per the schema-version
+      protocol):
+        - Append a new docs/DECISIONS.md entry naming the schema bump.
+        - Update the pinned [u8; 32] literal in
+          crates/fw-replay/tests/canonical_hash.rs alongside.
+        - Update the RON fixture under crates/fw-replay/fixtures/
+          with the new expected_hash.
+        - Bypass this hook ONLY ON THIS COMMIT via:
               git commit --no-verify ...
-        (But the §6.3 pr-review-reminder still fires; document the
+        (The pr-review-reminder hook still fires; document the
         intentional bump in the commit body.)
 
 Failed test output (last 30 lines):
@@ -124,7 +140,8 @@ EOF
     exit 2
 fi
 
-# Test runner produced unexpected output — fail open, log to stderr so the
-# user notices the hook is broken rather than silently passing every commit.
-printf 'canonical-hash-guard.sh: could not parse dotnet test output; allowing commit. Repair the hook.\n' >&2
+# Test runner produced unexpected output — fail open, log to stderr so
+# the user notices the hook is broken rather than silently passing every
+# commit.
+printf 'canonical-hash-guard.sh: could not parse cargo test output (exit %s); allowing commit. Repair the hook.\n' "$TEST_EXIT" >&2
 exit 0

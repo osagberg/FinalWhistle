@@ -1,0 +1,81 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/fw-core",
+  "crates/fw-match-sim",
+  "crates/fw-content",
+  "crates/fw-content-baker",
+  "crates/fw-scouting",
+  "crates/fw-memory",
+  "crates/fw-replay",
+  "crates/fw-save",
+  "crates/fw-tauri",
+  "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Proprietary"
+authors = ["Vibelogic <osagberg@proton.me>"]
+repository = "https://github.com/osagberg/FinalWhistle"
+
+[workspace.dependencies]
+# Determinism foundation
+fixed       = { version = "1", features = ["serde"] }
+cordic      = "0.1"
+rand_chacha = "0.3"
+blake3      = "1"
+# Containers — BTreeMap is canonical; HashMap is banned from sim/content/memory/replay/save crates
+indexmap    = { version = "2", features = ["serde"] }
+slotmap     = { version = "1", features = ["serde"] }
+# Serialization
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+bincode     = { version = "2", features = ["serde"] }
+ron         = "0.8"
+# Error handling
+thiserror   = "2"
+anyhow      = "1"
+# Logging
+log         = "0.4"
+env_logger  = "0.11"
+# Tauri (only fw-tauri consumes this)
+tauri       = { version = "2", features = [] }
+# Test
+insta       = { version = "1", features = ["yaml", "ron"] }
+proptest    = "1"
+hex-literal = "1"
+
+# Workspace-internal crate references — the only place where path-deps are spelled out.
+fw-core      = { path = "crates/fw-core",      version = "0.1.0" }
+fw-match-sim = { path = "crates/fw-match-sim", version = "0.1.0" }
+fw-content   = { path = "crates/fw-content",   version = "0.1.0" }
+fw-scouting  = { path = "crates/fw-scouting",  version = "0.1.0" }
+fw-memory    = { path = "crates/fw-memory",    version = "0.1.0" }
+fw-replay    = { path = "crates/fw-replay",    version = "0.1.0" }
+fw-save      = { path = "crates/fw-save",      version = "0.1.0" }
+fw-tauri     = { path = "crates/fw-tauri",     version = "0.1.0" }
+
+# -----------------------------------------------------------------------------
+# Profiles
+#
+# dev: opt-level 1 for the workspace's own crates (fast iterative builds) and
+# opt-level 3 for third-party deps (compile once, run fast). Q32 arithmetic in
+# unoptimized builds is painfully slow; this keeps the test-time cost sane.
+#
+# release: thin LTO + 1 codegen unit + symbol strip. Determinism is unaffected
+# by these flags — they only change code-gen, not algorithm.
+# -----------------------------------------------------------------------------
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

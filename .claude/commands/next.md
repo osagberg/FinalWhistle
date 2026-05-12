@@ -1,57 +1,70 @@
 ---
-description: Pick up the next unblocked task from SPEC.md and start working
+description: Primary end-to-end workflow command. Picks the next unblocked task from docs/MASTER_PLAN.md, implements it fully, runs verification + self-review, and commits. One invocation == one task shipped.
+argument-hint: "[optional: task ID like T2-04 to force a specific task]"
+allowed-tools: Read, Edit, Write, Bash, Glob, Grep, Skill, mcp__ccd_session__mark_chapter, mcp__ccd_session__spawn_task
 ---
 
-# /next — pick up the next task
+# /next — Ship one task end-to-end
 
-Autonomously continue project work.
+`/next` is **THE** primary workflow command for the Final Whistle Rust pivot. Type `/next`, get one MASTER_PLAN task shipped + committed. Repeat to keep working through the phase.
 
-## Procedure
+This command is a thin invoker. **All workflow logic lives in the `/next` skill** at `.claude/skills/next/SKILL.md` — that's the manual for what happens, why, and what to do when things go weird.
 
-1. Read `SPEC.md`.
-2. Find the phase currently marked 🟡 ACTIVE.
-3. Identify the first task in that phase marked `[ ]` (pending, not `[x]` done). If `STATUS.md → "Next /next picks up"` lists a foundation-first override, prefer that ordering; otherwise SPEC order wins.
-4. Check task dependencies:
-   - If the task is **user-action** (install something, purchase something, create account, authenticate to something): ask the user to do it and wait, don't try to do it yourself.
-   - If the task is **Claude-action**: continue.
-5. **Classify the task before starting** (discipline gate):
+## Behavior
 
-   | Class | Indicator | Required tooling pass |
-   |---|---|---|
-   | **Trivial** | <100 LoC, single file, mechanical (typo / comment / config tweak) | Self-review only; commit directly. `unity-check` and `pr-review-toolkit` N/A. |
-   | **Substantial code** | ≥100 LoC of `.cs` / `.py` / `.sh` / shader / asmdef | `pr-review-toolkit:silent-failure-hunter` + `:type-design-analyzer` + `feature-dev:code-reviewer` BEFORE commit per CLAUDE.md §6.3. Hook-reminded at commit time. |
-   | **Unity-side** | Touches `unity-project/` scenes / scripts / assets / asmdefs | `unity-check` skill at L1 (compile via UnityMCP `refresh_unity` + `read_console`) minimum. L2/L3 if behavior/visuals are the deliverable. |
-   | **MatchSim source** | Touches `MatchSim/**` | `scripts/fw build-unity-plugins` AFTER the change to refresh the DLL drop at `unity-project/Assets/Plugins/MatchSim/`. |
-   | **Architecture** | New ADR / SPEC decisions-log entry / cross-system contract change | Append to SPEC decisions log via `/log-decision`. Route the design pass to the appropriate director subagent (`technical-director` / `game-designer` / `narrative-director` / `art-director`). |
+Invoke the `next` skill. The skill executes the full 9-step workflow:
 
-   A task can hit multiple classes (e.g., a MatchSim feature change is both "Substantial code" + "MatchSim source"). Run all applicable passes.
+1. **Pick task** — first TODO with DONE deps in `docs/MASTER_PLAN.md` (or resume the current IN_PROGRESS one). Argument override picks a specific task.
+2. **Spec the task** — write inline task-spec to `MEMORY.md`; mark IN_PROGRESS in MASTER_PLAN.
+3. **Plan implementation** — 3-7 chunk plan in MEMORY for non-trivial tasks; skip for trivial.
+4. **Implement** — code via the §5 mandatory subagent for the task class.
+5. **Verify** — `just test` + `just lint` (with one autofix attempt on lint).
+6. **Self-review** — auto-invoke pr-review-toolkit triple on commits ≥100 LoC code; fix P0/P1 findings.
+7. **Commit** — structured message; in-scope files + MEMORY.md + MASTER_PLAN.md status flip to DONE.
+8. **Update docs** — append CHANGELOG entry; append DECISIONS.md if the task made a decision; clear MEMORY current-task block.
+9. **Print summary + stop** — does NOT auto-pick the next task. User invokes `/next` again.
 
-6. **Pick the required agent(s) from the CLAUDE.md §6.3 mandatory rotation table.** Per SPEC 2026-04-30 process-discipline entry: `/next` must NAME the agents that will own the task before any code is written. The most common rows:
+## Pause-and-ask triggers
 
-   - **MatchSim code** → `gameplay-programmer` OR `engine-programmer`.
-   - **Unity / Viewer** → `unity-specialist` (asmdefs / Editor APIs); `unity-ui-specialist` (UI Toolkit); `ui-programmer` (HUD / menus). Must run `unity-check` skill alongside.
-   - **Contracts / asmdefs / ADRs** → `lead-programmer` + `feature-dev:code-architect` (blueprint pass).
-   - **Narrative / identity / signatures** → `narrative-director`.
-   - **Systems / balance / progression** → `systems-designer`.
-   - **Tests-heavy** → `pr-review-toolkit:pr-test-analyzer` AFTER the underlying code is drafted.
-   - **Codebase exploration** → `feature-dev:code-explorer` (or `Explore` for read-only).
+The skill hard-stops + reports to the user when any of these fire:
 
-   If the task fits NO row, escalate to `producer` for cross-discipline scope adjudication. Do NOT silently default to main-thread authoring; that's the failure mode the rotation table exists to prevent (audit-06 caught 8 of 15 project agents at zero invocations across 36 events).
+- Acceptance criteria ambiguous (creative judgment needed)
+- A required change would touch files outside MASTER_PLAN's declared scope for this task
+- `just test` red after 2 fix attempts
+- `just lint` red after autofix attempt
+- Design-doc-level architecture change required mid-task
+- New third-party crate needed (user approves the dependency)
+- Canonical state schema change (re-baseline pinned hash)
+- Hash-drift hook fires unexpectedly (not authorized in task-spec)
+- Pre-commit hook block that can't be auto-fixed
 
-7. Before executing a Claude-action task:
-   - Announce clearly what you're picking up (one sentence).
-   - State acceptance criteria (how we'll know it's done).
-   - **Name the classification + the required agent(s).** Both. The classification names the tooling pass; the agents name who owns the work. Both are mandatory per CLAUDE.md §6.3.
-   - If auto mode is not active, confirm with user before starting.
-8. Execute the task.
-9. When complete, invoke `/done` — it owns the verification stack (see `.claude/commands/done.md`).
+## What `/next` does NOT do
 
-## If no pending task in active phase
+- Run Codex review — that's `/phase-gate` at phase boundaries, not per task.
+- Push to remote — user pushes manually when ready.
+- Create PRs — `/phase-gate` opens the phase PR for Codex review.
+- Run the game in Tauri — user does manual playtest.
+- Bake content corpus — separate `/bake-content` command at content milestones.
 
-- Check the phase's gate conditions (stated in SPEC.md under each phase).
-- If all gates pass: mark phase ✅ COMPLETE, promote next phase to 🟡 ACTIVE, flesh out its tasks if not detailed, report to user.
-- If gates don't pass: report which gates are blocking, propose remediation.
+## Usage
 
-## If no active phase at all
+```
+/next                  # pick the next unblocked task
+/next T2-04            # force a specific task (must still have DONE deps)
+```
 
-Project is either complete or in an undefined state. Report to user and ask what to do.
+## After `/next` returns
+
+The skill prints a one-line summary:
+```
+Completed T<id>: <title> at commit <SHA>. Next up: T<next-id>.
+```
+
+To continue the phase, run `/next` again. To stop, just don't.
+
+## See also
+
+- Full workflow manual: `.claude/skills/next/SKILL.md`
+- Phase boundaries: `/phase-gate`
+- Decision logging: `/log-decision`
+- Project state: `/status`

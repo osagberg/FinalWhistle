@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="MatchSim.Tests/MatchSim.Tests.csproj" />
-  <Project Path="MatchSim/MatchSim.csproj" />
-</Solution>

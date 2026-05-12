@@ -1,0 +1,87 @@
+# Per-project Cargo config — Final Whistle.
+#
+# Workspace-only settings; nothing here mutates a user's global toolchain.
+# See `rust-toolchain.toml` for the pinned compiler. CI invokes cargo
+# directly (no `just`), so anything required for the CI matrix to behave
+# identically to local dev must live here.
+
+[build]
+# Single target dir keeps incremental builds + cargo-cache warm across
+# crates. CI's Swatinem/rust-cache step keys on this path.
+target-dir = "target"
+
+# `lld` is materially faster than the default linker on Linux + Windows
+# and shaves real seconds off incremental builds. On Mac the default
+# linker (ld64 / ld-prime) is already fast, so we DON'T force lld there
+# — many devs hit "library not found for -llld" when lld isn't installed.
+# Target-specific overrides below handle Mac explicitly.
+#
+# Install lld:
+#   Linux:        sudo apt-get install lld   /   sudo dnf install lld
+#   Windows:      rustup component add llvm-tools-preview  (rust-lld ships with it)
+#   macOS:        not needed; Mac override below skips it.
+#
+# Disabled by default to avoid surprising "lld not found" errors on
+# fresh clones. Uncomment after installing lld.
+# rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[term]
+verbose = false
+
+# Lint defaults — the determinism crates set `clippy::float_arithmetic = deny`
+# at lib.rs level (so they apply to library code AND tests AND examples
+# uniformly). Keeping the deny-list at crate root rather than here means a
+# user running `cargo clippy -p fw-tauri` doesn't fight a foreign-crate deny.
+
+# Test runner — single-threaded is the determinism-friendly default for the
+# pinned-hash gate (test order shouldn't matter, but parallel test threads can
+# share global state we haven't audited yet). Override locally with
+# `--test-threads=N` once a wider audit is done.
+[env]
+RUST_TEST_THREADS = "1"
+
+# ----------------------------------------------------------------
+# Target-specific tuning
+# ----------------------------------------------------------------
+
+# Apple Silicon — target the M1 baseline so the compiler can use NEON
+# without runtime feature detection. This is the dev box per the
+# Phase-0 determinism-gate spec §11.
+#
+# NOTE: target-cpu does NOT affect canonical-hash output. Q32.32 fixed-
+# point arithmetic is bit-exact regardless of which SIMD path the
+# compiler picks — that's the whole point of fixed-point. If a
+# regression test ever fails between target-cpu values, that's a real
+# bug in the canonical encoder, not a tuning issue.
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "target-cpu=apple-m1"]
+
+# Intel Macs — generic linker. No target-cpu pin; we don't have an
+# Intel Mac dev box, and the CI matrix builds for x86_64-apple-darwin
+# with the default toolchain.
+# [target.x86_64-apple-darwin]
+# linker = "clang"
+
+# Optional Mac fast linker — `zld` is deprecated upstream; ld-prime
+# (Xcode 15+) is already fast. Left here as a reference, commented out.
+# [target.aarch64-apple-darwin]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=/usr/local/bin/zld"]
+
+# ----------------------------------------------------------------
+# Aliases — shortcuts mapped to common multi-flag invocations.
+# ----------------------------------------------------------------
+
+[alias]
+# Run the full workspace test pass (release mode — matches CI).
+xtest = "test --workspace --release"
+
+# Strict clippy across all targets including tests + examples + benches.
+# Identical to the ci.yml clippy step; `cargo xclippy` locally produces
+# the same diagnostics that block PRs.
+xclippy = "clippy --workspace --all-targets -- -D warnings"
+
+# Determinism gate in isolation. Matches `just test-determinism` and the
+# .github/workflows/determinism-gate.yml step. Use this when iterating on
+# canonical-encoder / Q32 code where the broader test suite is noise.
+xdet = "test --release -p fw-replay --test canonical_hash"

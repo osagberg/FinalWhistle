@@ -1,0 +1,83 @@
+# Determinism gate — explicit required check for merge to main.
+#
+# This workflow exists separately from ci.yml so the GitHub branch-
+# protection "required status checks" list can name the determinism gate
+# as a discrete required-passing job. It runs the pinned canonical-hash
+# regression in isolation; any platform red is the project stop-sign per
+# docs/specs/determinism-gate.md.
+#
+# Tier-A scope: smoke seed only (60-tick fixture). Phase-4+ full-corpus
+# sweep runs in a separate Tier-D manual-dispatch workflow.
+
+name: Determinism Gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: determinism-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  canonical-hash:
+    name: Canonical hash (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: determinism-${{ matrix.os }}
+          cache-on-failure: true
+
+      # The bedrock: run only the canonical_hash integration test in the
+      # fw-replay crate. Release mode (see ci.yml for rationale).
+      #
+      # On hash drift, surface the failure as a GitHub workflow annotation
+      # so it shows up on the PR diff at the test-file line, not buried in
+      # the run log. The `tee` captures stdout for the annotation step.
+      - name: Run canonical-hash regression test
+        id: canonical
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --release -p fw-replay --test canonical_hash 2>&1 | tee canonical-hash-output.txt
+
+      - name: Annotate hash drift on failure
+        if: failure()
+        shell: bash
+        run: |
+          echo "::error file=crates/fw-replay/tests/canonical_hash.rs,title=Canonical hash drift on ${{ matrix.os }}::Pinned MatchState hash does not agree across platforms. This is the Phase-0 stop-sign per docs/specs/determinism-gate.md. Either revert the offending change OR rebaseline the pinned hash via an authorized SPEC entry."
+          echo "--- Last 50 lines of test output ---"
+          tail -50 canonical-hash-output.txt || true
+
+      - name: Upload canonical-hash output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canonical-hash-${{ matrix.os }}
+          path: canonical-hash-output.txt
+          if-no-files-found: ignore
+          retention-days: 14

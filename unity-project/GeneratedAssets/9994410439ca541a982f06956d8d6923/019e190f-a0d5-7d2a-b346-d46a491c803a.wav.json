@@ -1,0 +1,15 @@
+{
+    "asset": "9994410439ca541a982f06956d8d6923",
+    "fileName": "019e190f-a0d5-7d2a-b346-d46a491c803a.wav",
+    "prompt": "A sharp, powerful anime football kick thump impact.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 2.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

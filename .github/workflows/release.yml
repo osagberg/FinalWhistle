@@ -1,0 +1,184 @@
+# Release builds — Final Whistle (Rust + Tauri pivot, T5 placeholder)
+#
+# Triggered on tag push matching v*.*.*. Builds Tauri bundles for each
+# of the three target OSes and uploads them as a GitHub Release. Mac
+# code-signing + notarization stubs are wired via apple-codesign and
+# the required Apple secrets — left as placeholders until T5-1 lands
+# the Apple Developer enrollment.
+#
+# Steam upload via steamcmd is commented out and gated on T5-2
+# (Steam Direct + steamworks-rs integration).
+#
+# SECURITY: no untrusted input is interpolated into `run:` steps. Tag
+# refs come from github.ref_name (filtered upstream by `on: push: tags:
+# 'v*.*.*'`) or from the manual workflow_dispatch input. The dispatch
+# input is operator-controlled; if you make this workflow public, audit
+# it before merging.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.1.0-scaffold). Must already exist as a git tag.'
+        required: true
+
+permissions:
+  contents: write  # required to create releases + upload assets
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build Tauri bundle (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+            bundle: dmg
+            artifact-name: finalwhistle-macos-arm64
+          - os: macos-14
+            target: x86_64-apple-darwin
+            bundle: dmg
+            artifact-name: finalwhistle-macos-x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundle: msi
+            artifact-name: finalwhistle-windows-x64
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundle: appimage
+            artifact-name: finalwhistle-linux-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install Linux Tauri prerequisites
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev
+
+      - name: Cache Cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.os }}-${{ matrix.target }}
+
+      - name: pnpm install
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: pnpm build
+        working-directory: frontend
+        run: pnpm build
+
+      # Mac code-signing setup. Secrets are NOT YET CONFIGURED — T5-1 lands
+      # the Apple Developer enrollment + Apple Identity certificate.
+      # When set, apple-codesign + tauri-action handle the signing leg.
+      # Placeholder env keeps the workflow shape stable.
+      - name: Configure Mac signing (placeholder)
+        if: startsWith(matrix.os, 'macos')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        shell: bash
+        run: |
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "::warning::Apple signing secrets not configured; build will be unsigned. Wire T5-1."
+          else
+            echo "Apple signing secrets present; tauri-action will sign + notarize."
+          fi
+
+      - name: Build Tauri bundle
+        uses: tauri-apps/tauri-action@v0
+        env:
+          # Tauri-action reads these for Mac signing when present.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: 'Final Whistle ${{ github.event.inputs.tag || github.ref_name }}'
+          releaseBody: |
+            Final Whistle build for ${{ matrix.os }} (${{ matrix.target }}).
+
+            See CHANGELOG.md for changes in this release.
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundle }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }}/**
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ----------------------------------------------------------------
+  # Steam upload (T5-2 placeholder). Gated on steamcmd availability +
+  # Steam Direct enrollment + steam-deploy secrets. Stays commented
+  # out until T5-2 lands.
+  # ----------------------------------------------------------------
+  # steam-upload:
+  #   name: Steam upload
+  #   needs: build
+  #   runs-on: ubuntu-22.04
+  #   if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+  #   steps:
+  #     - name: Download all artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         path: artifacts/
+  #
+  #     - name: Steam upload via steamcmd
+  #       uses: game-ci/steam-deploy@v3
+  #       with:
+  #         username: ${{ secrets.STEAM_USERNAME }}
+  #         configVdf: ${{ secrets.STEAM_CONFIG_VDF }}
+  #         appId: ${{ secrets.STEAM_APP_ID }}
+  #         buildDescription: 'Final Whistle ${{ github.ref_name }}'
+  #         rootPath: artifacts
+  #         depot1Path: finalwhistle-windows-x64
+  #         depot2Path: finalwhistle-macos-arm64
+  #         depot3Path: finalwhistle-linux-x64
+  #         releaseBranch: ${{ contains(github.ref_name, '-') && 'prerelease' || 'default' }}

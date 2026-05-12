@@ -1,0 +1,43 @@
+{
+  "_comment": "Manager-quote Tracery grammar, keyed at sample time by manager archetype + outcome class. Slot variables: #manager#, #team#, #opponent#, #player#, #scorer#, #stake_phrase#. Seed file (~50 templates); baker extends to per-archetype banks at T3-3.",
+
+  "origin": ["#quote#"],
+
+  "quote": [
+    "#opener# #middle# #closer#",
+    "#opener# #closer#",
+    "#middle#"
+  ],
+
+  "opener": [
+    "I thought we",
+    "Look, the lads",
+    "We knew coming in that",
+    "Credit to the players —",
+    "I'm pleased with",
+    "You can't argue with",
+    "Disappointing, ultimately —",
+    "The way the boys"
+  ],
+
+  "middle": [
+    "stuck to the plan and showed real character",
+    "gave everything against a difficult side",
+    "needed a result and got one — first and foremost",
+    "had moments but couldn't put it together for ninety minutes",
+    "controlled the tempo from the first whistle",
+    "looked sharp in the press from minute one",
+    "let ourselves down on the basics",
+    "found a way when it mattered"
+  ],
+
+  "closer": [
+    "and we move on to the next one.",
+    "that's the standard now.",
+    "we'll review the tape and learn.",
+    "the lads deserve a quiet weekend.",
+    "we're nowhere near where we want to be.",
+    "but credit to #opponent# — they made it difficult.",
+    "the supporters were excellent throughout."
+  ]
+}

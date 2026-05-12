@@ -1,0 +1,44 @@
+#!/usr/bin/env sh
+# Final Whistle — git pre-commit hook (Husky-style).
+#
+# Runs the fast lint + library tests before every commit. Mirrors the
+# CLAUDE.md §4.5 "Run scripts/fw verify before committing" rule, in a
+# lighter form (test-fast vs full release test) so the hook completes in
+# seconds rather than the full ci-local minute-budget.
+#
+# The full `scripts/fw verify` (alias for `just ci-local`) is still the
+# authoritative pre-push check; this hook is the fast pre-commit floor.
+#
+# Install
+# -------
+# Husky-style hooks live under .husky/ and are wired by:
+#
+#   pnpm dlx husky init
+#   # then this file lands here automatically; otherwise:
+#   chmod +x .husky/pre-commit
+#   git config core.hooksPath .husky
+#
+# On a fresh clone the file's executable bit may be lost. If commits
+# silently skip the hook, run:
+#
+#   chmod +x .husky/pre-commit
+#
+# Skip
+# ----
+# `git commit --no-verify` bypasses this hook. Per CLAUDE.md §10, do
+# NOT bypass hooks without explicit user permission — `--no-verify`
+# defeats the determinism floor.
+
+set -e
+
+# `just` is required. If the dev hasn't installed it yet, surface the
+# install line instead of failing cryptically.
+if ! command -v just >/dev/null 2>&1; then
+    echo "pre-commit: \`just\` not found on PATH." >&2
+    echo "  Install: brew install just  /  cargo install just" >&2
+    echo "  Or skip with: git commit --no-verify  (NOT recommended)" >&2
+    exit 1
+fi
+
+just lint
+just test-fast

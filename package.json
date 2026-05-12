@@ -1,0 +1,22 @@
+{
+  "name": "final-whistle",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Final Whistle — procedural-fantasy football manager. Workspace root.",
+  "scripts": {
+    "dev": "pnpm --filter ./frontend dev",
+    "build": "pnpm --filter ./frontend build",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "lint": "pnpm --filter ./frontend lint",
+    "test": "pnpm --filter ./frontend test"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

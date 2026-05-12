@@ -1,0 +1,31 @@
+[package]
+name = "fw-core"
+description = "Determinism primitives — Q32.32 fixed-point, Seed, Tick, ID newtypes. Zero gameplay logic."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints.clippy]
+# fw-core is a determinism crate. Floats are forbidden at the lint level so
+# the prohibition is enforced uniformly across lib + tests + examples.
+float_arithmetic = "deny"
+
+[dependencies]
+fixed       = { workspace = true }
+cordic      = { workspace = true }
+serde       = { workspace = true }
+slotmap     = { workspace = true }
+thiserror   = { workspace = true }
+
+[dev-dependencies]
+ron        = { workspace = true }
+serde_json = { workspace = true }
+# Q32's serde-round-trip tests use the bincode 1.x serialize/deserialize free
+# functions; the rest of the workspace uses bincode 2 (save format). Locking
+# this dev-dep to 1.x keeps the existing tests authoritative and avoids
+# rewriting Wave-2 code to chase API churn. The save crate (`fw-save`) pulls
+# bincode 2 via the workspace dep; the two versions coexist in dev-deps only.
+bincode    = "1"

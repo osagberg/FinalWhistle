@@ -1,0 +1,21 @@
+[package]
+name = "fw-save"
+description = "Save format + version-migration enum. bincode-backed, schema-versioned."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints.clippy]
+# Save crate is canonical-state-adjacent: it persists what the sim produced.
+# Floats forbidden — the migration codec must not introduce float drift.
+float_arithmetic = "deny"
+
+[dependencies]
+fw-core   = { workspace = true }
+fw-memory = { workspace = true }
+serde     = { workspace = true }
+bincode   = { workspace = true }
+thiserror = { workspace = true }

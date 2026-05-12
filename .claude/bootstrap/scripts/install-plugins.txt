@@ -1,8 +1,0 @@
-# Plugin install queue — paste one at a time into a fresh Claude Code session
-# opened INSIDE /Users/vibelogic/dev/football/
-#
-# These cannot be installed via tool call; they must be typed as slash commands.
-
-/plugin install feature-dev
-/plugin install pr-review-toolkit
-/plugin install hookify

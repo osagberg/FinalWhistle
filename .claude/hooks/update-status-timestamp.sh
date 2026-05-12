@@ -1,9 +1,15 @@
 #!/bin/bash
 # Stop hook: update STATUS.md "Last updated" line to today.
 #
-# Keeps the "Last updated" line honest without Claude having to remember every
-# session. The simple timestamp update is the high-value half of a potential
-# broader SPEC-vs-CHANGELOG drift check (drift check is deferred).
+# Ported verbatim from FW v1's .claude/hooks/update-status-timestamp.sh.
+# Keeps the "Last updated" line honest without Claude having to remember
+# every session. Wired by .claude/settings.json (Stop event, no matcher).
+#
+# Layout assumption: STATUS.md contains a line of the form:
+#     **Last updated**: YYYY-MM-DD [optional trailing notes]
+# Anything matching that pattern gets its date replaced with today's
+# date in YYYY-MM-DD form. The trailing notes are preserved.
+
 set -euo pipefail
 
 STATUS_FILE="${CLAUDE_PROJECT_DIR:-$(pwd)}/STATUS.md"
@@ -11,8 +17,8 @@ STATUS_FILE="${CLAUDE_PROJECT_DIR:-$(pwd)}/STATUS.md"
 
 TODAY="$(date +%Y-%m-%d)"
 
-# Replace the YYYY-MM-DD after "**Last updated**: ", preserving any trailing
-# annotation on the same line.
+# Replace the YYYY-MM-DD after "**Last updated**: ", preserving any
+# trailing annotation on the same line.
 # macOS sed: -i needs an empty '' argument.
 # Linux sed: use sed -i -E instead (remove the empty '' arg).
 if [[ "$OSTYPE" == "darwin"* ]]; then

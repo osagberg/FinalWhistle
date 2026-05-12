@@ -1,750 +1,144 @@
 #!/usr/bin/env bash
-# Final Whistle — local command front-door
+# Final Whistle — dev front-door (Rust pivot).
 #
-# Per design/production-pipeline.md: bash/makefile-first; no paid task runner.
-# Commands are read-only checks / local build helpers / explicit stubs. Every
-# command should either run a real check OR print a "not yet implemented at
-# this phase" stub — never silently succeed on nothing.
+# Bash umbrella that delegates to `just` recipes (T0-8). `fw verify` is
+# the canonical pre-commit check; CLAUDE.md §4.5 requires it green
+# before every commit. CI workflows invoke cargo/pnpm directly rather
+# than going through `fw`, so this script's availability is a dev-box
+# convenience, not a CI dependency.
 #
-# Usage: scripts/fw <command>
+# Usage: scripts/fw <command> [args]
 #        scripts/fw help
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-resolve_python() {
-    if [ -n "${PYTHON:-}" ]; then
-        printf '%s\n' "$PYTHON"
-        return 0
-    fi
-    if command -v python3 >/dev/null 2>&1; then
-        printf '%s\n' "python3"
-        return 0
-    fi
-    if command -v python >/dev/null 2>&1; then
-        printf '%s\n' "python"
-        return 0
-    fi
-    return 1
-}
-
 cmd="${1:-help}"
 shift || true
+
+# Resolve `just`. If missing, point the user at the install line instead
+# of producing the cryptic "command not found" error.
+require_just() {
+    if ! command -v just >/dev/null 2>&1; then
+        cat >&2 <<'EOF'
+fw: `just` is required but not on PATH.
+
+Install:
+  macOS:        brew install just
+  Linux:        cargo install just
+  Windows:      choco install just  OR  cargo install just
+
+See https://github.com/casey/just for other install paths.
+EOF
+        exit 2
+    fi
+}
 
 case "$cmd" in
     help|-h|--help)
         cat <<'EOF'
-Final Whistle — local command front-door
+Final Whistle — dev front-door (Rust pivot)
 
 USAGE
     scripts/fw <command> [args]
 
-COMMANDS (implemented)
-    help            Print this message
-    status          Read-only summary of repo state (git + active phase)
-    verify          Tier-A umbrella — runs every implemented fast-PR check
-    verify-docs     Doc frontmatter + unsubstituted-placeholder checks
-    banned-terms    Category-A + Category-B banned-vocabulary lint
-    banned-terms --report
-                    Emit JSON of active Category-B exemptions (EA/RC audit)
-    shader-audit    Grep viewer-adapter shaders (Assets/Viewer/) for banned
-                    _Time refs per ADR-0008/0009 determinism contract.
-                    UI / debug / loading-screen shaders are out of scope.
-    build-unity-plugins
-                    dotnet publish MatchSim + drop the DLLs into
-                    unity-project/Assets/Plugins/MatchSim/ for Unity-side
-                    consumption (per SPEC 2026-04-29 decisions log).
-                    Run after every MatchSim source change before commit.
-    verify-unity-plugins
-                    Diff freshly-published MatchSim DLLs against the bytes
-                    committed under unity-project/Assets/Plugins/MatchSim/.
-                    Catches "forgot to rerun build-unity-plugins" before
-                    Codex / CI does (SPEC 2026-04-30 Codex round-4 entry).
-    test            dotnet test against FinalWhistle.slnx (MatchSim + tests)
-    replay <seed> --compare-corpus
-                    Run a corpus seed + compare against the matching
-                    fixture under MatchSim.Tests/fixtures/replay-corpus/.
-                    Phase-3 supported seeds: 0xdeadbeefdeadbeef (Tier-A
-                    smoke fixture, FromArchetypeFormations) +
-                    0xfeedbeefcafefade (C4 primed-for-LowCutback fixture,
-                    FromLowCutbackPrimedFixture). Other seeds gate on
-                    Phase 6 corpus expansion per golden-replay-corpus.md.
-    save-migration-test
-                    Run save-migration fixture suite. Phase-3 stub-active:
-                    exits 0 when no fixtures present. First real fixture
-                    lands when MemoryEvent ships (Phase 4) per
-                    save-migration-fixtures.md.
+COMMANDS
+    verify           Lint + workspace test (CLAUDE.md §4.5 pre-commit gate)
+    dev              Launch Tauri dev mode
+    test [args]      cargo test --workspace (forwards args to cargo test)
+    test-determinism Run the canonical-hash regression in isolation
+    lint             cargo fmt --check + clippy + frontend lint + typecheck
+    fmt              Auto-fix formatting (cargo fmt + pnpm format)
+    build            cargo build --workspace
+    bundle           Full Tauri bundle for current platform
+    clean            Purge target/ + frontend/node_modules
+    bake             Regenerate content corpus (T2+ stub until baker lands)
+    cross-check      Smoke-compile Win/Linux targets from Mac via cargo-zigbuild
+    help             Print this message
 
-COMMANDS (stubbed — land when their phase trigger hits)
-    content-lint    Full content-pack validator (Phase 6)
-    build-local     Unity build, current platform only (Phase 3)
-    package-playtest   Signed build zip for itch upload (Phase 4)
-
-Run `scripts/fw help <command>` for per-command detail (once implemented).
+NOTES
+    All commands are thin wrappers around `just` recipes. Run `just --list`
+    for the full recipe catalog if you'd rather invoke just directly.
 EOF
         ;;
 
     verify)
-        # Tier-A umbrella. Calls every implemented fast-PR check in sequence.
-        # New checks get wired in here as their deliverables land (see
-        # design/production-pipeline.md §workflow-tiers Tier A).
-        "$0" verify-docs
-        "$0" banned-terms
-        "$0" shader-audit
-        "$0" verify-unity-plugins
-        "$0" save-migration-test
-        "$0" test
-        # Future additions: corpus replay --compare-corpus once the
-        # umbrella's runtime budget can absorb it (currently `fw test`
-        # already covers the smoke fixture via xUnit), content-lint (Phase 6).
+        require_just
+        cd "$ROOT"
+        just ci-local
         ;;
 
-    banned-terms)
-        # Category-A (hard-ban) + Category-B (soft-ban w/ inline exemption)
-        # vocabulary lint. Source of truth: design/ui-vocabulary.md.
-        # Accepts --report for Category-B exemption audit JSON.
-        python_cmd="$(resolve_python)" || {
-            echo "FAIL: python3/python not found on PATH." >&2
-            exit 2
-        }
-        exec "$python_cmd" "$ROOT/scripts/lint-banned-terms.py" --root "$ROOT" "$@" "$ROOT"
-        ;;
-
-    status)
-        echo "=== Final Whistle — repo status ==="
-        echo
-        echo "Path:          $ROOT"
-        echo -n "Branch:        "; git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "(not a git repo)"
-        echo -n "Head:          "; git -C "$ROOT" log -1 --oneline 2>/dev/null || echo "(no commits)"
-        echo -n "Clean?         "
-        if [ -z "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
-            echo "yes"
-        else
-            echo "no (uncommitted changes)"
-        fi
-        echo
-        echo "Active phase:"
-        grep -m1 '🟡 ACTIVE' "$ROOT/SPEC.md" 2>/dev/null \
-            | sed 's/^[[:space:]]*[-*#]\{1,\}[[:space:]]*//' \
-            || echo "  (no active phase found in SPEC.md)"
-        echo
-        echo "Last updated (STATUS.md):"
-        grep -m1 '^\*\*Last updated\*\*' "$ROOT/STATUS.md" 2>/dev/null \
-            | sed 's/\*\*//g' \
-            || echo "  (STATUS.md not found or missing Last updated line)"
-        ;;
-
-    verify-docs)
-        echo "=== Final Whistle — verify-docs ==="
-        echo
-        exit_code=0
-
-        # 1. Every design doc has frontmatter with `description`.
-        echo "Checking design/**.md frontmatter..."
-        while IFS= read -r -d '' f; do
-            [ -f "$f" ] || continue
-            if ! head -5 "$f" | grep -q '^description:'; then
-                echo "  FAIL: $f missing 'description:' in frontmatter"
-                exit_code=1
-            fi
-        done < <(find "$ROOT/design" -type f -name '*.md' -print0 2>/dev/null)
-
-        # 2. No literal template placeholders in shipped docs.
-        #    Legitimate exemption: sentinel-block pairs per design/ui-vocabulary.md
-        #    2026-04-24 resolution — content between `ui-lint:ignore-start` and
-        #    `ui-lint:ignore-end` markers is skipped (banned-term catalogs,
-        #    historical meta-references to placeholders that were fixed, etc.).
-        #    Also excludes .claude/bootstrap (source-of-truth), design-templates,
-        #    and .claude/session-snapshots (auto-generated pre-compact artifacts).
-        #
-        #    Pattern matches both spaced ({{ PROJECT_NAME }}) and unspaced
-        #    ({{PROJECT_NAME}}) forms — GPT-5.5 2026-04-24 feedback: the lint
-        #    must catch both, never rely on spelling variants.
-        echo "Checking for unsubstituted template placeholders..."
-        placeholder_hits=""
-        while IFS= read -r -d '' f; do
-            case "$f" in
-                */.claude/bootstrap/*|*/.claude/session-snapshots/*|*/design-templates/*|*/node_modules/*) continue ;;
-                # Unity-generated dirs — never source-controlled, often contain
-                # third-party package docs with non-UTF8 encodings or legitimate
-                # Mustache-style template tokens that aren't ours. Always skip.
-                */unity-project/Library/*|*/unity-project/Temp/*|*/unity-project/Logs/*|*/unity-project/Obj/*|*/unity-project/UserSettings/*|*/unity-project/MemoryCaptures/*|*/unity-project/Build/*|*/unity-project/Builds/*) continue ;;
-            esac
-            # Strip sentinel-ignored regions, then check for placeholder tokens.
-            filtered=$(awk '
-                /ui-lint:ignore-start/ {skip=1; next}
-                /ui-lint:ignore-end/   {skip=0; next}
-                !skip                  {print}
-            ' "$f")
-            if echo "$filtered" | grep -q '{{[[:space:]]*[A-Z_]\+[[:space:]]*}}'; then
-                placeholder_hits="${placeholder_hits}${f}\n"
-            fi
-        done < <(find "$ROOT" -type f \( -name '*.md' -o -name '*.sh' \) \
-            -not -path '*/unity-project/Library/*' \
-            -not -path '*/unity-project/Temp/*' \
-            -not -path '*/unity-project/Logs/*' \
-            -not -path '*/unity-project/Obj/*' \
-            -not -path '*/unity-project/UserSettings/*' \
-            -not -path '*/unity-project/MemoryCaptures/*' \
-            -not -path '*/unity-project/Build/*' \
-            -not -path '*/unity-project/Builds/*' \
-            -print0 2>/dev/null)
-
-        if [ -n "$placeholder_hits" ]; then
-            echo "  FAIL: placeholder tokens found (outside sentinel blocks):"
-            printf "    %b" "$placeholder_hits" | sed 's/^/    /'
-            exit_code=1
-        fi
-
-        # 3. Decisions-log is append-only discipline is enforced by hook at
-        #    edit time — this is a light sanity check, not the hook.
-        echo "Checking SPEC.md decisions-log is non-empty..."
-        if ! grep -q '^- \*\*[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\*\*' "$ROOT/SPEC.md"; then
-            echo "  FAIL: SPEC.md decisions log has no dated entries"
-            exit_code=1
-        fi
-
-        if [ "$exit_code" = "0" ]; then
-            echo
-            echo "OK: verify-docs clean"
-        else
-            echo
-            echo "verify-docs found issues; see above"
-        fi
-        exit "$exit_code"
-        ;;
-
-    shader-audit)
-        # Phase-3 Week-1 priority #6 — author-side determinism gate.
-        #
-        # ADR-0008 ShotPresentationContract + ADR-0009 dots-phase render adapter
-        # both inherit ADR-0002's discipline that VIEWER ADAPTER shaders must
-        # not read frame-time intrinsics. The match-replay corpus pins
-        # adapter-keyed pass-activation hashes per seed; if a viewer-adapter
-        # shader uses _Time / _SinTime / _CosTime / _DeltaTime /
-        # _TimeParameters, the rendered output drifts per playback even
-        # though the canonical MatchSim state is byte-identical. That
-        # breaks the replay contract.
-        #
-        # Scope: VIEWER-ADAPTER shaders only.
-        #
-        # ADR-0008 explicitly exempts visual-only effects from the
-        # determinism hash — meaning UI / debug / menu / loading-screen
-        # shaders may legitimately use _Time (breathing-glow on selected
-        # items, blinking cursors, animated loading indicators, etc.).
-        # Those are NOT in the determinism path. Auditing them would
-        # produce false-positives that block legitimate work.
-        #
-        # The audit therefore scans only the canonical viewer-adapter
-        # tree: `unity-project/Assets/Viewer/` (the asmdef-rooted folder
-        # for `Viewer.Contracts` / `Viewer.Core` / `Viewer.Adapters.Dots`
-        # per ADR-0008/0009 asmdef plan). Shaders authored elsewhere in
-        # the project — UI, debug, editor tools, post-match-screens — are
-        # outside the determinism contract and intentionally not scanned.
-        #
-        # If a shader sits in `Assets/Viewer/` but legitimately needs
-        # _Time (e.g., a non-replay-captured overlay rendered separately
-        # from the viewer-adapter path), move it to a non-`Viewer/` path
-        # OR raise an ADR that revisits the contract — don't suppress the
-        # check inline.
-        #
-        # Phase-3-skeleton mode: when `Assets/Viewer/` doesn't exist yet
-        # (current state — asmdef skeleton task hasn't landed), the script
-        # exits 0 with a friendly "no viewer shaders to audit yet"
-        # message. Same skeleton-stub pattern as `fw save-migration-test`
-        # per the 2026-04-28 enforcement-skeleton-rollout decisions entry.
-        # Real catch begins automatically the moment the dots adapter
-        # authors its first shader under the viewer tree.
-        #
-        # On hit: prints `<file>:<line>: <matched-line>` for every offence
-        # and exits non-zero. CI surfaces the failure via the existing
-        # fast-pr-ci.yml `fw verify` umbrella.
-        echo "=== Final Whistle — shader-audit ==="
-        echo
-        viewer_root="$ROOT/unity-project/Assets/Viewer"
-        if [ ! -d "$viewer_root" ]; then
-            echo "OK: unity-project/Assets/Viewer/ doesn't exist yet — no viewer-adapter shaders to audit."
-            echo "(Phase-3 stub-active mode; first viewer-adapter shader under that tree trips real catch.)"
-            exit 0
-        fi
-
-        # Collect viewer-adapter shader-family files. Scope is the
-        # asmdef-rooted Viewer/ tree per ADR-0008/0009 — UI / debug /
-        # editor / loading-screen shaders elsewhere in Assets/ are
-        # intentionally outside this audit.
-        shader_files=$(find "$viewer_root" \
-            -type f \
-            \( -name '*.shader' -o -name '*.hlsl' -o -name '*.cginc' -o -name '*.shadergraph' -o -name '*.subshader' \) \
-            2>/dev/null)
-
-        if [ -z "$shader_files" ]; then
-            echo "OK: no viewer-adapter shader files under unity-project/Assets/Viewer/ yet."
-            echo "(Phase-3 stub-active mode; first viewer-adapter shader under that tree trips real catch.)"
-            exit 0
-        fi
-
-        # Banned shader-time intrinsic names. Trailing-boundary anchor uses a
-        # POSIX-portable negative bracket class instead of `\b` (which is NOT
-        # supported by BSD `grep -E` on macOS). The trailing `[^A-Za-z0-9_]`
-        # excludes false-positives like `_TimeOfDay` while still catching
-        # `_Time.y` / `_Time;` / `_Time,` / `_Time)` etc. — the dot,
-        # semicolon, comma, paren are all non-identifier chars. The `|$`
-        # branch handles end-of-line / end-of-file occurrences.
-        # Patterns:
-        #   _Time, _SinTime, _CosTime, _DeltaTime, _TimeParameters — HLSL globals
-        #   `TimeNode` — appears in .shadergraph JSON as e.g.
-        #     `"m_Type": "UnityEditor.ShaderGraph.TimeNode"`
-        banned_pattern='_(Time|SinTime|CosTime|DeltaTime|TimeParameters)([^A-Za-z0-9_]|$)|TimeNode'
-
-        echo "Scanning viewer-adapter shader files (Assets/Viewer/) for banned _Time refs..."
-        echo "$shader_files" | sed "s|^$ROOT/||" | sort | sed 's/^/  /'
-        echo
-
-        hits=0
-        while IFS= read -r f; do
-            [ -f "$f" ] || continue
-            # `grep -nE` prints `<line>:<text>`; we prefix with the file path.
-            file_hits=$(grep -nE "$banned_pattern" "$f" 2>/dev/null || true)
-            if [ -n "$file_hits" ]; then
-                rel="${f#$ROOT/}"
-                echo "  FAIL: $rel"
-                printf '%s\n' "$file_hits" | sed "s|^|    |"
-                hits=$((hits + 1))
-            fi
-        done <<EOF
-$shader_files
-EOF
-
-        if [ "$hits" -eq 0 ]; then
-            echo "OK: shader-audit clean — no banned _Time refs in viewer-adapter shaders."
-            exit 0
-        fi
-
-        echo
-        echo "shader-audit FAIL: $hits file(s) under Assets/Viewer/ reference banned _Time intrinsics."
-        echo "  Replays must be pixel-stable per ADR-0008/0009. Resolution:"
-        echo "    - Remove the _Time-driven visual from the shader, OR"
-        echo "    - Move the shader OUT of Assets/Viewer/ if it's actually a UI /"
-        echo "      debug / loading / non-replay-captured surface (those paths are"
-        echo "      not in the determinism hash and are not audited)."
-        echo "  If neither resolution fits, raise an ADR that revisits the contract."
-        exit 1
-        ;;
-
-    build-unity-plugins)
-        # MatchSim → Unity DLL-drop bundler (per SPEC 2026-04-29 decisions log
-        # — MatchSim consumption strategy = checked-in DLL drop with this
-        # script as the explicit rebuild gate).
-        #
-        # Pipeline:
-        #   1. `dotnet publish MatchSim/MatchSim.csproj -c Release` — required
-        #      (NOT `dotnet build`, which doesn't copy transitive NuGet deps
-        #      for class libraries). Publish puts `FinalWhistle.MatchSim.dll`
-        #      + `FinalWhistle.MatchSim.pdb` + `YamlDotNet.dll` together.
-        #   2. Copy the three files into `unity-project/Assets/Plugins/MatchSim/`.
-        #      Skipped: `.deps.json` (runtime-host manifest; Unity ignores it)
-        #      + `.xml` doc-comment file (~87KB, no Editor benefit yet).
-        #   3. Existing `.meta` files are NEVER overwritten — Unity owns GUID
-        #      stability for these DLLs, and the .meta survives across runs
-        #      so existing Unity scenes / asmdef references stay valid.
-        #
-        # First-run user-action: after the script runs the first time, open
-        # Unity once so it generates `.meta` files for the new DLLs, then
-        # commit those .meta files. Subsequent runs only refresh the DLL
-        # bytes; .meta stability is preserved.
-        #
-        # Idempotency: re-running with no MatchSim source change is a no-op
-        # at the dotnet-publish layer (incremental build) + the cp layer
-        # overwrites bytes only if they differ.
-        echo "=== Final Whistle — build-unity-plugins ==="
-        echo
-        if ! command -v dotnet >/dev/null 2>&1; then
-            echo "FAIL: dotnet SDK not found on PATH." >&2
-            echo "Install .NET 10+ SDK; see SETUP.md §4." >&2
-            exit 2
-        fi
-
-        matchsim_proj="MatchSim/MatchSim.csproj"
-        if [ ! -f "$ROOT/$matchsim_proj" ]; then
-            echo "FAIL: $ROOT/$matchsim_proj missing." >&2
-            exit 2
-        fi
-
-        target_dir="$ROOT/unity-project/Assets/Plugins/MatchSim"
-        publish_tmp=$(mktemp -d -t fw-build-unity-plugins.XXXXXX)
-        # Bash trap to remove the temp dir even on failure mid-script.
-        trap 'rm -rf "$publish_tmp"' EXIT
-
-        # PdbFile is passed as a command-line MSBuild property because the SDK
-        # assigns its default late in the build. Without this explicit relative
-        # path, a fresh clone can embed its absolute checkout path in the
-        # CodeView record while a stale local obj/ build appears clean.
-        stable_pdb_file="obj/Release/netstandard2.1/FinalWhistle.MatchSim.pdb"
-
-        echo "Publishing MatchSim (Release, netstandard2.1) to staging..."
-        (cd "$ROOT" && dotnet publish "$matchsim_proj" \
-            -c Release \
-            --nologo \
-            "/p:PdbFile=$stable_pdb_file" \
-            -o "$publish_tmp" \
-            >/dev/null)
-
-        # Verify the expected files arrived.
-        for required in FinalWhistle.MatchSim.dll YamlDotNet.dll; do
-            if [ ! -f "$publish_tmp/$required" ]; then
-                echo "FAIL: $required missing from publish output ($publish_tmp)." >&2
-                exit 2
-            fi
-        done
-
-        echo "Staging DLLs in ${target_dir}..."
-        mkdir -p "$target_dir"
-
-        # Copy ONLY the files Unity actually needs. .deps.json + .xml stay
-        # in the staging dir (will be cleaned by the trap). PDB is included
-        # because Unity uses managed-PDBs for real stack traces in the Editor.
-        copied=0
-        for f in FinalWhistle.MatchSim.dll FinalWhistle.MatchSim.pdb YamlDotNet.dll; do
-            if [ ! -f "$publish_tmp/$f" ]; then
-                # PDB may not exist on Release; that's OK, just skip it.
-                if [ "$f" = "FinalWhistle.MatchSim.pdb" ]; then
-                    continue
-                fi
-                echo "FAIL: $f missing from publish output." >&2
-                exit 2
-            fi
-            cp "$publish_tmp/$f" "$target_dir/$f"
-            copied=$((copied + 1))
-        done
-
-        echo
-        echo "OK: copied $copied file(s) to $target_dir"
-
-        # First-run guidance — only mention if any plugin .meta file is missing.
-        missing_metas=0
-        for f in "$target_dir/FinalWhistle.MatchSim.dll" "$target_dir/YamlDotNet.dll"; do
-            if [ -f "$f" ] && [ ! -f "$f.meta" ]; then
-                missing_metas=$((missing_metas + 1))
-            fi
-        done
-        if [ "$missing_metas" -gt 0 ]; then
-            echo
-            echo "First-run note: $missing_metas DLL(s) lack .meta files."
-            echo "  Open Unity once so the Editor generates .meta files for the new"
-            echo "  plugins, then commit them alongside the DLLs. After that, future"
-            echo "  runs of this command preserve .meta stability automatically."
-        fi
-        ;;
-
-    verify-unity-plugins)
-        # Plugin freshness gate per SPEC 2026-04-30 Codex round-4 entry.
-        #
-        # The DLL drop at `unity-project/Assets/Plugins/MatchSim/` is a
-        # checked-in build artifact. SPEC 2026-04-29 made it the Phase-3
-        # Unity consumption strategy; the drop's reproducibility depends
-        # on every committed pair (.dll + .pdb) being byte-equal to a
-        # fresh `dotnet publish` of the corresponding MatchSim source.
-        #
-        # Without a verify gate, a silent stale commit (you forgot to run
-        # `fw build-unity-plugins` after a MatchSim edit) survives `fw
-        # verify` even though the next contributor cloning + opening Unity
-        # would see Phase-3 sim code that disagrees with the dropped DLL.
-        # CI catches this on the cross-platform deterministic-test matrix
-        # because tests load the source-built DLL, not the dropped one,
-        # so divergence shows up as "Unity-side and headless tests
-        # disagree on canonical state" — but only when someone actually
-        # runs Unity. This subcheck closes that gap inside Tier-A.
-        #
-        # Mechanism: publish MatchSim to a tempdir with the same flags as
-        # `fw build-unity-plugins`, then byte-diff the produced DLL/PDB
-        # against the committed copy. Reproducibility relies on the
-        # deterministic-build properties already pinned in MatchSim.csproj
-        # (Deterministic=true + PathMap + SourceControlInformationFeature-
-        # Supported=false) plus the explicit relative PdbFile publish property.
-        # Together they make this front-door publish bit-identical across
-        # machines and commits, so the diff only fires when someone genuinely
-        # forgot to rebuild.
-        echo "=== Final Whistle — verify-unity-plugins ==="
-        echo
-        if ! command -v dotnet >/dev/null 2>&1; then
-            echo "FAIL: dotnet SDK not found on PATH." >&2
-            exit 2
-        fi
-
-        matchsim_proj="MatchSim/MatchSim.csproj"
-        target_dir="$ROOT/unity-project/Assets/Plugins/MatchSim"
-        unity_manifest="$ROOT/unity-project/Packages/manifest.json"
-
-        # Phase-aware target_dir-missing branch (per silent-failure-hunter
-        # 2026-04-30 P2 #5). The earlier "OK if missing" framing was correct
-        # only for the truly-fresh-clone state where unity-project/ itself
-        # didn't exist. Once unity-project/Packages/manifest.json is
-        # present, the plugin drop is committed-required (SPEC 2026-04-29),
-        # so a missing target_dir is drift, not stub-mode.
-        if [ ! -f "$unity_manifest" ]; then
-            echo "OK: unity-project/ not yet bootstrapped — no plugin drop to verify."
-            exit 0
-        fi
-        if [ ! -d "$target_dir" ]; then
-            {
-                echo "FAIL: $target_dir is missing despite unity-project/ being bootstrapped."
-                echo "  Plugin drop is committed-required per SPEC 2026-04-29."
-                echo "  Run:    scripts/fw build-unity-plugins"
-                echo "  Stage:  git add unity-project/Assets/Plugins/MatchSim/"
-            } >&2
-            exit 2
-        fi
-
-        publish_tmp=$(mktemp -d -t fw-verify-unity-plugins.XXXXXX)
-        trap 'rm -rf "$publish_tmp"' EXIT
-
-        stable_pdb_file="obj/Release/netstandard2.1/FinalWhistle.MatchSim.pdb"
-
-        # Explicit publish exit-code check (per silent-failure-hunter 2026-04-30
-        # P2 #6). stdout is muted (avoid noise on green); stderr stays visible.
-        # On non-zero, surface a real diagnostic instead of letting the
-        # downstream "drift=N" loop produce misleading "missing from publish
-        # output" lines for what's really a compile failure.
-        echo "Publishing MatchSim to staging for byte-comparison..."
-        if ! (cd "$ROOT" && dotnet publish "$matchsim_proj" \
-            -c Release \
-            --nologo \
-            "/p:PdbFile=$stable_pdb_file" \
-            -o "$publish_tmp" \
-            >/dev/null); then
-            {
-                echo "FAIL: dotnet publish failed (see stderr above for the real error)."
-                echo "  Fix the source error, then re-run scripts/fw verify-unity-plugins."
-            } >&2
-            exit 2
-        fi
-
-        # Files we expect to be in lockstep. PDB compared because it
-        # carries the embedded source-paths + MVID; if it drifts, the
-        # source did too. PDB is REQUIRED — both DebugType=portable
-        # (default) and our deterministic-build settings emit it. An
-        # absent PDB at this stage means MatchSim.csproj changed in a
-        # way that suppresses PDB emission (e.g., DebugType=none); the
-        # source-path-embed verification signal would silently disappear
-        # if we kept skipping (per silent-failure-hunter P2 #7).
-        check_files="FinalWhistle.MatchSim.dll FinalWhistle.MatchSim.pdb YamlDotNet.dll"
-        drift=0
-        for f in $check_files; do
-            staged="$publish_tmp/$f"
-            committed="$target_dir/$f"
-            if [ ! -f "$staged" ]; then
-                echo "  FAIL: $f missing from publish output ($publish_tmp)" >&2
-                if [ "$f" = "FinalWhistle.MatchSim.pdb" ]; then
-                    echo "    PDB emission is required for the source-path-embed " \
-                         "verification signal." >&2
-                    echo "    Check MatchSim.csproj DebugType (must be 'portable' " \
-                         "or 'embedded')." >&2
-                fi
-                drift=$((drift + 1))
-                continue
-            fi
-            if [ ! -f "$committed" ]; then
-                echo "  FAIL: $f committed plugin missing at $committed" >&2
-                drift=$((drift + 1))
-                continue
-            fi
-            if ! cmp -s "$staged" "$committed"; then
-                # Linux CI runners ship sha256sum (coreutils); macOS ships
-                # only shasum (Perl). feature-dev:code-reviewer 2026-04-30
-                # caught the latent diagnostic-truncation on Linux.
-                if command -v sha256sum >/dev/null 2>&1; then
-                    staged_sha=$(sha256sum "$staged" | awk '{print $1}')
-                    committed_sha=$(sha256sum "$committed" | awk '{print $1}')
-                else
-                    staged_sha=$(shasum -a 256 "$staged" | awk '{print $1}')
-                    committed_sha=$(shasum -a 256 "$committed" | awk '{print $1}')
-                fi
-                echo "  FAIL: $f bytes drift" >&2
-                echo "    staged   : sha256:$staged_sha" >&2
-                echo "    committed: sha256:$committed_sha" >&2
-                drift=$((drift + 1))
-            fi
-        done
-
-        if [ "$drift" -eq 0 ]; then
-            echo "OK: plugin drop matches a fresh dotnet publish (3 file(s) checked)."
-            exit 0
-        fi
-
-        echo
-        echo "verify-unity-plugins FAIL: $drift file(s) drifted from a fresh build."
-        echo "  Run: scripts/fw build-unity-plugins"
-        echo "  Then re-stage + commit: git add unity-project/Assets/Plugins/MatchSim/"
-        exit 2
+    dev)
+        require_just
+        cd "$ROOT"
+        just dev
         ;;
 
     test)
-        # Phase-3 Week-1 deliverable: dotnet test against MatchSim solution.
-        # Wired into `fw verify` umbrella so Tier-A CI picks this up
-        # automatically per design/production-pipeline.md §Tier-A.
-        echo "=== Final Whistle — dotnet test ==="
-        echo
-        if ! command -v dotnet >/dev/null 2>&1; then
-            echo "FAIL: dotnet SDK not found on PATH." >&2
-            echo "Install .NET 10+ SDK; see SETUP.md §4." >&2
-            exit 2
+        require_just
+        cd "$ROOT"
+        # Forward extra args to `cargo test` via a recipe arg form. The
+        # bare recipe doesn't take args; for filter / single-test work,
+        # invoke cargo directly: `cargo test --workspace <filter>`.
+        if [ "$#" -eq 0 ]; then
+            just test
+        else
+            cargo test --workspace --release "$@"
         fi
-        # Solution file is .slnx (XML) per .NET 10 default.
-        solution="$ROOT/FinalWhistle.slnx"
-        if [ ! -f "$solution" ]; then
-            echo "FAIL: $solution missing." >&2
-            exit 2
-        fi
-        # `--nologo` keeps output focused; `-c Release` is overkill for Tier-A
-        # and slower than Debug — stay on default Debug for fast-PR cadence.
-        exec dotnet test "$solution" --nologo "$@"
         ;;
 
-    replay)
-        # Phase-3 enforcement-skeleton-rollout per SPEC 2026-04-28 + Codex
-        # round-4 follow-up plan (commit #4 of 6, 2026-04-30).
-        #
-        # Tier-A CI contract per design/specs/golden-replay-corpus.md §Tier A:
-        #   `fw replay <seed> --compare-corpus`
-        # Runs the seed through MatchSim headless, computes actual hashes,
-        # compares against the corpus fixture's expected fields, exits 0
-        # on match / non-zero on drift. Must complete in under 30 seconds
-        # on GitHub-hosted Linux.
-        #
-        # Phase-3 implementation: shells out to `dotnet test --filter` against
-        # the corpus-fixture-validating Fact in MatchDeterminismTests.cs.
-        # That Fact reads the JSON fixture + asserts its expected hash
-        # matches the in-code SmokeSeed60TickHash constant. The constant
-        # is itself verified by the load-bearing
-        # Match_SmokeFixture60Ticks_ProducesPinnedCanonicalStateHash test
-        # (the actual sim-run); together they form the corpus contract.
-        # Phase-4+ may upgrade this to a dedicated dotnet console tool
-        # (`MatchSim.Tools.Replay`) as fixture count grows; for one fixture
-        # the dotnet-test shell-out is appropriate.
-        echo "=== Final Whistle — fw replay ==="
-        echo
-        seed="${1:-}"
-        flag="${2:-}"
-        if [ -z "$seed" ]; then
-            cat >&2 <<EOF
-fw replay: missing <seed> argument.
-
-USAGE:
-    scripts/fw replay <seed> [--compare-corpus]
-
-  <seed>             16-hex-digit canonical seed, e.g. 0xdeadbeefdeadbeef.
-  --compare-corpus   Compare run output against the matching corpus fixture
-                     under MatchSim.Tests/fixtures/replay-corpus/<seed>.json.
-                     Currently the only supported mode for Phase 3 — bare
-                     replay (without comparison) is Phase 4+ scope.
-EOF
-            exit 2
-        fi
-
-        if [ "$flag" != "--compare-corpus" ]; then
-            cat >&2 <<EOF
-fw replay: only --compare-corpus is implemented at Phase 3.
-
-USAGE:
-    scripts/fw replay $seed --compare-corpus
-
-Phase 4+ adds bare replay + --regenerate-corpus + --all flags per the
-golden-replay-corpus.md spec.
-EOF
-            exit 2
-        fi
-
-        # Phase-3 covers the smoke seed + the C4 primed-for-LowCutback
-        # seed (2026-05-11 polish-pass — see C1 audit topic). Other seeds
-        # trigger when additional fixtures land in Phase-6 corpus expansion.
-        case "$seed" in
-            0xdeadbeefdeadbeef)
-                # Tier-A smoke fixture (FromArchetypeFormations).
-                test_filter="FullyQualifiedName~Replay_SmokeCorpusFixture_AgreesWithPinnedInCodeHash|FullyQualifiedName~Match_SmokeFixture60Ticks_ProducesPinnedCanonicalStateHash"
-                ;;
-            0xfeedbeefcafefade)
-                # C4 primed-for-LowCutback fixture (FromLowCutbackPrimedFixture).
-                # Per the corpus JSON at MatchSim.Tests/fixtures/replay-corpus/0xfeedbeefcafefade.json:
-                # 60-tick playback from the primed initial state; LowCutback signature
-                # fires tick 0 → ball kicked toward goal → goal scored ~tick 50.
-                # The in-code hash pin lives in
-                # LowCutbackPrimedFixtureTests.FromLowCutbackPrimedFixture_60TickPlayback_HashMatchesPin.
-                test_filter="FullyQualifiedName~FromLowCutbackPrimedFixture_60TickPlayback_HashMatchesPin|FullyQualifiedName~FromLowCutbackPrimedFixture_FiresSignatureWithinFirstTicks"
-                ;;
-            *)
-                cat >&2 <<EOF
-fw replay: seed $seed not in the Phase-3 supported set.
-
-Phase-3 supports:
-  0xdeadbeefdeadbeef — Tier-A smoke fixture (FromArchetypeFormations).
-  0xfeedbeefcafefade — C4 primed-for-LowCutback fixture (FromLowCutbackPrimedFixture).
-
-Other seeds gate on Phase-6 corpus expansion (20-50 fixtures per the corpus
-growth policy in design/specs/golden-replay-corpus.md).
-EOF
-                exit 2
-                ;;
-        esac
-
-        if ! command -v dotnet >/dev/null 2>&1; then
-            echo "FAIL: dotnet SDK not found on PATH." >&2
-            exit 2
-        fi
-
-        echo "Running corpus-fixture compare for seed $seed..."
-        # The fixture-validating Fact + the actual-run Fact together form
-        # the corpus contract. Both must pass for a green replay.
-        exec dotnet test "$ROOT/FinalWhistle.slnx" \
-            --filter "$test_filter" \
-            --nologo
+    test-determinism)
+        require_just
+        cd "$ROOT"
+        just test-determinism
         ;;
 
-    save-migration-test)
-        # Phase-3 enforcement-skeleton-rollout per SPEC 2026-04-28 + Codex
-        # round-4 follow-up plan (commit #4 of 6, 2026-04-30).
-        #
-        # Stub-active: exits 0 when no fixtures are present under
-        # MatchSim.Tests/fixtures/save-migration/. First real fixture
-        # lands when MemoryEvent ships its first schema (Phase 4).
-        # Wired into `fw verify` umbrella because the no-fixtures path
-        # is essentially zero-cost.
-        echo "=== Final Whistle — save-migration-test ==="
-        echo
-        fixtures_dir="$ROOT/MatchSim.Tests/fixtures/save-migration"
-        if [ ! -d "$fixtures_dir" ]; then
-            echo "OK: $fixtures_dir does not exist yet — Phase-4 trigger."
-            exit 0
-        fi
-        # Count actual fixture files (anything other than .gitkeep).
-        fixture_count=$(find "$fixtures_dir" -type f ! -name '.gitkeep' 2>/dev/null | wc -l | tr -d ' ')
-        if [ "$fixture_count" = "0" ]; then
-            echo "OK: no save-migration fixtures yet (Phase-4 trigger when MemoryEvent ships)."
-            exit 0
-        fi
-        echo "FAIL: $fixture_count save-migration fixture(s) present but no Phase-4" >&2
-        echo "      runner is implemented yet." >&2
-        echo "      Either remove the fixtures or implement the runner." >&2
-        exit 2
+    lint)
+        require_just
+        cd "$ROOT"
+        just lint
         ;;
 
-    content-lint|build-local|package-playtest)
-        cat >&2 <<EOF
-fw: '$cmd' is not implemented yet at this phase.
+    fmt)
+        require_just
+        cd "$ROOT"
+        just fmt
+        ;;
 
-Implementation lands at its phase trigger:
-  build-local                  Phase 3 (Unity build, current platform only)
-  package-playtest             Phase 4 (closed itch distribution)
-  content-lint                 Phase 6 (full content-pack validator)
+    build)
+        require_just
+        cd "$ROOT"
+        just build-debug
+        ;;
 
-See design/production-pipeline.md for the overall plan.
-EOF
-        exit 2
+    bundle)
+        require_just
+        cd "$ROOT"
+        just bundle
+        ;;
+
+    clean)
+        require_just
+        cd "$ROOT"
+        just clean
+        ;;
+
+    bake)
+        require_just
+        cd "$ROOT"
+        just bake-content
+        ;;
+
+    cross-check)
+        require_just
+        cd "$ROOT"
+        just cross-check
         ;;
 
     *)
         echo "fw: unknown command '$cmd'" >&2
-        echo "Try 'scripts/fw help' for a list of commands." >&2
+        echo "Run 'scripts/fw help' for a list of commands." >&2
         exit 2
         ;;
 esac

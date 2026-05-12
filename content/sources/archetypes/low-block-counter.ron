@@ -1,0 +1,31 @@
+// Low-block-counter tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Companion to attacking-fullback. Deep defensive line, narrow shape, two
+// fast transitional outlets up top. Low press radius (engage only when the
+// ball crosses the halfway line) and high buildup speed (route-one when
+// counter-attacking).
+//
+// Ported in shape from FW v1 low-block-counter.yaml per MIGRATION_AUDIT §2.4.
+
+TacticalArchetype(
+    id: "fwh.core:archetype.low-block-counter",
+    formation: [
+        // Goalkeeper, deep
+        FormationSlot(roster_slot:  1, role: "GK",  x: -48, z:   0),
+        // Back five — deeper than 4-4-2; wing-backs tucked in
+        FormationSlot(roster_slot:  2, role: "RWB", x: -32, z:  18),
+        FormationSlot(roster_slot:  3, role: "RCB", x: -38, z:   8),
+        FormationSlot(roster_slot:  4, role: "CCB", x: -40, z:   0),
+        FormationSlot(roster_slot:  5, role: "LCB", x: -38, z:  -8),
+        FormationSlot(roster_slot:  6, role: "LWB", x: -32, z: -18),
+        // Three central midfielders, compact
+        FormationSlot(roster_slot:  7, role: "RCM", x: -18, z:   8),
+        FormationSlot(roster_slot:  8, role: "CDM", x: -22, z:   0),
+        FormationSlot(roster_slot:  9, role: "LCM", x: -18, z:  -8),
+        // Two transitional strikers
+        FormationSlot(roster_slot: 10, role: "RST", x:  18, z:   8),
+        FormationSlot(roster_slot: 11, role: "LST", x:  18, z:  -8),
+    ],
+    press_radius_metres: 15,
+    buildup_speed_factor: 1.15,
+)

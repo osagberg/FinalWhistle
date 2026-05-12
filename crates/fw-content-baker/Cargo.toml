@@ -1,0 +1,48 @@
+[package]
+name        = "fw-content-baker"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+description = "Bake-time LLM content compiler for Final Whistle. Dev-only CLI — never linked into the runtime."
+
+# Binary-only crate. The runtime (fw-content) does NOT depend on this — that's
+# the whole point of the bake-time/runtime split. No tokio / reqwest / API-keys
+# anywhere downstream of fw-content.
+[[bin]]
+name = "fw-content-baker"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace-internal: the baker emits artifacts that fw-content reads.
+fw-content = { workspace = true }
+fw-core    = { workspace = true }
+
+# Serialization (RON output, JSON intermediate from LLM responses)
+serde      = { workspace = true }
+serde_json = { workspace = true }
+ron        = { workspace = true }
+
+# CLI
+clap       = { version = "4", features = ["derive"] }
+
+# Async + HTTP for Claude API calls. Confined to this crate; never reaches
+# fw-content or any runtime path.
+tokio      = { version = "1", features = ["rt-multi-thread", "macros", "fs"] }
+reqwest    = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Error handling
+anyhow     = { workspace = true }
+thiserror  = { workspace = true }
+
+# Logging
+log        = { workspace = true }
+env_logger = { workspace = true }
+
+# Hashing for prompt-hash + audit-trail manifest entries
+blake3     = { workspace = true }
+
+# JSON-schema validation of LLM output
+jsonschema = "0.18"

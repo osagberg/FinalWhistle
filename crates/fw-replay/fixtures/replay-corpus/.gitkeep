@@ -1,0 +1,4 @@
+# Reserved for future corpus expansion per docs/specs/determinism-gate.md §11
+# (Tier-D RC-gate seeds). The Phase-0 smoke fixture lives one level up at
+# `fixtures/0xdeadbeefdeadbeef.ron` so the canonical_hash test can locate it
+# via `manifest_dir/fixtures/<filename>` (see `tests/canonical_hash.rs::locate_fixture`).

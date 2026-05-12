@@ -1,0 +1,73 @@
+{
+  "_comment": "Tracery grammar for news-headline rendering. Slot variables (#team#, #opponent#, #player#, #scorer#, #score_line#, #minute#, #manager#, #stake_phrase#) are substituted at runtime via fw-content::sample_headline. See docs/CONTENT_PIPELINE.md §2. This is a hand-authored seed file; the baker (fw-content-baker bake-headlines) extends it under content/baked/headlines/<event-class>.tracery.json.",
+
+  "origin": ["#headline#"],
+
+  "headline": [
+    "#team# secure #adjective# #result# over #opponent#",
+    "#player# fires #team# to #result#",
+    "#team# #verb_dominate# #opponent# in #stake_phrase#",
+    "Late drama as #team# pip #opponent# at the #minute#th",
+    "#manager# breathes easier after #result# against #opponent#",
+    "#team# survive #opponent# scare to take #result#",
+    "#scorer# the difference as #team# edge past #opponent#",
+    "All #team# in #stake_phrase# rout of #opponent#",
+    "#opponent# undone by #adjective# #team# performance",
+    "Boardroom watch: #team# need answers after #opponent# loss",
+    "#team# stumble at #opponent# — #manager# left searching",
+    "#player# carries #team# through #adjective# #stake_phrase#",
+    "Cup romance continues — #team# past #opponent# in extra time",
+    "Five-goal thriller ends in #result# for #team#",
+    "Set-piece masterclass earns #team# #result# at #opponent#"
+  ],
+
+  "result": [
+    "dramatic win",
+    "narrow victory",
+    "comfortable cruise",
+    "stalemate",
+    "hard-fought draw",
+    "battling point",
+    "thumping result",
+    "smash-and-grab win",
+    "deserved three points",
+    "professional win"
+  ],
+
+  "adjective": [
+    "thrilling",
+    "tense",
+    "brilliant",
+    "professional",
+    "gritty",
+    "sublime",
+    "unconvincing",
+    "controlled",
+    "ruthless",
+    "scrappy",
+    "composed",
+    "spirited"
+  ],
+
+  "verb_dominate": [
+    "outclass",
+    "outwork",
+    "dispatch",
+    "see off",
+    "edge past",
+    "blitz",
+    "grind down",
+    "dismantle"
+  ],
+
+  "stake_phrase": [
+    "six-pointer",
+    "derby clash",
+    "relegation tussle",
+    "top-of-the-table showdown",
+    "cup tie",
+    "promotion playoff",
+    "midweek fixture",
+    "Boxing Day classic"
+  ]
+}

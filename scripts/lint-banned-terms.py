@@ -2,9 +2,13 @@
 """
 lint-banned-terms.py — Final Whistle banned-vocabulary lint.
 
-Phase-1 SPEC task. Banned-term source is `design/ui-vocabulary.md` Categories
-A.1-A.5 (hard bans, no exemption except sentinel blocks) and Category B (soft
-bans, inline `ui-lint:allow` exemption).
+Ported verbatim from the FW v1 (Unity-era) implementation at
+`/Users/vibelogic/dev/football-archive/scripts/lint-banned-terms.py`, with
+path scopes updated for the Rust + Tauri + SolidJS layout.
+
+Banned-term source is `docs/design/ui-vocabulary.md` Categories A.1-A.5
+(hard bans, no exemption except sentinel blocks) and Category B (soft bans,
+inline `ui-lint:allow` exemption).
 
 Usage:
     scripts/lint-banned-terms.py [paths...]
@@ -16,10 +20,9 @@ Exit codes:
     1 - Category-A hit (hard-ban violation) OR malformed exemption
     2 - invalid CLI
 
-Design notes (cross-ref: design/ui-vocabulary.md 2026-04-24 resolution,
-memory file feedback_placeholder_lint_strategy.md):
+Design notes (cross-ref: docs/design/ui-vocabulary.md):
   - Category-A matches are CASE-SENSITIVE with word boundaries. "Canon" is
-    banned; "canonical state" (MatchSim technical term) is unaffected.
+    banned; "canonical state" (sim technical term) is unaffected.
   - Sentinel blocks `<!-- ui-lint:ignore-start reason="..." --> ...
     <!-- ui-lint:ignore-end -->` skip their content entirely. This is the
     ONE legitimate exemption path for Category-A — used for banned-term
@@ -27,8 +30,8 @@ memory file feedback_placeholder_lint_strategy.md):
   - Category-B requires an inline `ui-lint:allow term="X" reason="..."
     reviewer="..."` exemption on the SAME LINE as the match. All three
     attributes required; missing any is a lint fail (malformed exemption).
-  - Excludes .claude/bootstrap (source-of-truth templates) and
-    design-templates (literal templates).
+  - Excludes .claude/ (dev scaffolding), node_modules, target/ (cargo
+    build output), and docs/archive/ (Unity-era historical docs).
 """
 from __future__ import annotations
 
@@ -40,14 +43,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Banned-term catalog. Source of truth: design/ui-vocabulary.md §Category A.
+# Banned-term catalog. Source of truth: docs/design/ui-vocabulary.md §Category A.
 # When that catalog changes, update here too; cross-check in CI via spot-grep.
 # ---------------------------------------------------------------------------
 
 # ui-lint:ignore-start reason="banned-term pattern definitions (lint source-of-truth)"
-# Category A — hard ban, no inline exemption. Sentinel blocks skip.
-# Each entry: (pattern, human label).
-# Patterns use \b word boundaries to avoid false positives on compound words.
 CATEGORY_A_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # A.1 — mystical / RPG / fantasy capitalized state nouns
     (re.compile(r"\bThe Hush\b"), "A.1 mystical state noun"),
@@ -56,10 +56,6 @@ CATEGORY_A_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bKismet\b"), "A.1 mystical state noun"),
     (re.compile(r"\bThe Author\b"), "A.1 manager identity framing"),
     (re.compile(r"\bThe Ledger\b"), "A.1 UI noun (internal only)"),
-    # "Canon", "Calling", "Soul", "Flow" as bare capitalized state nouns are
-    # tricky — they legitimately appear in other contexts. We match only when
-    # used as a surfaced UI noun (followed by colon or at start of sentence
-    # context). Conservative patterns here; expand if false negatives appear.
     (re.compile(r"(?<![a-zA-Z])Canon(?=\s*[:.]|\s+tier|\s+Shelves|\s+Reading)"), "A.1 Canon as pyramid-tier noun"),
     (re.compile(r"(?<![a-zA-Z])Calling(?=\s*[:.]|\s+unlocked|\s+awakens)"), "A.1 Calling as player-identity noun"),
     (re.compile(r"\bReading Lists?\b"), "A.1 Reading Lists as pyramid tier"),
@@ -74,10 +70,6 @@ CATEGORY_A_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bGenetics\b"), "A.3 genetics vocabulary"),
     (re.compile(r"\bChromosomes?\b"), "A.3 genetics vocabulary"),
     (re.compile(r"\bBloodline\b(?!\s+mechanics|\s+deferred)"), "A.3 bloodline as mechanic"),
-    # "Genes" and "DNA" are also banned but appear legitimately in internal
-    # design-doc technical prose (e.g., "internal gene model"); we catch
-    # the PLAYER-FACING risky forms only. Wider patterns cause too many
-    # false positives at Phase 1.
     (re.compile(r"\bGene\s+Score\b"), "A.3 genetics UI surface"),
     (re.compile(r"\bDNA\s+(?:Score|Rating|Level)\b"), "A.3 genetics UI surface"),
     # A.4 — stigmatizing / systemic phenotype framings
@@ -85,12 +77,11 @@ CATEGORY_A_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bFragile When Tested\b"), "A.4 stigmatizing phenotype (use Struggles Under Scrutiny)"),
     (re.compile(r"\bPlateau Risk\b"), "A.4 systemic phenotype (removed from enum)"),
     (re.compile(r"\bInjury-Prone\b"), "A.4 stigmatizing phenotype"),
-    # "Powerful Striker" is banned AS A PHENOTYPE LABEL — but "powerful ball
-    # striker" is the approved replacement. Word-boundary + capital-S match
-    # catches the banned form.
     (re.compile(r"\bPowerful Striker\b(?!\s)"), "A.4 use Powerful Ball Striker"),
-    # A.5 — real-world place-name analogues (runtime content only; design-doc
-    # meta-references must be sentinel-wrapped)
+    # A.5 — real-world place-name analogues
+    # NOTE: the FW v2 (Rust pivot) world is fully procedural-fantasy per
+    # DESIGN_DOC §2 rule 1. Real-world place names appearing in any runtime
+    # content pack or user-facing string are categorical violations.
     (re.compile(r"\bManchester\b"), "A.5 real-world place analogue"),
     (re.compile(r"\bLiverpool\b"), "A.5 real-world place analogue"),
     (re.compile(r"\bLeeds\b"), "A.5 real-world place analogue"),
@@ -109,30 +100,26 @@ CATEGORY_A_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bIsle of Man\b"), "A.5 real-world place analogue"),
 ]
 
-# Category B — soft ban. Inline `ui-lint:allow term="X" reason="Y" reviewer="Z"`
-# on the same line exempts the match.
 CATEGORY_B_TERMS: dict[str, re.Pattern[str]] = {
-    "awakens":    re.compile(r"\bawakens?\b"),
-    "awakened":   re.compile(r"\bawakened\b"),
-    "savant":     re.compile(r"\bSavants?\b"),
-    "genius":     re.compile(r"\bGenius\b"),
-    "weapon":     re.compile(r"\bweapons?\b", re.IGNORECASE),
-    "weaponize":  re.compile(r"\bweaponize[sd]?\b", re.IGNORECASE),
-    "egoist":     re.compile(r"\bEgoists?\b"),
-    "the-ego":    re.compile(r"\bThe Ego\b"),
-    "realm":      re.compile(r"\bRealms?\b"),
-    "domain":     re.compile(r"\bDomains?\b(?!\.)"),  # not ".com/.net domains"
-    "kingdom":    re.compile(r"\bKingdoms?\b"),
-    "power-level": re.compile(r"\bpower[- ]?levels?\b", re.IGNORECASE),
-    "forge":      re.compile(r"\bForged?\b"),
+    "awakens":      re.compile(r"\bawakens?\b"),
+    "awakened":     re.compile(r"\bawakened\b"),
+    "savant":       re.compile(r"\bSavants?\b"),
+    "genius":       re.compile(r"\bGenius\b"),
+    "weapon":       re.compile(r"\bweapons?\b", re.IGNORECASE),
+    "weaponize":    re.compile(r"\bweaponize[sd]?\b", re.IGNORECASE),
+    "egoist":       re.compile(r"\bEgoists?\b"),
+    "the-ego":      re.compile(r"\bThe Ego\b"),
+    "realm":        re.compile(r"\bRealms?\b"),
+    "domain":       re.compile(r"\bDomains?\b(?!\.)"),
+    "kingdom":      re.compile(r"\bKingdoms?\b"),
+    "power-level":  re.compile(r"\bpower[- ]?levels?\b", re.IGNORECASE),
+    "forge":        re.compile(r"\bForged?\b"),
 }
 # ui-lint:ignore-end
 
-# Sentinel block markers — HTML-comment syntax (markdown) OR // (C#/Python/JS).
 SENTINEL_START = re.compile(r"(?:<!--|//|#)\s*ui-lint:ignore-start(?:\s+reason=\"[^\"]*\")?\s*(?:-->)?")
 SENTINEL_END = re.compile(r"(?:<!--|//|#)\s*ui-lint:ignore-end\s*(?:-->)?")
 
-# Inline exemption — must have all three attributes or it's malformed.
 EXEMPTION_RE = re.compile(
     r"""ui-lint:allow\s+
         term=\"(?P<term>[^\"]+)\"\s+
@@ -142,34 +129,24 @@ EXEMPTION_RE = re.compile(
 )
 
 # Path filters — never lint these.
-# Scope is ACTIVE shipped-or-near-shipped content: root project docs, active
-# design docs (NOT brainstorm/, which is historical archive per
-# design/README.md:69-70), game code (Phase 3+), content packs (Phase 6+),
-# .github/ PR-infra. Not: .claude/ dev scaffolding, design-templates/,
-# Unity regenerable caches, node_modules.
+# Scope is ACTIVE shipped content: root project docs, active design docs,
+# Rust crates, SolidJS frontend, content RON files, baker prompts.
+# Excludes: .claude/ dev scaffolding, node_modules, target/ (cargo output),
+# docs/archive/ (Unity-era historical), content/baked/ (generated; lint runs
+# pre-bake on prompts AND post-bake on fragments via the baker).
 EXCLUDE_DIR_FRAGMENTS = (
     "/.git/",
-    "/.claude/",                  # all Claude infra (commands/skills/agents/hooks/rules/bootstrap)
-    "/design/brainstorm/",        # historical ideation archive; not binding spec
-    "/design-templates/",         # literal templates
+    "/.claude/",                  # all Claude infra
     "/node_modules/",
-    "/Library/",                  # Unity package cache
-    "/Temp/",                     # Unity transient
-    "/Obj/",                      # Unity build intermediate
-    "/Logs/",                     # Unity logs
-    "/UserSettings/",             # Unity per-user editor state
-    "/MemoryCaptures/",           # Unity memory profiler dumps
-    "/Build/",                    # local Unity builds
-    "/Builds/",                   # local Unity builds (plural variant)
+    "/target/",                   # cargo build output
+    "/dist/",                     # frontend build output
+    "/.cargo-cache/",
+    "/docs/archive/",             # Unity-era historical docs (kept for ref)
+    "/content/baked/",            # generated artifacts (baker lints separately)
 )
 
-# File extensions in scope.
-LINT_EXTENSIONS = {".md", ".cs", ".json", ".uxml", ".uss", ".sh", ".yml", ".yaml", ".py"}
+LINT_EXTENSIONS = {".md", ".rs", ".ts", ".tsx", ".jsx", ".json", ".ron", ".sh", ".py", ".yml", ".yaml", ".toml"}
 
-
-# ---------------------------------------------------------------------------
-# Data classes
-# ---------------------------------------------------------------------------
 
 @dataclass
 class Finding:
@@ -203,10 +180,6 @@ class Report:
     def has_violations(self) -> bool:
         return bool(self.findings or self.malformed_exemptions)
 
-
-# ---------------------------------------------------------------------------
-# Core lint
-# ---------------------------------------------------------------------------
 
 def should_lint(path: Path) -> bool:
     if not path.is_file():
@@ -242,7 +215,6 @@ def lint_file(path: Path, report: Report) -> None:
     active_lines = strip_sentinel_blocks(lines)
 
     for line_num, line in active_lines:
-        # Check Category-A hits first.
         for pattern, label in CATEGORY_A_PATTERNS:
             m = pattern.search(line)
             if m:
@@ -254,7 +226,6 @@ def lint_file(path: Path, report: Report) -> None:
                     snippet=line,
                 ))
 
-        # Collect inline exemptions declared on this line.
         line_exemptions: set[str] = set()
         for em in EXEMPTION_RE.finditer(line):
             term = em.group("term")
@@ -273,7 +244,6 @@ def lint_file(path: Path, report: Report) -> None:
                     term=term, reason=reason, reviewer=reviewer,
                 ))
 
-        # Check Category-B — any match without a same-line exemption is a finding.
         for term_key, pattern in CATEGORY_B_TERMS.items():
             m = pattern.search(line)
             if m:
@@ -288,7 +258,6 @@ def lint_file(path: Path, report: Report) -> None:
 
 
 def walk(root: Path, targets: list[Path]) -> list[Path]:
-    """Expand target paths into a flat list of files to lint."""
     files: list[Path] = []
     for t in targets:
         if t.is_file():
@@ -301,13 +270,9 @@ def walk(root: Path, targets: list[Path]) -> list[Path]:
     return sorted(set(files))
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Final Whistle banned-terms lint (Phase-1 SPEC task).",
+        description="Final Whistle banned-terms lint (Rust pivot port).",
     )
     parser.add_argument(
         "paths", nargs="*", default=["."],
@@ -344,7 +309,6 @@ def main() -> int:
         print(json.dumps({"exemptions": data}, indent=2))
         return 0
 
-    # Normal lint mode
     if report.findings:
         print(f"BANNED-TERMS LINT: {len(report.findings)} violation(s)")
         print("-" * 60)

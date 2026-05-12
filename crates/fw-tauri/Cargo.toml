@@ -1,0 +1,37 @@
+[package]
+name = "fw-tauri"
+description = "Tauri command bridge — sim ↔ SolidJS frontend. Library-only; the Tauri shell binary lives in src-tauri/."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+# fw-tauri is the IPC boundary. It MAY use floats (viewer-side interpolation),
+# async (Tauri command handlers are async), and HashMap (the UI surface is
+# not canonical state). The determinism contract stops one crate upstream.
+#
+# Intentionally no float_arithmetic deny here. The IPC layer translates from
+# Q32 to f64 for the frontend — that translation has to compile.
+
+[lib]
+name = "fw_tauri"
+# Tauri command handlers live here; the binary shell (`src-tauri/`) wires
+# this library into a window + WebView at build time.
+
+[dependencies]
+fw-core      = { workspace = true }
+fw-match-sim = { workspace = true }
+fw-content   = { workspace = true }
+fw-scouting  = { workspace = true }
+fw-memory    = { workspace = true }
+fw-save      = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+thiserror    = { workspace = true }
+log          = { workspace = true }
+# Tauri itself is dev-only at this stage; the command-handler proc-macro is
+# pulled in but no app is built. The shell binary in src-tauri/ depends on
+# tauri at runtime.
+tauri        = { workspace = true }

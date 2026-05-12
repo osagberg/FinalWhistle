@@ -1,0 +1,37 @@
+[package]
+name = "fw-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Final Whistle desktop application (Tauri 2 shell)"
+publish = false
+
+# Single binary; the Tauri build script wires up the embedded webview / assets.
+[[bin]]
+name = "fw-app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri 2 runtime + command/IPC plumbing.
+tauri = { version = "2", features = [] }
+# Tauri-managed IPC log forwarding (dev DX). Not required at runtime.
+tauri-plugin-log = "2"
+
+# Workspace crates the shell wires up. Today this is a thin import surface;
+# once fw-tauri exports a generate_handler!() macro, main.rs swaps to it.
+fw-tauri = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+
+[features]
+# Disabled by default; toggled by `tauri dev` / `tauri build`.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

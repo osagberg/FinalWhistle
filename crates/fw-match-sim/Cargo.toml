@@ -1,0 +1,25 @@
+[package]
+name = "fw-match-sim"
+description = "Canonical 22-player match simulation. Deterministic, sync, no floats."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints.clippy]
+# Canonical-state crate — floats forbidden. The determinism gate
+# (`docs/specs/determinism-gate.md` §2 Layer 1) hinges on this.
+float_arithmetic = "deny"
+
+[dependencies]
+fw-core     = { workspace = true }
+fixed       = { workspace = true }
+serde       = { workspace = true }
+rand_chacha = { workspace = true }
+thiserror   = { workspace = true }
+
+[dev-dependencies]
+insta    = { workspace = true }
+proptest = { workspace = true }

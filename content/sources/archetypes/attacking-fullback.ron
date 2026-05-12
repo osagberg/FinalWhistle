@@ -1,0 +1,43 @@
+// Attacking-fullback tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior. A one-coordinate drift
+// in any formation slot would shift the pinned canonical-state hash; the
+// pinned-hash regression corpus would fail across the CI matrix. They are
+// reviewed + committed by hand, never regenerated.
+//
+// Ported in shape from FW v1 MatchSim/Content/archetypes/direct-pressing.yaml
+// (per MIGRATION_AUDIT §2.4). The C# YAML lives at:
+//   /Users/vibelogic/dev/football-archive/MatchSim/Content/archetypes/direct-pressing.yaml
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//   BehaviorTreeRunner mirrors X for Away usage.
+//
+// Formation: 4-2-3-1 with wide attacking fullbacks (RB and LB pushed high).
+// Press radius is generous in the middle third; buildup speed deliberately
+// patient so the fullbacks have time to overlap.
+
+TacticalArchetype(
+    id: "fwh.core:archetype.attacking-fullback",
+    formation: [
+        // Goalkeeper
+        FormationSlot(roster_slot:  1, role: "GK",  x: -45, z:   0),
+        // Back four — fullbacks pushed wide and high (x: -15 vs trad -25)
+        FormationSlot(roster_slot:  2, role: "RB",  x: -15, z:  22),
+        FormationSlot(roster_slot:  3, role: "RCB", x: -30, z:   8),
+        FormationSlot(roster_slot:  4, role: "LCB", x: -30, z:  -8),
+        FormationSlot(roster_slot:  5, role: "LB",  x: -15, z: -22),
+        // Double pivot
+        FormationSlot(roster_slot:  6, role: "RDM", x: -12, z:   6),
+        FormationSlot(roster_slot:  7, role: "LDM", x: -12, z:  -6),
+        // Attacking three behind the lone striker
+        FormationSlot(roster_slot:  8, role: "RAM", x:  10, z:  14),
+        FormationSlot(roster_slot:  9, role: "CAM", x:  12, z:   0),
+        FormationSlot(roster_slot: 10, role: "LAM", x:  10, z: -14),
+        // Lone striker
+        FormationSlot(roster_slot: 11, role: "ST",  x:  22, z:   0),
+    ],
+    press_radius_metres: 30,
+    buildup_speed_factor: 0.9,
+)

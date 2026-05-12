@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability set for the Final Whistle main window. Pinned narrow at scaffold time; widen only when a specific feature needs a permission.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "log:default"
+  ]
+}

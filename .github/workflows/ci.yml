@@ -1,0 +1,135 @@
+# Per-PR CI — Final Whistle (Rust + Tauri pivot, T0-7)
+#
+# Three-OS matrix per docs/specs/determinism-gate.md §11: macOS-14
+# (Apple Silicon, the dev box), windows-latest, ubuntu-22.04. The pinned
+# canonical-state hash must agree across all three. Drift on any single
+# platform fails the gate and blocks merge.
+#
+# Job topology (parallel, fail-fast=false) per the FW v1 audit-03 lesson:
+# never let a static-check failure shadow signal from the matrix legs, or
+# vice versa. Three independent jobs, each on its own runner pool, so a
+# clippy red on Linux does not consume Win/Mac minutes and a Win-only
+# determinism red surfaces cleanly side-by-side with a Linux green.
+#
+# SECURITY: no untrusted input (PR title / body / commit message /
+# head_ref / fork-controlled refs) is interpolated into `run:` steps.
+# All step commands are static shell invocations.
+#
+# Reference: https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel in-progress runs for the same branch when a new push arrives.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Reduce noise: Cargo's default progress output is meant for terminals.
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # ------------------------------------------------------------------
+  # Job 1: cross-platform Rust + frontend matrix. The headline gate.
+  # Each leg runs the full lint + test + frontend build pipeline. The
+  # `cargo test --workspace` step is where the determinism gate fires
+  # (see .github/workflows/determinism-gate.yml for the explicit
+  # required-check variant that runs the same test in isolation).
+  # ------------------------------------------------------------------
+  build-test:
+    name: Build + test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Rust toolchain pinned via rust-toolchain.toml at repo root.
+      # dtolnay/rust-toolchain reads that file when given "stable", so the
+      # version is single-sourced.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # Cargo cache — keyed on Cargo.lock so cache invalidates on dep change.
+      # Swatinem/rust-cache handles target/ + ~/.cargo intelligently.
+      - name: Cache Cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-${{ matrix.os }}
+          cache-on-failure: true
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # The determinism gate fires here. Release mode per spec §11: debug
+      # integer-overflow checks can mask hash-affecting bugs by panicking
+      # instead of producing a different hash; release lets the hash
+      # itself be the contract.
+      - name: cargo test --workspace
+        run: cargo test --workspace --release
+
+      # Frontend pipeline. Runs on every OS so Win/Mac path-handling bugs
+      # surface immediately. pnpm install is cached at the Node setup layer.
+      - name: pnpm install
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: pnpm typecheck
+        working-directory: frontend
+        run: pnpm typecheck
+
+      - name: pnpm lint
+        working-directory: frontend
+        run: pnpm lint
+
+      - name: pnpm build
+        working-directory: frontend
+        run: pnpm build
+
+      # Upload diagnostic artifacts on failure: cargo test output (insta
+      # snapshots that drifted), frontend build logs, target/ binaries
+      # (excluded — too large; the artifacts here are diff/report level).
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-artifacts-${{ matrix.os }}
+          path: |
+            target/debug/deps/*.log
+            crates/**/tests/snapshots/*.snap.new
+            frontend/dist/
+          if-no-files-found: ignore
+          retention-days: 7

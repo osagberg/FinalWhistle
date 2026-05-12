@@ -1,0 +1,36 @@
+// Fantasy-Elvish culture archetype — Stretch (T3+) per
+// docs/CONTENT_PIPELINE.md §2 "Culture archetypes" table.
+//
+// Procedural-fantasy USP: credible naming priors without real-world referent.
+// MVP ships 20 real-world-coded cultures first; fantasy archetypes are
+// authored alongside the worldbuilding spike (DESIGN_DOC §12 Q1).
+//
+// Phonotactic priors: long-vowel preference, no harsh stops (k/t/p), liquid-
+// consonant heavy (l/r), trisyllabic surnames common, compound formations
+// (root + descriptor) preferred.
+
+Culture(
+    id: "fwh.core:culture.fantasy-elvish",
+    name: "Elvish",
+    first_name_bank: [
+        "Aelar", "Aelinn", "Aerin", "Aerith", "Caelan",
+        "Caelyn", "Daenor", "Eliahn", "Elenya", "Faelar",
+        "Faelyn", "Galanor", "Galenya", "Halian", "Ilarian",
+        "Ilyana", "Lirien", "Lorien", "Mirael", "Naelis",
+        "Naerion", "Oriel", "Riael", "Saelin", "Selior",
+        "Sirien", "Taelar", "Thaelis", "Valion", "Yaelin",
+    ],
+    last_name_bank: [
+        "Silverleaf", "Moonwhisper", "Starweaver", "Dawnstrider",
+        "Brightwillow", "Greyhollow", "Frostmere", "Goldbrook",
+        "Whitebough", "Thornglade", "Vinemoor", "Larkrise",
+        "Wraithwood", "Stillwater", "Yarrowmoon", "Brookhaven",
+        "Hollowmere", "Larkenshade", "Pinedrift", "Quietbrook",
+    ],
+    // Elvish convention: first-name space (descriptor-)surname.
+    naming_pattern: "{first} {last}",
+    weights: (
+        first_alpha_diversity: 0.5,
+        compound_last_chance: 0.0,
+    ),
+)

@@ -1,0 +1,15 @@
+{
+    "asset": "c9e7452c8b22d46e896018c4274e596b",
+    "fileName": "019e190f-a21d-7978-aada-9402626b9565.wav",
+    "prompt": "A massive anime stadium crowd cheer roar, high energy.",
+    "negativePrompt": "",
+    "model": "elevenlabs-sound-effects-v2",
+    "modelName": "ElevenLabs Sound Effects V2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "duration": 5.0,
+    "autoTrim": false,
+    "hasReference": false,
+    "voice": ""
+}

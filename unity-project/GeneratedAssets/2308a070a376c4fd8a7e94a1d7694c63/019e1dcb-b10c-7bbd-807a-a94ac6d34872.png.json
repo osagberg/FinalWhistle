@@ -1,0 +1,28 @@
+{
+    "asset": "2308a070a376c4fd8a7e94a1d7694c63",
+    "fileName": "019e1dcb-b10c-7bbd-807a-a94ac6d34872.png",
+    "prompt": "a high-quality 2D football ball sprite, white with classic black hexagonal/pentagonal panels, subtle leather texture, clean circular shape, 512x512, transparent background, top-down view",
+    "negativePrompt": "",
+    "model": "gemini-3.1-flash",
+    "modelName": "Gemini 3.1 Nano Banana 2",
+    "customSeed": -1,
+    "w3CTraceId": "",
+    "feedback": 0,
+    "refinementMode": "Generation",
+    "pixelateTargetSize": 0,
+    "pixelateKeepImageSize": false,
+    "pixelatePixelBlockSize": 0,
+    "pixelatePixelGridSize": 0,
+    "pixelateMode": 0,
+    "pixelateOutlineThickness": 0,
+    "doodles": {
+        "m_Items": []
+    },
+    "upscaleFactor": 0,
+    "dimensions": {
+        "width": 1024,
+        "height": 1024
+    },
+    "spriteSheet": false,
+    "duration": 0.0
+}

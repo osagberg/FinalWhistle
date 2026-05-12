@@ -1,0 +1,50 @@
+// Anglo culture archetype — seed file for the content baker.
+//
+// At T0, this is hand-authored. At T2-3, `fw-content-baker bake-names
+// --culture anglo --count_per_bank 50` extends the banks to ~50 entries each
+// while preserving the hand-authored seed (baker appends, never replaces).
+//
+// Stable content-pack-qualified ID format per ADR-0006 (Unity-era,
+// carry-forward via MIGRATION_AUDIT §2.4):
+//   ^fwh\.core(?:\.v[0-9]+)?:culture\.[a-z0-9-]+$
+//
+// All names are FICTIONAL. They must not match any real footballer, public
+// figure, or notable family. The banned-terms lint (Category A.5) catches
+// real-world place-name analogues; the baker's licensed-data validator
+// catches real-player-surname overlaps.
+
+Culture(
+    id: "fwh.core:culture.anglo",
+    name: "Anglo",
+    first_name_bank: [
+        "James", "William", "Oliver", "Henry", "George",
+        "Thomas", "Edward", "Arthur", "Charles", "Frederick",
+        "Albert", "Walter", "Stanley", "Reginald", "Cyril",
+        "Harold", "Sidney", "Leonard", "Ernest", "Norman",
+        "Geoffrey", "Cuthbert", "Percival", "Roland", "Maurice",
+        "Roland", "Hadrian", "Talbot", "Marlow", "Quentin",
+        "Whitley", "Ashby", "Calder", "Holt", "Sterling",
+        "Briar", "Hollis", "Wendell", "Garron", "Tobias",
+        "Selden", "Wynton", "Edric", "Yarrow", "Linus",
+        "Murton", "Caspian", "Theron", "Galen", "Rufus",
+    ],
+    last_name_bank: [
+        "Tabor", "Whitcombe", "Halloway", "Pendry", "Sheridan",
+        "Coleridge", "Marston", "Ashbourne", "Penrose", "Berrick",
+        "Withers", "Caldecott", "Hollinger", "Mortlake", "Sennett",
+        "Halifax", "Trenton", "Pemberton", "Glaisher", "Branwell",
+        "Lacey", "Norwood", "Saltern", "Yelverton", "Whitstable",
+        "Calverley", "Lyman", "Branscombe", "Roxby", "Wendover",
+        "Pickersgill", "Lambourne", "Thursby", "Westoby", "Allerton",
+        "Bridcutt", "Crampton", "Eckersley", "Fenwood", "Gainford",
+        "Holbridge", "Inkpen", "Janney", "Kerwood", "Lanstead",
+        "Marlborough", "Netherbridge", "Ormiston", "Padstow", "Quarmby",
+    ],
+    naming_pattern: "{first} {last}",
+    weights: (
+        // Skews first-letter distribution mildly toward uniform across a roster.
+        first_alpha_diversity: 0.7,
+        // ~5% chance of a compound surname ("Tabor-Whitcombe").
+        compound_last_chance: 0.05,
+    ),
+)

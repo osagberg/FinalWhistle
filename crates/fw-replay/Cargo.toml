@@ -1,0 +1,30 @@
+[package]
+name = "fw-replay"
+description = "Replay corpus + canonical-hash regression gate. The Phase-0 acceptance test lives here."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints.clippy]
+# Canonical-state crate. The corpus is determinism's regression-test home;
+# floats here would be a Trojan horse for the very leaks we're trying to
+# catch.
+float_arithmetic = "deny"
+
+[dependencies]
+fw-core      = { workspace = true }
+fw-match-sim = { workspace = true }
+serde        = { workspace = true }
+ron          = { workspace = true }
+blake3       = { workspace = true }
+thiserror    = { workspace = true }
+
+[dev-dependencies]
+blake3      = { workspace = true }
+hex-literal = { workspace = true }
+insta       = { workspace = true }
+serde       = { workspace = true }
+ron         = { workspace = true }
