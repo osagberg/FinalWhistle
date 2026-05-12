@@ -77,13 +77,38 @@ public static class BehaviorTreeRunner
     private static readonly Fixed MaxPassDistanceSquared =
         MaxPassDistanceMetres * MaxPassDistanceMetres;
 
-    /// <summary>Pass kick speed (m/s). Calibrated so a 20m pass arrives in
-    /// ~1.5s with Phase-3 drag coefficients — fast enough to look like
-    /// football, slow enough to be intercept-able.</summary>
-    private static readonly Fixed PassSpeedMetresPerSecond = Fixed.FromInt(14);
+    // Phase-3 polish-pass round 3 #3 (2026-05-12) variable pass speed.
+    // Before round 3 #3, every pass used a constant 14 m/s regardless of
+    // distance. Short passes (8-15m) looked heavy; long passes (25-35m)
+    // were underpowered (drag killed before arrival). Tier the speed by
+    // squared-distance zones (sqrt-free) so passes look more deliberate.
+
+    /// <summary>Short-pass speed (m/s). 8-15m passes — quick, easy control.</summary>
+    private static readonly Fixed ShortPassSpeedMetresPerSecond = Fixed.FromInt(10);
+
+    /// <summary>Medium-pass speed (m/s). 15-25m passes — the prior
+    /// Phase-3 constant. Calibrated so a 20m pass arrives in ~1.5s with
+    /// Phase-3 drag coefficients — fast enough to look like football,
+    /// slow enough to be intercept-able.</summary>
+    private static readonly Fixed MediumPassSpeedMetresPerSecond = Fixed.FromInt(14);
+
+    /// <summary>Long-pass speed (m/s). 25-35m passes — lobby driven
+    /// delivery so drag doesn't kill it before arrival.</summary>
+    private static readonly Fixed LongPassSpeedMetresPerSecond = Fixed.FromInt(18);
+
+    /// <summary>Short-zone upper bound, squared (m²). 15² = 225.</summary>
+    private static readonly Fixed ShortPassZoneUpperBoundSquared =
+        Fixed.FromInt(15) * Fixed.FromInt(15);
+
+    /// <summary>Medium-zone upper bound, squared (m²). 25² = 625.</summary>
+    private static readonly Fixed MediumPassZoneUpperBoundSquared =
+        Fixed.FromInt(25) * Fixed.FromInt(25);
 
     /// <summary>Long-ball kick speed (m/s). Used when no eligible pass
-    /// target exists — carrier hoists toward opponent goal.</summary>
+    /// target exists — carrier hoists toward opponent goal. Same numeric
+    /// value as long-pass speed by design (both are "drive it forward"
+    /// shots), but kept as a separate symbol so a Phase-4 tweak to one
+    /// doesn't silently move the other.</summary>
     private static readonly Fixed LongBallSpeedMetresPerSecond = Fixed.FromInt(18);
 
     // Phase-3 Option-2 (2026-05-11) goalkeeper-specialization constants.
@@ -478,6 +503,31 @@ public static class BehaviorTreeRunner
     }
 
     /// <summary>
+    /// Phase-3 polish-pass round 3 #3 (2026-05-12) variable pass speed.
+    /// Three discrete tiers based on squared distance:
+    /// <list type="bullet">
+    ///   <item><description>distSq ≤ 225 (≤ 15m): short pass at 10 m/s.</description></item>
+    ///   <item><description>225 &lt; distSq ≤ 625 (15-25m): medium at 14 m/s.</description></item>
+    ///   <item><description>distSq &gt; 625 (&gt; 25m): long pass at 18 m/s.</description></item>
+    /// </list>
+    /// Sqrt-free (compares squared distance against squared thresholds).
+    /// Caller filters by MinPassDistanceSquared (8²=64) + MaxPassDistanceSquared
+    /// (35²=1225) before invoking, so distSq is always in [64, 1225].
+    /// </summary>
+    private static Fixed PassSpeedForDistanceSquared(Fixed distSq)
+    {
+        if (distSq.RawValue <= ShortPassZoneUpperBoundSquared.RawValue)
+        {
+            return ShortPassSpeedMetresPerSecond;
+        }
+        if (distSq.RawValue <= MediumPassZoneUpperBoundSquared.RawValue)
+        {
+            return MediumPassSpeedMetresPerSecond;
+        }
+        return LongPassSpeedMetresPerSecond;
+    }
+
+    /// <summary>
     /// Phase-3 polish-pass round 3 #2 (2026-05-11) opponent-pressure
     /// counter. Returns the number of opponents whose position is within
     /// <paramref name="radiusSq"/> of <paramref name="referencePos"/>.
@@ -698,7 +748,11 @@ public static class BehaviorTreeRunner
         if (bestTeammateIndex >= 0)
         {
             kickTarget = ProjectToPitchPlane(ownTeam[bestTeammateIndex].Position);
-            kickSpeed = PassSpeedMetresPerSecond;
+            // Round-3 #3 (2026-05-12): pass speed varies with target
+            // distance instead of a constant 14 m/s. Short passes ease
+            // off; long passes get extra zip so drag doesn't kill them.
+            Fixed passDistSq = Vector3Fixed.DistanceSquared(carrierPos, kickTarget);
+            kickSpeed = PassSpeedForDistanceSquared(passDistSq);
         }
         else
         {
