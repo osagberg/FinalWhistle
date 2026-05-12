@@ -158,11 +158,15 @@ public sealed class PassTheBallTests
         string actual = MatchCanonicalState.ComputeHash(state);
 
         // History (newest first):
+        //   sha256:8736b05dedd8ea259a02144569f29702ad31b1575ac01b7ccafda5dbde66cc6d —
+        //     polish-pass round 3 #4 (2026-05-12 defensive line height).
+        //     Authorized re-baseline per round-3 #4 task-spec — back-four
+        //     (roster slots 2-5) now uses 0.8 × ball.X shift in-possession
+        //     (0.5 + 0.3) and 0.2 out-of-possession; midfield/strikers
+        //     unchanged at 0.5. Over 600 ticks the defensive positioning
+        //     diverges from Round-3 #3 baseline.
         //   sha256:6b0dcfb6da8c33fd459f728a9c227939d3b7ec693f6af3461e8e2045a0d919c2 —
         //     polish-pass round 3 #1 (2026-05-11 coordinated press cap).
-        //     Authorized re-baseline per round-3 task-spec — press branch
-        //     now caps at K=3 simultaneous pressers; over 600 ticks the
-        //     possession-trajectory diverges from Option-3 baseline.
         //   sha256:01a32f1e723bc9b81f4c99237178570b34b7ebfc2d9aa9028fbc78b5f616d98f —
         //     polish-pass Option 3 (2026-05-11 off-ball formation translation).
         //   sha256:17ca85e287227c44d743c142ea9adcac3f2325d04bd807f4c38bf87e9bc63bd0 —
@@ -171,7 +175,7 @@ public sealed class PassTheBallTests
         //     polish-pass Option 1 (2026-05-11 inter-player soft collision).
         //   sha256:c5ab9e5265724dc79ef5bf038123fbaadb686c3e9d35e79f682ee16882fed1d2 —
         //     pass-the-ball v1 (2026-05-11 first kick logic).
-        const string expected = "sha256:6b0dcfb6da8c33fd459f728a9c227939d3b7ec693f6af3461e8e2045a0d919c2";
+        const string expected = "sha256:8736b05dedd8ea259a02144569f29702ad31b1575ac01b7ccafda5dbde66cc6d";
         Assert.Equal(expected, actual);
     }
 }

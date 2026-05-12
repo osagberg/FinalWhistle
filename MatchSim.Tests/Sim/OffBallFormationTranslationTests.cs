@@ -69,8 +69,11 @@ public sealed class OffBallFormationTranslationTests
     [Fact]
     public void BallInAttackingThird_HomeOutfieldShiftsForward()
     {
-        // Ball at +40 X (attacking third for home). Translation X = +20
-        // (factor 0.5). Slot 2 (RB) at base (-25, 20) → translated (-5, 20).
+        // Ball at +40 X (attacking third for home). Tests Option-3 non-
+        // defender translation; uses slot 6 (RM, base -5, 20) which is
+        // NOT in roster slots 2-5 so it stays on the standard 0.5
+        // translation regardless of possession (round-3 #4 only adjusts
+        // defenders). Expected: -5 + 40 × 0.5 = +15.
         BehaviorTreeArchetype home = BehaviorTreeArchetypes.Load(HomeArchetypeId);
         BehaviorTreeArchetype away = BehaviorTreeArchetypes.Load(AwayArchetypeId);
         PlayerState[] homeTeam = BuildFormationTeam(home, TeamSide.Home);
@@ -81,16 +84,17 @@ public sealed class OffBallFormationTranslationTests
             velocity: Vector3Fixed.Zero,
             spin: Vector3Fixed.Zero);
         // Put an away player on the ball so home doesn't have possession.
-        // Distance from home slot-2 (-25, 20) to ball (40, 0): √(65² + 20²)
-        // ≈ 68m > 25m press radius — slot 2 will hold shape.
         awayTeam[10] = new PlayerState(ball.Position, Vector3Fixed.Zero, 11, TeamSide.Away);
 
         var commands = new PlayerCommand[11];
         BehaviorTreeRunner.Tick(ball, homeTeam, awayTeam, TeamSide.Home, home, K, commands);
 
-        // Expected translated base for slot 2: (-25 + 40*0.5, 0, 20 + 0*0.3) = (-5, 0, 20).
-        Vector3Fixed expected = new(Fixed.FromInt(-5), Fixed.Zero, Fixed.FromInt(20));
-        Assert.Equal(expected, commands[1].DesiredPosition);
+        // Expected translated base for slot 6 (index 5): (-5 + 40*0.5, 0, 20 + 0*0.3) = (15, 0, 20).
+        // Distance from RM (-5, 20) to ball (40, 0) = √(45² + 20²) ≈ 49m
+        // > 25m press radius → hold-shape applies; out-of-possession but
+        // RM is NOT a defender so uses standard 0.5 factor.
+        Vector3Fixed expected = new(Fixed.FromInt(15), Fixed.Zero, Fixed.FromInt(20));
+        Assert.Equal(expected, commands[5].DesiredPosition);
     }
 
     [Fact]

@@ -161,6 +161,44 @@ public static class BehaviorTreeRunner
     private static readonly Fixed PitchLateralHalfExtentMetres =
         Fixed.FromInt(34);
 
+    // Phase-3 polish-pass round 3 #4 (2026-05-12) defensive line height.
+    // Before round 3 #4, Option-3 translated EVERY hold-shape player by
+    // ball.X × 0.5 (FormationBallShiftFactor). Back-four shifted same as
+    // midfield + strikers. Real football: defensive line has its own dial.
+    // In possession + ball forward → defenders compress UP harder (tight
+    // to halfway). Out of possession + ball back → defenders DROP toward
+    // own goal (last-line discipline).
+
+    /// <summary>Extra axial-shift factor for defenders when own team has
+    /// possession. Stacks on top of FormationBallShiftFactor (0.5) → total
+    /// defender shift = 0.8 × ball.X. Compresses the back-four toward
+    /// halfway when attacking; opens space behind their formation slot
+    /// (covered by the goalkeeper per Option-2). Note: 0.3 is not exactly
+    /// representable in Q32.32, so multiply-by-ball.X products carry a
+    /// small (≤ 1 ULP) rounding error per operation — tests compute
+    /// expected values via the same Fixed arithmetic path rather than
+    /// asserting against decimal literals.</summary>
+    private static readonly Fixed DefensiveLineExtraShiftFactor =
+        Fixed.FromInt(3) / Fixed.FromInt(10);
+
+    /// <summary>Replacement axial-shift factor for defenders when own team
+    /// is OUT of possession. REPLACES FormationBallShiftFactor (does not
+    /// stack) → total defender shift = 0.2 × ball.X. Defenders sit deeper
+    /// than the rest of the formation when defending; "stay home"
+    /// discipline. Asymmetric vs the in-possession case by design — the
+    /// back-four's role is different in each phase. Same Q32.32 rounding
+    /// caveat as <see cref="DefensiveLineExtraShiftFactor"/>.</summary>
+    private static readonly Fixed DefensiveLineDropFactor =
+        Fixed.FromInt(2) / Fixed.FromInt(10);
+
+    /// <summary>Lower bound for defender roster slots (inclusive).
+    /// Roster slot 1 = GK; slots 2-5 = back-four per both shipped
+    /// archetype YAMLs. Phase-4 role-system replaces.</summary>
+    private const byte DefenderRosterSlotMin = 2;
+
+    /// <summary>Upper bound for defender roster slots (inclusive).</summary>
+    private const byte DefenderRosterSlotMax = 5;
+
     // Phase-3 polish-pass round 3 #1 (2026-05-11) coordinated press cap.
     // Before round 3 #1, EVERY outfield player within PressRadiusMetres of
     // the ball would sprint at it — at the 25m default radius this is often
@@ -383,13 +421,16 @@ public static class BehaviorTreeRunner
                 continue;
             }
 
-            // Hold shape: head toward BALL-TRANSLATED base position at jog
-            // (half speed). Option-3 (2026-05-11): the formation centroid
-            // shifts toward the ball's longitudinal + lateral position so
-            // the team plays as a compact block instead of 11 disconnected
-            // pucks. Translation factors live in FormationBallShiftFactor +
-            // LateralBallShiftFactor; clamped to pitch boundaries.
-            Vector3Fixed translatedBase = BallTranslatedBasePosition(basePosition, ballPitchPosition);
+            // Hold shape: head toward ball-translated base position at jog.
+            // Round 3 #4 (2026-05-12): defenders (roster slots 2-5) get an
+            // adjusted shift factor — steeper UP when own team in
+            // possession (line compresses to halfway), shallower (deeper)
+            // when out of possession (line drops toward own goal). All
+            // other outfield slots use Option-3's standard 0.5×ball.X
+            // translation.
+            Vector3Fixed translatedBase = DefensiveLineAdjustedBasePosition(
+                basePosition, ballPitchPosition, ownTeamInPossession,
+                IsDefender(slot.RosterSlot));
             commandsOut[i] = new PlayerCommand(translatedBase, kinematics.MaxSpeed * Fixed.Half);
         }
     }
@@ -565,6 +606,55 @@ public static class BehaviorTreeRunner
         Vector3Fixed basePosition, Vector3Fixed ballPitchPosition)
     {
         Fixed shiftedX = basePosition.X + ballPitchPosition.X * FormationBallShiftFactor;
+        Fixed shiftedZ = basePosition.Z + ballPitchPosition.Z * LateralBallShiftFactor;
+
+        Fixed clampedX = Clamp(shiftedX, -PitchAxialHalfExtentMetres, PitchAxialHalfExtentMetres);
+        Fixed clampedZ = Clamp(shiftedZ, -PitchLateralHalfExtentMetres, PitchLateralHalfExtentMetres);
+
+        return new Vector3Fixed(clampedX, Fixed.Zero, clampedZ);
+    }
+
+    /// <summary>
+    /// True if <paramref name="rosterSlot"/> is one of the back-four slots
+    /// (2-5 per both shipped archetype YAMLs). Hardcoded for Phase-3;
+    /// Phase-4 role-system replaces with a typed role enum.
+    /// </summary>
+    private static bool IsDefender(byte rosterSlot)
+        => rosterSlot >= DefenderRosterSlotMin && rosterSlot <= DefenderRosterSlotMax;
+
+    /// <summary>
+    /// Phase-3 polish-pass round 3 #4 (2026-05-12) defensive line height.
+    /// For non-defenders, returns <see cref="BallTranslatedBasePosition"/>
+    /// unchanged (Option-3 standard 0.5 × ball.X translation). For
+    /// defenders (roster slots 2-5), applies the line-height adjustment:
+    /// <list type="bullet">
+    ///   <item><description><strong>In possession</strong>: X shift = 0.5
+    ///   + 0.3 = 0.8 × ball.X. Back-four compresses toward halfway when
+    ///   attacking.</description></item>
+    ///   <item><description><strong>Out of possession</strong>: X shift =
+    ///   0.2 × ball.X (replaces 0.5 baseline). Back-four sits deeper than
+    ///   the rest of the formation; "stay home" discipline.</description></item>
+    /// </list>
+    /// Lateral (Z) shift unchanged at <see cref="LateralBallShiftFactor"/>
+    /// for all slots. Pitch-boundary clamp preserved.
+    /// </summary>
+    private static Vector3Fixed DefensiveLineAdjustedBasePosition(
+        Vector3Fixed basePosition,
+        Vector3Fixed ballPitchPosition,
+        bool ownTeamInPossession,
+        bool isDefender)
+    {
+        if (!isDefender)
+        {
+            return BallTranslatedBasePosition(basePosition, ballPitchPosition);
+        }
+
+        // Defender axial shift depends on possession phase.
+        Fixed axialShiftFactor = ownTeamInPossession
+            ? (FormationBallShiftFactor + DefensiveLineExtraShiftFactor)
+            : DefensiveLineDropFactor;
+
+        Fixed shiftedX = basePosition.X + ballPitchPosition.X * axialShiftFactor;
         Fixed shiftedZ = basePosition.Z + ballPitchPosition.Z * LateralBallShiftFactor;
 
         Fixed clampedX = Clamp(shiftedX, -PitchAxialHalfExtentMetres, PitchAxialHalfExtentMetres);
