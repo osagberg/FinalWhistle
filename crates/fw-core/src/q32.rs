@@ -39,9 +39,15 @@ pub type Q32Inner = FixedI64<U32>;
 /// `f32` / `f64` in canonical state.
 ///
 /// See module docs + `docs/specs/determinism-gate.md` for the contract.
+// Codex audit P2 (2026-05-13): inner field tightened to `pub(crate)` so
+// downstream crates can't bypass the panic-on-overflow operator policy
+// (Codex Q1) via `q32.0` raw access. Inside fw-core, `.0` access is fine
+// and is used throughout the q32 module's own arithmetic impls. The
+// `Q32Inner` alias was already de-exported from lib.rs in the same audit
+// pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Q32(pub Q32Inner);
+pub struct Q32(pub(crate) Q32Inner);
 
 // -------------------------------------------------------------------------
 // Constants

@@ -16,7 +16,9 @@ pub mod team;
 
 pub use archetype::BehaviorArchetype;
 pub use player::{PLAYER_TEMPLATE_SCHEMA_VERSION, PlayerTemplate};
-pub use role_affinity::{ROLE_AFFINITY_SCHEMA_VERSION, RoleAffinityTable, RoleId, RoleWeights};
+pub use role_affinity::{
+    ROLE_AFFINITY_SCHEMA_VERSION, RoleAffinityTable, RoleId, RoleIdError, RoleWeights,
+};
 pub use runtime::{
     BUILDUP_SPEED_BASELINE_BPS, BUILDUP_SPEED_MAX_BPS, BUILDUP_SPEED_MIN_BPS, ContentKind,
     ContentLoadError, ContentStore, Culture, CultureWeights, FormationSlot, TacticalArchetype,

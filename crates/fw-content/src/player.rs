@@ -27,6 +27,15 @@ use crate::role_affinity::RoleId;
 /// Current schema version for `PlayerTemplate`. Bumped at every
 /// breaking-shape change; forward-migration only (per
 /// `Content/RULES.md` §3).
+///
+/// **Marker-only at T1-1.** Codex audit P2 (2026-05-13): the field
+/// exists on `PlayerTemplate` + the load-test asserts it equals 1, but
+/// no `ContentLoader` gates loading on `schema_version <= MAX_SUPPORTED`
+/// yet. The gate lands at **Tranche 6** as part of the real
+/// `ContentStore::load_baked` implementation (the current `load_baked`
+/// is a stub returning `Ok(Self::default())`). Until then, treat this
+/// constant as a forward-compatibility marker — content packs commit
+/// `schema_version: 1` so the future loader knows what to do.
 pub const PLAYER_TEMPLATE_SCHEMA_VERSION: u32 = 1;
 
 /// A player-template entry from a content pack.

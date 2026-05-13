@@ -15,7 +15,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use fw_content::{Culture, PlayerTemplate, RoleAffinityTable, RoleId, TacticalArchetype};
+use fw_content::{
+    BUILDUP_SPEED_MAX_BPS, BUILDUP_SPEED_MIN_BPS, Culture, PlayerTemplate, RoleAffinityTable,
+    RoleId, TacticalArchetype,
+};
 
 /// Walk a content directory and apply `parse` to every `.ron` file.
 /// Panics with a helpful message on parse failure.
@@ -88,15 +91,15 @@ fn archetypes_fixtures_load_with_u16_bps() {
             "{path:?} formation has {} slots (expected 11)",
             a.formation.len()
         );
-        // Confirms the buildup_speed_factor_bps field deserialized — the
-        // field is `u16` so it cannot exceed 65_535 by definition. The
-        // assertion below is a sanity gate: well-formed archetypes should
-        // sit in the 5_000..=15_000 range (0.5..=1.5 normalized). A 0 or
-        // 65_535 value would suggest the migration from f32 didn't land
-        // for this fixture.
+        // Confirms the buildup_speed_factor_bps field deserialized. Range
+        // references `BUILDUP_SPEED_MIN_BPS..=BUILDUP_SPEED_MAX_BPS` from
+        // `fw-content::runtime` — Codex audit P3 (2026-05-13): hardcoded
+        // 5_000..=15_000 was drift-prone vs. the type-level constants
+        // (which permit 5_000..=20_000). Reference the constants so the
+        // test moves in lockstep with the spec.
         assert!(
-            (5_000..=15_000).contains(&a.buildup_speed_factor_bps),
-            "{path:?} buildup_speed_factor_bps {} outside sane 5_000..=15_000 range",
+            (BUILDUP_SPEED_MIN_BPS..=BUILDUP_SPEED_MAX_BPS).contains(&a.buildup_speed_factor_bps),
+            "{path:?} buildup_speed_factor_bps {} outside sanctioned BUILDUP_SPEED_MIN_BPS..=BUILDUP_SPEED_MAX_BPS range ({BUILDUP_SPEED_MIN_BPS}..={BUILDUP_SPEED_MAX_BPS})",
             a.buildup_speed_factor_bps
         );
     }

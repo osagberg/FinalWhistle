@@ -40,6 +40,17 @@
 use crate::q32::Q32;
 use serde::{Deserialize, Serialize};
 
+/// Predicate: is `q` in the closed `[Q32::ZERO, Q32::ONE]` range?
+///
+/// Every visible/hidden attribute field, `AbilityCeiling` field, and
+/// `PlayerCondition` field is contract-bound to this range. Used by
+/// `AbilityCeiling::try_new` + `PlayerAttributes::validate_unit_range`
+/// + downstream validators.
+#[must_use]
+pub fn is_in_unit_range(q: Q32) -> bool {
+    q >= Q32::ZERO && q <= Q32::ONE
+}
+
 // ---------------------------------------------------------------------------
 // Count contract
 // ---------------------------------------------------------------------------
@@ -58,17 +69,19 @@ pub const HIDDEN_ATTR_COUNT: usize = 14 + 3;
 const _: () = assert!(VISIBLE_ATTR_COUNT == 38);
 const _: () = assert!(HIDDEN_ATTR_COUNT == 17);
 
-/// Stable enumeration of every attribute name in `PlayerAttributes`,
-/// ordered by struct + field declaration order (matches ADR-0002
-/// §"Concrete shape" verbatim).
+/// Stable enumeration of every **visible** attribute name in `PlayerAttributes`
+/// (technical + mental + physical + goalkeeper = 38 fields), ordered by
+/// struct + field declaration order (ADR-0002 §"Concrete shape" verbatim).
 ///
-/// Used by `fw-content::RoleAffinityTable::unknown_attribute_keys` to
-/// catch misspellings in weight tables. If a future ADR adds, drops, or
-/// renames an attribute, this list `MUST` move in lockstep — the
-/// `known_attribute_names_count_matches_total_field_count` test pins the
-/// length, and the `role_affinity::tests::sample_role_weights_all_keys_known`
-/// test catches drift via the sample fixtures.
-pub const KNOWN_ATTRIBUTE_NAMES: &[&str] = &[
+/// **This is the canonical key set for CA derivation weights.** Per ADR-0002
+/// §"Choices" item 6, role-affinity tables weight ONLY visible attributes
+/// toward Current Ability. Hidden fields (personality / durability) drive
+/// scout disagreement (Pillar 4) + BT utility biasing (Pillar 5) + injury
+/// modeling — they do NOT contribute to the CA-derivation weighted sum.
+///
+/// `fw-content::RoleAffinityTable::unknown_attribute_keys` validates against
+/// this list (per Codex audit P1 fix, 2026-05-13).
+pub const VISIBLE_ATTRIBUTE_NAMES: &[&str] = &[
     // Technical (14)
     "finishing",
     "long_shots",
@@ -111,6 +124,17 @@ pub const KNOWN_ATTRIBUTE_NAMES: &[&str] = &[
     "aerial_reach",
     "command_of_area",
     "kicking",
+];
+
+/// Stable enumeration of every **hidden/support** field name (personality
+/// vector + durability profile = 17 fields), ordered by struct + field
+/// declaration order.
+///
+/// Hidden fields drive scout disagreement, BT utility biasing, and injury
+/// modeling. They are NOT valid keys in role-affinity weight tables.
+/// `fw-content::RoleAffinityTable::unknown_attribute_keys` rejects them
+/// as keys per Codex audit P1 fix (2026-05-13).
+pub const HIDDEN_ATTRIBUTE_NAMES: &[&str] = &[
     // Personality (14)
     "determination",
     "work_rate",
@@ -132,9 +156,83 @@ pub const KNOWN_ATTRIBUTE_NAMES: &[&str] = &[
     "dirtiness",
 ];
 
+/// Stable enumeration of every attribute name (visible + hidden = 55).
+///
+/// Use `VISIBLE_ATTRIBUTE_NAMES` for CA-weight key validation (the right
+/// answer per ADR-0002); use `KNOWN_ATTRIBUTE_NAMES` only when you
+/// genuinely need the full 55-name set (e.g. attribute-binding documents
+/// that catalogue every possible BT input).
+pub const KNOWN_ATTRIBUTE_NAMES: &[&str] = &[
+    // Visible (38)
+    "finishing",
+    "long_shots",
+    "passing",
+    "crossing",
+    "first_touch",
+    "technique",
+    "dribbling",
+    "heading",
+    "tackling",
+    "marking",
+    "free_kicks",
+    "penalty_taking",
+    "corners",
+    "long_throws",
+    "anticipation",
+    "composure",
+    "decisions",
+    "vision",
+    "off_the_ball",
+    "positioning",
+    "concentration",
+    "bravery",
+    "teamwork",
+    "flair",
+    "pace",
+    "acceleration",
+    "stamina",
+    "strength",
+    "agility",
+    "balance",
+    "jumping_reach",
+    "natural_fitness",
+    "handling",
+    "reflexes",
+    "one_on_ones",
+    "aerial_reach",
+    "command_of_area",
+    "kicking",
+    // Hidden (17)
+    "determination",
+    "work_rate",
+    "ambition",
+    "professionalism",
+    "loyalty",
+    "temperament",
+    "pressure_tolerance",
+    "big_match_appetite",
+    "adaptability",
+    "aggression",
+    "risk_appetite",
+    "selflessness",
+    "consistency",
+    "versatility",
+    "injury_proneness",
+    "recovery_rate",
+    "dirtiness",
+];
+
+const _: () = assert!(
+    VISIBLE_ATTRIBUTE_NAMES.len() == VISIBLE_ATTR_COUNT,
+    "VISIBLE_ATTRIBUTE_NAMES length must match visible field count (38)"
+);
+const _: () = assert!(
+    HIDDEN_ATTRIBUTE_NAMES.len() == HIDDEN_ATTR_COUNT,
+    "HIDDEN_ATTRIBUTE_NAMES length must match hidden field count (17)"
+);
 const _: () = assert!(
     KNOWN_ATTRIBUTE_NAMES.len() == VISIBLE_ATTR_COUNT + HIDDEN_ATTR_COUNT,
-    "KNOWN_ATTRIBUTE_NAMES length must match field count (38 + 17 = 55)"
+    "KNOWN_ATTRIBUTE_NAMES length must match total field count (38 + 17 = 55)"
 );
 
 // ---------------------------------------------------------------------------
@@ -277,6 +375,106 @@ pub struct PlayerAttributes {
     pub durability: DurabilityProfile,
 }
 
+/// Error returned by `PlayerAttributes::validate_unit_range`.
+///
+/// Codex audit P1 (2026-05-13): there was no single validation entry-point
+/// for the "every attribute is in [0, 1]" invariant — the doc claim was
+/// carried by convention only. `validate_unit_range` is the single point
+/// of enforcement; called by FW-VAL at load time + by any runtime helper
+/// that derives a new `PlayerAttributes` from arithmetic.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("PlayerAttributes field `{field}` outside [0, 1]: bits = {bits}")]
+pub struct AttributeRangeError {
+    /// Dotted field path (`technical.finishing`, `personality.work_rate`).
+    pub field: &'static str,
+    /// Raw `Q32` bits of the offending value (for debug; convert via
+    /// `Q32::from_raw(bits).to_f64()` for a human-readable form).
+    pub bits: i64,
+}
+
+impl PlayerAttributes {
+    /// Verify every field is in `[Q32::ZERO, Q32::ONE]`. Returns
+    /// `Vec<AttributeRangeError>` listing every violation (collect-all,
+    /// not first-only — matches the `RoleAffinityTable::invalid_roles`
+    /// pattern; FW-VAL surfaces all errors in one pass).
+    #[must_use]
+    pub fn validate_unit_range(&self) -> Vec<AttributeRangeError> {
+        let mut errors = Vec::new();
+        macro_rules! check {
+            ($group:ident . $field:ident) => {
+                if !is_in_unit_range(self.$group.$field) {
+                    errors.push(AttributeRangeError {
+                        field: concat!(stringify!($group), ".", stringify!($field)),
+                        bits: self.$group.$field.to_bits(),
+                    });
+                }
+            };
+        }
+        // Technical (14)
+        check!(technical.finishing);
+        check!(technical.long_shots);
+        check!(technical.passing);
+        check!(technical.crossing);
+        check!(technical.first_touch);
+        check!(technical.technique);
+        check!(technical.dribbling);
+        check!(technical.heading);
+        check!(technical.tackling);
+        check!(technical.marking);
+        check!(technical.free_kicks);
+        check!(technical.penalty_taking);
+        check!(technical.corners);
+        check!(technical.long_throws);
+        // Mental (10)
+        check!(mental.anticipation);
+        check!(mental.composure);
+        check!(mental.decisions);
+        check!(mental.vision);
+        check!(mental.off_the_ball);
+        check!(mental.positioning);
+        check!(mental.concentration);
+        check!(mental.bravery);
+        check!(mental.teamwork);
+        check!(mental.flair);
+        // Physical (8)
+        check!(physical.pace);
+        check!(physical.acceleration);
+        check!(physical.stamina);
+        check!(physical.strength);
+        check!(physical.agility);
+        check!(physical.balance);
+        check!(physical.jumping_reach);
+        check!(physical.natural_fitness);
+        // Goalkeeper (6)
+        check!(goalkeeper.handling);
+        check!(goalkeeper.reflexes);
+        check!(goalkeeper.one_on_ones);
+        check!(goalkeeper.aerial_reach);
+        check!(goalkeeper.command_of_area);
+        check!(goalkeeper.kicking);
+        // Personality (14)
+        check!(personality.determination);
+        check!(personality.work_rate);
+        check!(personality.ambition);
+        check!(personality.professionalism);
+        check!(personality.loyalty);
+        check!(personality.temperament);
+        check!(personality.pressure_tolerance);
+        check!(personality.big_match_appetite);
+        check!(personality.adaptability);
+        check!(personality.aggression);
+        check!(personality.risk_appetite);
+        check!(personality.selflessness);
+        check!(personality.consistency);
+        check!(personality.versatility);
+        // Durability (3)
+        check!(durability.injury_proneness);
+        check!(durability.recovery_rate);
+        check!(durability.dirtiness);
+        errors
+    }
+}
+
 /// Current Ability + Potential Ability ceiling.
 ///
 /// Both `Q32` in `[Q32::ZERO, Q32::ONE]`. CA is a weighted sum of visible
@@ -308,13 +506,70 @@ pub struct AbilityCeiling {
     pub(crate) potential: Q32,
 }
 
+/// Errors returned when constructing or validating an `AbilityCeiling`.
+///
+/// Codex audit P1 (2026-05-13): the previous `AbilityCeiling::new`
+/// constructor was unchecked, so doc claims of "Q32 in [0, 1]" + "CA ≤ PA"
+/// were carried by convention only. This enum + the `try_new` constructor
+/// make the invariants enforceable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum AbilityCeilingError {
+    /// `current` is outside `[Q32::ZERO, Q32::ONE]`.
+    #[error("AbilityCeiling.current must be in [0, 1]; got bits = {bits}")]
+    CurrentOutOfRange { bits: i64 },
+    /// `potential` is outside `[Q32::ZERO, Q32::ONE]`.
+    #[error("AbilityCeiling.potential must be in [0, 1]; got bits = {bits}")]
+    PotentialOutOfRange { bits: i64 },
+    /// `current` exceeds `potential`. Semantically: a player cannot have a
+    /// CA higher than their PA ceiling. Aging curves move CA *toward* PA,
+    /// never past it.
+    #[error("AbilityCeiling.current ({current_bits}) > potential ({potential_bits})")]
+    CurrentExceedsPotential {
+        current_bits: i64,
+        potential_bits: i64,
+    },
+}
+
 impl AbilityCeiling {
-    /// Construct an `AbilityCeiling` with the given current + potential
-    /// values. Both `MUST` be `Q32` in `[Q32::ZERO, Q32::ONE]`; the FW-VAL
-    /// gauntlet (T2-3+) catches out-of-range fixtures at load time.
+    /// Construct an `AbilityCeiling`. **Unchecked**; only legal in this
+    /// crate's tests + the `try_new` constructor below. External callers
+    /// MUST use `try_new`.
+    ///
+    /// Kept `pub const` for serde's derive-generated `Deserialize` impl
+    /// (which lives in the same crate and needs a straight-line
+    /// constructor path). Content-pack RON validation is FW-VAL's job at
+    /// load time, NOT this constructor — the constructor is the lowest
+    /// layer and stays minimal.
     #[must_use]
     pub const fn new(current: Q32, potential: Q32) -> Self {
         Self { current, potential }
+    }
+
+    /// Construct an `AbilityCeiling`, validating the three invariants:
+    /// `current ∈ [0, 1]`, `potential ∈ [0, 1]`, `current ≤ potential`.
+    ///
+    /// Returns `Err(AbilityCeilingError::*)` on violation. The FW-VAL
+    /// gauntlet (T2-3+) will route all content-pack-loaded ceilings
+    /// through this constructor; runtime code that constructs ceilings
+    /// from derived values should also prefer this path.
+    pub fn try_new(current: Q32, potential: Q32) -> Result<Self, AbilityCeilingError> {
+        if !is_in_unit_range(current) {
+            return Err(AbilityCeilingError::CurrentOutOfRange {
+                bits: current.to_bits(),
+            });
+        }
+        if !is_in_unit_range(potential) {
+            return Err(AbilityCeilingError::PotentialOutOfRange {
+                bits: potential.to_bits(),
+            });
+        }
+        if current > potential {
+            return Err(AbilityCeilingError::CurrentExceedsPotential {
+                current_bits: current.to_bits(),
+                potential_bits: potential.to_bits(),
+            });
+        }
+        Ok(Self { current, potential })
     }
 
     /// Current Ability — the player's present derived ceiling. Read-only
@@ -505,6 +760,112 @@ mod tests {
         assert_eq!(c.potential(), Q32::from_raw(3i64 << 30));
         // CA untouched.
         assert_eq!(c.current(), Q32::ZERO);
+    }
+
+    #[test]
+    fn ability_ceiling_try_new_accepts_valid() {
+        let half = Q32::from_raw(1i64 << 31);
+        let three_quarters = Q32::from_raw(3i64 << 30);
+        assert!(AbilityCeiling::try_new(half, three_quarters).is_ok());
+        assert!(AbilityCeiling::try_new(Q32::ZERO, Q32::ZERO).is_ok());
+        assert!(AbilityCeiling::try_new(Q32::ONE, Q32::ONE).is_ok());
+    }
+
+    #[test]
+    fn ability_ceiling_try_new_rejects_current_out_of_range() {
+        let above_one = Q32::from_int(2);
+        let result = AbilityCeiling::try_new(above_one, Q32::ONE);
+        assert!(matches!(
+            result,
+            Err(AbilityCeilingError::CurrentOutOfRange { .. })
+        ));
+    }
+
+    #[test]
+    fn ability_ceiling_try_new_rejects_potential_out_of_range() {
+        let above_one = Q32::from_int(2);
+        let result = AbilityCeiling::try_new(Q32::ZERO, above_one);
+        assert!(matches!(
+            result,
+            Err(AbilityCeilingError::PotentialOutOfRange { .. })
+        ));
+    }
+
+    #[test]
+    fn ability_ceiling_try_new_rejects_negative() {
+        let neg = Q32::from_raw(-1);
+        assert!(matches!(
+            AbilityCeiling::try_new(neg, Q32::ONE),
+            Err(AbilityCeilingError::CurrentOutOfRange { .. })
+        ));
+        assert!(matches!(
+            AbilityCeiling::try_new(Q32::ZERO, neg),
+            Err(AbilityCeilingError::PotentialOutOfRange { .. })
+        ));
+    }
+
+    #[test]
+    fn ability_ceiling_try_new_rejects_current_exceeds_potential() {
+        let high = Q32::from_raw(3i64 << 30);
+        let low = Q32::from_raw(1i64 << 30);
+        let result = AbilityCeiling::try_new(high, low);
+        assert!(matches!(
+            result,
+            Err(AbilityCeilingError::CurrentExceedsPotential { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_unit_range_accepts_well_formed_attrs() {
+        let attrs = sample_attrs();
+        assert!(attrs.validate_unit_range().is_empty());
+    }
+
+    #[test]
+    fn validate_unit_range_catches_out_of_range_fields() {
+        let mut attrs = sample_attrs();
+        attrs.technical.finishing = Q32::from_int(2); // > 1.0
+        attrs.physical.pace = Q32::from_raw(-1); // < 0
+        attrs.personality.consistency = Q32::from_int(5); // > 1.0
+        let errors = attrs.validate_unit_range();
+        assert_eq!(errors.len(), 3);
+        let fields: Vec<&str> = errors.iter().map(|e| e.field).collect();
+        assert!(fields.contains(&"technical.finishing"));
+        assert!(fields.contains(&"physical.pace"));
+        assert!(fields.contains(&"personality.consistency"));
+    }
+
+    #[test]
+    fn visible_and_hidden_attribute_name_lists_are_disjoint() {
+        for &v in VISIBLE_ATTRIBUTE_NAMES {
+            assert!(
+                !HIDDEN_ATTRIBUTE_NAMES.contains(&v),
+                "name {v} is in BOTH visible + hidden sets"
+            );
+        }
+    }
+
+    #[test]
+    fn visible_plus_hidden_equals_known() {
+        // Sanity: VISIBLE + HIDDEN should equal KNOWN as a set.
+        let mut combined: Vec<&str> = VISIBLE_ATTRIBUTE_NAMES
+            .iter()
+            .chain(HIDDEN_ATTRIBUTE_NAMES.iter())
+            .copied()
+            .collect();
+        combined.sort();
+        let mut known: Vec<&str> = KNOWN_ATTRIBUTE_NAMES.to_vec();
+        known.sort();
+        assert_eq!(combined, known);
+    }
+
+    #[test]
+    fn is_in_unit_range_helper() {
+        assert!(is_in_unit_range(Q32::ZERO));
+        assert!(is_in_unit_range(Q32::ONE));
+        assert!(is_in_unit_range(Q32::from_raw(1i64 << 31)));
+        assert!(!is_in_unit_range(Q32::from_raw(-1)));
+        assert!(!is_in_unit_range(Q32::from_int(2)));
     }
 
     #[test]

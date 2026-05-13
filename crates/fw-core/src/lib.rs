@@ -33,11 +33,18 @@ pub mod tick;
 
 pub use ids::{ClubId, MatchId, PlayerId};
 pub use player_attributes::{
-    AbilityCeiling, DurabilityProfile, GoalkeeperAttributes, HIDDEN_ATTR_COUNT,
-    KNOWN_ATTRIBUTE_NAMES, MentalAttributes, PersonalityVector, PhysicalAttributes,
-    PlayerAttributes, PlayerCondition, TechnicalAttributes, VISIBLE_ATTR_COUNT,
+    AbilityCeiling, AbilityCeilingError, AttributeRangeError, DurabilityProfile,
+    GoalkeeperAttributes, HIDDEN_ATTR_COUNT, HIDDEN_ATTRIBUTE_NAMES, KNOWN_ATTRIBUTE_NAMES,
+    MentalAttributes, PersonalityVector, PhysicalAttributes, PlayerAttributes, PlayerCondition,
+    TechnicalAttributes, VISIBLE_ATTR_COUNT, VISIBLE_ATTRIBUTE_NAMES, is_in_unit_range,
 };
-pub use q32::{Q32, Q32Inner};
+// `Q32Inner` (alias for `FixedI64<U32>`) is deliberately NOT re-exported.
+// Codex audit P2 (2026-05-13): exposing the inner type bypasses the
+// checked operator policy (panic-on-overflow Q1) — downstream callers
+// could do raw `FixedI64<U32>` arithmetic with different semantics.
+// External callers always work with `Q32`; the type alias stays
+// crate-private.
+pub use q32::Q32;
 pub use seed::Seed;
 pub use tick::Tick;
 

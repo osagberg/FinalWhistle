@@ -19,16 +19,25 @@
 //! is non-fungible with bare `String`.
 //!
 //! `RoleWeights::weights_bps` keys are validated against
-//! `fw_core::KNOWN_ATTRIBUTE_NAMES` so misspellings like `"finsihing"`
-//! surface as a load-time error in `unknown_attribute_keys`, rather than
-//! silently dropping into a no-op weight at CA-derivation time.
+//! `fw_core::VISIBLE_ATTRIBUTE_NAMES` so misspellings like `"finsihing"`
+//! AND incorrect uses of hidden fields like `"injury_proneness"` (which
+//! the BT runner reads but does NOT include in CA derivation per ADR-0002
+//! §"Choices" item 6) both surface as load-time errors in
+//! `unknown_attribute_keys`. Codex audit P1 (2026-05-13): the prior
+//! `KNOWN_ATTRIBUTE_NAMES` set silently accepted hidden fields,
+//! contradicting the ADR.
 
-use fw_core::KNOWN_ATTRIBUTE_NAMES;
+use fw_core::VISIBLE_ATTRIBUTE_NAMES;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Current schema version for `RoleAffinityTable`. Bumped at every
 /// breaking-shape change; forward-migration only.
+///
+/// **Marker-only at T1-1.** Same status as
+/// `PLAYER_TEMPLATE_SCHEMA_VERSION` — content packs commit
+/// `schema_version: 1` so the future `ContentStore::load_baked` loader
+/// (Tranche 6) can gate on it; no enforcement at the type level yet.
 pub const ROLE_AFFINITY_SCHEMA_VERSION: u32 = 1;
 
 // ---------------------------------------------------------------------------
@@ -47,15 +56,49 @@ pub const ROLE_AFFINITY_SCHEMA_VERSION: u32 = 1;
 #[serde(transparent)]
 pub struct RoleId(String);
 
+/// Error returned by `RoleId::try_new`. Codex audit P2 (2026-05-13):
+/// `debug_assert!` on empty input meant release builds silently accepted
+/// `RoleId("")` — invalid in any role table lookup but allowed at
+/// construction time. `try_new` enforces non-emptiness in all build
+/// modes; `new` panics with a clear message (test/internal use only).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RoleIdError {
+    /// Empty string is never a valid role identifier.
+    #[error("RoleId cannot be empty")]
+    Empty,
+    /// Whitespace-only or whitespace-bracketed (`" GK "`) string —
+    /// silent typo class in hand-authored RON. Reject explicitly.
+    #[error("RoleId contains leading/trailing whitespace: {input:?}")]
+    Whitespace { input: String },
+}
+
 impl RoleId {
-    /// Construct a `RoleId` from a string slice or owned string. No
-    /// format validation beyond non-emptiness is enforced — the
-    /// FW-VAL gauntlet (T2-3+) catches role-id mismatches against the
-    /// loaded `RoleAffinityTable` keys at content-load time.
+    /// Construct a `RoleId`. Panics on invalid input. Use `try_new` for
+    /// content-load-time validation; `new` is the convenience form for
+    /// in-source construction (tests, sample fixtures).
+    ///
+    /// Codex audit P2 (2026-05-13): previously this used `debug_assert!`,
+    /// which made release builds silently accept empty strings. Promoted
+    /// to a real panic + parallel `try_new` for non-panicking callers.
+    #[track_caller]
     pub fn new(s: impl Into<String>) -> Self {
+        match Self::try_new(s) {
+            Ok(id) => id,
+            Err(e) => panic!("invalid RoleId: {e}"),
+        }
+    }
+
+    /// Fallible constructor — preferred at content-load time. Returns
+    /// `Err(RoleIdError::*)` on validation failure.
+    pub fn try_new(s: impl Into<String>) -> Result<Self, RoleIdError> {
         let s = s.into();
-        debug_assert!(!s.is_empty(), "RoleId must be non-empty");
-        Self(s)
+        if s.is_empty() {
+            return Err(RoleIdError::Empty);
+        }
+        if s.trim() != s {
+            return Err(RoleIdError::Whitespace { input: s });
+        }
+        Ok(Self(s))
     }
 
     /// Borrow the underlying string slice.
@@ -123,16 +166,20 @@ impl RoleWeights {
     }
 
     /// Return every weight-key in this role that is NOT a member of
-    /// `fw_core::KNOWN_ATTRIBUTE_NAMES`. Empty iff every key resolves to
-    /// an actual `PlayerAttributes` field; non-empty iff there's a
-    /// typo (`"finsihing"`) or a stale rename. Collect-all rather than
-    /// first-only so FW-VAL can surface every misspelling in one pass.
+    /// `fw_core::VISIBLE_ATTRIBUTE_NAMES`. Empty iff every key is a real
+    /// visible attribute; non-empty iff there's a typo (`"finsihing"`),
+    /// a stale rename, OR an incorrect use of a hidden field
+    /// (`"injury_proneness"` is real but hidden-only — not a valid
+    /// CA-weight key per ADR-0002 §"Choices" item 6).
+    ///
+    /// Collect-all rather than first-only so FW-VAL can surface every
+    /// misspelling + every hidden-field misuse in one pass.
     #[must_use]
     pub fn unknown_attribute_keys(&self) -> Vec<&str> {
         self.weights_bps
             .keys()
             .map(String::as_str)
-            .filter(|k| !KNOWN_ATTRIBUTE_NAMES.contains(k))
+            .filter(|k| !VISIBLE_ATTRIBUTE_NAMES.contains(k))
             .collect()
     }
 }
@@ -265,6 +312,54 @@ mod tests {
         let w = RoleWeights { weights_bps };
         let unknown = w.unknown_attribute_keys();
         assert_eq!(unknown, vec!["finsihing"]);
+    }
+
+    #[test]
+    fn hidden_field_used_as_visible_weight_is_rejected() {
+        // Codex audit P1 (2026-05-13): hidden fields like
+        // injury_proneness / professionalism are NOT valid CA-weight keys
+        // per ADR-0002 §"Choices" item 6. The validator must catch this
+        // even though injury_proneness IS a real PlayerAttributes field.
+        let mut weights_bps = BTreeMap::new();
+        weights_bps.insert("injury_proneness".to_string(), 5_000); // real field, but hidden
+        weights_bps.insert("finishing".to_string(), 5_000);
+        let w = RoleWeights { weights_bps };
+        let unknown = w.unknown_attribute_keys();
+        assert_eq!(unknown, vec!["injury_proneness"]);
+    }
+
+    #[test]
+    fn role_id_try_new_rejects_empty() {
+        assert!(matches!(RoleId::try_new(""), Err(RoleIdError::Empty)));
+    }
+
+    #[test]
+    fn role_id_try_new_rejects_whitespace() {
+        assert!(matches!(
+            RoleId::try_new(" GK"),
+            Err(RoleIdError::Whitespace { .. })
+        ));
+        assert!(matches!(
+            RoleId::try_new("GK "),
+            Err(RoleIdError::Whitespace { .. })
+        ));
+        assert!(matches!(
+            RoleId::try_new("   "),
+            Err(RoleIdError::Whitespace { .. })
+        ));
+    }
+
+    #[test]
+    fn role_id_try_new_accepts_valid() {
+        assert!(RoleId::try_new("GK").is_ok());
+        assert!(RoleId::try_new("RWB").is_ok());
+        assert!(RoleId::try_new("attacking-midfielder").is_ok());
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid RoleId")]
+    fn role_id_new_panics_on_empty() {
+        let _ = RoleId::new("");
     }
 
     #[test]
