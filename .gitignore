@@ -86,6 +86,14 @@ steamworks/sdk/
 # ==========================================
 # Build outputs
 # ==========================================
+
+# Rust
+target/
+
+# pnpm
+node_modules/
+
+# Bundle artifacts
 *.zip
 *.tar.gz
 *.dmg

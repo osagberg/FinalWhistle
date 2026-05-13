@@ -39,8 +39,8 @@ Stale rule: any `IN_PROGRESS` item older than 14 days must be reviewed at next `
 
 ## Now / Next / Blocked
 
-- **Now:** none — T0-12 DONE. T0 phase essentially complete on dev box; T0-7b cross-OS matrix verification is the last gate.
-- **Next:** `/done` opens the T0 phase-gate PR for Codex review; CI matrix exercises T0-7b.
+- **Now:** none — T0 closed (Codex APPROVE 2026-05-13 at 4721fee6 + hardening bad1a400). All CI matrix gates green.
+- **Next:** `T1-1` `fw-content` schema (also converts `TacticalArchetype.buildup_speed_factor: f32 → u16 bps`, Codex Imp #3 deferred from T0).
 - **Blocked:** none.
 
 ---

@@ -4,7 +4,16 @@ Append-only human-readable ship log. One line per shipped MASTER_PLAN task. Phas
 
 ---
 
-## Phase T0: Scaffold — closed 2026-05-13
+## Phase T0: Scaffold — APPROVED + MERGED 2026-05-13
+
+**Codex verdict 2026-05-13:** APPROVE at `4721fee6` + hardening `bad1a400`. All workflow runs green on macOS-14 + windows-latest + ubuntu-22.04. T0-7b cross-OS canonical-hash agreement verified. Postmortem at `docs/postmortems/phase-T0.md`.
+
+Additional commits post-`/done`:
+- 2026-05-13 — **CI matrix unblock + Codex pre-merge audit** (`89479063`, `a0b2e084`, `a612e585`, `4721fee6`, `bad1a400`) — 5 commits closing the gap between dev-box green and CI matrix green. MSRV bump (fixed@1.31 → rustc 1.95); workflow path fixes; icon-tracking; Linux Tauri deps; SKILL.md atomic ordering; frontend strict-typecheck cleanup; Swatinem bin-cache hardening.
+
+---
+
+## Phase T0: Scaffold — closed 2026-05-13 (preliminary; superseded by APPROVED block above)
 
 **Shipped:** an empty repo became a workspace-verifying Rust+Tauri+SolidJS scaffold with deterministic match-sim primitives, a pinned BLAKE3 canonical-state hash, a reconciled blueprint, a 9-step `/next` workflow, and Codex pre-T0 audit findings landed.
 
