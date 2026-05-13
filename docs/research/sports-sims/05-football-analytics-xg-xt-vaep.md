@@ -39,7 +39,9 @@ Per-point control probability via time-to-intercept:
 - **Pressing Intensity** (Bauer et al., 2025): `P_press_on_carrier = 1 − Π_i (1 − p_arr,i,carrier)` — closed-form, reuses Spearman kinematics.
 - **5-second rule** (Klopp/Pep): Bauer & Anzer 2021 confirm a ~5s post-loss press-density spike. Heuristic: ball-loss + `dist_nearest_teammate < r` + `t_since_loss < 5s` → switch BT to "press" subtree.
 
-## Tractability filter (Q32 fixed-point, 60Hz, 3000 LoC budget)
+## Tractability filter (Q32 fixed-point, 60Hz)
+
+> **Note (2026-05-13 reframe):** an earlier version of this section was framed around a "3000 LoC budget" that has since been retracted (see `docs/DESIGN_DOC.md` §1 "Scope ambition" and `docs/DECISIONS.md` 2026-05-13 LoC-retraction entry). The tractability table below remains accurate against the *determinism* constraint (no XGBoost, no float trees, no full-pitch per-pixel eval at 60Hz), but the rule-outs framed as "fits in N lines" or "LoC budget" should be re-read as "tractable in deterministic Q32 closed-form." VAEP stays ruled out — gradient-boosted trees over floats are non-deterministic across platforms, breaks Pillar 2's canonical-hash gate.
 
 | Model | Tractable as-is? | Cheapest faithful approximation |
 |---|---|---|
@@ -54,7 +56,7 @@ Per-point control probability via time-to-intercept:
 ## Direct application to Final Whistle T1-2b
 
 - **Shooting uses xG as base utility:** **Yes.** Logistic xG over `(distance, angle, body_part, pressure)` is the shot-selection utility, a BT leaf evaluator. `pressure` = local pitch-control from defenders' side.
-- **Passing uses xT/VAEP:** **Yes — xT only.** Bake the 192-zone xT LUT at content-pipeline time (deterministic, committed RON). Pass utility = `xT[dst] − xT[src] + α · P_completion`. Drop VAEP — GBMs violate no-ML / determinism floor and the LoC budget. The "score the action, not the outcome" lesson survives via xT-delta.
+- **Passing uses xT/VAEP:** **Yes — xT only.** Bake the 192-zone xT LUT at content-pipeline time (deterministic, committed RON). Pass utility = `xT[dst] − xT[src] + α · P_completion`. Drop VAEP — GBMs violate the no-ML and determinism floor (gradient-boosted trees over floats are non-deterministic across platforms). The "score the action, not the outcome" lesson survives via xT-delta.
 - **Pressing trigger uses real-world heuristic:** **Yes.** Compound: `ball_loss_event` AND `tick_since_loss < ticks_per_5s` AND `dist(self, ball) < press_radius` AND `team_press_intent == HIGH` → BT switches to `counterpress` subtree. PPDA is a derived match-stat for the UI, not a BT input. Klopp vs Pep baked as a team-tactic profile (heavy-metal vs. positional-recovery).
 - **Positioning uses pitch-control:** **Partial — closed-form per-point only.** No full field. BT positioning evaluators query `time_to_arrive(self, target)` vs. nearest 2–3 opponents using Spearman's `τᵢ`. Cheaper fallback: Taki-Hasegawa velocity-weighted Voronoi (single nearest-defender check), ~5× cheaper.
 

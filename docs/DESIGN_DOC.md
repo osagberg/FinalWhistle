@@ -176,20 +176,20 @@ Single append-only ledger of structured `MemoryEvent` records. Every meaningful 
 
 ```
 MemoryEvent {
-  event_id, match_id?, season, tick?, career_date
+  event_id, match_id?, season, tick: Option<Tick>, career_date
   emitter: { kind, source_id }
   participants: [{ role, entity_id }]
   what: EventClass
-  stakes: Q32 in [0, 1]              // encoded as u16 basis points (0..=10000) in fw-memory
+  stakes: Q32             // in [0, 1] semantically; canonical Q32.32 fixed-point
   emotion: enum
   consequence: [{ kind, delta }]
   callback_eligibility: { recall_after_seasons, recall_tags, expires_after_seasons? }
-  salience: Q32 in [0, 1]            // computed at emission; same basis-points encoding
+  salience: Q32           // in [0, 1] semantically; computed at emission; canonical Q32
   schema_version: u16
 }
 ```
 
-> **Determinism note (per Codex pre-T0 audit + `Sim/RULES.md` §1):** `stakes` and `salience` MUST NOT be stored as `f32`/`f64` in canonical state. The fw-memory crate implements them as `Q32` (or equivalently `u16` basis points 0..=10000). The `[0,1]` notation above is conceptual — the wire type is integer-backed.
+> **Determinism note (per Codex pre-T0 audit + `Sim/RULES.md` §1, ADR-0005):** `stakes` and `salience` are `Q32` in canonical state. No u16 / f32 / f64 representation in `fw-memory`. The `[0, 1]` notation is conceptual (the value range); the wire type is the underlying `Q32` (`fixed::FixedI64<U32>`). ADR-0005 supersedes earlier drafts that implied a u16-basis-points representation.
 
 ### Salience scoring (formula locked; weights are tuning seeds)
 ```

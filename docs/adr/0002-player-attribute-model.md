@@ -26,7 +26,7 @@ PlayerId is already a durable `u32` newtype (`crates/fw-core/src/ids.rs`, locked
 
 ## Decision
 
-We will adopt a **38 visible + 14 hidden = 52-attribute player model**, with **Football-Manager-class breadth** as the floor and explicit room to grow into goalkeeper-specialized fields when T1-5 lands.
+We will adopt a **38 visible + 17 hidden/support = 55-field player model**, with **Football-Manager-class breadth** as the floor. The 38 visible decompose 14 technical / 10 mental / 8 physical / 6 goalkeeper-specific. The 17 hidden/support decompose 14 personality (the bias vector that multiplies into BT utility scores) + 3 durability (injury_proneness / recovery_rate / dirtiness, on a separate `DurabilityProfile` substruct). "52 pillar-load-bearing attributes" is the alternative pivot count (the 38 visible + 14 personality, excluding the 3 durability); 55 is the field count of the player record. Use 55 when sizing storage; use 52 when sizing the BT consideration surface.
 
 **Concrete shape:**
 
@@ -188,7 +188,7 @@ The original "24 visible + 8 hidden = 32" recommendation in `07-player-attribute
 - Hidden **8 → 17** (personality vector grows from 8 to 14 to cover FM's full hidden set; durability gets its own 3-field struct).
 - Total **32 → 55 fields, ~52 "attributes" in the pillar-load-bearing sense.**
 
-This is a deliberate upward revision documented in `docs/DECISIONS.md` (forthcoming entry citing this ADR).
+This is a deliberate upward revision documented in `docs/DECISIONS.md` (the 2026-05-13 ADR-0002 entry).
 
 ## Consequences
 
@@ -201,7 +201,7 @@ This is a deliberate upward revision documented in `docs/DECISIONS.md` (forthcom
 - Mutable-only-via-breakthrough PA gives Pillar 3 a real mechanical surface, not just a narrative one.
 
 **Negative:**
-- 55-field player record is heavy on save size. At `Q32` = 8 bytes per field, ~440 bytes per player attribute block; ~50k players × 440 bytes = ~22 MB just for attribute state. Mitigation: bincode + zstd in `fw-save` (already planned per ADR-0003 forthcoming); compresses to ~6 MB in practice given attribute-value entropy.
+- 55-field player record is heavy on save size. At `Q32` = 8 bytes per field, ~440 bytes per player attribute block; ~50k players × 440 bytes = ~22 MB just for attribute state. Mitigation: bincode + zstd in `fw-save` (the save-format ADR will land before T2-9 schema work; ADR-0003 in this batch is decision-utility math, not save format); compresses to ~6 MB in practice given attribute-value entropy.
 - BT decision sites now have more candidate attributes to read. Mitigation: per-decision attribute binding is documented in `docs/specs/bt-attribute-binding.md` (Open question, `00-synthesis.md` line 153). 2–4 attributes per decision keeps the binding tight.
 - Generation pipeline (T2-4) is more complex than a 32-field record. Mitigation: ZOXEXIVO's group-by-group generation pattern (`05-open-football-data.md` lines 14–28) maps directly; we re-implement deterministically (no `rand::random()`, no `rayon`) but the structure carries over.
 - Bigger schema = bigger save-migration surface when fields change. Mitigation: `fw-save` schema versioning (forward-only) plus the four-test contract per `Sim/RULES.md` §9.

@@ -13,8 +13,8 @@
 ## Phase pointer
 
 - **Just closed:** Phase T0 — Scaffold. All 13 rows DONE. T0-7b cross-OS canonical-hash agreement verified by CI matrix on `4721fee6`. Codex APPROVED 2026-05-13. Postmortem at `docs/postmortems/phase-T0.md`.
-- **Now:** Phase T1 — First Match (8 rows). Two procedural teams play one match end-to-end with a text recap.
-- **Critical path:** T1-1 → T1-2 → T1-4 → T1-5 → T1-6.
+- **Now:** Phase T1 — First Match (10 rows after T1-2 was split into T1-2a + T1-2b and T1-9 was added). Two procedural teams play one match end-to-end with a text recap, plus the dev-tier 2D tactical board + behavioral proptest invariants for verification.
+- **Critical path:** T1-1 → T1-2a → T1-2b → T1-4 → T1-5 → T1-6 (T1-9 lands after T1-2b).
 
 ## Blockers
 

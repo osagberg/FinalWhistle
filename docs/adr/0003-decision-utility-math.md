@@ -18,7 +18,7 @@ T1-2b lands the 22-player behavior-tree runner. On-ball events (shot / pass / dr
 
 Two scope reframes change the menu vs. the original synthesis (per `docs/DESIGN_DOC.md` §1 "Scope ambition" 2026-05-13, and `00-synthesis.md` lines 5-11): **no LoC budget**, and **VAEP stays ruled out** (gradient-boosted trees over floats are non-deterministic across platforms).
 
-This ADR locks the math shapes only. Numeric coefficients (β values, σ widths, press radii, bias weights) live in design docs per `.claude/rules/design-docs/RULES.md` §4. Builds on ADR-0001 (Q32), ADR-0004 (BTreeMap), ADR-0005 (BLAKE3). Primary research input: `docs/research/sports-sims/05-football-analytics-xg-xt-vaep.md` lines 23-67; composed summary `00-synthesis.md` lines 36-78.
+This ADR locks the math shapes only. Numeric coefficients (β values, σ widths, press radii, bias weights) live in design docs per `.claude/rules/design-docs/RULES.md` §4. Builds on the project's deterministic substrate: `Q32` from `crates/fw-core/src/q32.rs`, `BTreeMap`-only rule from `.claude/rules/Sim/RULES.md` §2, BLAKE3 canonical-hash regression at `crates/fw-replay/tests/canonical_hash.rs`. Composes with ADR-0001 (the 7-layer stack this math fits inside) and ADR-0006 (the FSM-of-BTs that hosts the utility selectors). Primary research input: `docs/research/sports-sims/05-football-analytics-xg-xt-vaep.md` lines 23-67; composed summary `00-synthesis.md` lines 36-78.
 
 ## Decision
 

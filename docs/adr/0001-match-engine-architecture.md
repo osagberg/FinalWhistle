@@ -73,7 +73,7 @@ We will build the match engine as a **layered, multi-rate AI stack** with seven 
 ### Neutral
 
 - **The BT-vs-FSM choice is deferred to ADR-0006.** Both compose with this architecture: the decision runner sits in the layer-2 slot regardless of representation. Picking the wrong representation costs us layer 2 only; the rest of the stack is unaffected.
-- **xT lookup table provenance is a separate decision** (`/log-decision`, pending). Hand-author the transition matrix or fit against StatsBomb open data? Touches the procedural-fantasy pillar (data is structural, not nominal, but worth explicit framing). Not in this ADR's scope.
+- **xT lookup table provenance: resolved in ADR-0003.** Hand-authored transition matrix in `crates/fw-content/src/xt/transitions.ron` (mod-overridable). Real-world-data fitting rejected for procedural-fantasy pillar.
 - **Stat-distribution gate and two-engine cross-check** (OOTP-style + EHM-style, per synthesis) are deferred to T2. Both compose cleanly above this stack.
 
 ## Alternatives considered
@@ -102,4 +102,4 @@ We will build the match engine as a **layered, multi-rate AI stack** with seven 
 - Prior ADRs: none (this is the first)
 - Pending companion: `docs/specs/tactic-fsm.md` (transition table), `docs/specs/bt-attribute-binding.md` (utility-score × attribute mapping), `docs/specs/decision-cadence-stagger.md` (per-player decision phase-offset scheme). All authored alongside T1-1 / T1-2b.
 - Pending decision (`/log-decision`): xT lookup table provenance (hand-author vs StatsBomb open data structural fit).
-- ADR-0006 (forthcoming): per-player decision representation — BT vs per-role FSM. This ADR commits to the slot; ADR-0006 fills it.
+- ADR-0006 (landed 2026-05-13): per-player decision representation — resolved as FSM-of-Behavior-Trees hybrid. Outfield roles use ~6-10 coarse role states each owning a small BT; goalkeeper is pure FSM. Universal pre-emption hooks at dispatcher level. This ADR commits to the layer-2 slot; ADR-0006 fills it.

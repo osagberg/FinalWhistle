@@ -146,7 +146,7 @@ pub enum EntityRef {
 
 `MemoryLedger` (already stubbed in `crates/fw-memory/src/lib.rs`) gains an append API that allocates the next `EventId` and stamps salience via the scoring function before pushing. `BTreeMap<EventId, usize>` indexes from id to position when a reader needs O(log n) lookup; the source-of-truth is still the `Vec` for canonical iteration order.
 
-### Event class catalogue (initial set, 28 entries)
+### Event class catalogue (initial set, 29 entries)
 
 A non-exhaustive `EventClass` enum, locked at schema_version = 1. Mod content packs add classes via `UnknownEventClass` (see "Mod-overlay compatibility" below); upgrading a mod class into core requires a schema migration.
 
