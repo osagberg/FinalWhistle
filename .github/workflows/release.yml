@@ -98,6 +98,12 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: release-${{ matrix.os }}-${{ matrix.target }}
+          # cache-bin: false sidesteps a flaky-restore class — see
+          # https://github.com/Swatinem/rust-cache#cache-bin. The ~/.cargo/bin
+          # binaries reinstall fast from the toolchain action; caching them
+          # here invited a stale `rustup-init` to overshadow `cargo` on a
+          # macOS-14 run (89479063). Belt-and-braces.
+          cache-bin: false
 
       - name: pnpm install
         working-directory: frontend
