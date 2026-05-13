@@ -40,6 +40,13 @@ unity-project/crashlytics-build.properties
 .AppleDouble
 .LSOverride
 Icon?
+# `Icon?` above is meant to match the macOS Finder resource fork file
+# (literally "Icon" followed by \r). On the case-insensitive macOS APFS
+# filesystem it also matches `icons` directory names, which is wrong —
+# we have a real `src-tauri/icons/` directory the Tauri build needs.
+# Explicit unignore below restores that path.
+!src-tauri/icons/
+!src-tauri/icons/**
 
 # Windows
 Thumbs.db

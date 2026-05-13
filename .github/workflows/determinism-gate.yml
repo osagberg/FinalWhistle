@@ -65,13 +65,27 @@ jobs:
           set -o pipefail
           cargo test --release -p fw-replay --test canonical_hash 2>&1 | tee canonical-hash-output.txt
 
-      - name: Annotate hash drift on failure
+      - name: "Annotate failure (drift vs infra)"
         if: failure()
         shell: bash
         run: |
-          echo "::error file=crates/fw-replay/tests/canonical_hash.rs,title=Canonical hash drift on ${{ matrix.os }}::Pinned MatchState hash does not agree across platforms. This is the Phase-0 stop-sign per docs/specs/determinism-gate.md. Either revert the offending change OR rebaseline the pinned hash via an authorized SPEC entry."
+          # Codex audit Nice-to-have #10: prior version annotated every
+          # failure as "hash drift" even when cargo couldn't compile
+          # (MSRV mismatch on a0b2e08 ancestor). Split here:
+          #   - Test ran AND assertion failed -> real hash drift, the
+          #     Phase-0 stop-sign.
+          #   - cargo couldn't build / test never ran -> infra / build
+          #     failure, surface as a separate annotation so the
+          #     phase-gate stays clearly attributable.
+          if grep -q "smoke_seed_60_tick_canonical_hash_pinned ... FAILED" canonical-hash-output.txt 2>/dev/null; then
+            echo "::error file=crates/fw-replay/tests/canonical_hash.rs,title=Canonical hash drift on $MATRIX_OS::Pinned MatchState hash does not agree across platforms. This is the Phase-0 stop-sign per docs/specs/determinism-gate.md. Either revert the offending change OR rebaseline the pinned hash via an authorized SPEC entry."
+          else
+            echo "::error file=.github/workflows/determinism-gate.yml,title=Determinism gate INFRA failure on $MATRIX_OS::cargo could not compile or test never ran (not hash drift). Inspect the run log for the actual error — likely MSRV / system deps / toolchain mismatch."
+          fi
           echo "--- Last 50 lines of test output ---"
           tail -50 canonical-hash-output.txt || true
+        env:
+          MATRIX_OS: ${{ matrix.os }}
 
       - name: Upload canonical-hash output
         if: always()
