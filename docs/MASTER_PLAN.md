@@ -99,7 +99,7 @@ Do not block this on UI polish, signature presentation banks, breakthrough trigg
 
 **Acceptance gate:** a 22-player dummy sim runs 60 ticks and the canonical BLAKE3 hash pins identically on `macos-14`, `windows-latest`, and `ubuntu-22.04` CI.
 
-| ID | Item | Status | Effort | Dependencies | Done Criteria |
+| ID | Item | Status | ~~Effort~~ (deprecated) | Dependencies | Done Criteria |
 |---|---|---|---|---|---|
 | T0-1 | Cargo workspace skeleton — 9 crates (`fw-core`, `fw-match-sim`, `fw-content`, `fw-content-baker`, `fw-memory`, `fw-replay`, `fw-scouting`, `fw-save`, `fw-tauri`) all compile clean | DONE | M (1d) | — | `cargo build --workspace` green (commit 81fdeff). Naming note: `fw-content-baker` replaces the originally-planned `fw-cli` name. |
 | T0-2 | Tauri 2 + SolidJS + Tailwind frontend shell — 6 placeholder routes (Home / Squad / Tactics / Transfers / League / Match) | DONE | M (2d) | T0-1 | Tauri shell opens at 81fdeff. |
@@ -129,9 +129,11 @@ Do not block this on UI polish, signature presentation banks, breakthrough trigg
 
 **Goal:** the user can click "Play Match" between two procedural teams and get a text recap with goals, score, and key events. The developer can verify it's actually football via the 2D tactical board + behavioral assertions.
 
+**Scope note (2026-05-13 reframe):** effort estimates ("M / L / XL / 1d / 1w") have been deprecated across this plan. They were carry-overs from the solo-developer framing that LoC-bounded the architecture choices. Per `docs/DESIGN_DOC.md` §1 "Scope ambition", implementation scope is bounded by determinism contract + maintainability + pillar promises, not by hours or lines. A row is done when its acceptance criteria pass — not when a clock-budget says so.
+
 **Verification surface:** see `docs/design/dev-verification.md` for the three-layer dev-tier strategy (diagnostic commentary + tactical board + behavioral proptest invariants) that closes the "is this really football?" gap left by FW v1's text-only iteration.
 
-| ID | Item | Status | Effort | Dependencies | Done Criteria |
+| ID | Item | Status | ~~Effort~~ (deprecated) | Dependencies | Done Criteria |
 |---|---|---|---|---|---|
 | T1-1 | `fw-content` schema: `TeamTemplate` + `PlayerTemplate` + `BehaviorArchetype` (serde + RON files under `content/sources/`). Folds in Codex Imp #3 deferred from T0 (`TacticalArchetype.buildup_speed_factor: f32 → u16 bps` integer-only sampling). | TODO | M (2d) | T0-1 | Round-trip serde test; RON files load via `cargo test`; no `f32` in any field that feeds canonical state |
 | T1-2a | **Dev-tier 2D tactical board** (verification surface — pulled forward from T4). `frontend/src/routes/Dev/TacticalBoard.tsx` consuming `MatchFrameDTO` stream over Tauri IPC; renders 22 dots + ball + tick scrubber on top-down pitch. Always-on for dev; not the shipped UI (that's T4 polish). | TODO | M (3d) | T0-2 | `pnpm tauri dev` → /dev/board route → dots render from a T0 stationary fixture; scrubber advances tick; no jank |
@@ -165,7 +167,7 @@ The dev-tier board (T1-2a) lands BEFORE the BT runner (T1-2b) on purpose. The bo
 
 **Goal:** a full season plays through. Many matches, league table updates, basic transfer window UI surfaces.
 
-| ID | Class | Item | Status | Effort | Dependencies | Done Criteria |
+| ID | Class | Item | Status | ~~Effort~~ (deprecated) | Dependencies | Done Criteria |
 |---|---|---|---|---|---|---|
 | T2-1 | MVP | `fw-match-sim`: full BT runner with all 20-30 manager archetypes (port YAML from `MatchSim/Content/archetypes/*.yaml`) | TODO | L (1w) | T1-2 | Each archetype produces visibly distinct match flow; canonical hash pinned per archetype-pair |
 | T2-2 | MVP | `fw-content`: 20 procedural clubs in a fantasy second-tier league (one-nation pyramid slice for season-loop testing) | TODO | M (3d) | T1-1, T1-7 | 20 clubs distinct; 380-fixture season schedule generates deterministically from a seed |
@@ -192,7 +194,7 @@ The dev-tier board (T1-2a) lands BEFORE the BT runner (T1-2b) on purpose. The bo
 
 **Goal:** multi-season careers with event-sourced memory surfacing in player-facing copy; breakthroughs fire.
 
-| ID | Class | Item | Status | Effort | Dependencies | Done Criteria |
+| ID | Class | Item | Status | ~~Effort~~ (deprecated) | Dependencies | Done Criteria |
 |---|---|---|---|---|---|---|
 | T3-1 | MVP | `fw-memory`: ledger storage + persistence — append-only `MemoryEvent` records keyed by `event_id` (port schema from `adr-0004-memory-event-schema.md`) | TODO | L (1w) | T2-9 | Append-only invariant tested; load-time migration framework in place; 1000-event ledger round-trips in <100ms |
 | T3-2 | MVP | `fw-memory`: 5 readers — alumni-DB / rival-recall / promise-tracking / big-match-scars / press-fan-callbacks | TODO | XL (2w) | T3-1 | Each reader has ≥3 unit tests + one integration test against a seeded multi-season ledger |
@@ -216,7 +218,7 @@ The dev-tier board (T1-2a) lands BEFORE the BT runner (T1-2b) on purpose. The bo
 
 **Goal:** polish pass. Match-day live mode reads as a finished product. Visual identity locked.
 
-| ID | Class | Item | Status | Effort | Dependencies | Done Criteria |
+| ID | Class | Item | Status | ~~Effort~~ (deprecated) | Dependencies | Done Criteria |
 |---|---|---|---|---|---|---|
 | T4-1 | MVP | PixiJS tactical board — pitch + 22 dots + ball; smooth interpolation at 30Hz from the 60Hz canonical state | TODO | L (1w) | T1-2 | Visual replay of a 600-tick fixture reads as football; no jitter, no determinism leak |
 | T4-2 | MVP | ECharts stat dashboards — per-player + per-team + per-season views; sortable, filterable | TODO | L (1w) | T2-6, T2-7 | Three stat views ship; data binding via Tauri IPC; no perf regressions on 5-season careers |
@@ -239,7 +241,7 @@ The dev-tier board (T1-2a) lands BEFORE the BT runner (T1-2b) on purpose. The bo
 
 **Goal:** public Steam EA release. itch.io demo first validates the update pipeline.
 
-| ID | Class | Item | Status | Effort | Dependencies | Done Criteria |
+| ID | Class | Item | Status | ~~Effort~~ (deprecated) | Dependencies | Done Criteria |
 |---|---|---|---|---|---|---|
 | T5-1 | MVP | Apple Developer enrollment ($99) + Mac code-signing via `apple-codesign` in CI | TODO | M (3d) | T4-7 | Mac DMG signs + notarizes + Gatekeeper-passes on a clean machine |
 | T5-2 | MVP | Steam Direct ($100) + `steamworks-rs` integration — achievements + cloud saves + rich presence | TODO | L (1w) | T5-1 | Three test achievements unlock + cloud-save round-trip works on a second machine |

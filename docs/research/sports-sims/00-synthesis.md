@@ -2,6 +2,13 @@
 
 **Inputs:** 8 parallel research agents covering FM match engine, other deep-sim sports, non-sport emergent sims, AI techniques, football analytics, verification/QA, player attributes, and bibliography. Each agent's full notes live in this directory as `01-…` through `08-…`. This doc is what T1-2b should actually be built against.
 
+**Important caveat (2026-05-13 reframe):** several of this synthesis's recommendations were originally framed around a "~3000 LoC budget for match-sim" constraint that has since been retracted (see `docs/DESIGN_DOC.md` §1 "Scope ambition"). The pillar constraints (determinism, no-runtime-LLM, procedural-fantasy, text-first) all remain. What changes is that **the BT-vs-FSM debate, attribute count, subsystem depth, influence-map fidelity, and signature catalogue size are now unbounded by LoC** — choose what serves the design, not what fits the budget. Specifically:
+- **VAEP is still ruled out** (gradient-boosted model = non-deterministic across platforms, breaks pillar) but for the right reason, not for budget.
+- **FSM per-role state taxonomies (ZOXEXIVO-style ~80 states with 2k-line state files) are back on the table** — choice is clarity-vs-composition now, not bytes.
+- **Attribute count grows from "24+8 recommended for tight budget" to "whatever the design needs"** — FM-class (~56) or beyond is on the table; 32 was a research-paper midpoint, not a cap.
+- **Influence maps can be full-pitch continuous rather than 16×12 grid** if it produces better positioning.
+- **Subsystems (psychology, chemistry, coach AI, referee, training, transfer market, board, media)** each as fully-realized modules rather than scaffolded stubs.
+
 ---
 
 ## TL;DR — the composed architecture

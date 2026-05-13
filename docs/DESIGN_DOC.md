@@ -27,8 +27,24 @@ A football manager where the world has memory and players have specific, express
 - Premium one-time purchase: $20 Early Access → $30 1.0.
 - Steam-first, Mac + Windows + Linux native (Mac-first development).
 - FM-disillusioned + Crusader Kings emergent-stories + Caves of Qud procedural-depth crossover.
-- Solo-dev cadence: more frequent meaningful updates than FM's annual cycle.
-- EA target: 12 months from Phase 1 kickoff. 1.0: 18-24 months contingent on EA reception.
+- Update cadence is whatever the project earns through quality, not a hardcoded timetable.
+
+### Scope ambition
+Final Whistle is targeted to **match or exceed Football Manager on simulation depth**, in a procedurally-generated world rather than a licensed one. Implementation scope is bounded by the **non-negotiables** below (determinism contract, no-runtime-LLM, text-first surface, procedural-fantasy worldbuilding), not by LoC counts or developer-hours. Per-system depth grows until it credibly delivers the pillar's promise — match engine, memory ledger, scouting model, breakthrough triggers, and signature catalogue are all unbounded by line count.
+
+What this means in practice:
+- **Match engine**: a real physical simulation (positions, physics, per-player AI) at a fidelity competitive with FM's match engine — not a stat-event sampler. Expected to run into tens of thousands of LoC across multiple subsystems; that's the right shape, not bloat.
+- **Player model**: rich attribute system (visible + hidden + personality bias vector + form/morale/fatigue + chemistry + memories) with whatever attribute count the design pillars need. The 24+8 number in earlier scoping was a research-paper recommendation, not a cap. Bumping to FM-scale (~56) or beyond is on the table.
+- **Subsystems**: psychology, chemistry, coach AI, referee model, training, scouting, transfer market, media, board relations — each as a fully-realized module when its phase lands, not "scaffolded stubs that maybe expand later."
+- **Signature moves**: the 24 in the design doc is the initial catalogue. The architecture supports unbounded growth via content packs.
+- **AI architecture**: behavior trees + utility scoring + influence maps + steering + personality bias vector compose as planned. FSM per-role state taxonomies (ZOXEXIVO-style) are also viable now that we're not budget-constrained — the choice is about clarity vs composability, not bytes.
+
+What this does NOT lift:
+- **Determinism contract** — cross-OS BLAKE3 canonical-hash regression, Q32.32 fixed-point in canonical state, BTreeMap-only in sim crates, `ChaCha8Rng` seeded by `(match_seed, tick, event_id)`, no `tokio`/`async` in `fw-match-sim` or `fw-memory`. These are pillars.
+- **No runtime LLM** — bake-time only. Architectural choice.
+- **Procedural fantasy only** — no real licensed data, ever.
+- **Text-first shipping surface** — no 3D viewer in the shipped game. The 2D tactical board is the dev verification surface AND the shipped match-day surface.
+- **Maintainability under Claude+human** — code is structured for an LLM+human pair to navigate, with strict layering, named subsystems, and clear ownership per agent role.
 
 ### Target Audience
 - **Primary:** FM-disillusioned 25-45 looking for a different football-management fantasy.

@@ -10,14 +10,16 @@
 
 ## 1. What this project is
 
-**Final Whistle is a procedural-fantasy football manager where careers remember and worlds are unique.** Solo-dev shippable. Steam-first; Mac + Windows + Linux. PEGI 12. Premium one-time purchase ($20 EA → $30 1.0).
+**Final Whistle is a procedural-fantasy football manager where careers remember and worlds are unique.** Steam-first; Mac + Windows + Linux. PEGI 12. Premium one-time purchase ($20 EA → $30 1.0).
+
+**Scope ambition.** This is an ambitious deep-simulation project. Implementation scope is bounded by the architecture pillars (below) + maintainability under a Claude+human pair, NOT by LoC counts, hours, or "what a single developer could write." Football Manager's match engine is a useful low watermark, not a ceiling — beating FM on depth is a valid target. Per-system implementation may run into the tens or hundreds of thousands of lines; the only question that matters is whether each line is honest, deterministic, and worth shipping. Effort estimates in MASTER_PLAN are removed for this reason — "1 day" / "1 week" tags mean nothing when the dev is Claude.
 
 Five pillars (see `docs/DESIGN_DOC.md` §3 for full text):
-1. **Procedural fantasy world** — every save is a different world; LLM-baked content packs.
+1. **Procedural fantasy world** — every save is a different world; LLM-baked content packs. No real licensed data, ever.
 2. **Careers that remember** — append-only event ledger surfaces decisions years later.
 3. **Breakthrough-driven development** — players grow because of what happened, not XP.
 4. **Scouting uncertainty** — disagreeing biased scouts; truth emerges over seasons.
-5. **Signature identity** — 24 readable on-pitch moves, not stat lines.
+5. **Signature identity** — readable on-pitch moves, not stat lines. (The "24 signature" number is initial scope, not a cap.)
 
 Text-first presentation. 2D tactical board + dense commentary. No 3D viewer. No runtime LLMs.
 
