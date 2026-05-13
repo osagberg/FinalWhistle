@@ -62,10 +62,19 @@ use fw_match_sim::{MatchState, tick_match};
 const SMOKE_SEED: u64 = 0xDEAD_BEEF_DEAD_BEEF;
 const SMOKE_TICK_COUNT: u32 = 60;
 
-/// Pinned BLAKE3 of the 60-tick smoke seed's canonical state, recorded on
-/// the macOS-14 dev box (T0-7, 2026-05-13). Cross-OS matrix agreement
-/// (Win + Linux producing the same digest) is verified via the phase-gate
-/// PR opened by `/done` (T0-7b in `docs/MASTER_PLAN.md`).
+/// Pinned BLAKE3 of the 60-tick smoke seed's canonical state.
+///
+/// **Re-baseline history:**
+/// - 2026-05-13 (T0-7) — initial pin `d6258107…d96b1a49` on the
+///   stationary T0 fixture (22 players + ball at centre spot, no
+///   integration). Cross-OS matrix agreement verified by T0-7b.
+/// - 2026-05-13 (T1-2b-i) — **re-baselined to `0ddf91ef…c5722090`** per
+///   ADR-0012 trigger #1 (canonical schema bump): `BallState` gained
+///   `spin_{x,y,z}: Q32` (24 new bytes per ball encoding) AND
+///   `tick_match` now advances ball physics each tick (the centre-spot
+///   ball with zero velocity stays at zero, BUT the new spin fields
+///   change the encoded layout regardless of values). Authorized by
+///   the T1-2b-i task-spec in MEMORY.md.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -74,7 +83,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("d6258107b2c90c84d2feeaa8633d1f5c159e10ccd2016623b52b41d3d96b1a49");
+    hex!("0ddf91ef183d1a5ac4c5ef8bf4c645276db489da1a49894a675ee868c5722090");
 
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.

@@ -4,38 +4,35 @@
 
 ## Phase
 
-**T1 — First Match** (active; T1-1 + T1-2a closed; next: T1-2b-i ball physics — first TDD-mandated row)
+**T1 — First Match** (active; T1-1 + T1-2a + **T1-2b-i** closed; next: T1-2b-ii — tactic FSM + decision-cadence stagger)
 
 ## Active task
 
-(none — T1-2a closed. `/next` picks T1-2b-i.)
+(none — T1-2b-i closed. `/next` picks T1-2b-ii.)
 
 ## Phase pointer
 
-- **Just closed:** **T1-2a Dev-tier 2D tactical board.** ADR-0007 Layer 2 + ADR-0008 implemented. `MatchFrameDto` lives in `fw-match-sim::dto` (camelCase serde, exempted in determinism-audit). `match_frames` IPC command in fw-tauri. `dump_frames` CLI binary (bit-identical stdout). SolidJS `TacticalBoard.tsx` with PixiJS Application (lifecycle per Frontend/RULES.md §4). FrameSource trait + dual impls + fail-loud URL-param factory + JSON-shape validation. `window.fwDev` DEV-only debug surface for Claude Preview. E2E verified via Claude Preview MCP. 1 P0 + 4 P1 from self-review triple closed in-place.
-- **Now:** Phase T1 critical path advances: T1-2a → **T1-2b-i (ball physics)** → T1-2b-ii (tactic FSM + cadence stagger) → T1-2b-iii (FSM-of-BTs + utility + PlayerSeparation) → T1-2b-iv (signature dispatcher). T1-2b-i is the **first row under the TDD mandate** (per `docs/DECISIONS.md` 2026-05-13 superpowers TDD entry — real behavior code in `fw-match-sim`).
-- **Next:** `T1-2b-i` ball physics — semi-implicit Euler in Q32 (gravity, drag, Magnus, bounce, friction) per ADR-0001 §"7 layers" + v1 carry-forward design. Tier-2 Codex audit recommended pre-implementation per ADR-0015 §"5 explicit criteria" (criterion 1: schema lock — adds ball-state extensions to canonical `MatchState`; criterion 2: new canonical-state surface).
+- **Just closed:** **T1-2b-i — `fw-match-sim` ball physics.** Semi-implicit Euler integrator in Q32 (gravity, drag, Magnus stub, bounce, friction). `BallState` extended with `spin_{x,y,z}` (canonical schema bump per ADR-0012 trigger #1). `BallPhysicsCoefficients` + `phase1_seeds()` (g=9.81 / drag=0.02 / magnus=0 / bounce=0.55 / friction=0.25) + `is_well_formed()` validator. `tick_match` now advances ball physics each tick. 3 proptest invariants live (energy-monotone, no-overflow over 1800 ticks, validator rejects out-of-range). **Canonical hash REBASELINED** atomically across `PINNED_60_TICK` + the RON fixture. First row under the superpowers-plugin TDD mandate; RED-GREEN-REFACTOR observed per chunk. Self-review triple landed 1 P0 + 2 P1s + 1 P3 fixed in-place.
+- **Now:** Phase T1 critical path advances: T1-2b-i → **T1-2b-ii (tactic FSM + cadence stagger)** → T1-2b-iii (FSM-of-BTs + utility + PlayerSeparation) → T1-2b-iv (signature dispatcher).
+- **Next:** `T1-2b-ii` — implements `docs/specs/tactic-fsm.md` (5 states + 2 Hz heartbeat + archetype params) AND `docs/specs/decision-cadence-stagger.md` (4 Hz per-player runner with `decision_slots: [u8; 22]` in canonical state). No BT yet; players hold position. Another canonical-hash REBASELINE expected per ADR-0012 trigger #1 (new canonical-state surface).
 
 ## Blockers
 
-None. T1-2a left a clean board (figuratively and literally).
+None. T1-2b-i shipped clean with `scripts/fw verify` green.
 
 ## Last green verify
 
-2026-05-13 — `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings` + `cargo fmt --check` + frontend `pnpm typecheck`/`lint`/`build` + `scripts/fw verify` (banned-terms + determinism-audit + canonical-hash regression + verify-content) — all clean at T1-2a HEAD.
+2026-05-13 — `scripts/fw verify` clean post-fixes: fmt + clippy + `cargo test --workspace` + release-mode canonical-hash regression on the rebaselined `0ddf91ef…c5722090` + banned-terms + determinism-audit + `fw-content-baker validate`. Cross-OS matrix verification happens on the post-commit CI run.
 
 ## Last canonical hash
 
-`blake3:d6258107b2c90c84d2feeaa8633d1f5c159e10ccd2016623b52b41d3d96b1a49` (60-tick smoke seed; pinned T0-7; UNCHANGED through T1-2a — the dev board is a read-only projection of canonical state, doesn't mutate it). Re-baseline expected at T1-2b-ii (`decision_slots: [u8; 22]` + `interrupt_cooldown_until: [Tick; 22]` added to `MatchState` per ADR-0012 trigger #1).
+`blake3:0ddf91ef183d1a5ac4c5ef8bf4c645276db489da1a49894a675ee868c5722090` (60-tick smoke seed; rebaselined T1-2b-i per ADR-0012 trigger #1 — BallState gained `spin_{x,y,z}` + `tick_match` now advances ball physics; prior pin `d6258107…d96b1a49` was the T0-7 baseline). Another rebaseline expected at T1-2b-ii (`decision_slots: [u8; 22]` joins canonical `MatchState`).
 
 ## Recent commits
 
-- `<this commit>` feat(ui,tauri,sim): T1-2a dev-tier 2D tactical board (ADR-0007 Layer 2 + ADR-0008)
-- `e7807927` ci: drop --release from FW-VAL CI step; STATUS+MEMORY → re-audit green
-- `5bb0939d` docs: close 3 P1s + 3 P2s from Codex re-audit pass #2
-- `80c53f76` fix: re-audit pass #1 P1+P2 fixes (7 P1s closed)
-- `af7df8fa` docs: close 7-tranche audit remediation + queue Codex re-audit
+- `<this commit>` feat(sim): T1-2b-i ball physics integrator + canonical-state spin extension (ADR-0012 #1 rebaseline)
+- T1-2a closing chain (dev-tier 2D tactical board) — see CHANGELOG for the per-commit list.
 
 ## Next up
 
-`/next` will pick **T1-2b-i** — ball physics in `fw-match-sim::ball`. Semi-implicit Euler integration in Q32 (gravity, drag, Magnus, bounce, friction) ported from v1's `BallPhysics.cs` design (NOT code; Rust idioms only). The TDD mandate fires — RED-GREEN-REFACTOR per the `superpowers` plugin skill before each implementation chunk. Tier-2 Codex audit recommended before code lands (per ADR-0015) since this is the first canonical-state extension in T1.
+`/next` will pick **T1-2b-ii** — tactic FSM (5 states + 2 Hz heartbeat) + decision-cadence stagger (4 Hz per-player runner with deterministic `decision_slots`). This adds `decision_slots: [u8; 22]` to canonical `MatchState` and propagates tactic state per `docs/specs/tactic-fsm.md`. TDD mandate continues — RED-GREEN-REFACTOR per chunk. Canonical hash REBASELINE authorized per ADR-0012 trigger #1.

@@ -29,6 +29,7 @@
 //! pieces — lands in T1+.
 
 pub mod ball;
+pub mod ball_physics;
 pub mod canonical;
 pub mod dto;
 pub mod player;
@@ -37,6 +38,7 @@ use fw_core::{Q32, Seed, Tick};
 use serde::{Deserialize, Serialize};
 
 pub use ball::BallState;
+pub use ball_physics::{BallPhysicsCoefficients, dt_per_tick, phase1_seeds};
 pub use canonical::CanonicalEncoder;
 pub use dto::{BallFrameDto, MatchFrameDto, PlayerFrameDto};
 pub use player::PlayerState;
@@ -155,6 +157,12 @@ impl MatchState {
 /// ticks).
 pub fn tick_match(mut state: MatchState) -> MatchState {
     state.tick = state.tick.successor();
+    // T1-2b-i: advance ball physics by one 60Hz tick. The ball is the
+    // only canonical-state entity with continuous integration at T1;
+    // player positions are advanced by the decision-runner stagger at
+    // T1-2b-ii via `decision_slots` (NOT here). Coefficients are pinned
+    // by `phase1_seeds`; future archetypes may override per-match.
+    state.ball = ball_physics::ball_step(&state.ball, &ball_physics::phase1_seeds());
     state
 }
 
@@ -195,5 +203,31 @@ mod smoke {
         let a = s.encode_canonical();
         let b = s.encode_canonical();
         assert_eq!(a, b);
+    }
+
+    /// T1-2b-i Chunk 4 RED: `tick_match` advances ball physics each
+    /// tick. A ball with nonzero initial velocity must end up at a
+    /// different position 60 ticks later.
+    #[test]
+    fn tick_match_advances_ball_physics() {
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        // Set the ball to 10m up with 5 m/s along +X — it should fall +
+        // drift over 60 ticks (1 second).
+        state.ball.pos_y = Q32::from_int(10);
+        state.ball.vel_x = Q32::from_int(5);
+        let initial_pos_x = state.ball.pos_x;
+        let initial_pos_y = state.ball.pos_y;
+        for _ in 0..60 {
+            state = tick_match(state);
+        }
+        // After 1 second: ball has drifted along +X and fallen.
+        assert!(
+            state.ball.pos_x > initial_pos_x,
+            "ball didn't drift in +X under initial velocity"
+        );
+        assert!(
+            state.ball.pos_y < initial_pos_y,
+            "ball didn't fall under gravity"
+        );
     }
 }

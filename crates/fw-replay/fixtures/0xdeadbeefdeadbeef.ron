@@ -1,11 +1,17 @@
-// Phase-0 smoke fixture for the determinism gate.
+// Phase-0/T1-2b-i smoke fixture for the determinism gate.
 //
 // Loaded by `tests/canonical_hash.rs::smoke_seed_corpus_fixture_matches_pinned_constant`.
 // The `expected_hash` field is `"blake3:" + lowercase-hex(blake3-digest)`.
 //
-// Pinned 2026-05-13 (T0-7) on the macOS-14 dev box; cross-OS matrix
-// agreement is verified by the phase-gate PR (T0-7b). Re-baselining
-// requires updating this value AND `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
+// Re-baseline history:
+//   2026-05-13 (T0-7)      — `d6258107…d96b1a49` (initial; 22 players +
+//                             stationary ball, no integration)
+//   2026-05-13 (T1-2b-i)   — `0ddf91ef…c5722090` per ADR-0012 trigger #1
+//                             (BallState gained spin fields + tick_match
+//                             now advances ball physics)
+//
+// Re-baselining requires updating this value AND
+// `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
 // in the same commit per `docs/specs/determinism-gate.md` §9.
 //
 // Fixture schema is `ReplayCorpusEntry` in `crates/fw-replay/src/lib.rs`; the
@@ -14,10 +20,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:d6258107b2c90c84d2feeaa8633d1f5c159e10ccd2016623b52b41d3d96b1a49",
+    expected_hash: "blake3:0ddf91ef183d1a5ac4c5ef8bf4c645276db489da1a49894a675ee868c5722090",
     metadata: (
-        description: "Phase-0 smoke fixture. 22-player dummy sim, 60 ticks, no behavior.",
+        description: "T1-2b-i smoke fixture. 22-player dummy sim + ball physics integrator advancing each tick, 60 ticks.",
         generated_at: "2026-05-13",
-        notes: "Pinned on macOS-14 dev box at T0-7. Cross-OS matrix verification via phase-gate PR (T0-7b).",
+        notes: "Re-pinned at T1-2b-i (canonical schema bump per ADR-0012 #1). The centre-spot ball stays at zero velocity through 60 ticks because phase1_seeds has gravity acting only on Y>0, but the encoded layout grew by 24 bytes/ball for the new spin_{x,y,z} fields.",
     ),
 )

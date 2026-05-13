@@ -38,9 +38,10 @@
 //!   [ scalar × scalar_count ]
 //!     [ key u16 LE ]
 //!     [ value i64 LE (raw Q32 bits) ]
-//! [ ball ]
-//!   [ pos_x i64, pos_y i64, pos_z i64 ]
-//!   [ vel_x i64, vel_y i64, vel_z i64 ]
+//! [ ball ]                                  (T1-2b-i: 9 × Q32 = 72 bytes)
+//!   [ pos_x i64, pos_y i64, pos_z i64 ]     (24 bytes)
+//!   [ vel_x i64, vel_y i64, vel_z i64 ]     (24 bytes)
+//!   [ spin_x i64, spin_y i64, spin_z i64 ]  (24 bytes; new at T1-2b-i)
 //! ```
 //!
 //! Adding a new field is a determinism-corpus-invalidating event. The
@@ -60,6 +61,7 @@ pub struct CanonicalEncoder {
 
 impl CanonicalEncoder {
     /// Fresh encoder with the magic + version prefix already written.
+    #[must_use]
     pub fn new() -> CanonicalEncoder {
         let mut enc = CanonicalEncoder {
             buf: Vec::with_capacity(2048),
@@ -124,13 +126,28 @@ impl CanonicalEncoder {
         }
     }
 
-    fn encode_ball(&mut self, b: &BallState) {
+    /// Encode the ball: 9 × Q32 = 72 bytes total. Layout is fixed at
+    /// T1-2b-i schema bump (canonical hash REBASELINED in same commit
+    /// per ADR-0012 trigger #1):
+    /// - bytes 0..24:  position (pos_x, pos_y, pos_z) as little-endian i64
+    /// - bytes 24..48: velocity (vel_x, vel_y, vel_z)
+    /// - bytes 48..72: spin (spin_x, spin_y, spin_z)
+    ///
+    /// Spin was added in T1-2b-i so Magnus integration has angular
+    /// velocity in canonical state from day one. `phase1_seeds` zeros
+    /// the Magnus coupling for T1 playability, so spin is structurally
+    /// present but behaviorally inert until T1-2b-iii wires kicks/headers
+    /// that impart spin.
+    pub(crate) fn encode_ball(&mut self, b: &BallState) {
         self.write_i64(b.pos_x.to_bits());
         self.write_i64(b.pos_y.to_bits());
         self.write_i64(b.pos_z.to_bits());
         self.write_i64(b.vel_x.to_bits());
         self.write_i64(b.vel_y.to_bits());
         self.write_i64(b.vel_z.to_bits());
+        self.write_i64(b.spin_x.to_bits());
+        self.write_i64(b.spin_y.to_bits());
+        self.write_i64(b.spin_z.to_bits());
     }
 
     /// Consume the encoder and return the buffer.
@@ -192,5 +209,59 @@ mod tests {
         let a = MatchState::initial(Seed::from_u64(1));
         let b = MatchState::initial(Seed::from_u64(2));
         assert_ne!(a.encode_canonical(), b.encode_canonical());
+    }
+
+    /// T1-2b-i Chunk 1 RED: the canonical ball block is now 9 fields
+    /// (position + velocity + spin), each `Q32` (8 bytes), so the ball
+    /// segment of the encoded buffer must be 72 bytes — up from 48 in T0.
+    /// Test asserts the total encoded length increased by exactly 24
+    /// bytes (3 new Q32 fields × 8 bytes) vs. the implied T0 layout.
+    #[test]
+    fn ball_block_encodes_spin_after_velocity() {
+        let s = MatchState::initial(Seed::from_u64(1));
+        let bytes = s.encode_canonical();
+        // Header + 22 players + 1 ball + scoreline. We don't pin the
+        // total here (canonical_hash.rs::PINNED_60_TICK does that with
+        // a BLAKE3); we just confirm the BALL segment grew by exactly
+        // 24 bytes for the 3 new Q32 spin fields.
+        //
+        // The encoder writes position (3 × Q32 = 24B), velocity (24B),
+        // and spin (24B). 72 bytes total per ball.
+        let mut probe = CanonicalEncoder::new();
+        probe.encode_ball(&fw_match_sim_test_ball_with_spin());
+        let probe_bytes = probe.finish();
+        // 6 bytes magic+version prefix on a fresh CanonicalEncoder via
+        // `new`, plus 72 bytes ball.
+        assert_eq!(probe_bytes.len(), 6 + 72);
+        // Bytes 6..30 = position; 30..54 = velocity; 54..78 = spin.
+        // Last 24 bytes (the spin block) must NOT be all-zero when spin
+        // is non-zero — guards against the encoder silently dropping
+        // the new fields.
+        let spin_segment = &probe_bytes[6 + 48..6 + 72];
+        assert!(
+            spin_segment.iter().any(|&b| b != 0),
+            "spin segment was all zeros; encoder didn't emit spin fields"
+        );
+        // The full match state is unaffected by this probe.
+        assert!(
+            bytes.len() > 100,
+            "encoded MatchState was suspiciously short"
+        );
+    }
+
+    // Test helper: a ball with nonzero spin so the encoder probe can
+    // detect missing spin bytes.
+    fn fw_match_sim_test_ball_with_spin() -> crate::BallState {
+        crate::BallState {
+            pos_x: fw_core::Q32::ZERO,
+            pos_y: fw_core::Q32::ZERO,
+            pos_z: fw_core::Q32::ZERO,
+            vel_x: fw_core::Q32::ZERO,
+            vel_y: fw_core::Q32::ZERO,
+            vel_z: fw_core::Q32::ZERO,
+            spin_x: fw_core::Q32::from_int(1),
+            spin_y: fw_core::Q32::from_int(2),
+            spin_z: fw_core::Q32::from_int(3),
+        }
     }
 }

@@ -1,6 +1,6 @@
 # Final Whistle — Working Memory
 
-> Updated: 2026-05-13 | Phase: T1 First Match (T1-1 closed; pre-T1-2b audit cleared; **T1-2a DONE** — dev-tier 2D tactical board live)
+> Updated: 2026-05-13 | Phase: T1 First Match (T1-1 + T1-2a closed; **T1-2b-i DONE** — ball physics integrator live; canonical hash REBASELINED per ADR-0012 trigger #1; first row under the superpowers TDD mandate)
 
 ## Project
 
@@ -12,7 +12,7 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 | Module | State | Key file | Notes |
 |---|---|---|---|
 | `fw-core` | T1-1 schema lock landed | `crates/fw-core/src/player_attributes.rs` | Q32 (panic-on-overflow, Codex Q1). Durable u32 IDs (Codex Q2). Seed + Tick + cordic sqrt. **NEW post-T1-1:** `PlayerAttributes` (55-field record), `AbilityCeiling` (encapsulated + breakthrough mutator), `PlayerCondition`, `KNOWN_ATTRIBUTE_NAMES` const. CI matrix green; deterministic macOS-14 + Win + Linux. **Codex audit followups queued:** Q32Inner re-export removal (Tranche 2); AbilityCeiling::try_new validation (Tranche 2); VISIBLE_ATTRIBUTE_NAMES split (Tranche 2). |
-| `fw-match-sim` | Stub | `crates/fw-match-sim/src/lib.rs` | 22-player struct + no-op tick reducer. Hand-rolled little-endian canonical encoder (FWMS magic + version). `assert_eq!` slot-order invariant (Codex Imp #11). Float-deny clippy. T1-2b fills behavior (after Tranche 4 specs land). |
+| `fw-match-sim` | T1-2b-i ball physics live | `crates/fw-match-sim/src/ball_physics.rs` | 22-player struct + `tick_match` advances ball physics (semi-implicit Euler, Q32). `BallState` has 9 Q32 fields (pos/vel/spin); Magnus stub structurally present (coupling = 0 for T1). `ball_physics::ball_step(state, coeffs)` integrator + `BallPhysicsCoefficients` + `phase1_seeds()` + `is_well_formed()` validator. `dump_frames` CLI binary; `MatchFrameDto` (camelCase serde, Q32→f64 projection). Hand-rolled little-endian canonical encoder. Float-deny clippy. T1-2b-ii fills tactic FSM + decision-cadence stagger. |
 | `fw-content` | T1-1 schema lock landed | `crates/fw-content/src/player.rs` + `role_affinity.rs` | `PlayerTemplate` (wraps fw-core types + `schema_version: 1` + `RoleId`), `RoleAffinityTable` (sum-to-10_000 + collect-all `invalid_roles` + `unknown_attribute_keys`), `TacticalArchetype.buildup_speed_factor: u16 bps` (Codex Imp #3 from T0; `BUILDUP_SPEED_BASELINE_BPS = 10_000`). First RON fixtures live. **Codex audit gaps:** `ContentStore::load_baked` returns `Ok(Self::default())` (Tranche 6 — block runtime use until real); CA-weight validation accepts hidden/durability keys (Tranche 2). |
 | `fw-content-baker` | CLI stub | `crates/fw-content-baker/src/main.rs` | clap CLI; prompt + schema + validator modules `#![allow(dead_code)]`-staged (T2-3+). Wires to Claude API at T2-3. |
 | `fw-scouting` | Empty | `crates/fw-scouting/src/lib.rs` | Compiles, no types. T3-5 begins. |
@@ -31,11 +31,7 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-None active. T1-2a closed.
-
-**Tier-2 audit recommended** per ADR-0015 §"5 explicit criteria" — T1-2a adds an IPC command (`match_frames`) to fw-tauri (criterion 4: "API surface to UI"). The user can run a focused Codex Tier-2 prompt against the T1-2a commit before T1-2b-i starts.
-
-**Next via `/next`:** T1-2b-i (ball physics — first real behavior-code row in fw-match-sim; TDD mandate fires).
+(none — T1-2b-i closed. `/next` picks T1-2b-ii: tactic FSM + decision-cadence stagger.)
 
 <!-- Historical scope-spec for the just-shipped T1-2a retained below for grep-back reference -->
 
@@ -84,6 +80,7 @@ Implements ADR-0007 Layer 2 (dev verification surface) + ADR-0008 (browser-dev m
 
 ## Recently completed
 
+- 2026-05-13 — **T1-2b-i `fw-match-sim` ball physics** — semi-implicit Euler in Q32 (gravity, drag, Magnus stub, bounce, friction). `BallState` extended with `spin_{x,y,z}: Q32` (canonical schema bump per ADR-0012 trigger #1); canonical-state ball block grew from 48 → 72 bytes per ball. `BallPhysicsCoefficients` + `phase1_seeds()` (g=9.81, drag=0.02, magnus=0, bounce=0.55, friction=0.25) + `is_well_formed()` validator. `ball_step(state, coeffs)` integrator wired into `tick_match`. 3 proptest invariants live (energy-monotone, no-overflow over 1800 ticks, validator rejects out-of-range). **Canonical hash REBASELINED**: `blake3:d6258107…d96b1a49` → `blake3:0ddf91ef…c5722090` (both `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK` and the RON fixture `0xdeadbeefdeadbeef.ron::expected_hash` updated atomically). First row under the superpowers-plugin TDD mandate; RED-GREEN-REFACTOR observed per chunk. Self-review triple: 1 P0 (rolling-friction-fires-on-zero-bounce-tick) + 2 P1s (is_well_formed deadcode gate, stale wire-format diagram) + 1 P3 (#[must_use] on CanonicalEncoder::new) fixed in-place; P2/P3 follow-ups captured in commit body. ~480 LoC; 27 fw-match-sim tests + 3 proptest invariants + 5 fw-replay canonical_hash tests all green; `scripts/fw verify` clean.
 - 2026-05-13 — **T1-2a Dev-tier 2D tactical board** (ADR-0007 Layer 2 + ADR-0008). `MatchFrameDto` in `fw-match-sim::dto` (camelCase serde; Q32→f64 projection; `#![allow(clippy::float_arithmetic)]` scoped + determinism-audit exemption documented). `match_frames(seed_hex, tick_count)` IPC command in fw-tauri returning `Vec<MatchFrameDto>` (length tick_count+1; pinned by 2 sync tests via `tauri::async_runtime::block_on`). `dump_frames` clap CLI binary in `crates/fw-match-sim/src/bin/` — bit-identical stdout across reruns. SolidJS `TacticalBoard.tsx` with PixiJS Application (one-time create in onMount, destroy in onCleanup per Frontend/RULES.md §4). `FrameSource` interface + `TauriFrameSource` + `HttpFrameSource` impls + `frameSourceFromUrlParams` factory (fail-loud on bad `?source=` values per Codex audit). `MatchStateDto` retroactively gained `#[serde(rename_all = "camelCase")]` (Codex audit P0 fix on pre-existing rule violation). `window.fwDev` DEV-only debug surface. E2E verified via Claude Preview: navigated `/dev/board?source=fixture:/dev-fixtures/smoke.json`, fixture loaded, scrubTo(30) + scrubTo(45) drove the scrubber, pitch + 22 dots + ball + readout rendered. ~800 LoC; canonical hash UNCHANGED. Self-review triple: 1 P0 + 4 P1 closed in-place.
 - 2026-05-13 — T1-1 `fw-content` schema lock at commit `69f900b9` (ADR-0002 55-field player model + Codex Imp #3 conversion + first RON fixtures). `PlayerAttributes` in `fw-core` (14/10/8/6 visible + 14/3 hidden = 55 Q32 fields); `KNOWN_ATTRIBUTE_NAMES` const + size-of static asserts pin schema shape. `AbilityCeiling` encapsulated (`new_unchecked` pub(crate) post-audit-pass-1 follow-up). `RoleId` newtype + `RoleAffinityTable` with collect-all validators. `TacticalArchetype.buildup_speed_factor` → `u16 bps` with `BUILDUP_SPEED_BASELINE_BPS = 10_000`. `schema_version: 1` on new content types + fixtures. Followed by ~10 audit-remediation commits (tranches 1-7 of the full-project audit + pre-T1-2b re-audit passes 1, 2, 3). Canonical hash UNCHANGED throughout. All audits ultimately GREEN at `e780792`.
 - 2026-05-13 — T0-12 Fix pre-existing scaffold build failures — fw-tauri commands moved to sibling module (known Tauri 2 `pub` + `#[tauri::command]` bug); fw-content-baker `#![allow(dead_code)]` on staging modules; src-tauri build.rs stubs frontend/dist for clean-clone `cargo build`; tauri icons generated (gitignored); ui-vocabulary.md meta-references wrapped in sentinels. `cargo test --workspace --release` 19 test-runs all green.
