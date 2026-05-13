@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "./frontend", "dev"],
+      "port": 1420
+    },
+    {
+      "name": "frontend-preview",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "./frontend", "preview"],
+      "port": 1420
+    }
+  ]
+}

@@ -1,19 +1,19 @@
 # Final Whistle — Working Memory
 
-> Updated: 2026-05-13 | Phase: T0 Scaffold
+> Updated: 2026-05-13 | Phase: T1 First Match (T1-1 closed; Codex audit remediation in progress)
 
 ## Project
 
 Procedural fantasy football management sim. Rust + Tauri 2 + SolidJS. Solo dev + Claude.
 Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and sibling `/Users/vibelogic/dev/football-archive/`).
 
-## Module status (post-T0)
+## Module status (post-T1-1)
 
 | Module | State | Key file | Notes |
 |---|---|---|---|
-| `fw-core` | Scaffolded + audited | `crates/fw-core/src/q32.rs` | Q32 with panic-on-overflow operators (Codex Q1). Durable u32 IDs (Codex Q2). Seed + Tick + cordic sqrt. Tested on CI matrix; deterministic across macOS-14 + Win + Linux. |
-| `fw-match-sim` | Stub | `crates/fw-match-sim/src/lib.rs` | 22-player struct + no-op tick reducer. Hand-rolled little-endian canonical encoder (FWMS magic + version). `assert_eq!` slot-order invariant (Codex Imp #11). Float-deny clippy. T1-2 fills behavior. |
-| `fw-content` | Schema-only | `crates/fw-content/src/lib.rs` | TeamTemplate + PlayerTemplate + ArchetypeTemplate types. `CultureWeights` u16 basis points (Codex Crit #3). T1-1 fills first RON fixtures. NOTE: `TacticalArchetype.buildup_speed_factor: f32` deferred Codex Imp #3 → T1-1. |
+| `fw-core` | T1-1 schema lock landed | `crates/fw-core/src/player_attributes.rs` | Q32 (panic-on-overflow, Codex Q1). Durable u32 IDs (Codex Q2). Seed + Tick + cordic sqrt. **NEW post-T1-1:** `PlayerAttributes` (55-field record), `AbilityCeiling` (encapsulated + breakthrough mutator), `PlayerCondition`, `KNOWN_ATTRIBUTE_NAMES` const. CI matrix green; deterministic macOS-14 + Win + Linux. **Codex audit followups queued:** Q32Inner re-export removal (Tranche 2); AbilityCeiling::try_new validation (Tranche 2); VISIBLE_ATTRIBUTE_NAMES split (Tranche 2). |
+| `fw-match-sim` | Stub | `crates/fw-match-sim/src/lib.rs` | 22-player struct + no-op tick reducer. Hand-rolled little-endian canonical encoder (FWMS magic + version). `assert_eq!` slot-order invariant (Codex Imp #11). Float-deny clippy. T1-2b fills behavior (after Tranche 4 specs land). |
+| `fw-content` | T1-1 schema lock landed | `crates/fw-content/src/player.rs` + `role_affinity.rs` | `PlayerTemplate` (wraps fw-core types + `schema_version: 1` + `RoleId`), `RoleAffinityTable` (sum-to-10_000 + collect-all `invalid_roles` + `unknown_attribute_keys`), `TacticalArchetype.buildup_speed_factor: u16 bps` (Codex Imp #3 from T0; `BUILDUP_SPEED_BASELINE_BPS = 10_000`). First RON fixtures live. **Codex audit gaps:** `ContentStore::load_baked` returns `Ok(Self::default())` (Tranche 6 — block runtime use until real); CA-weight validation accepts hidden/durability keys (Tranche 2). |
 | `fw-content-baker` | CLI stub | `crates/fw-content-baker/src/main.rs` | clap CLI; prompt + schema + validator modules `#![allow(dead_code)]`-staged (T2-3+). Wires to Claude API at T2-3. |
 | `fw-scouting` | Empty | `crates/fw-scouting/src/lib.rs` | Compiles, no types. T3-5 begins. |
 | `fw-memory` | Empty | `crates/fw-memory/src/lib.rs` | Compiles, MemoryEvent enum stub. `stakes` + `salience` Q32 (Codex Crit #3 doc fix). T3-1 fills the ledger. |
@@ -25,11 +25,13 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Recent work
 
-- 2026-05-13: **Phase T0 closed.** Pivot (109 files) + blueprint reconciliation (51 files) + Codex audit (14 of 16 findings landed) + canonical hash pinned + CI matrix green + Codex APPROVE. 12 commits in session. Cross-OS BLAKE3 verified. See `docs/postmortems/phase-T0.md`.
+- 2026-05-13: **Codex full-project audit landed + Tranche 1 remediation in progress.** Audit at `docs/audits/codex-full-audit-2026-05-13.md` — ~50 findings (1 P0 + 11 headline P1 + ~30 lower). P0 (bedrock-test `#[ignore]` hole) fixed at `eb0b952e` with 3-layer guard (meta-test + CI grep + hook). Doc-drift cleanup in this commit. T1-2a is BLOCKED on Tranches 2-4 (schema follow-ups + ADR work + companion specs).
+- 2026-05-13: **T1-1 closed at `69f900b9`.** ADR-0002 55-field player model in `fw-core`; `AbilityCeiling` encapsulated; `RoleId` newtype; `TacticalArchetype` f32→u16 bps. 65 tests; canonical hash UNCHANGED. Self-review triple twice → Accept. Codex audit subsequently caught additional P0/P1 issues — see audit doc.
+- 2026-05-13: **Phase T0 closed.** Pivot (109 files) + blueprint reconciliation (51 files) + Codex pre-T0 audit (14 of 16 findings landed) + canonical hash pinned + CI matrix green + Codex APPROVE. See `docs/postmortems/phase-T0.md`.
 
 ## Current task
 
-None active. Next via `/next` (suggested: `T1-2a` dev-tier 2D tactical board per ADR-0007 + ADR-0008).
+Codex audit Tranche 1 (doc-drift cleanup + `.claude/launch.json` track + push). Tranches 2-7 queued via `/next` cycles after this lands. See `docs/audits/codex-full-audit-2026-05-13.md` for the full sequence.
 
 <!-- Historical scope-spec for the just-shipped T1-1 retained below for grep-back reference -->
 

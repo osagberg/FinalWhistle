@@ -12,11 +12,12 @@ last_verified: 2026-05-13
 
 ---
 
-## Snapshot (2026-05-13, end-of-session)
+## Snapshot (2026-05-13)
 
-- **Phase:** T0 closed, Codex APPROVED 2026-05-13 (verdict at commit `4721fee6` + hardening `bad1a400`). T1 prep complete: 7 ADRs + DESIGN_DOC §11 architecture overview + DECISIONS.md log all landed via commit `42637855`. Pre-T1 Codex consistency check returned NEEDS-FIXES; this commit applies them. **Awaiting `/next` for T1-1.**
-- **Build health:** all CI gates green on macOS / Windows / Linux. Pinned BLAKE3 canonical hash matches cross-platform.
-- **Carry-forward set:** ~50 files queued from `/Users/vibelogic/dev/football-archive/` per `MIGRATION_AUDIT.md` §4 (mostly consumed during pivot + reconciliation; remainder lands during T1).
+- **Phase:** T1 (First Match) active. T1-1 (fw-content schema lock) closed at commit `69f900b9`. Codex full-project audit landed at `c3945227` with ~50 findings; P0 fix at `eb0b952e`; doc-drift cleanup in progress. Tranches 2-7 of remediation queued. **Awaiting next `/next` for Tranche 2 work.**
+- **Build health:** local `main` is currently ahead of `origin/main`; CI on HEAD will run after the upcoming push (Tranche 1 final step). Last cross-OS-green commit on `origin/main` is `20314655`. Pinned BLAKE3 canonical hash matches across platforms at last verified point.
+- **Codex audit:** see `docs/audits/codex-full-audit-2026-05-13.md` for the full triage (10 lanes, 7 tranches). Notable gaps: `ContentStore::load_baked` is a stub returning empty; FW-VAL validators are fail-open; RNG seed tuple inconsistent across docs; 8Hz cadence math wrong (60/8=7.5); T1-2b companion specs missing; PlayerSeparation contract not in v2.
+- **Carry-forward set:** ~50 files queued from `/Users/vibelogic/dev/football-archive/` per `MIGRATION_AUDIT.md` §4 (mostly consumed during pivot + reconciliation; remainder lands during T1). v1→v2 carry-forward debts logged at `REFERENCES.md` "Carry-forward debts" table.
 - **Frozen Unity snapshot:** `/Users/vibelogic/dev/football-archive/`.
 
 ---
@@ -37,9 +38,9 @@ Stale rule: any `IN_PROGRESS` item older than 14 days must be reviewed at next `
 
 ## Now / Next / Blocked
 
-- **Now:** none — T1-1 closed (`fw-content` schema lock + ADR-0002 55-field player model + Codex Imp #3 conversion landed 2026-05-13).
-- **Next:** `T1-2a` dev-tier 2D tactical board (per ADR-0007 + ADR-0008). Browser-dev mode + Claude Preview MCP workflow validated end-to-end.
-- **Blocked:** none.
+- **Now:** Codex full-project audit remediation in progress. Tranche 1 (P0 fix + doc-drift cleanup) landing this session; Tranches 2-7 queued via `/next` cycles. See `docs/audits/codex-full-audit-2026-05-13.md` for the full triage.
+- **Next:** Tranches 2-4 (T1-1 schema follow-ups + ADR work for RNG seed / cadence / save format / signatures / hash-rebaseline / licensed-data / runtime-AI + T1-2b companion specs). THEN `T1-2a` dev-tier 2D tactical board. Browser-dev mode design landed; **Claude Preview MCP wiring is loaded (tool schemas active) but not yet exercised end-to-end against a real `dump_frames` fixture** — that exercise is part of T1-2a's done-criteria (the `dump_frames` binary doesn't exist yet).
+- **Blocked:** T1-2a is queued behind audit Tranches 2-4. No external blockers.
 
 ---
 
