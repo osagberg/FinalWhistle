@@ -19,7 +19,11 @@ import { resolve } from "node:path";
 
 const host = process.env.TAURI_DEV_HOST;
 
-export default defineConfig(async () => ({
+// Sync config factory — no awaits in the body. Earlier `async ()` form
+// fails Vite 6's typecheck because `defineConfig`'s `UserConfigFn` doesn't
+// accept Promise return values without an explicit `Promise<UserConfig>`
+// generic, and that's overkill when nothing here is asynchronous.
+export default defineConfig(() => ({
   plugins: [solid()],
   resolve: {
     alias: {
@@ -37,7 +41,7 @@ export default defineConfig(async () => ({
           host,
           port: 1421,
         }
-      : undefined,
+      : false,
     watch: {
       // Don't waste fs watcher slots on the Rust shell.
       ignored: ["**/src-tauri/**"],
@@ -48,7 +52,10 @@ export default defineConfig(async () => ({
     // Tauri uses Chromium on Windows/Linux + WebKit on macOS. Targeting
     // es2022 on the WebKit side is safe in macOS 11+, which is our min spec.
     target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari14",
-    minify: !process.env.TAURI_ENV_DEBUG ? "esbuild" : false,
+    // String-literal cast keeps Vite 6's `build.minify` typing happy
+    // (`"esbuild" | "terser" | boolean`); the conditional inferred to
+    // `string | boolean` without it.
+    minify: (process.env.TAURI_ENV_DEBUG ? false : "esbuild") as "esbuild" | false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
   },
 }));

@@ -1,5 +1,5 @@
 import { A } from "@solidjs/router";
-import { type JSX, type ParentProps, Show } from "solid-js";
+import { For, type JSX, type ParentProps, Show } from "solid-js";
 import { theme, setTheme, selectedClubId } from "~/lib/state";
 
 interface NavItem {
@@ -45,21 +45,23 @@ function TopBar(): JSX.Element {
         </span>
       </div>
       <nav class="flex items-center gap-1" aria-label="Primary">
-        {NAV.map((item) => (
-          <A
-            href={item.to}
-            class="fw-nav-link"
-            activeClass="active"
-            end={item.to === "/"}
-          >
-            <span class="font-body">{item.label}</span>
-            <Show when={item.hotkey}>
-              <span class="ml-1.5 text-[10px] text-ink-mute font-mono">
-                [{item.hotkey}]
-              </span>
-            </Show>
-          </A>
-        ))}
+        <For each={NAV}>
+          {(item) => (
+            <A
+              href={item.to}
+              class="fw-nav-link"
+              activeClass="active"
+              end={item.to === "/"}
+            >
+              <span class="font-body">{item.label}</span>
+              <Show when={item.hotkey}>
+                <span class="ml-1.5 text-[10px] text-ink-mute font-mono">
+                  [{item.hotkey}]
+                </span>
+              </Show>
+            </A>
+          )}
+        </For>
       </nav>
       <button
         type="button"
