@@ -44,12 +44,14 @@ USAGE
     scripts/fw <command> [args]
 
 COMMANDS
-    verify           Lint + workspace test (CLAUDE.md §4.5 pre-commit gate)
+    verify           Full pre-commit gate: lint + test + banned-terms + canonical-hash
     dev              Launch Tauri dev mode
     test [args]      cargo test --workspace (forwards args to cargo test)
     test-determinism Run the canonical-hash regression in isolation
     lint             cargo fmt --check + clippy + frontend lint + typecheck
     fmt              Auto-fix formatting (cargo fmt + pnpm format)
+    banned-terms     Football-native vocabulary lint
+    verify-content   FW-VAL content-pack validation
     build            cargo build --workspace
     bundle           Full Tauri bundle for current platform
     clean            Purge target/ + frontend/node_modules
@@ -134,6 +136,18 @@ EOF
         require_just
         cd "$ROOT"
         just cross-check
+        ;;
+
+    banned-terms)
+        require_just
+        cd "$ROOT"
+        just banned-terms
+        ;;
+
+    verify-content)
+        require_just
+        cd "$ROOT"
+        just verify-content
         ;;
 
     *)

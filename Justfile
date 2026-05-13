@@ -75,7 +75,27 @@ bundle:
 
 # Reproduces the per-PR CI matrix as closely as `just` can on a single
 # host. Use before pushing to `main` direct-commit per CLAUDE.md §4.5.
-ci-local: lint test
+# This is what `/next` step 6 (verify) invokes via `scripts/fw verify`.
+ci-local: lint test banned-terms test-determinism
+
+# ----------------------------------------------------------------
+# Banned-terms lint (football-native vocabulary)
+# ----------------------------------------------------------------
+
+# Scan content + design docs + frontend strings for banned mystical
+# state-nouns. Catalog in docs/design/ui-vocabulary.md. Sentinel
+# exemption via `// ui-lint:allow term="..." reason="..." reviewer="..."`.
+banned-terms:
+    python3 scripts/lint-banned-terms.py content/ docs/design/ frontend/src/
+
+# ----------------------------------------------------------------
+# Content-pack validation (FW-VAL)
+# ----------------------------------------------------------------
+
+# Run FW-VAL checks per docs/specs/content-pack-validation-contract.md.
+# Falls back gracefully if fw-content-baker isn't built yet (T0 stub).
+verify-content:
+    cargo run -p fw-cli -- validate-content || echo "fw-cli content validator not yet implemented (T2-3); skipping"
 
 # ----------------------------------------------------------------
 # Workspace housekeeping

@@ -39,7 +39,11 @@ Read at session start, in order:
 | `STATUS.md` | Current phase, active task, blockers. Auto-stamped on `/done`. |
 | `CHANGELOG.md` | Append-only human-readable ship log. |
 | `docs/archive/` | Historical (Unity-era) docs. Reference only; never delete. |
-| `.claude/agents/*.md` | Per-subagent voice + behavior specs. |
+| `.claude/agents/*.md` | Per-subagent voice + behavior specs (7 agents — see `.claude/agents/README.md`). |
+| `.claude/rules/*/RULES.md` | Path-scoped rules (Rust / Sim / Tauri / Frontend / Content / design-docs). |
+| `.claude/skills/next/SKILL.md` | Canonical 9-step `/next` workflow manual. |
+| `.claude/context-scopes.json` | Declares 3 context scopes (`minimal` / `standard` / `rich`); active scope at `.claude/.current-scope` (default: `standard`). |
+| `REFERENCES.md` | Pivot provenance — what carries forward from FW v1. |
 
 ---
 
@@ -81,10 +85,11 @@ The user describes a task in plain English. `/next` does the rest. They review t
 
 - `/commit` — manual structured commit (rarely needed; `/next` commits automatically).
 - `/log-decision` — append a dated entry to `docs/DECISIONS.md` (hook-enforced append-only).
-- `/done` — mark a phase complete + summarize + sync STATUS / CHANGELOG / MASTER_PLAN.
+- `/done` — close a phase: verify acceptance gate, sync STATUS/CHANGELOG/MASTER_PLAN, print the `gh pr create` command for Codex review.
 - `/status` — read project state in <150 words.
+- `/audit` — read-only health sweep (STATUS staleness, plan integrity, determinism violations, banned-terms, etc.).
 
-Other blueprint commands (`/audit`, `/refresh-docs`, `/gate-check`, etc.) exist but are invoked explicitly; they are not part of the steady-state loop.
+Six commands total. That's the full set. No `/refresh-docs`, no `/gate-check`, no `/duo-*` — the blueprint pruned aggressively for this project.
 
 ### 4.3 Decisions log
 
@@ -104,14 +109,16 @@ Solo-dev direct-to-`main` is the default while GitHub Free blocks private-repo b
 
 ## 5. Subagent rotation (slim)
 
-Five agents do the work. Main thread coordinates. `/next` MUST name the task class + required agent before code is written; skipping requires a one-liner in the commit body.
+Seven agents do the work. Main thread coordinates. `/next` MUST name the task class + required agent before code is written; skipping requires a one-liner in the commit body. Per-agent voice + responsibilities in `.claude/agents/*.md`.
 
 | Task class | Indicator | Required agent |
 |---|---|---|
-| **Sim / Rust** (≥100 LoC in `fw-match-sim`, `fw-memory`, `fw-replay`, `fw-save`, `fw-core`) | New canonical-state surface, BT runner change, ball physics, ledger reader | `gameplay-programmer` |
+| **Sim / Rust** (≥100 LoC in `fw-match-sim`, `fw-memory`, `fw-replay`, `fw-save`, `fw-core`, `fw-content`, `fw-scouting`) | New canonical-state surface, BT runner change, ball physics, ledger reader | `gameplay-programmer` |
 | **Balance / formulas / progression** | Salience weights, gene curves, signature trigger thresholds, economy | `systems-designer` |
 | **Content / narrative / templates** | RON authoring, Tracery template banks, scout-prose, commentary phrase banks, memory-event readers | `narrative-director` |
-| **Architecture / cross-crate / IPC** | New crate, asmdef-equivalent boundary change, Tauri command surface, save schema bump, ADR | `lead-programmer` |
+| **Architecture / cross-crate / IPC** | New crate, crate-boundary change, Tauri command surface, save schema bump, ADR | `lead-programmer` |
+| **Frontend / UI** | SolidJS components, Tauri command handlers, TanStack Table, PixiJS 2D tactical board, ECharts, Tailwind v3 | `ui-programmer` |
+| **QA / test design** | Acceptance criteria, insta snapshots, proptest invariants, FW-VAL content checks, save-migration fixtures | `qa-lead` |
 | **Phase-boundary coordination** | Gate check, scope negotiation, milestone review, Codex-review handoff | `producer` |
 
 **Self-review is mandatory before commit on any change ≥100 LoC of code.** `/next` runs all three: `pr-review-toolkit:silent-failure-hunter` + `pr-review-toolkit:type-design-analyzer` + `feature-dev:code-reviewer`. Soft-reminded by `.claude/hooks/pr-review-reminder.sh`; the mandate is the binding rule.
@@ -127,12 +134,12 @@ May stay in the main thread: single-file edits ≤100 LoC, STATUS/CHANGELOG/MAST
 Codex reviews at **phase boundaries only**, not per task. Per-task self-review (§5) is the inner loop; Codex is the outer loop.
 
 At each phase gate:
-1. Open a PR with the phase's accumulated commits + `/gate-check` output.
-2. Hand the PR URL to Codex (separate CLI session). Codex reviews via filesystem + comments on the PR.
+1. Run `/done` — verifies the phase's acceptance gate, syncs ledgers, prints the `gh pr create` command (user runs it).
+2. Hand the PR URL to Codex (separate CLI session). Codex reviews via filesystem + PR comments.
 3. Apply findings via `/next` cycles on the same branch.
 4. Merge once Codex acks.
 
-No agent-bus per-slice cycle. No `dialog/<topic>.jsonl` for routine work. The protocol is documented in `docs/tooling/codex-phase-review.md`.
+No agent-bus per-slice cycle. No `dialog/<topic>.jsonl` for routine work.
 
 ---
 
@@ -197,4 +204,4 @@ Destructive / shared-state / third-party-upload actions need explicit user confi
 
 ---
 
-*Authored 2026-05-13. v2 pivot from Unity+C# to Rust+Tauri. Revise at each phase transition.*
+*Authored 2026-05-13. v2 pivot from Unity+C# to Rust+Tauri. Blueprint reconciled in-place from `/Users/vibelogic/dev/blueprint/` (slim, Rust-flavored). Revise at each phase transition.*

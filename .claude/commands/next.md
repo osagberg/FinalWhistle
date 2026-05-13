@@ -40,9 +40,9 @@ The skill hard-stops + reports to the user when any of these fire:
 
 ## What `/next` does NOT do
 
-- Run Codex review — that's `/phase-gate` at phase boundaries, not per task.
+- Run Codex review — that's `/done` at phase boundaries, not per task.
 - Push to remote — user pushes manually when ready.
-- Create PRs — `/phase-gate` opens the phase PR for Codex review.
+- Create PRs — `/done` prints the `gh pr create` invocation for the phase PR.
 - Run the game in Tauri — user does manual playtest.
 - Bake content corpus — separate `/bake-content` command at content milestones.
 
@@ -65,6 +65,6 @@ To continue the phase, run `/next` again. To stop, just don't.
 ## See also
 
 - Full workflow manual: `.claude/skills/next/SKILL.md`
-- Phase boundaries: `/phase-gate`
+- Phase boundaries: `/done`
 - Decision logging: `/log-decision`
 - Project state: `/status`

@@ -67,7 +67,7 @@ Read in this order:
    - If multiple top-priority candidates tie, pick the lowest task ID lexically.
 
 4. If no eligible task exists in the active phase:
-   - All-DONE in active phase → report "Phase <N> complete; run `/phase-gate` for Codex review, then `/done` to close + promote next phase."
+   - All-DONE in active phase → report "Phase <N> complete; run `/done` to close + open the Codex review PR."
    - All-TODO blocked → report "Phase <N> has TODOs but all are blocked. Blockers: <list>." Stop.
 
 ### Step 2 — Spec the task
@@ -134,10 +134,12 @@ If the chunk count would exceed 7, the task is too big — **PAUSE and recommend
 
 | Task class | Subagent |
 |---|---|
-| Sim / Rust (≥100 LoC in `fw-match-sim`, `fw-memory`, `fw-replay`, `fw-save`, `fw-core`) | `gameplay-programmer` |
+| Sim / Rust (≥100 LoC in `fw-match-sim`, `fw-memory`, `fw-replay`, `fw-save`, `fw-core`, `fw-content`, `fw-scouting`) | `gameplay-programmer` |
 | Balance / formulas / progression | `systems-designer` |
-| Content / narrative / templates | `narrative-director` |
-| Architecture / cross-crate / IPC | `lead-programmer` |
+| Content / narrative / templates / Tracery / commentary banks | `narrative-director` |
+| Architecture / cross-crate / IPC / save schema / ADR | `lead-programmer` |
+| Frontend (SolidJS / Tauri command handlers / TanStack / PixiJS / ECharts) | `ui-programmer` |
+| QA / acceptance criteria / regression coverage / FW-VAL / save migration fixtures | `qa-lead` |
 | Phase-boundary coordination | `producer` |
 
 **Main-thread exceptions** (no subagent needed):
@@ -311,7 +313,7 @@ Completed T<id>: <title> at commit <short-sha>. Next up: T<next-id>: <next-title
 
 If no next task is eligible (phase complete / all blocked):
 ```
-Completed T<id>: <title> at commit <short-sha>. Phase <N> is complete — run /phase-gate for Codex review, then /done to promote Phase <N+1>.
+Completed T<id>: <title> at commit <short-sha>. Phase <N> is complete — run /done to open the Codex review PR and promote Phase <N+1>.
 ```
 
 or:
@@ -379,9 +381,9 @@ Resume after: <user response / specific file edit / approve a Cargo.toml additio
 
 ## What `/next` deliberately does NOT do
 
-- **Run Codex review.** Codex enters at phase boundaries via `/phase-gate`, which opens a PR with the phase's accumulated commits. Per-task Codex review is the v1 model we're replacing.
+- **Run Codex review.** Codex enters at phase boundaries via `/done`, which prints `gh pr create` for the phase's accumulated commits. Per-task Codex review is the v1 model we're replacing.
 - **Push to remote.** User pushes when they want; `/next` commits locally.
-- **Create PRs.** `/phase-gate` does this at phase boundaries.
+- **Create PRs.** `/done` prints the `gh pr create` invocation at phase boundaries.
 - **Run the Tauri app for manual playtest.** User does this via `cargo tauri dev` or similar. `/next` doesn't open the GUI.
 - **Generate / bake the content corpus.** Separate `/bake-content` command (when authored) handles LLM bake-time pipeline at content milestones.
 - **Mutate design docs.** `design/**.md`, `docs/DESIGN_DOC.md`, `CLAUDE.md`, `TECH_APPROACH.md` are out-of-scope. Use `/log-decision` or `/duo-debate` for architecture work.
@@ -419,11 +421,10 @@ The skill auto-checks these at Step 1; listed here for the user's mental model:
 - Determinism patterns: `CLAUDE.md §7`
 - Decisions log: `docs/DECISIONS.md` (append-only, hook-enforced)
 - MASTER_PLAN format: `docs/MASTER_PLAN.md`
-- Phase-boundary review: `/phase-gate` (Codex CLI review pass via PR)
-- Architectural debate: `/duo-debate` (Tier-1, no repo changes)
+- Phase-boundary review: `/done` (prints `gh pr create` for Codex)
 - Decision logging: `/log-decision`
-- Phase closing: `/done`
 - Project state read: `/status`
+- Audit sweep: `/audit`
 
 ---
 

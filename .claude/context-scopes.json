@@ -1,0 +1,45 @@
+{
+  "_about": "Declares the three context scopes Final Whistle uses. Active scope is in .claude/.current-scope. See docs/BLUEPRINT_RECONCILE.md for the 5→3 slim rationale.",
+  "scopes": {
+    "minimal": {
+      "description": "Bare-minimum context. Use when token-constrained or doing fast single-file edits.",
+      "load_paths": [
+        "CLAUDE.md",
+        "STATUS.md",
+        "MEMORY.md"
+      ]
+    },
+    "standard": {
+      "description": "Default. Everything needed for /next on a normal task.",
+      "load_paths": [
+        "CLAUDE.md",
+        "STATUS.md",
+        "MEMORY.md",
+        "docs/DESIGN_DOC.md",
+        "docs/MASTER_PLAN.md",
+        "docs/specs/determinism-gate.md"
+      ]
+    },
+    "rich": {
+      "description": "Deep context. Use for architecture work, phase-gate review prep, or first session after long pause.",
+      "load_paths": [
+        "CLAUDE.md",
+        "STATUS.md",
+        "MEMORY.md",
+        "REFERENCES.md",
+        "docs/DESIGN_DOC.md",
+        "docs/MASTER_PLAN.md",
+        "docs/DECISIONS.md",
+        "docs/specs/determinism-gate.md",
+        "docs/CONTENT_PIPELINE.md",
+        ".claude/agents/README.md"
+      ]
+    }
+  },
+  "default": "standard",
+  "rescope_commands": {
+    "to_minimal": "echo minimal > .claude/.current-scope",
+    "to_standard": "echo standard > .claude/.current-scope",
+    "to_rich": "echo rich > .claude/.current-scope"
+  }
+}

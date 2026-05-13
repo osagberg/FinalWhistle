@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_about": "Project-scoped Claude Code settings. Hook wiring + default permissions.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "command": ".claude/hooks/protect-decisions.sh"
+      },
+      {
+        "matcher": "Bash",
+        "command": ".claude/hooks/validate-commit.sh"
+      },
+      {
+        "matcher": "Bash",
+        "command": ".claude/hooks/canonical-hash-guard.sh"
+      }
+    ],
+    "Stop": [
+      {
+        "command": ".claude/hooks/update-status-timestamp.sh"
+      },
+      {
+        "command": ".claude/hooks/pr-review-reminder.sh"
+      }
+    ]
+  }
+}
