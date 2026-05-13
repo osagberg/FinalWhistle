@@ -12,13 +12,13 @@ last_verified: 2026-05-13
 
 ---
 
-## Snapshot (2026-05-13)
+## Snapshot (2026-05-13, late session)
 
-- **Phase:** `T0 — Scaffold` (in progress; 10 of 11 rows DONE, T0-7 is critical path).
-- **Current track:** awaiting first `/next` invocation on T0-7 (CI matrix green + pinned BLAKE3 hash).
-- **Build health:** scaffold compiles; `scripts/fw verify` not yet exercised on the matrix.
-- **Last commit:** `26f1ba0` (blueprint reconciliation).
-- **Carry-forward set:** ~50 files queued from `/Users/vibelogic/dev/football-archive/` per `MIGRATION_AUDIT.md` §4.
+- **Phase:** `T0 — Scaffold` (closed on dev box; awaiting CI matrix green + Codex phase-gate ack).
+- **Current track:** none. T0-7 + T0-12 + Codex audit follow-ups all landed. T0-7b (cross-OS canonical-hash agreement) PASSED on `a0b2e08`'s Determinism Gate run. The remaining open box is CI workflow green across all 3 OSes — fixes landed in `89479063` and a follow-up Codex-audit cleanup commit.
+- **Build health:** macOS-14 dev box GREEN across `cargo {build,clippy,test,fmt} --workspace --release` + `determinism-audit` + `banned-terms`. CI matrix: Determinism Gate PASS on a0b2e08, CI workflow rebuilding after icon-tracking + Linux-deps + audit-parity fixes.
+- **Last commit (at snapshot time):** see `git log --oneline -5`. Phase-close commit is the one tagged `[T0-12]` / `(phase)` family.
+- **Carry-forward set:** ~50 files queued from `/Users/vibelogic/dev/football-archive/` per `MIGRATION_AUDIT.md` §4 (mostly consumed during pivot + reconciliation; remainder lands during T1).
 - **Frozen Unity snapshot:** `/Users/vibelogic/dev/football-archive/`.
 
 ---

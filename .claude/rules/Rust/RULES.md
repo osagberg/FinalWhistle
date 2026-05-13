@@ -11,7 +11,7 @@ auto_load: when_editing_matching_path
 ## Edition + toolchain
 
 - Edition **2024**.
-- Rust **1.85+** (pinned via `rust-toolchain.toml`).
+- Rust **1.95+** (pinned via `rust-toolchain.toml`). Bumped from 1.85 at T0-12 because `fixed@1.31` (Q32.32 backing crate) requires rustc 1.93+.
 - `cargo fmt --check` + `cargo clippy --all-targets -- -D warnings` clean before commit.
 
 ## Abstractions

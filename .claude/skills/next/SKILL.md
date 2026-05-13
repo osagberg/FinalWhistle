@@ -39,7 +39,7 @@ This skill is the manual. The slash command at `.claude/commands/next.md` is a t
 
 The bet: agent-bus per-slice review was correct for the Unity-era slice ladder where Codex caught Claude's blindspots on visual/runtime evidence (e.g. Slice 7's static-ball miss). For a Rust pivot where the inner loop is `cargo test` + canonical-hash regression + clippy lints — all reproducible, all deterministic, all enforced at commit time by hooks — Codex's review value moves to phase-boundary architecture review. Per-task gets self-review; per-phase gets Codex.
 
-If a task IS architecturally load-bearing (new crate, new contract, ADR-bearing), the user runs `/duo-debate` (Tier-1, no repo changes) first, then `/next` executes the settled design. `/next` does NOT debate; it implements.
+If a task IS architecturally load-bearing (new crate, new contract, ADR-bearing), the user logs the design call via `/log-decision` first (or proposes an ADR under `docs/adr/` and `/log-decision`'s the acceptance), then `/next` executes the settled design. `/next` does NOT debate; it implements.
 
 ---
 
@@ -220,19 +220,42 @@ If a self-review agent itself errors / hangs / returns garbage: behavior depends
 
 **T1+ on non-canonical paths** (frontend, content authoring, narrative templates, UI styling): log the error in the commit body under "Self-review notes" and proceed. The lint + test + canonical-hash gates are the binding gates; self-review is a quality multiplier, not a blocker.
 
-### Step 7 — Commit
+### Step 7 — Sync ledgers (working tree only; no staging yet)
 
-**Execute Step 8's ledger edits FIRST** (STATUS.md / CHANGELOG.md / DECISIONS.md / MEMORY.md / MASTER_PLAN.md), then stage everything together so the commit is atomic. Order matters — Codex's pre-T0 audit flagged the original "commit then update docs" wording as a half-state risk.
+Apply every ledger edit in this order BEFORE staging anything. The commit in Step 8 is atomic — all of these land together or not at all.
 
-**Stage exactly:**
+1. **`docs/MASTER_PLAN.md`** — flip the task's status field IN_PROGRESS → DONE. If the row's body was useful to update with a commit SHA reference, do so now.
+
+2. **`MEMORY.md`** — move the task. Clear the `## Current task` block (you wrote it in Step 2). Append a one-line bullet to a `## Recently completed` rolling list at the bottom (keep last ~10 entries; older ones drop off):
+   ```markdown
+   - YYYY-MM-DD — T<id> <title> — commit <short-sha>
+   ```
+   (You won't know the short-sha until after Step 8. Either leave it as `<short-sha>` and amend later, OR — preferred — fill it in as `pending` and rewrite in the next `/next` cycle's Step 7. Some commits skip this; the next sync catches it.)
+
+3. **`STATUS.md`** — re-point at the next active task. Keep under 150 words. State pointer, not diary. The Stop hook (`update-status-timestamp.sh`) auto-stamps the timestamp at session end; the body changes go in this commit.
+
+4. **`CHANGELOG.md`** — append one bullet under the current phase section:
+   ```markdown
+   - YYYY-MM-DD — T<id> <title> — <one-line summary> (commit <short-sha>)
+   ```
+   Same short-sha caveat as MEMORY.md.
+
+5. **`docs/DECISIONS.md`** — append IF this task logged an architectural decision (new contract, new convention, tradeoff resolution, ADR-supporting choice). Format:
+   ```markdown
+   - **YYYY-MM-DD — T<id> — <decision title>** — <one-paragraph context + decision + consequence>. Supersedes: <prior bullet date + topic verbatim, or "none">.
+   ```
+   The append-only hook will block any mutation of a prior dated bullet. If superseding, cite the prior bullet verbatim in the new entry; do NOT edit the old one. Most tasks do NOT log a decision — leave the file unstaged if so.
+
+### Step 8 — Stage + commit (atomic)
+
+**Stage exactly these paths** via explicit `git add`. Never `git add -A` / `git add .`.
+
 - Every file in `files_in_scope` from the MEMORY task spec
-- `docs/MASTER_PLAN.md` (status flip TODO → IN_PROGRESS → DONE)
-- `MEMORY.md` (current-task block populated for the in-flight state; Step 8 clears it AFTER commit)
-- `STATUS.md` (re-pointed at next task)
-- `CHANGELOG.md` (append-only line for this task)
-- `docs/DECISIONS.md` (only if this task logged a decision; if not, do not stage)
-
-Do NOT use `git add -A` or `git add .`. Stage by explicit path.
+- `docs/MASTER_PLAN.md` (the status flip from Step 7.1)
+- `MEMORY.md` (the current-task → recently-completed move from Step 7.2)
+- `STATUS.md` (the re-pointing from Step 7.3)
+- `CHANGELOG.md` (the new bullet from Step 7.4)
+- `docs/DECISIONS.md` (ONLY if Step 7.5 actually appended; if not, do not stage)
 
 **Commit message format** (HEREDOC; preserves formatting):
 
@@ -291,28 +314,6 @@ EOF
 - `.claude/hooks/validate-commit.sh` — secrets scan + append-only check on protected docs.
 
 If a hook blocks: read the hook output. If you can fix the cause in-place (e.g. unstage `docs/DECISIONS.md` and re-stage as a NEW append), do so and retry. If you cannot fix without scope expansion: **PAUSE + report**. Do NOT `--no-verify`.
-
-### Step 8 — Update docs (run BEFORE Step 7 stages + commits — the order is the fix from the Codex audit)
-
-**`STATUS.md`:** timestamp is auto-stamped by the Stop hook (`.claude/hooks/update-status-timestamp.sh`). Update the body to reflect the new active task + any blockers cleared by this commit. Keep it under 150 words; it's a state pointer, not a diary.
-
-**`CHANGELOG.md`:** append one line under the current phase's section:
-```markdown
-- YYYY-MM-DD — T<id> <title> — <one-line summary> (commit <short-sha>)
-```
-
-**`docs/DECISIONS.md`:** append IF the task made a decision worth recording (new contract, new convention, ADR-supporting choice, tradeoff resolution). Format:
-```markdown
-- **YYYY-MM-DD — T<id> — <decision title>** — <one-paragraph context + decision + consequence>. Supersedes: <prior entry if any>.
-```
-The append-only hook will block any mutation of prior entries. If superseding, cite the prior bullet verbatim in the new entry; do NOT edit the old one.
-
-**`MEMORY.md`:** clear the `## Current task` block. Append a one-line bullet to a `## Recently completed` rolling list (keep last ~10 entries; older ones drop off):
-```markdown
-- YYYY-MM-DD — T<id> <title> — commit <short-sha>
-```
-
-These four doc updates were already staged in Step 7 if MEMORY.md / MASTER_PLAN.md were in the commit. CHANGELOG.md, DECISIONS.md, and STATUS.md changes are staged + committed as part of the same commit (they're always in-scope for `/next`-driven task completion). The STATUS.md timestamp hook fires on session Stop, not on commit; the body changes go in the commit.
 
 ### Step 9 — Loop or stop (the user decides)
 
@@ -407,7 +408,7 @@ Resume after: <user response / specific file edit / approve a Cargo.toml additio
 
 - One `/next` task ≈ **$1-4 USD** at current Claude pricing assuming reasonable cache hit rate (no agent-bus overhead, no per-slice review relay, no `ScheduleWakeup` cache invalidation).
 - Self-review triple adds ~$0.50-2 on commits ≥100 LoC.
-- Codex cost lives in `/phase-gate` (separate Codex CLI session), not here.
+- Codex cost lives in the phase-gate PR opened by `/done` (separate Codex CLI session), not here.
 
 Compare: FW v1 `/duo-implement` was $5-15 per task because of the agent-bus relay + reviewer-ack polling + per-slice review ceremony.
 
@@ -417,10 +418,10 @@ Compare: FW v1 `/duo-implement` was $5-15 per task because of the agent-bus rela
 
 The skill auto-checks these at Step 1; listed here for the user's mental model:
 
-- [ ] Is `docs/MASTER_PLAN.md` up to date? (If `STATUS.md` says Phase 3 but MASTER_PLAN's Phase-3 list is empty, something's broken — run `/refresh-docs`.)
+- [ ] Is `docs/MASTER_PLAN.md` up to date? (If `STATUS.md` says Phase 3 but MASTER_PLAN's Phase-3 list is empty, something's broken — surface it before invoking.)
 - [ ] Is `just test` currently green on `main`? (If no, the next `/next` will pause on Step 5; fix baseline first.)
 - [ ] Is the task description in MASTER_PLAN clear about acceptance criteria + scope? (If no, Step 2 will pause; clean up the task entry first.)
-- [ ] Is a `/duo-debate` needed first because the task is architecturally load-bearing? (If yes, debate, then `/next` executes the settled design.)
+- [ ] Is a `/log-decision` needed first because the task is architecturally load-bearing? (If yes, log the call, then `/next` executes the settled design.)
 
 ---
 
