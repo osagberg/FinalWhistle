@@ -121,7 +121,20 @@ export default function TacticalBoard(): JSX.Element {
   }
 
   onMount(() => {
-    const source = frameSourceFromUrlParams(search());
+    // Construct the FrameSource synchronously inside onMount so any
+    // URL-config errors surface in the board's loadError UI instead of
+    // bubbling up the route boundary as an uncaught exception. Codex
+    // Tier-2 audit P1 (2026-05-13): the prior version called
+    // `frameSourceFromUrlParams(search())` at component-body top level,
+    // before the async try/catch — so `?source=bogus` threw during
+    // onMount and the user saw a broken route with no error context.
+    let source: ReturnType<typeof frameSourceFromUrlParams>;
+    try {
+      source = frameSourceFromUrlParams(search());
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
+      return;
+    }
 
     void (async () => {
       // Build the PixiJS Application once; bail out if the component was

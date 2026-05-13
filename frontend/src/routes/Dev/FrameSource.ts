@@ -98,34 +98,100 @@ export class HttpFrameSource implements FrameSource {
   }
 }
 
-// Minimal runtime shape check. Fast (typeof-only on a few headline
-// fields), loud (returns false → loadFrames throws), and doesn't try to
-// be a full schema validator — `ajv`-style validation would force a 50KB
-// JSON-schema dep into a dev-only route. The check matches what the
-// renderer actually reads in TacticalBoard.tsx.
+// Runtime shape check. Codex Tier-2 audit P1 (2026-05-13): the prior
+// version only checked top-level fields existed, which let
+// `{ players: [{}], ball: {} }` pass and then NaN'd out at render time.
+// The renderer reads `player.slot`, `player.posX/Y`, `ball.posX/Y/Z`
+// etc. — every field the renderer reads is now validated here, so
+// malformed fixtures fail loudly at the FrameSource boundary instead
+// of producing blank/NaN dots.
+//
+// Still NOT a full schema validator (no zod / ajv dep — adds 50KB to
+// a dev-only route). The check is tight against what the renderer
+// actually consumes; future field additions on the renderer side
+// require corresponding validator updates.
 function isMatchFrameArray(value: unknown): value is MatchFrameDTO[] {
   if (!Array.isArray(value)) {
     return false;
   }
-  return value.every((frame) => {
-    if (typeof frame !== "object" || frame === null) {
+  return value.every(isMatchFrame);
+}
+
+function isMatchFrame(frame: unknown): frame is MatchFrameDTO {
+  if (typeof frame !== "object" || frame === null) {
+    return false;
+  }
+  const f = frame as Record<string, unknown>;
+
+  // Header fields.
+  if (typeof f.tick !== "number" || !Number.isFinite(f.tick)) {
+    return false;
+  }
+  if (typeof f.seedHex !== "string" || f.seedHex.length === 0) {
+    return false;
+  }
+  if (typeof f.homeScore !== "number" || !Number.isFinite(f.homeScore)) {
+    return false;
+  }
+  if (typeof f.awayScore !== "number" || !Number.isFinite(f.awayScore)) {
+    return false;
+  }
+
+  // Players: must be exactly 22 (per canonical state — 11/side). Slots
+  // must be unique integers in 0..21. Each player's position +
+  // velocity must be finite — NaN/Infinity in coordinates would crash
+  // PixiJS sprite positioning silently.
+  if (!Array.isArray(f.players) || f.players.length !== 22) {
+    return false;
+  }
+  const seenSlots = new Set<number>();
+  for (const player of f.players) {
+    if (!isPlayerFrame(player)) {
       return false;
     }
-    const f = frame as Record<string, unknown>;
-    if (typeof f.tick !== "number") {
+    if (seenSlots.has(player.slot)) {
       return false;
     }
-    if (typeof f.seedHex !== "string") {
+    seenSlots.add(player.slot);
+  }
+
+  // Ball: all 6 coordinates must be finite numbers.
+  if (!isBallFrame(f.ball)) {
+    return false;
+  }
+
+  return true;
+}
+
+function isPlayerFrame(value: unknown): value is { slot: number; posX: number; posY: number; velX: number; velY: number } {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const p = value as Record<string, unknown>;
+  if (typeof p.slot !== "number" || !Number.isInteger(p.slot) || p.slot < 0 || p.slot > 21) {
+    return false;
+  }
+  for (const field of ["posX", "posY", "velX", "velY"] as const) {
+    const v = p[field];
+    if (typeof v !== "number" || !Number.isFinite(v)) {
       return false;
     }
-    if (!Array.isArray(f.players)) {
+  }
+  return true;
+}
+
+function isBallFrame(value: unknown): value is { posX: number; posY: number; posZ: number; velX: number; velY: number; velZ: number } {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const b = value as Record<string, unknown>;
+  for (const field of ["posX", "posY", "posZ", "velX", "velY", "velZ"] as const) {
+    const v = b[field];
+    if (typeof v !== "number" || !Number.isFinite(v)) {
       return false;
     }
-    if (typeof f.ball !== "object" || f.ball === null) {
-      return false;
-    }
-    return true;
-  });
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,11 +244,25 @@ export function frameSourceFromUrlParams(search: string): FrameSource {
 
   // Accept three URL shapes — origin-relative (/path), document-relative
   // (./path or path), and absolute (https://... / http://...). Reject
-  // everything else (e.g. `javascript:`, `data:`, mailto) to avoid
-  // accidentally fetching a non-HTTP scheme. The dev-only context limits
-  // the threat surface, but the explicit allowlist is cheap.
+  // everything else explicitly (e.g. `javascript:`, `data:`, `file:`,
+  // mailto) to avoid accidentally fetching a non-HTTP scheme. Codex
+  // Tier-2 audit P2 (2026-05-13): the prior regex `^[a-zA-Z0-9_\-.]`
+  // had a hole — `javascript:alert(1)` started with `j` so passed the
+  // relative-path check. Now: any leading scheme (`prefix:`) that
+  // isn't http(s) is rejected up front, before the relative-path test.
   const isHttpAbsolute =
     rawPath.startsWith("https://") || rawPath.startsWith("http://");
+
+  // Detect ANY URL scheme (`prefix:` where prefix is a valid scheme
+  // name per RFC 3986: ALPHA *(ALPHA / DIGIT / "+" / "-" / ".")).
+  const schemeMatch = rawPath.match(/^[a-zA-Z][a-zA-Z0-9+.-]*:/);
+  if (schemeMatch && !isHttpAbsolute) {
+    throw new FrameSourceConfigError(
+      `path \`${rawPath}\` uses scheme \`${schemeMatch[0]}\` which is not allowed. ` +
+        `Accepted shapes: \`/dev-fixtures/...\`, \`./...\`, or \`https://...\`.`,
+    );
+  }
+
   const isRelativeOrRooted =
     rawPath.startsWith("/") ||
     rawPath.startsWith("./") ||

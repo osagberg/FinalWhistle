@@ -61,11 +61,16 @@ The Claude-driven workflow:
 # Terminal 1: start Vite dev server
 pnpm --filter ./frontend dev
 
-# Terminal 2: produce a fixture
-cargo run --bin dump_frames -- --seed 0xdeadbeef --ticks 600 > /tmp/smoke.json
+# Terminal 2: produce a fixture. NOTE: write into frontend/public/
+# so Vite serves it at /dev-fixtures/... — `/tmp/smoke.json` is not
+# reachable by the browser (Vite only serves files under the project
+# root). The fixtures dir is gitignored; the .gitignore + README live
+# at frontend/public/dev-fixtures/.gitignore.
+cargo run --bin dump_frames -- --seed 0xdeadbeef --ticks 600 \
+  > frontend/public/dev-fixtures/smoke.json
 
 # In Claude (with Claude Preview MCP):
-preview_start http://localhost:1420/dev/board?source=fixture:/tmp/smoke.json
+preview_start http://localhost:1420/dev/board?source=fixture:/dev-fixtures/smoke.json
 preview_screenshot                        # tick 0 (kickoff layout)
 preview_eval "window.fwDev.scrubTo(180)"  # T+3 minutes
 preview_screenshot                        # tick 180
