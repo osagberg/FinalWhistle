@@ -181,12 +181,21 @@ The sim uses `rand_chacha::ChaCha8Rng` seeded from a `Seed(u64)` newtype.
 - `rand::rngs::OsRng` — non-reproducible by definition.
 - Any `std::time::Instant::now()` / `SystemTime::now()` in sim code.
 
-The seed lifecycle (per DESIGN_DOC §5):
+The seed lifecycle (per DESIGN_DOC §5 + ADR-0009):
 - Each match carries `match_seed: Seed`.
-- Per-tick stochastic events derive from `ChaCha8Rng::seed_from_u64(
-  match_seed ^ tick ^ event_id_salt)` — never from a single
-  long-lived RNG, so out-of-order event emission cannot drift the
-  stream.
+- Per-draw stochastic events derive from `ChaCha8Rng::seed_from_u64(seed_fn(match_seed, tick, layer, site))` — never from a single long-lived RNG, so out-of-order event emission cannot drift the stream.
+- `seed_fn` is BLAKE3 over a 17-byte fixed-order buffer
+  (`match_seed.to_le_bytes()` ++ `tick.to_le_bytes()` ++ `layer as u8` ++
+  `site.to_le_bytes()`), truncated to `u64` little-endian. Identical
+  `(match_seed, tick, layer, site)` → identical `u64` across
+  macOS / Windows / Linux / aarch64 / x86_64.
+- `SeedLayer` is an 8-variant `#[repr(u8)]` enum with stable discriminants:
+  `Decision` (0x10), `UtilityTieBreak` (0x11), `ReactiveInterrupt`
+  (0x12), `BallPhysics` (0x13), `SignatureTrigger` (0x14),
+  `MemoryEvent` (0x20), `ScoutObservation` (0x30), `ContentBake` (0x40).
+  Layers are non-overlapping; `site` disambiguates within a layer (e.g.
+  `(player_id << 16) | slot` for `Decision`).
+- Reconciled 2026-05-13 per ADR-0009; the prior `match_seed ^ tick ^ event_id_salt` XOR shape was retracted because it (a) had no layer discriminator (two layers drawing at the same tick collided) and (b) had weak avalanche on short inputs.
 
 ---
 

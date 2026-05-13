@@ -138,13 +138,43 @@ The `local_decision_counter` is a per-player monotonic counter that resets at ma
 
 ## Reactive interrupt path (60 Hz)
 
-The 60 Hz reactive-interrupt layer (ADR-0001 layer 6) is **independent** of the 4 Hz stagger. Any player can be interrupted at any integration tick if a reactive predicate fires. When an interrupt fires:
+The 60 Hz reactive-interrupt layer (ADR-0001 layer 6) is **independent** of the 4 Hz stagger. Any player can be interrupted at any integration tick if a reactive predicate fires.
+
+**Codex pre-T1-2b re-audit P1 reconciliation (2026-05-13):** the prior version of this section said interrupts RESET the player's `decision_slot` to `(tick + 15) mod 15`. That mutation would have **broken the balanced-multiset invariant** — runtime slot reassignments can produce empty slots OR 3+-in-a-slot at any moment, contradicting the per-tick `{1, 2}` invariant the balanced template guarantees. **`decision_slots: [u8; 22]` is now immutable canonical-init state**; interrupts use a parallel cooldown field that doesn't touch the slot assignment.
+
+When an interrupt fires:
 
 1. The player's current BT execution is preempted.
 2. The interrupt's `InterruptResolution` BT subtree runs immediately.
-3. The player's decision-slot is RESET to `(tick + 15) mod 15` — i.e. their next scheduled decision is 15 ticks (250 ms) later. This prevents thrashing if an interrupt fires close to a scheduled decision.
+3. **A parallel `interrupt_cooldown_until: [Tick; 22]` field** (also canonical state) is updated for the affected roster slot: `interrupt_cooldown_until[roster_idx] = tick + 15`. The `decision_slots` field is **not mutated** — the balanced multiset invariant holds for the full match.
+4. The firing rule below is amended to combine both fields.
 
-Reactive interrupts use `SeedLayer::ReactiveInterrupt` with `site = player_id.as_u32()` per ADR-0009.
+**Amended firing rule:**
+
+```rust
+fn should_decide(
+    roster_slot: u8,
+    decision_slots: &[u8; 22],
+    interrupt_cooldown_until: &[Tick; 22],
+    tick: Tick,
+) -> bool {
+    let idx = (roster_slot as usize) - 1;
+    // Skip the scheduled decision if we're still inside an interrupt
+    // cooldown window. The cooldown does NOT reshuffle the stagger —
+    // it just suppresses ONE scheduled firing for the affected player,
+    // after which the regular cadence resumes.
+    if tick < interrupt_cooldown_until[idx] {
+        return false;
+    }
+    (tick.raw() % 15) as u8 == decision_slots[idx]
+}
+```
+
+Effect: if a reactive interrupt fires at tick `t` for a player whose next scheduled decision is at `t + 5`, the cooldown extends to `t + 15`, suppressing the `t + 5` firing. After tick `t + 15`, the player's next decision comes at the NEXT tick where `tick % 15 == decision_slots[idx]` — same slot, just delayed by one cadence cycle.
+
+The cooldown field IS canonical state and IS counted in the canonical-hash regression. It starts at `Tick::ZERO` for every roster_slot at match-init, so a fresh match's pinned hash isn't sensitive to the cooldown until the first interrupt actually fires.
+
+Reactive interrupts use `SeedLayer::ReactiveInterrupt` with `site = (roster_slot as u32)` per ADR-0009 for any stochastic draws WITHIN the interrupt resolution. The cooldown update itself is deterministic (no RNG).
 
 ---
 
@@ -154,10 +184,11 @@ T1-2b-ii acceptance:
 
 1. **Slot assignment determinism** — `proptest` over 100 random `match_seed`s: same seed produces same `[u8; 22]` slot array.
 2. **Balanced-multiset invariant** — for ANY `match_seed`, exactly 7 slots in `0..15` are assigned twice; exactly 8 are assigned once; no slot is empty; no slot is assigned ≥3 times. This is structural, NOT statistical — Fisher-Yates is a permutation of SLOT_TEMPLATE, so the multiset is invariant by construction.
-3. **Tick-decision-count invariant** — for any `match_seed`, the per-tick decision count over a 600-tick run is in `{1, 2}`. Never 0, never 3+. Follows directly from invariant 2.
-4. **Canonical-hash regression** — adding `decision_slots: [u8; 22]` to `MatchState` re-baselines the pinned hash (per ADR-0012 trigger #1, canonical schema bump). Both the pinned constant + the RON fixture's `expected_hash` update in the same T1-2b-ii commit.
-5. **Reactive interrupt reset** — when an interrupt fires at tick `t`, the player's effective next-decision tick is `(t + 15) mod 15` relative to their slot. Tested via a fixture that injects a reactive predicate hit + asserts the next scheduled decision tick.
-6. **Cross-OS determinism** — the Fisher-Yates draws use `ChaCha8Rng::seed_from_u64(seed_fn(match_seed, 0, SeedLayer::Decision, 0))` (site=0 reserved for the stagger draw). CI matrix on macOS / Windows / Linux must produce byte-identical `decision_slots` arrays for the smoke seed.
+3. **`decision_slots` immutability** — `MatchState.decision_slots: [u8; 22]` is canonical-init state + never mutated for the duration of the match. Reactive interrupts use the parallel `interrupt_cooldown_until: [Tick; 22]` field; the slot array stays frozen. Tested via a fixture that fires 100 random interrupts across a 600-tick run + asserts `decision_slots` is byte-identical at start + end.
+4. **Tick-decision-count invariant** — for any `match_seed` AND any interrupt-firing pattern, the per-tick scheduled decision count (i.e. ignoring cooldown suppressions) is in `{1, 2}`. Suppressions just remove individual firings — they don't change the underlying stagger. Follows directly from invariant 2 + invariant 3.
+5. **Canonical-hash regression** — adding `decision_slots: [u8; 22]` AND `interrupt_cooldown_until: [Tick; 22]` to `MatchState` re-baselines the pinned hash (per ADR-0012 trigger #1, canonical schema bump). Both the pinned constant + the RON fixture's `expected_hash` update in the same T1-2b-ii commit.
+6. **Reactive interrupt cooldown** — when an interrupt fires at tick `t` for roster_slot `r`, `interrupt_cooldown_until[r-1]` becomes `t + 15`. The scheduled `decision_slots[r-1]`-aligned firing within `[t, t+15)` is suppressed (returns `false` from `should_decide`); the next firing at-or-after `t + 15` resumes the regular cadence. Tested via a fixture that injects an interrupt + asserts the next decision tick.
+7. **Cross-OS determinism** — the Fisher-Yates draws use `ChaCha8Rng::seed_from_u64(seed_fn(match_seed, 0, SeedLayer::Decision, 0))` (site=0 reserved for the stagger draw). CI matrix on macOS / Windows / Linux must produce byte-identical `decision_slots` arrays for the smoke seed.
 
 ---
 

@@ -65,7 +65,7 @@ If step 5 returns mismatched hashes across platforms, ROLL BACK. The real drift 
 
 ### Forbidden patterns
 
-- `--no-verify` on a commit that touches the canonical-state-bearing crates' src/ OR the test file OR the corpus fixture. The hook is the load-bearing guard; bypassing it is the failure mode.
+- `--no-verify` on a commit that touches the canonical-state-bearing crates' src/ OR the test file OR the corpus fixture. The hook is the convenience-tier guard (per §"Three-layer guard" — layers 1 + 2 are the durable enforcement; layer 3 is best-effort against Claude Code commits). Bypassing the hook isn't catastrophic in isolation — layers 1 + 2 still catch drift at CI — but it's a smell, and any commit that does it should be accompanied by the documented commit-body marker for layers 1 + 2 to read.
 - `#[ignore]` on the bedrock test. Triple-guarded per the P0 fix.
 - Mutating a `docs/DECISIONS.md` historical entry to retro-authorise a rebaseline. Decisions are append-only; supersede via new entry.
 

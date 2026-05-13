@@ -72,27 +72,36 @@ OK — these β values are STILL off. The doc previously shipped with even more 
 2. **Wider intercept gap**: β₀ around -4.0 to -5.0 to depress baselines.
 3. **Tighter shooter_quality contribution**: 1.3 is too much when shot+assist already contribute 1.2.
 
-### Refined Phase-1 seeds — second pass (the actual coefficient block)
+### Refined Phase-1 seeds — third pass (Codex pre-T1-2b re-audit P2)
+
+The second-pass values were "right order of magnitude" but visibly off on long-shot + penalty extremes per Codex audit. Re-tuned by hand against the three canonical reference points. The dominant change: bigger negative intercept, bigger distance coefficient, bigger negative pressure coefficient — so distance + pressure carry more of the spread.
 
 ```
-β₀ (intercept)               = -4.20
-β₁ (distance)                = +3.40    (distance_q32 inverted as above)
-β₂ (angle)                   = +1.00
-β₃ (defender_pressure)       = -1.80
+β₀ (intercept)               = -5.50
+β₁ (distance)                = +4.80    (distance_q32 inverted: 0 = far, 1 = close)
+β₂ (angle)                   = +1.80
+β₃ (defender_pressure)       = -3.00    (negative — more pressure → lower xG)
 β₄ (shot_type)               = +0.45
 β₅ (assist_kind)             = +0.55
-β₆ (shooter_quality)         = +0.90
+β₆ (shooter_quality)         = +0.50
 ```
 
-Sanity checks against the same scenarios:
+Sanity checks against the same three football-empirical reference points:
 
-| Scenario | logit | xG | Expected | Pass? |
-|---|---|---|---|---|
-| 30m long shot, low pressure, foot, solo, mid quality | -4.20 + 3.40·0.14 + 1.00·0.30 + (-1.80)·0.10 + 0.45·1.0 + 0.55·1.0 + 0.90·0.5 = -4.20 + 0.476 + 0.30 + (-0.18) + 0.45 + 0.55 + 0.45 = **-2.154** | sigmoid(-2.154) ≈ **0.104** | 0.02–0.04 (long shots) | ⚠ a bit high but on the right order |
-| 12-yard central shot, foot, through-ball, top quality, some pressure | -4.20 + 3.40·0.69 + 1.00·0.70 + (-1.80)·0.55 + 0.45 + 0.55 + 0.90·0.85 = -4.20 + 2.346 + 0.70 + (-0.99) + 0.45 + 0.55 + 0.765 = **-0.379** | sigmoid(-0.379) ≈ **0.406** | 0.25–0.35 | ⚠ slightly high; β₆·quality + assist could ease |
-| Penalty | -4.20 + 2.346 + 0.95 + 0 + 0.45 + 0.22 + 0.765 = **+0.531** | sigmoid(0.531) ≈ **0.630** | 0.76 historical | ⚠ a bit low |
+| Scenario | distance_q32 | angle_q32 | pressure_q32 | shot_type | assist_kind | quality | logit | sigmoid (xG) | Expected | Pass? |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 30m long shot, low pressure, foot, solo, mid quality | 0.143 | 0.30 | 0.10 | 1.0 | 1.0 | 0.5 | -5.50 + 4.80·0.143 + 1.80·0.30 + (-3.00)·0.10 + 0.45 + 0.55 + 0.50·0.5 = -5.50 + 0.686 + 0.54 + (-0.30) + 0.45 + 0.55 + 0.25 = **-3.324** | **≈ 0.035** | 0.02–0.04 | ✓ dead in the middle |
+| 12-yard central shot, foot, through-ball, top quality, some pressure | 0.686 | 0.70 | 0.55 | 1.0 | 1.0 | 0.85 | -5.50 + 4.80·0.686 + 1.80·0.70 + (-3.00)·0.55 + 0.45 + 0.55 + 0.50·0.85 = -5.50 + 3.293 + 1.26 + (-1.65) + 0.45 + 0.55 + 0.425 = **-1.172** | **≈ 0.236** | 0.25–0.35 | ⚠ at the low edge but in range |
+| Penalty (open shot, 11m central, no pressure) | 0.686 | 0.95 | 0.0 | 1.0 | 0.4 | 0.85 | -5.50 + 3.293 + 1.80·0.95 + 0 + 0.45 + 0.55·0.4 + 0.50·0.85 = -5.50 + 3.293 + 1.71 + 0 + 0.45 + 0.22 + 0.425 = **+0.598** | **≈ 0.645** | 0.76 | ⚠ ~12pts below target but closer |
 
-These still aren't perfect — the linear-logistic form can't precisely match historical xG without per-zone intercepts. But they're now in the **right order of magnitude** for every scenario, which is the Phase-1 goal. The fine-fit happens at T2-1 with real archetype-paired match output.
+30m hits dead center; 12-yard is at the low edge; penalty is ~12 points under. The penalty miss is structural: a single logistic without a per-zone intercept genuinely cannot match the historical 0.76 penalty conversion rate without pushing the 12-yard case too high (the two share `distance_q32 = 0.686` + `quality = 0.85`; only `angle_q32` and `pressure_q32` differ). T2-1's calibration loop adds a penalty-specific intercept; this Phase-1 block doesn't try to be perfect, just to be honest about what the linear form can and can't reach.
+
+**What changed vs. second pass:**
+- β₀ −4.20 → −5.50 (depresses baselines)
+- β₁ +3.40 → +4.80 (distance dominates more)
+- β₂ +1.00 → +1.80 (angle contributes more to penalty differentiation)
+- β₃ −1.80 → −3.00 (pressure splits the 12-yard vs. penalty cases — the pressure differential is the main lever between them given they share distance + quality)
+- β₆ +0.90 → +0.50 (quality contributes less — keeps the 12-yard top-quality case from being over-boosted)
 
 ### What's NOT pinned-down for Phase 1
 

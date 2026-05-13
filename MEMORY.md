@@ -1,6 +1,6 @@
 # Final Whistle — Working Memory
 
-> Updated: 2026-05-13 | Phase: T1 First Match (T1-1 closed; full-project-audit Tranches 1-7 closed; re-audit P1 fixes in flight)
+> Updated: 2026-05-13 | Phase: T1 First Match (T1-1 closed; full-project-audit Tranches 1-7 closed; re-audit pass #1 closed at 80c53f76; re-audit pass #2 fixes in current commit)
 
 ## Project
 
@@ -31,16 +31,18 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-Codex pre-T1-2b re-audit P1 remediation. Full-project-audit Tranches 1-7 closed at `27920de6`. Re-audit returned YELLOW with 7 residual P1s — fixing in the current commit set:
-1. AbilityCeiling `new` escape hatch → `new_unchecked` + `validate()` + FW-VAL wiring (DONE this commit)
-2. Stale RNG tuple across CLAUDE.md / Sim/RULES.md / seed.rs / fw-match-sim/lib.rs / gameplay-programmer.md → ADR-0009 seed_fn signature (DONE this commit)
-3. MASTER_PLAN + MEMORY refresh (in progress)
-4. ADR-0012 hook-durability claim
-5. decision-cadence-stagger balanced-deterministic algorithm
-6. bt-attribute-binding table corrections
-7. xG Phase-1 coefficient hand-tuning
+Codex re-audit pass #2 P1+P2 remediation (the current commit set).
 
-After fixes land, focused re-audit re-runs, then `/next` picks T1-2a.
+Re-audit pass #1 at `80c53f76` closed 6 of 7 prior P1s. Pass #2 returned YELLOW with 3 new P1s + a P2 (xG still off) + state-pointer drift. Pass #2 fixes:
+
+1. **DESIGN_DOC §11.1** still said 8 Hz decision runner + "8 of the 17 hidden attributes" — updated to 4 Hz + full 14-element PersonalityVector + independent 8 Hz influence maps (mirrors ADR-0001/0002/0003 amendments from Tranche 3).
+2. **docs/specs/determinism-gate.md** line 186 still had `match_seed ^ tick ^ event_id_salt` XOR formula — replaced with ADR-0009's `seed_fn(match_seed, tick, layer, site)` + 8-discriminant `SeedLayer` enum.
+3. **docs/specs/decision-cadence-stagger.md** reactive-interrupt section said interrupts mutate `decision_slot`, which would break the balanced-multiset invariant. Fixed: `decision_slots: [u8; 22]` is now declared immutable canonical-init state; reactive interrupts use a parallel `interrupt_cooldown_until: [Tick; 22]` field that suppresses scheduled firings without reshuffling the stagger.
+4. **xG coefficients** retuned (β₀ -5.50, β₁ +4.80, β₂ +1.80, β₃ -3.00, β₄ +0.45, β₅ +0.55, β₆ +0.50) — 30m shot now 0.035 (in 0.02–0.04), 12-yard 0.24 (low edge of 0.25–0.35), penalty 0.65 (closer to 0.76; remaining gap is structural — single-logistic without per-zone intercept).
+5. **STATUS + MEMORY** refreshed (this commit).
+6. **ADR-0012** "forbidden patterns" wording tightened to match the layer-3-is-convenience-only reconciliation.
+
+After push: re-run focused re-audit. If GREEN → `/next` picks T1-2a.
 
 <!-- Historical scope-spec for the just-shipped T1-1 retained below for grep-back reference -->
 

@@ -309,11 +309,11 @@ This is the one-page view of how the engine composes. Detail is in the ADRs unde
 Seven layers, all deterministic, composed top-down:
 
 1. **Team tactic FSM** — 5 coarse states (HIGH_PRESS / MID_BLOCK / LOW_BLOCK / COUNTER_ATTACK / SET_PIECE). Event-driven plus a 2Hz heartbeat. Parameterizes every layer below.
-2. **Per-player decision runner, staggered at 8Hz** — Hybrid FSM-of-Behavior-Trees. Outfield roles each have ~6-10 coarse role states; each state owns a small BT (~10-30 leaves). Goalkeeper is pure FSM. Universal pre-emption hooks at dispatcher level. Nodes are Rust; trees are content-pack RON.
+2. **Per-player decision runner, staggered at 4Hz** — Hybrid FSM-of-Behavior-Trees. Outfield roles each have ~6-10 coarse role states; each state owns a small BT (~10-30 leaves). Goalkeeper is pure FSM. Universal pre-emption hooks at dispatcher level. Nodes are Rust; trees are content-pack RON. Cadence amended 2026-05-13 per Codex full-project audit Tranche 3 — 60 Hz / 4 Hz = 15-tick window per player, clean math + FM-baseline cadence.
 3. **Utility-scored selector nodes** inside the BTs, firing at on-ball decision points (pass / shoot / dribble / hold). Scored by xG / xT / pitch-control math.
-4. **Personality bias vector** (8 of the 17 hidden attributes) multiplies into utility scores per consideration.
-5. **Influence maps** (danger / support / space) on a 32×24 grid, regenerated at 8Hz aligned with the decision runner. Players consume the maps for off-ball positioning — never reason about 21 other agents directly.
-6. **Reactive interrupts at 60Hz** — cheap predicates (ball-state changed, marker arrived, shot incoming) can preempt mid-decision.
+4. **Personality bias vector** (the full 14-element PersonalityVector from ADR-0002 — 8 elements drive the match-tick mapping table in ADR-0003 §5; the remaining 6 carry over into longer-tail systems) multiplies into utility scores per consideration. Updated 2026-05-13 to mirror ADR-0002's 14-field model (was incorrectly "8 of the 17 hidden attributes").
+5. **Influence maps** (danger / support / space) on a 32×24 grid, regenerated at 8Hz — **independent cadence** from the 4 Hz decision runner. Decisions sample either fresh maps or 1-tick-stale maps (since 60/8 = 7.5 ticks per regen vs. 60/4 = 15 ticks per decision). Players consume the maps for off-ball positioning — never reason about 21 other agents directly.
+6. **Reactive interrupts at 60Hz** — cheap predicates (ball-state changed, marker arrived, shot incoming) can preempt mid-decision. This is the responsiveness layer; the 4 Hz decision cadence is the steady-state layer.
 7. **Reynolds-style steering at 60Hz** turns intent into Q32 locomotion. Pure arithmetic.
 
 The utility math is closed-form throughout (xG = 6-feature sigmoid LUT, xT = 192-entry Q32 LUT from a baked Bellman fixed-point, pitch-control = Spearman closed-form per-decision-point, pressing = Bauer-and-Anzer 5-second rule + intensity formula). All coefficients hand-authored — no StatsBomb-fit, no XGBoost, nothing that breaks pillar 1 or the determinism contract. Detail: ADR-0003.
