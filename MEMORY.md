@@ -78,6 +78,16 @@ None active. Next via `/next` (suggested: `T1-2a` dev-tier 2D tactical board per
 - Codex review at phase-gates via PR (not per-task).
 - Per-task self-review via `pr-review-toolkit` subagents on ≥100 LoC code changes.
 
+## Carry-forward debts (FW v1 → v2)
+
+Logged 2026-05-13 from the T1-1-vs-IdentityPacket comparison. Full detail + pinning rows in `REFERENCES.md` "Carry-forward debts" table. Headline items:
+
+- **T1-3** owes `PlayerTemplate.signature_candidates: Vec<SignatureCandidate>` — v1 had this in Phase 3, v2 T1-1 deferred. Pillar 5 has no per-player linkage until this lands.
+- **T2-3** owes the dedicated `<Kind>Validator` pattern (one class per content kind) instead of v2's current spread-across-methods validation. Easier to audit.
+- **T2-4** owes the 46-label phenotype catalog from FW v1's `design/player-generation.md`. The 55-field ADR-0002 model supersedes the 22-field gene model, but the phenotype labels haven't been ported.
+
+These are encoded in MASTER_PLAN T1-3 + T2-3 done-criteria so they fire when the rows do.
+
 ## Queued research
 
 ### Frontend research wave (run before T1-6, NOT now)

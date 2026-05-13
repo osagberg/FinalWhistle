@@ -50,6 +50,23 @@ In the sibling archive `/Users/vibelogic/dev/football-archive/design/`:
 - `ui-vocabulary.md` — football-native vocabulary rules (banned terms catalog)
 - `modding.md` — 12-constraint mod-readiness contract
 
+## Carry-forward debts (open against future MASTER_PLAN rows)
+
+Items FW v1 shipped that the equivalent FW v2 work has NOT yet ported. Pin to the row that should pick them up.
+
+| Owed at row | FW v1 source | What v2 needs to add | Notes |
+|---|---|---|---|
+| **T1-3** (signatures stub) | `IdentityPacket.SignatureCandidates` + `SignatureCandidate { SignatureId, AffinityWeightRaw }` | Add per-player signature affinity to `PlayerTemplate`: `signature_candidates: Vec<SignatureCandidate>` where each entry pairs `SignatureId` (content-pack-qualified) with a Q32 affinity weight. v1 had this even in Phase 3 — v2 T1-1 deliberately deferred it. Without it, Pillar 5 has no per-player linkage. | `qualified_id` format: `^fwh\.core(?:\.v[0-9]+)?:signature\.[a-z0-9-]+$` |
+| **T2-3** (content baker + FW-VAL) | `IdentityPacketValidator.cs` (204 LoC, single dedicated class) | Port the validator-as-one-class pattern. v2 currently spreads checks across method-on-type (`RoleWeights::unknown_attribute_keys`, `RoleAffinityTable::invalid_roles`) + load-tests. Single-class form is easier to audit ("what does well-formed content mean?" → one file). | Don't copy the C# — port the *shape* (one validator type per content kind, chained checks, structured error type) |
+| **T2-4** (player generation) | `design/player-generation.md` (22-field gene model + 46-label phenotype catalog) + `IdentityPacketGenes` (the 6 active genes shipped) | Already known; the 55-field model from ADR-0002 supersedes the 22-field schema. Phenotype-label catalog (46 labels) still owed — was Phase-4 in v1, T2-4 in v2. | Cite `docs/research/sports-sims/07-player-attributes-progression.md` for the FOF range-projection model that replaced v1's "single canonical truth + per-scout bias" framing |
+| **T2-3 / future** | Hand-rolled `IdentityPacketParser` (Codex round-7 lesson: Unity Mono didn't ship `System.Text.Json` + transitive deps) | NOT directly applicable — Rust's `serde + ron` doesn't have the runtime-dep problem. BUT the meta-lesson stands: **content-format choice has long-tail consequences**. Document somewhere that RON was deliberate and stable. | Already implicit in CLAUDE.md §3 — could be more explicit |
+
+## Comparison snapshots
+
+Snapshot reads of "how does the v2 work compare to v1?" Pinned for the lessons, not for the data.
+
+- **2026-05-13 — T1-1 schema lock vs. FW v1 `IdentityPacket` (Phase-3 minimum subset).** v2 ships FM-class breadth (55 fields vs v1's 6 active / 22 planned) on day one, open `RoleId` newtype (vs v1's closed 8-entry `RoleFamily` enum), and `AbilityCeiling` encapsulation with the breakthrough-only `redraw_ceiling` mutator (vs v1's `init`-only properties with no Pillar-3-equivalent surface — v1 hadn't shipped breakthroughs yet). v1 had per-player signature affinity (`SignatureCandidates`); v2 deferred it to T1-3. v1 had a dedicated 204-line validator class; v2 spreads validation across methods. 3× LoC growth (381 → 1,136) tracks 9× attribute growth honestly — most of v2's lines are field enumeration + doc comments + KNOWN_ATTRIBUTE_NAMES + tests, not bloat. Carry-forward debts above.
+
 ## What was dropped permanently
 
 - All `unity-project/**` — Unity 6 project, dots viewer, scenes, shaders
