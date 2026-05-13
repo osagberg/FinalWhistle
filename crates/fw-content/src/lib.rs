@@ -10,14 +10,17 @@
 
 pub mod archetype;
 pub mod player;
+pub mod role_affinity;
 pub mod runtime;
 pub mod team;
 
 pub use archetype::BehaviorArchetype;
-pub use player::{GeneVector, PlayerTemplate};
+pub use player::{PLAYER_TEMPLATE_SCHEMA_VERSION, PlayerTemplate};
+pub use role_affinity::{ROLE_AFFINITY_SCHEMA_VERSION, RoleAffinityTable, RoleId, RoleWeights};
 pub use runtime::{
-    ContentKind, ContentLoadError, ContentStore, Culture, CultureWeights, FormationSlot,
-    TacticalArchetype, derive_seed,
+    BUILDUP_SPEED_BASELINE_BPS, BUILDUP_SPEED_MAX_BPS, BUILDUP_SPEED_MIN_BPS, ContentKind,
+    ContentLoadError, ContentStore, Culture, CultureWeights, FormationSlot, TacticalArchetype,
+    derive_seed,
 };
 pub use team::TeamTemplate;
 

@@ -42,9 +42,11 @@ Culture(
     ],
     naming_pattern: "{first} {last}",
     weights: (
-        // Skews first-letter distribution mildly toward uniform across a roster.
-        first_alpha_diversity: 0.7,
-        // ~5% chance of a compound surname ("Tabor-Whitcombe").
-        compound_last_chance: 0.05,
+        // 7_000 bps == 0.7. Skews first-letter distribution mildly toward
+        // uniform across a roster. Codex Crit #3 (T0): integer-only u16
+        // basis points; no f32 in canonical-state-feeding paths.
+        first_alpha_diversity_bps: 7000,
+        // 500 bps == 5%. Chance of a compound surname ("Tabor-Whitcombe").
+        compound_last_chance_bps: 500,
     ),
 )

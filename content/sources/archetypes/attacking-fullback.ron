@@ -39,5 +39,7 @@ TacticalArchetype(
         FormationSlot(roster_slot: 11, role: "ST",  x:  22, z:   0),
     ],
     press_radius_metres: 30,
-    buildup_speed_factor: 0.9,
+    // 9_000 bps == 0.9 in normalized form. Codex Imp #3 (T1-1):
+    // integer-only sampling, no f32 in the content layer (Sim/RULES.md §1).
+    buildup_speed_factor_bps: 9000,
 )

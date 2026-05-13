@@ -4,6 +4,12 @@ Append-only human-readable ship log. One line per shipped MASTER_PLAN task. Phas
 
 ---
 
+## Phase T1: First Match — IN PROGRESS
+
+- 2026-05-13 — T1-1 `fw-content` schema lock — ADR-0002 55-field player model (`PlayerAttributes` in `fw-core`: 14/10/8/6 visible + 14/3 hidden), `AbilityCeiling` with `pub(crate)` fields + breakthrough-only `redraw_ceiling` mutator (Pillar 3 contract), `RoleId` newtype + `RoleAffinityTable` (collect-all `invalid_roles` + `unknown_attribute_keys` validators), `TacticalArchetype.buildup_speed_factor: f32 → u16 bps` (Codex Imp #3 from T0; `BUILDUP_SPEED_BASELINE_BPS = 10_000` reference constant), `schema_version: 1` on new content types, `KNOWN_ATTRIBUTE_NAMES` const + size-of static asserts pin schema shape. First RON fixtures under `content/sources/players/` + `content/sources/role-affinities/`. 65 new tests; canonical hash UNCHANGED. Self-review triple twice → Accept. (commit pending)
+
+---
+
 ## Phase T0: Scaffold — APPROVED + MERGED 2026-05-13
 
 **Codex verdict 2026-05-13:** APPROVE at `4721fee6` + hardening `bad1a400`. All workflow runs green on macOS-14 + windows-latest + ubuntu-22.04. T0-7b cross-OS canonical-hash agreement verified. Postmortem at `docs/postmortems/phase-T0.md`.

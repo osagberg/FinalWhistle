@@ -30,7 +30,9 @@ Culture(
     // Elvish convention: first-name space (descriptor-)surname.
     naming_pattern: "{first} {last}",
     weights: (
-        first_alpha_diversity: 0.5,
-        compound_last_chance: 0.0,
+        // 5_000 bps == 0.5; 0 bps == disabled. Codex Crit #3 (T0):
+        // integer-only u16 basis points; no f32 in the content layer.
+        first_alpha_diversity_bps: 5000,
+        compound_last_chance_bps: 0,
     ),
 )

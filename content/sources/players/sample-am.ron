@@ -1,0 +1,106 @@
+// Sample player template — a credible attacking-midfielder. Hand-authored
+// for T1-1; procedural generation lands in T2-4 per `docs/MASTER_PLAN.md`.
+//
+// Implements ADR-0002 verbatim: 55 fields across 6 sub-structs
+// (14 technical / 10 mental / 8 physical / 6 goalkeeper / 14 personality /
+// 3 durability). All values are Q32 in `[0, 1]`. Q32's serde form is
+// `(bits: <i64>)` (Q32.32 raw bits) because the underlying
+// `fixed::FixedI64<U32>` is configured with the `serde` feature only
+// (not `serde-str`). The `bits` value is `round(decimal * 2^32)`. The
+// comment beside each line states the decimal-form value the bits encode.
+//
+// FOLLOW-UP: a Q32 wrapper deserializer that accepts decimal strings (so
+// content authors write `"0.55"` instead of `(bits: 2362232013)`) is a
+// natural T2-3 baker-pipeline improvement — author-ergonomics for
+// hand-authored content + cleaner LLM-baker output.
+//
+// NOTE: `PlayerCondition` (form / morale / match_fitness / sharpness /
+// signature_readiness) is deliberately NOT serialized here. Condition is
+// runtime modulator state initialized by `fw-match-sim` at template →
+// canonical-player projection time (T1-2b+) — embedding it in the
+// content-pack template would couple save migrations to fixture files.
+//
+// Mid-range AM with good vision / passing / composure; modest physicals;
+// non-keeper (goalkeeper attrs all zero). Sample CA ~0.55, PA ~0.78 — a
+// good prospect with room to grow.
+
+PlayerTemplate(
+    schema_version: 1,
+    id: 42,
+    qualified_id: "fwh.core:player_00042",
+    display_name: "James Tabor",
+    attributes: (
+        technical: (
+            finishing:       (bits: 2362232013),  // 0.55
+            long_shots:      (bits: 2576980378),  // 0.60
+            passing:         (bits: 3350074491),  // 0.78
+            crossing:        (bits: 2147483648),  // 0.50
+            first_touch:     (bits: 3092376453),  // 0.72
+            technique:       (bits: 3178275799),  // 0.74
+            dribbling:       (bits: 2920577761),  // 0.68
+            heading:         (bits: 1717986918),  // 0.40
+            tackling:        (bits: 1503238554),  // 0.35
+            marking:         (bits: 1503238554),  // 0.35
+            free_kicks:      (bits: 2362232013),  // 0.55
+            penalty_taking:  (bits: 2362232013),  // 0.55
+            corners:         (bits: 2147483648),  // 0.50
+            long_throws:     (bits: 1288490189),  // 0.30
+        ),
+        mental: (
+            anticipation:    (bits: 2791728742),  // 0.65
+            composure:       (bits: 3092376453),  // 0.72
+            decisions:       (bits: 2920577761),  // 0.68
+            vision:          (bits: 3435973837),  // 0.80
+            off_the_ball:    (bits: 3006477107),  // 0.70
+            positioning:     (bits: 2362232013),  // 0.55
+            concentration:   (bits: 2576980378),  // 0.60
+            bravery:         (bits: 2147483648),  // 0.50
+            teamwork:        (bits: 2791728742),  // 0.65
+            flair:           (bits: 3092376453),  // 0.72
+        ),
+        physical: (
+            pace:            (bits: 2576980378),  // 0.60
+            acceleration:    (bits: 2662879724),  // 0.62
+            stamina:         (bits: 2791728742),  // 0.65
+            strength:        (bits: 2147483648),  // 0.50
+            agility:         (bits: 2920577761),  // 0.68
+            balance:         (bits: 2791728742),  // 0.65
+            jumping_reach:   (bits: 1932735283),  // 0.45
+            natural_fitness: (bits: 3006477107),  // 0.70
+        ),
+        goalkeeper: (
+            handling:         (bits: 0),
+            reflexes:         (bits: 0),
+            one_on_ones:      (bits: 0),
+            aerial_reach:     (bits: 0),
+            command_of_area:  (bits: 0),
+            kicking:          (bits: 0),
+        ),
+        personality: (
+            determination:        (bits: 3006477107),  // 0.70
+            work_rate:            (bits: 2791728742),  // 0.65
+            ambition:             (bits: 3092376453),  // 0.72
+            professionalism:      (bits: 2920577761),  // 0.68
+            loyalty:              (bits: 2362232013),  // 0.55
+            temperament:          (bits: 2662879724),  // 0.62
+            pressure_tolerance:   (bits: 2791728742),  // 0.65
+            big_match_appetite:   (bits: 3006477107),  // 0.70
+            adaptability:         (bits: 2576980378),  // 0.60
+            aggression:           (bits: 1932735283),  // 0.45
+            risk_appetite:        (bits: 3092376453),  // 0.72
+            selflessness:         (bits: 2362232013),  // 0.55
+            consistency:          (bits: 2662879724),  // 0.62
+            versatility:          (bits: 2362232013),  // 0.55
+        ),
+        durability: (
+            injury_proneness:     (bits: 1288490189),  // 0.30
+            recovery_rate:        (bits: 2662879724),  // 0.62
+            dirtiness:            (bits: 1288490189),  // 0.30
+        ),
+    ),
+    ceiling: (
+        current:   (bits: 2362232013),  // 0.55
+        potential: (bits: 3350074491),  // 0.78
+    ),
+    preferred_role: "AM",
+)

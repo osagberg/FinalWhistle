@@ -27,5 +27,9 @@ TacticalArchetype(
         FormationSlot(roster_slot: 11, role: "LST", x:  18, z:  -8),
     ],
     press_radius_metres: 15,
-    buildup_speed_factor: 1.15,
+    // 11_500 bps == 1.15 in normalized form (route-one counter-attacking).
+    // Codex Imp #3 (T1-1): integer-only, no f32 in the content layer.
+    // u16 ceiling is 65_535, so values > 10_000 (i.e. faster-than-baseline)
+    // remain expressible without saturation.
+    buildup_speed_factor_bps: 11500,
 )

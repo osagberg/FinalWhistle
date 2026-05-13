@@ -82,16 +82,49 @@ pub struct CultureWeights {
 /// hash. Hand-authored, reviewed, committed under
 /// `content/sources/archetypes/`. See `design/match-sim.md` (once authored)
 /// for the BT-runner contract.
+///
+/// `buildup_speed_factor_bps` is stored as `u16` basis points
+/// (Codex Imp #3 from T0; integer-only sampling, no `f32` in the content
+/// layer). Folded in at T1-1: the prior `f32` field would have leaked a
+/// float into a path that ultimately writes canonical state, risking
+/// cross-platform drift.
+///
+/// **Semantics — multiplier, not [0, 1]:** the field is a multiplier
+/// against the engine's baseline buildup tempo, with
+/// `BUILDUP_SPEED_BASELINE_BPS` (10_000) representing the neutral 1.0
+/// reference. Values below baseline represent patient buildup (e.g.
+/// `9_000` = 0.9, attacking-fullback overlapping pattern); values above
+/// baseline represent route-one counter-attacking (e.g. `11_500` = 1.15,
+/// low-block-counter pattern). The BT-runner reads this as
+/// `Q32::from_int(bps as i32) / BUILDUP_SPEED_BASELINE_BPS` without
+/// clipping to 1.0 — clipping would drop the counter-attacking boost
+/// silently.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TacticalArchetype {
     pub id: String,
     pub formation: Vec<FormationSlot>,
     pub press_radius_metres: u32,
-    /// Q32.32-equivalent at the source level; stored as `f32` here because
-    /// archetype files are loaded as content (NOT canonical sim state) and
-    /// the BT-runner converts to Q32 at load time.
-    pub buildup_speed_factor: f32,
+    /// Buildup-speed multiplier in basis points; see the type-level doc.
+    /// `BUILDUP_SPEED_BASELINE_BPS` (10_000) is neutral 1.0; valid range
+    /// is `BUILDUP_SPEED_MIN_BPS..=BUILDUP_SPEED_MAX_BPS`. The BT-runner
+    /// MUST NOT clip to 10_000 — values above baseline carry the
+    /// counter-attacking semantics.
+    pub buildup_speed_factor_bps: u16,
 }
+
+/// Baseline buildup-speed factor in basis points. `10_000` corresponds to
+/// a neutral `Q32::ONE` after the BT-runner's divide. Lives on
+/// `TacticalArchetype`'s contract — content authors and the BT-runner
+/// both read this constant rather than hard-coding `10_000`.
+pub const BUILDUP_SPEED_BASELINE_BPS: u16 = 10_000;
+
+/// Minimum sensible buildup-speed factor (0.5 = very patient).
+/// Below this, formation timing breaks down at the BT-runner's tick rate.
+pub const BUILDUP_SPEED_MIN_BPS: u16 = 5_000;
+
+/// Maximum sensible buildup-speed factor (2.0 = pure transition football).
+/// Above this, the BT-runner can't produce coherent build-up phases.
+pub const BUILDUP_SPEED_MAX_BPS: u16 = 20_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FormationSlot {

@@ -29,15 +29,40 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-None active. Next via `/next` (suggested: `/done` to open the T0 phase-gate PR for Codex review).
+None active. Next via `/next` (suggested: `T1-2a` dev-tier 2D tactical board per ADR-0007 + ADR-0008).
+
+<!-- Historical scope-spec for the just-shipped T1-1 retained below for grep-back reference -->
+
+<details>
+<summary>T1-1 task spec (closed 2026-05-13)</summary>
+
+- **id:** T1-1
+- **title:** `fw-content` schema — `PlayerTemplate` (ADR-0002 55-field model) + `TacticalArchetype` Codex Imp #3 conversion + first RON fixtures
+- **started:** 2026-05-13
+- **completed:** 2026-05-13
+- **task class:** architecture-cross-crate (schema lock across fw-core + fw-content)
+- **TDD exemption:** YES (data-only)
+
+### Files out of scope (do NOT touch — escalate if needed)
+- `docs/DESIGN_DOC.md`
+- `docs/DECISIONS.md` (no new architectural decision logged here — T1-1 IMPLEMENTS ADR-0002, doesn't change it)
+- `docs/adr/0002-player-attribute-model.md` (the source of truth — don't drift)
+- `CLAUDE.md`
+- `docs/MASTER_PLAN.md` (status flip is the only allowed mutation)
+- `crates/fw-match-sim/**` (T1-2b's job)
+- `crates/fw-memory/**`
+- `crates/fw-replay/**`
+- `crates/fw-save/**`
+- `crates/fw-tauri/**`
+- `frontend/**`
+- `crates/fw-core/src/q32.rs` (locked at T0)
+
+</details>
 
 ## Recently completed
 
+- 2026-05-13 — T1-1 `fw-content` schema lock (ADR-0002 55-field player model + Codex Imp #3 conversion + first RON fixtures). `PlayerAttributes` in `fw-core` (14/10/8/6 visible + 14/3 hidden = 55 Q32 fields); `KNOWN_ATTRIBUTE_NAMES` const + size-of static asserts pin schema shape. `AbilityCeiling` encapsulated with `redraw_ceiling` breakthrough mutator (Pillar 3 contract). `RoleId` newtype + `RoleAffinityTable` with collect-all `invalid_roles` + `unknown_attribute_keys` validators. `TacticalArchetype.buildup_speed_factor` → `u16 bps` with `BUILDUP_SPEED_BASELINE_BPS = 10_000`. `PlayerCondition` deliberately NOT on `PlayerTemplate` (save-migration hygiene). `schema_version: 1` on both new content types + fixtures. 65 tests new in fw-core + fw-content; canonical hash UNCHANGED. Self-review triple ran twice — Accept all three. commit `pending`.
 - 2026-05-13 — T0-12 Fix pre-existing scaffold build failures — fw-tauri commands moved to sibling module (known Tauri 2 `pub` + `#[tauri::command]` bug); fw-content-baker `#![allow(dead_code)]` on staging modules; src-tauri build.rs stubs frontend/dist for clean-clone `cargo build`; tauri icons generated (gitignored); ui-vocabulary.md meta-references wrapped in sentinels. `cargo test --workspace --release` 19 test-runs all green.
-- 2026-05-13 — T0-7 Pin BLAKE3 canonical hash on dev box — `d6258107…` pinned; `cargo test -p fw-replay` 4/4 green; cross-OS matrix → T0-7b.
-
-## Recently completed
-
 - 2026-05-13 — T0-7 Pin BLAKE3 canonical hash on dev box — `d6258107…` pinned; `cargo test -p fw-replay` 4/4 green; cross-OS matrix → T0-7b.
 
 ## Active decisions
@@ -52,6 +77,24 @@ None active. Next via `/next` (suggested: `/done` to open the T0 phase-gate PR f
 - Single primary workflow command: `/next` (see `.claude/skills/next/SKILL.md`).
 - Codex review at phase-gates via PR (not per-task).
 - Per-task self-review via `pr-review-toolkit` subagents on ≥100 LoC code changes.
+
+## Queued research
+
+### Frontend research wave (run before T1-6, NOT now)
+
+**Trigger:** when T1-2a's PR is in flight (background work while waiting for review). Synthesis must land before `/next` picks up T1-6 (frontend Match route + text recap).
+
+**Headline lens — why FM26 sucked:** FM26 (Football Manager 2026 → "FM26" in player parlance) shipped to widely negative reception on UI/UX specifically. The wave must understand WHY before it can recommend what we do instead. Hypotheses to test: (a) menu depth + nesting; (b) lost information density vs prior FMs; (c) inconsistent navigation grammar; (d) Unity-port artefacts (FM moved engines); (e) "designed for a different player" — gamification at the cost of the management-sim core. The wave must read the actual reviews/forums, not assume.
+
+**Other targets:**
+- FM 24 (the last well-received FM): match-day page hierarchy, sidebar density, scrubber affordances, post-match recap layout. The reference for "what was lost in FM26."
+- OOTP 25: how dense tabular surfaces stay readable — directly relevant to our TanStack Table v8 management screens.
+- FOF (Front Office Football): the "ugly but information-perfect" school — what makes its UI work despite the visuals. Inform our text-first stance.
+- EHM (Eastside Hockey Manager): text-first match presentation. Closest sibling to our presentation model.
+- Tennis Elbow + PCM (Pro Cycling Manager): niche-sport UI patterns we can crib without inheriting their problems.
+- Visual style references: color systems, mono vs sans for stats, table zebra-striping, hover affordances, keyboard nav, player-profile page layouts.
+
+**Deliverable:** `docs/research/frontend/00-synthesis.md` with concrete recommendations for T1-6 + the eventual T4 polish pass. Must explicitly answer "what FM26 got wrong, and what we do instead."
 
 ## Open questions
 

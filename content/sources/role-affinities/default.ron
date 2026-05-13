@@ -1,0 +1,78 @@
+// Default role-affinity table — hand-authored.
+//
+// Per ADR-0002 §"Choices" item 6: role-affinity weights live in content-pack
+// RON, not hardcoded. Each role lists the attributes that contribute to
+// CA derivation for that role, weighted in basis points (u16, 0..=10_000).
+// Weights MUST sum to 10_000 per role (the FW-VAL gauntlet catches drift).
+//
+// Attribute keys match the field names in `fw-core::player_attributes`:
+// `finishing`, `passing`, `vision`, `tackling`, etc. Misspellings surface
+// as load-time FW-VAL errors (T2-3+), not silent zeros.
+//
+// This file ships the THREE roles needed to satisfy T1-1's acceptance gate
+// (GK, CB, AM) — one keeper, one defensive, one creative outfielder. The
+// full ~20-role catalogue grows during T2 as the BT runner lands its
+// consumption surface (`docs/MASTER_PLAN.md` T2 rows).
+
+RoleAffinityTable(
+    schema_version: 1,
+    id: "fwh.core:role-affinities.default",
+    roles: {
+        // -----------------------------------------------------------------
+        // GK — keeper. Heavily weighted on goalkeeper attributes + a few
+        // mental + physical contributors. Sum: 10_000.
+        // -----------------------------------------------------------------
+        "GK": (
+            weights_bps: {
+                "handling":         1800,
+                "reflexes":         1800,
+                "one_on_ones":      1200,
+                "aerial_reach":     1000,
+                "command_of_area":  1000,
+                "kicking":           800,
+                "positioning":       800,
+                "concentration":     600,
+                "agility":           600,
+                "jumping_reach":     400,
+            },
+        ),
+        // -----------------------------------------------------------------
+        // CB — centre-back. Physical duels + reading the play + composed
+        // distribution. Sum: 10_000.
+        // -----------------------------------------------------------------
+        "CB": (
+            weights_bps: {
+                "tackling":         1500,
+                "marking":          1500,
+                "heading":          1200,
+                "positioning":      1000,
+                "anticipation":      900,
+                "strength":          800,
+                "jumping_reach":     700,
+                "concentration":     600,
+                "passing":           500,
+                "composure":         500,
+                "decisions":         400,
+                "bravery":           400,
+            },
+        ),
+        // -----------------------------------------------------------------
+        // AM — attacking midfielder. Vision + creativity + close control.
+        // Sum: 10_000.
+        // -----------------------------------------------------------------
+        "AM": (
+            weights_bps: {
+                "vision":           1500,
+                "passing":          1500,
+                "dribbling":        1200,
+                "off_the_ball":     1000,
+                "technique":        1000,
+                "first_touch":       800,
+                "flair":             800,
+                "decisions":         800,
+                "composure":         700,
+                "anticipation":      700,
+            },
+        ),
+    },
+)
