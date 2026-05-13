@@ -52,7 +52,7 @@ Read at session start, in order:
 See `docs/architecture.md` for full detail. Summary:
 
 - **Workspace:** Cargo workspace, ~8 crates: `fw-core`, `fw-match-sim`, `fw-content`, `fw-scouting`, `fw-memory`, `fw-replay`, `fw-save`, `fw-tauri`.
-- **Engine:** Rust 1.85+ (edition 2024). No async in the sim layer; no Tokio in `fw-match-sim` or `fw-memory`.
+- **Engine:** Rust 1.95+ (edition 2024). MSRV bumped from 1.85 at T0-12 because `fixed@1.31` (Q32.32 backing crate) requires rustc 1.93+. No async in the sim layer; no Tokio in `fw-match-sim` or `fw-memory`.
 - **Determinism:** Q32.32 fixed-point via `fixed` crate. `ChaCha8Rng` seeded by `(match_seed, tick, event_id)`. `BTreeMap` / `BTreeSet` / `Vec` only — `HashMap` banned in canonical paths (clippy-enforced).
 - **Regression floor:** pinned canonical-state hashes. `insta` snapshot tests + `proptest` invariants. GH Actions matrix `[macos-14, windows-latest, ubuntu-22.04]` — drift on any platform blocks merge.
 - **App shell:** Tauri 2. IPC boundary is the sim ↔ UI contract; the UI never drives canonical state.

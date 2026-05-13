@@ -1,4 +1,8 @@
 [toolchain]
-channel    = "1.85"
+# Bumped 2026-05-13 (T0-12 follow-up): `fixed@1.31` requires rustc >=1.93
+# (the Q32.32 backing crate, non-negotiable). Tracked CI confirmed the
+# MSRV bump on the first push to origin. 1.95 is the May-2026 stable that
+# the GitHub Actions matrix runners provide out of the box.
+channel    = "1.95"
 components = ["rustfmt", "clippy"]
 profile    = "minimal"

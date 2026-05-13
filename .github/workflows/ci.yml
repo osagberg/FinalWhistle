@@ -78,7 +78,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       # Cargo cache — keyed on Cargo.lock so cache invalidates on dep change.
       # Swatinem/rust-cache handles target/ + ~/.cargo intelligently.
