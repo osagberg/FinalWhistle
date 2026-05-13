@@ -380,18 +380,60 @@ impl ForwardState {
 /// What the player "wants to do" this tick. Produced by the BT runner or
 /// the GK FSM; consumed by `apply_intent` in `dispatch.rs`.
 ///
-/// T1-2b-iii-a scope: two variants.
-/// - `MoveToPosition`: set velocity toward a target (Q32, no floats).
-/// - `Idle`: zero velocity.
+/// All variants carry `(target_x, target_y)` so `apply_intent` can apply
+/// a uniform velocity-toward-target model. `Idle` is the exception: zero vel.
 ///
-/// -iii-b will add variants like `AttemptShot`, `AttemptPass`, etc.
+/// Variant ordering is stable — do NOT reorder without a wire-format review.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PlayerIntent {
+    // ---- Skeleton variants (T1-2b-iii-a) ----
     /// Move toward (target_x, target_y) with max speed clamped by
-    /// `apply_intent`.
+    /// `apply_intent`. Used by formation-hold logic.
     MoveToPosition { target_x: Q32, target_y: Q32 },
     /// Stay in place — velocity set to zero.
     Idle,
+
+    // ---- On-ball variants (7 sites, T1-2b-iii-c) ----
+    /// Attempt a shot at goal. `target` is the aim point on the goal line.
+    AttemptShot { target_x: Q32, target_y: Q32 },
+    /// Attempt a short pass. `target` is the recipient's current position.
+    AttemptPassShort { target_x: Q32, target_y: Q32 },
+    /// Attempt a long / through-ball pass. `target` is the destination zone.
+    AttemptPassLong { target_x: Q32, target_y: Q32 },
+    /// Cross into the box. `target` is the delivery zone.
+    Cross { target_x: Q32, target_y: Q32 },
+    /// Dribble toward space. `target` is the run endpoint.
+    Dribble { target_x: Q32, target_y: Q32 },
+    /// Hold the ball under pressure. `target` is the player's current
+    /// position (stay put, shield ball).
+    HoldBall { target_x: Q32, target_y: Q32 },
+    /// Lay the ball off to the nearest supporting player. `target` is the
+    /// supporter's position.
+    LayOff { target_x: Q32, target_y: Q32 },
+
+    // ---- Off-ball variants (5 sites, T1-2b-iii-c) ----
+    /// Track back toward own defensive shape. `target` is the defensive slot.
+    TrackBack { target_x: Q32, target_y: Q32 },
+    /// Press the ball carrier. `target` is the carrier's current position.
+    Press { target_x: Q32, target_y: Q32 },
+    /// Mark an opponent. `target` is the opponent's current position.
+    MarkPlayer { target_x: Q32, target_y: Q32 },
+    /// Make a run off the ball. `target` is the run endpoint.
+    RunOffBall { target_x: Q32, target_y: Q32 },
+    /// Hold formation position. `target` is the designated formation slot.
+    HoldFormation { target_x: Q32, target_y: Q32 },
+
+    // ---- Goalkeeper variants (5 sites, T1-2b-iii-c) ----
+    /// GK executes a shot-stop dive. `target` is the dive point.
+    GkShotStop { target_x: Q32, target_y: Q32 },
+    /// GK moves to collect a cross. `target` is the cross delivery point.
+    GkCollectCross { target_x: Q32, target_y: Q32 },
+    /// GK rushes out as sweeper-keeper. `target` is the interception point.
+    GkSweeperRush { target_x: Q32, target_y: Q32 },
+    /// GK distributes short (throw/roll). `target` is the recipient's position.
+    GkDistributeShort { target_x: Q32, target_y: Q32 },
+    /// GK distributes long (kick/punt). `target` is the target zone.
+    GkDistributeLong { target_x: Q32, target_y: Q32 },
 }
 
 // ---------------------------------------------------------------------------

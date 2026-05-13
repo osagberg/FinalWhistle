@@ -1,4 +1,4 @@
-// Phase-0/T1-2b-iii-b smoke fixture for the determinism gate.
+// Phase-0/T1-2b-iii-c smoke fixture for the determinism gate.
 //
 // Loaded by `tests/canonical_hash.rs::smoke_seed_corpus_fixture_matches_pinned_constant`.
 // The `expected_hash` field is `"blake3:" + lowercase-hex(blake3-digest)`.
@@ -33,6 +33,28 @@
 //                               xT 16x12 grid, Spearman pitch-control,
 //                               product-form pressing, top-N softmax.
 //                               PlayerAttributes::mid_range_baseline() added.)
+//   2026-05-13 (T1-2b-iii-c) — `c392bac5…14c7f7d2` per ADR-0012 trigger #1
+//                               (behavioral change: outfield dispatch now uses
+//                               utility-scored softmax via select_outfield_intent
+//                               instead of stub MoveToFormationPosition leaf.
+//                               Player velocities differ per tick -> canonical
+//                               state changes. No schema bump (no new fields).
+//                               bt/personality_bias.rs: k1..k14 + 7 bias helpers
+//                               + PT divisor. bt/on_ball.rs: 7 utility sites.
+//                               bt/off_ball.rs: 5 utility sites. bt/reactive.rs:
+//                               4 predicates (not wired). PlayerIntent expanded
+//                               with 17 new variants. GK FSM uses GK-specific
+//                               intent variants for relevant states.)
+//   2026-05-13 (T1-2b-iii-c P0+P1) — `235f6c5e…181288d` per ADR-0012 trigger #1
+//                               (behavioral change, authorized by fix-pass spec).
+//                               P0-1: all 12 utility sites corrected to spec attrs
+//                               from bt-attribute-binding.md. P0-2: GK FSM now uses
+//                               real ball-position predicates (ShotStopping /
+//                               SweeperKeeperRush / DistributingFromHand /
+//                               InBoxPositioning). P0-3: lib.rs position integration
+//                               uses bare operators. P0-4: xt_delta returns negative
+//                               for backpasses. P1-4: SeedLayer::UtilityTieBreak
+//                               for softmax RNG (was Decision).
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -44,10 +66,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:b3b0e64fbf6d5f1e1c1f54434e4c5aa277ebdcdc2815ac06e41d82d2d4da1169",
+    expected_hash: "blake3:235f6c5e841c7b529104b5f3fa57b69315aebe439677fbbc7549c62bc181288d",
     metadata: (
-        description: "T1-2b-iii-b smoke fixture. Utility math primitives (xG, xT, pitch-control, pressing, softmax) + PlayerAttributes mid-range baseline + canonical encoder VERSION 4.",
+        description: "T1-2b-iii-c P0+P1 fix-pass smoke fixture. Spec-correct attr bindings + real GK transitions + xt_delta fix + SeedLayer fix.",
         generated_at: "2026-05-13",
-        notes: "Re-pinned at T1-2b-iii-b (canonical schema bump per ADR-0012 #1). PlayerState gained attributes: PlayerAttributes (55 x i64 LE = 440 bytes per player, +9680 bytes per match-state). Wire-format VERSION bumped 3→4. All players initialised with mid_range_baseline() (all 55 fields = 0.5 = Q32::from_raw(1i64 << 31)). fw-core::math gained sigmoid_q32 + exp_q32 via 257-entry LazyLock LUT over [-8,+8]. fw-match-sim::utility gained: xg (6-feature logistic, third-pass beta values), xt (16x12 Bellman grid, hand-authored), pitch_control (Spearman closed-form), pressing (product-form Bauer 2025), softmax (top-3 ChaCha8Rng).",
+        notes: "Re-pinned at T1-2b-iii-c P0+P1 fix pass (behavioral change per ADR-0012 #1). P0-1: all 12 outfield BT utility sites now read EXACTLY the attrs from bt-attribute-binding.md; binding-correctness tests added (12 pairs). P0-2: goalkeeper_fsm evaluate_transitions now uses ball-position predicates (ShotStopping when ball in penalty area + approaching; SweeperKeeperRush in own half approaching; DistributingFromHand near goal line; InBoxPositioning default). P0-3: lib.rs position integration uses bare operators (p.pos_x += p.vel_x * dt) not checked_mul/add. P0-4: xt_delta returns DST-SRC (can be negative for backpasses). P1-1: debug_assert on bias helper raw inputs. P1-2: unreachable!() fallback in select_outfield_intent. P1-4: SeedLayer::UtilityTieBreak for softmax RNG in dispatch.rs. P2-2: DefenderPressure + IsProgressive newtypes.",
     ),
 )

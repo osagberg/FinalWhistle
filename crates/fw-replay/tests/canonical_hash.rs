@@ -101,6 +101,30 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   pressing, top-N softmax. `fw-core::math` gained `sigmoid_q32` +
 ///   `exp_q32` 257-entry LUTs. Authorized by the T1-2b-iii-b task-spec in
 ///   MEMORY.md.
+/// - 2026-05-13 (T1-2b-iii-c) — **re-baselined to `c392bac5…14c7f7d2`** per
+///   ADR-0012 trigger #1 (behavioral change): outfield dispatch now uses
+///   utility-scored softmax selection (`select_outfield_intent`) instead of
+///   the stub `MoveToFormationPosition` leaf. Player velocities per tick
+///   differ → canonical state changes. No schema change (no new fields);
+///   the change is purely in the velocity values written per player per tick.
+///   `bt/personality_bias.rs` (k₁..k₁₄ + 7 bias helpers + PT divisor),
+///   `bt/on_ball.rs` (7 utility sites), `bt/off_ball.rs` (5 utility sites),
+///   `bt/reactive.rs` (4 predicates, not wired), goalkeeper_fsm.rs GK
+///   variants, `PlayerIntent` expansion (17 new variants). Authorized by the
+///   T1-2b-iii-c task-spec in MEMORY.md.
+/// - 2026-05-13 (T1-2b-iii-c P0+P1 fix pass) — **re-baselined to `235f6c5e…181288d`**
+///   per ADR-0012 trigger #1 (behavioral change, authorized by T1-2b-iii-c fix-pass
+///   spec). Fixes applied:
+///   P0-1: all 12 utility sites corrected to read EXACTLY the attrs from
+///   bt-attribute-binding.md (was reading ~10 non-spec attrs). Binding-correctness
+///   tests added (12 pairs). P0-2: `evaluate_transitions` in goalkeeper_fsm.rs
+///   now uses real ball-position predicates (ShotStopping / SweeperKeeperRush /
+///   DistributingFromHand / InBoxPositioning) — was always InBoxPositioning.
+///   P0-3: position integration in lib.rs uses bare operators not checked_mul/add.
+///   P0-4: `xt_delta` uses direct subtraction, returning negative for backpasses.
+///   P1-1: debug_assert on bias helper raw inputs. P1-2: unreachable!() fallback
+///   in select_outfield_intent. P1-4: SeedLayer::UtilityTieBreak for softmax RNG.
+///   P2-2: DefenderPressure + IsProgressive newtypes for arg-safety.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -109,7 +133,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("b3b0e64fbf6d5f1e1c1f54434e4c5aa277ebdcdc2815ac06e41d82d2d4da1169");
+    hex!("235f6c5e841c7b529104b5f3fa57b69315aebe439677fbbc7549c62bc181288d");
 
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.

@@ -281,9 +281,10 @@ impl PitchZone {
 /// no RNG, fully deterministic.
 #[inline]
 pub fn xt_delta(src: PitchZone, dst: PitchZone) -> Q32 {
-    // Both XT_GRID values are in [0, 0.40]; delta is in [-0.40, +0.40].
-    // checked_sub is always safe here given the grid bounds.
-    dst.xt().checked_sub(src.xt()).unwrap_or(Q32::ZERO)
+    // Delta is in [-0.40, +0.40]; negative values are valid (backward passes).
+    // Direct subtraction on Q32 is safe: both values are in [0, 0.40] so
+    // the result fits within Q32.32's full signed range.
+    XT_GRID[dst.flat_index()] - XT_GRID[src.flat_index()]
 }
 
 // -------------------------------------------------------------------------

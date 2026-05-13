@@ -56,9 +56,22 @@
 use std::collections::BTreeMap;
 
 use fw_core::Q32;
+use rand_chacha::ChaCha8Rng;
 
+use crate::bt::off_ball::{
+    utility_hold_formation, utility_mark_player, utility_press, utility_run_off_ball,
+    utility_track_back,
+};
+use crate::bt::on_ball::{
+    utility_cross, utility_dribble, utility_hold_ball, utility_lay_off, utility_pass_long,
+    utility_pass_short, utility_shoot,
+};
 use crate::bt::{LeafKind, Node, Tree};
-use crate::role_states::{PlayerRoleState, Role};
+use crate::player::PlayerState;
+use crate::role_states::{
+    DefenderState, ForwardState, MidfielderState, PlayerIntent, PlayerRoleState, Role,
+};
+use crate::utility::softmax::{DEFAULT_TEMPERATURE, pick_top_n_softmax};
 
 // ---------------------------------------------------------------------------
 // Formation positions — 4-3-3 default
@@ -112,6 +125,118 @@ pub fn formation_position(slot: u8) -> (Q32, Q32) {
     );
     let (x, y) = FORMATION_4_3_3_POSITIONS[slot as usize];
     (Q32::from_int(x), Q32::from_int(y))
+}
+
+// ---------------------------------------------------------------------------
+// Utility-scored outfield intent selection
+// ---------------------------------------------------------------------------
+
+/// Select a `PlayerIntent` for an outfield player using utility scoring + softmax.
+///
+/// Assembles a candidate list of `(PlayerIntent, utility_score)` pairs from
+/// the on-ball and off-ball utility functions appropriate to the player's
+/// current role state, then calls `pick_top_n_softmax` with `rng` to sample.
+///
+/// Returns the picked `PlayerIntent`. Falls back to `MoveToPosition` toward
+/// the formation slot if the candidate list is somehow empty (defensive
+/// invariant — should never trigger).
+///
+/// ## Role-state → candidate set mapping
+///
+/// `InPossession` → on-ball considerations (7).
+/// `Pressing` → press + track_back (focused subset).
+/// `Supporting` / `RunningOffBall` / `MakingRun` → off-ball set (5).
+/// `Defending` / `Recovering` / `Tracking` / `SetPieceWaiting` / `HoldingUp`
+///   → formation-hold set (track_back + hold_formation + mark_player).
+///
+/// All other states fall back to `HoldFormation`.
+#[must_use]
+pub fn select_outfield_intent(
+    role_state: PlayerRoleState,
+    player: &PlayerState,
+    roster_slot: u8,
+    rng: &mut ChaCha8Rng,
+) -> PlayerIntent {
+    let candidates: Vec<(PlayerIntent, Q32)> = match role_state {
+        PlayerRoleState::Goalkeeper(_) => {
+            panic!("select_outfield_intent called for Goalkeeper — route through goalkeeper_fsm");
+        }
+
+        // On-ball: player in possession.
+        PlayerRoleState::Defender(DefenderState::InPossession)
+        | PlayerRoleState::Midfielder(MidfielderState::InPossession)
+        | PlayerRoleState::Forward(ForwardState::InPossession) => {
+            vec![
+                utility_shoot(player, roster_slot),
+                utility_pass_short(player, roster_slot),
+                utility_pass_long(player, roster_slot),
+                utility_cross(player, roster_slot),
+                utility_dribble(player, roster_slot),
+                utility_hold_ball(player, roster_slot),
+                utility_lay_off(player, roster_slot),
+            ]
+        }
+
+        // Pressing focus.
+        PlayerRoleState::Defender(DefenderState::Pressing)
+        | PlayerRoleState::Midfielder(MidfielderState::Pressing)
+        | PlayerRoleState::Forward(ForwardState::Pressing) => {
+            vec![
+                utility_press(player, roster_slot),
+                utility_track_back(player, roster_slot),
+            ]
+        }
+
+        // Off-ball forward running.
+        PlayerRoleState::Midfielder(MidfielderState::RunningOffBall)
+        | PlayerRoleState::Forward(ForwardState::RunningOffBall)
+        | PlayerRoleState::Forward(ForwardState::MakingRun) => {
+            vec![
+                utility_run_off_ball(player, roster_slot),
+                utility_press(player, roster_slot),
+                utility_hold_formation(player, roster_slot),
+            ]
+        }
+
+        // Defensive / recovery / set-piece holding states.
+        PlayerRoleState::Defender(DefenderState::Defending)
+        | PlayerRoleState::Defender(DefenderState::Recovering)
+        | PlayerRoleState::Defender(DefenderState::Tracking)
+        | PlayerRoleState::Defender(DefenderState::SetPieceWaiting)
+        | PlayerRoleState::Midfielder(MidfielderState::Defending)
+        | PlayerRoleState::Midfielder(MidfielderState::Recovering)
+        | PlayerRoleState::Midfielder(MidfielderState::SetPieceWaiting)
+        | PlayerRoleState::Forward(ForwardState::Recovering)
+        | PlayerRoleState::Forward(ForwardState::SetPieceWaiting) => {
+            vec![
+                utility_track_back(player, roster_slot),
+                utility_hold_formation(player, roster_slot),
+                utility_mark_player(player, roster_slot),
+            ]
+        }
+
+        // Supporting / HoldingUp.
+        PlayerRoleState::Defender(DefenderState::Supporting)
+        | PlayerRoleState::Midfielder(MidfielderState::Supporting)
+        | PlayerRoleState::Forward(ForwardState::HoldingUp) => {
+            vec![
+                utility_hold_formation(player, roster_slot),
+                utility_run_off_ball(player, roster_slot),
+                utility_mark_player(player, roster_slot),
+            ]
+        }
+    };
+
+    // Sample via softmax. All branches above push ≥1 candidate, so this must
+    // succeed. An empty candidates list is a code bug — not a recoverable
+    // runtime condition.
+    pick_top_n_softmax(&candidates, rng, DEFAULT_TEMPERATURE).unwrap_or_else(|| {
+        unreachable!(
+            "select_outfield_intent: candidate list is empty for role_state {:?} slot {}; \
+             every match arm must push at least one candidate",
+            role_state, roster_slot
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------

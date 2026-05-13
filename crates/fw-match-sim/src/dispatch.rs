@@ -51,11 +51,10 @@ use rand_chacha::rand_core::SeedableRng;
 use fw_core::Q32;
 
 use crate::MatchState;
-use crate::bt::{BtContext, tick_tree};
 use crate::decision_cadence::{SeedLayer, seed_fn, should_decide};
 use crate::goalkeeper_fsm::tick_goalkeeper;
 use crate::role_states::{PlayerIntent, PlayerRoleState};
-use crate::subtree_library::SubtreeLibrary;
+use crate::subtree_library::select_outfield_intent;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -82,9 +81,8 @@ const MAX_PLAYER_SPEED: Q32 = Q32::from_raw(5_i64 << 32); // 5.0 in Q32.32
 /// `should_decide` fires, the role-appropriate runner executes and the
 /// returned `PlayerIntent` is applied.
 pub fn dispatch_tick(mut state: MatchState) -> MatchState {
-    // Build the subtree library once per tick (it's tiny in skeleton tier).
-    // -iii-b: cache this at match-init in MatchState and pass it in.
-    let lib = SubtreeLibrary::default_skeleton();
+    // SubtreeLibrary is still used by subtree_library::select_outfield_intent;
+    // we no longer need it directly in dispatch_tick (utility scorer handles lookup).
 
     for slot_idx in 0..22usize {
         // roster_slot is 1-indexed per decision_cadence::should_decide contract.
@@ -111,10 +109,14 @@ pub fn dispatch_tick(mut state: MatchState) -> MatchState {
         // site = (player_slot << 16) | local_decision_counter
         let counter = state.players[slot_idx].decision_counter();
         let site = ((slot_idx as u64) << 16) | (counter as u64);
+        // UtilityTieBreak is the correct layer for softmax sampling over
+        // utility-scored candidates (ADR-0009 §SeedLayer discriminants).
+        // SeedLayer::Decision is reserved for binary decision draws
+        // (e.g. GK shot-stopping direction) which are not yet wired.
         let rng_seed = seed_fn(
             state.seed.to_u64(),
             state.tick.to_raw(),
-            SeedLayer::Decision,
+            SeedLayer::UtilityTieBreak,
             site,
         );
         let mut rng = ChaCha8Rng::seed_from_u64(rng_seed);
@@ -130,38 +132,23 @@ pub fn dispatch_tick(mut state: MatchState) -> MatchState {
 
         let intent = match next_role_state {
             PlayerRoleState::Goalkeeper(gk_state) => {
-                let (new_gk_state, gk_intent) = tick_goalkeeper(gk_state, formation_slot, &mut rng);
+                let (new_gk_state, gk_intent) =
+                    tick_goalkeeper(gk_state, formation_slot, &state.ball, &mut rng);
                 // Write back the new GK state.
                 state.players[slot_idx].role_state = PlayerRoleState::Goalkeeper(new_gk_state);
                 gk_intent
             }
-            PlayerRoleState::Defender(def_state) => {
-                let ctx = BtContext {
-                    roster_slot: formation_slot,
-                };
-                let tree = lib.lookup_outfield(next_role_state);
-                let (_status, bt_intent) = tick_tree(tree, &ctx, &mut rng);
-                // Write back state (no outfield transition in skeleton tier).
-                state.players[slot_idx].role_state = PlayerRoleState::Defender(def_state);
-                bt_intent
-            }
-            PlayerRoleState::Midfielder(mid_state) => {
-                let ctx = BtContext {
-                    roster_slot: formation_slot,
-                };
-                let tree = lib.lookup_outfield(next_role_state);
-                let (_status, bt_intent) = tick_tree(tree, &ctx, &mut rng);
-                state.players[slot_idx].role_state = PlayerRoleState::Midfielder(mid_state);
-                bt_intent
-            }
-            PlayerRoleState::Forward(fwd_state) => {
-                let ctx = BtContext {
-                    roster_slot: formation_slot,
-                };
-                let tree = lib.lookup_outfield(next_role_state);
-                let (_status, bt_intent) = tick_tree(tree, &ctx, &mut rng);
-                state.players[slot_idx].role_state = PlayerRoleState::Forward(fwd_state);
-                bt_intent
+            PlayerRoleState::Defender(_)
+            | PlayerRoleState::Midfielder(_)
+            | PlayerRoleState::Forward(_) => {
+                // Utility-scored softmax selection.
+                // `select_outfield_intent` reads player attributes and role state to
+                // assemble a candidate list, then samples via ChaCha8Rng.
+                let player = &state.players[slot_idx];
+                let outfield_intent =
+                    select_outfield_intent(next_role_state, player, formation_slot, &mut rng);
+                // Role state unchanged in iii-c (transitions stay identity).
+                outfield_intent
             }
         };
 
@@ -192,17 +179,37 @@ pub fn dispatch_tick(mut state: MatchState) -> MatchState {
 pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerIntent) {
     let p = &mut state.players[slot_idx];
     match intent {
-        PlayerIntent::MoveToPosition { target_x, target_y } => {
-            // Delta from current position to target.
-            let dx = target_x - p.pos_x;
-            let dy = target_y - p.pos_y;
-            // Clamp each component to [-MAX, +MAX].
-            p.vel_x = clamp_speed(dx);
-            p.vel_y = clamp_speed(dy);
-        }
         PlayerIntent::Idle => {
             p.vel_x = Q32::ZERO;
             p.vel_y = Q32::ZERO;
+        }
+
+        // All variants with a target use the same velocity-toward-target model.
+        // The target semantics differ per variant (aim point / run endpoint /
+        // recipient position) but the locomotion physics are identical in this
+        // tier: clamp each component to ±MAX_PLAYER_SPEED.
+        PlayerIntent::MoveToPosition { target_x, target_y }
+        | PlayerIntent::AttemptShot { target_x, target_y }
+        | PlayerIntent::AttemptPassShort { target_x, target_y }
+        | PlayerIntent::AttemptPassLong { target_x, target_y }
+        | PlayerIntent::Cross { target_x, target_y }
+        | PlayerIntent::Dribble { target_x, target_y }
+        | PlayerIntent::HoldBall { target_x, target_y }
+        | PlayerIntent::LayOff { target_x, target_y }
+        | PlayerIntent::TrackBack { target_x, target_y }
+        | PlayerIntent::Press { target_x, target_y }
+        | PlayerIntent::MarkPlayer { target_x, target_y }
+        | PlayerIntent::RunOffBall { target_x, target_y }
+        | PlayerIntent::HoldFormation { target_x, target_y }
+        | PlayerIntent::GkShotStop { target_x, target_y }
+        | PlayerIntent::GkCollectCross { target_x, target_y }
+        | PlayerIntent::GkSweeperRush { target_x, target_y }
+        | PlayerIntent::GkDistributeShort { target_x, target_y }
+        | PlayerIntent::GkDistributeLong { target_x, target_y } => {
+            let dx = target_x - p.pos_x;
+            let dy = target_y - p.pos_y;
+            p.vel_x = clamp_speed(dx);
+            p.vel_y = clamp_speed(dy);
         }
     }
 }

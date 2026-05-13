@@ -270,13 +270,11 @@ pub fn tick_match(mut state: MatchState) -> MatchState {
     // dt_per_tick() the ball physics uses (1/60 s in Q32.32).
     let dt = ball_physics::dt_per_tick();
     for p in state.players.iter_mut() {
-        // checked_mul/add: prefer explicit overflow protection over panic.
-        if let (Some(dx), Some(dy)) = (p.vel_x.checked_mul(dt), p.vel_y.checked_mul(dt))
-            && let (Some(nx), Some(ny)) = (p.pos_x.checked_add(dx), p.pos_y.checked_add(dy))
-        {
-            p.pos_x = nx;
-            p.pos_y = ny;
-        }
+        // Q32 wrapping on over-range velocity is preferable to silently
+        // skipping the integration step — saturating positions stay visible
+        // in replay; skipped steps break trajectory continuity.
+        p.pos_x += p.vel_x * dt;
+        p.pos_y += p.vel_y * dt;
     }
 
     state

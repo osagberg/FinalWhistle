@@ -26,6 +26,11 @@
 //! - Pre-emption hooks return `None` (stub; -iii-b wires them when
 //!   `MatchEvent` exists).
 
+pub mod off_ball;
+pub mod on_ball;
+pub mod personality_bias;
+pub mod reactive;
+
 use crate::role_states::PlayerIntent;
 use rand_chacha::ChaCha8Rng;
 
