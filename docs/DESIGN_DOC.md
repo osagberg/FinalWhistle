@@ -300,7 +300,65 @@ The bet is that FM's depth-promise can be matched by a focused solo dev IF the l
 
 ---
 
-## 11. Detailed sub-docs (to author in Phase 1)
+## 11. Architecture overview (ADR index)
+
+This is the one-page view of how the engine composes. Detail is in the ADRs under `docs/adr/`; this section is the index + narrative. Section authored 2026-05-13, after the pre-T1 research + reframe wave.
+
+### 11.1 Match engine (ADR-0001 + ADR-0006)
+
+Seven layers, all deterministic, composed top-down:
+
+1. **Team tactic FSM** — 5 coarse states (HIGH_PRESS / MID_BLOCK / LOW_BLOCK / COUNTER_ATTACK / SET_PIECE). Event-driven plus a 2Hz heartbeat. Parameterizes every layer below.
+2. **Per-player decision runner, staggered at 8Hz** — Hybrid FSM-of-Behavior-Trees. Outfield roles each have ~6-10 coarse role states; each state owns a small BT (~10-30 leaves). Goalkeeper is pure FSM. Universal pre-emption hooks at dispatcher level. Nodes are Rust; trees are content-pack RON.
+3. **Utility-scored selector nodes** inside the BTs, firing at on-ball decision points (pass / shoot / dribble / hold). Scored by xG / xT / pitch-control math.
+4. **Personality bias vector** (8 of the 17 hidden attributes) multiplies into utility scores per consideration.
+5. **Influence maps** (danger / support / space) on a 32×24 grid, regenerated at 8Hz aligned with the decision runner. Players consume the maps for off-ball positioning — never reason about 21 other agents directly.
+6. **Reactive interrupts at 60Hz** — cheap predicates (ball-state changed, marker arrived, shot incoming) can preempt mid-decision.
+7. **Reynolds-style steering at 60Hz** turns intent into Q32 locomotion. Pure arithmetic.
+
+The utility math is closed-form throughout (xG = 6-feature sigmoid LUT, xT = 192-entry Q32 LUT from a baked Bellman fixed-point, pitch-control = Spearman closed-form per-decision-point, pressing = Bauer-and-Anzer 5-second rule + intensity formula). All coefficients hand-authored — no StatsBomb-fit, no XGBoost, nothing that breaks pillar 1 or the determinism contract. Detail: ADR-0003.
+
+### 11.2 Player model (ADR-0002)
+
+55 attributes per player. 38 visible (14 technical / 10 mental / 8 physical / 6 GK-specific, all on a flat struct so BT decision sites never branch on role) + 17 hidden (14 personality + 3 durability). The personality vector is the multiplicative bias on utility scores from §11.1.
+
+All values `Q32` in `[0, 1]`; UI projects to 1-20 at the DTO boundary per ADR-0004. CA is derived, PA is stored; PA is mutable only via `MemoryEvent::Breakthrough` (which is what makes pillar 3 architecturally real, not a bolt-on). Five condition layers on a separate `PlayerCondition` struct: form / morale / match_fitness / sharpness / signature_readiness. Role-affinity weights live in content-pack RON, not Rust. Scout uncertainty (pillar 4) is FOF-style ranges keyed to scout skill.
+
+### 11.3 Memory ledger + breakthroughs (ADR-0005)
+
+Append-only `Vec<MemoryEvent>` per career, indexed via `BTreeMap<CareerId, _>`. Schema-versioned. 28 event classes at schema_version=1. Stakes and salience are `Q32`, not the f32 the earlier DESIGN_DOC §7 sketch implied. Three decay functions (Never / Linear / Exponential), applied at read-time projection only — the ledger itself is never mutated.
+
+Five readers project the ledger into context: `SalienceReader`, `PressReader`, `FanReader`, `ScoutReader`, `CoachReader`. Each runs at its own cadence (per-event for press; per-tick for salience; per-action for scout).
+
+Breakthroughs require all three of: `signature_readiness` threshold reached, a narrative-gating event firing, and a per-attribute-family cooldown elapsed. PA redraws upward in the family with a partial CA lift. Regressive collapse is the symmetric mechanism (`regressive_pressure` ticker; PA redraws downward, bounded by a career-floor; reversible only via subsequent breakthroughs in the same family). Mod-compatible via an `UnknownEventClass` opaque-bytes variant that still participates in the canonical BLAKE3 hash but is ignored by core readers.
+
+### 11.4 IPC surface (ADR-0004)
+
+5-command quintet for live match: `start_live_match` (returns an opaque `MatchHandle`), `step_live_match(handle, ticks)`, `get_match_snapshot(handle)`, `apply_match_command(handle, MatchCommand)`, `finish_live_match(handle)`. Handle-based dispatch supports concurrent matches at T2-5.
+
+`MatchCommand` is a closed-set 9-variant enum: Substitute, ChangeFormation, ChangePressLevel, ChangeTempoBias, SetCornerTaker, SetFreeKickTaker, SetPenaltyTaker, SetCaptain, TeamTalk. Typed enums, no f64 sliders. Applied at tick boundaries.
+
+Frame streaming: Tauri events (`match:frame`) at ~10Hz; PixiJS interpolates to 30fps. Compact fixed-size `[PlayerPosDTO; 22]` array. Scoreboard panels stay on 1Hz polling. Diagnostic mode is a parallel `match:diagnostic-frame` event channel gated by a `fw-tauri/diagnostic` feature flag + runtime toggle, carrying tagged decision reasons + BT-trace tails.
+
+Async on the IPC quintet only; sim crates stay sync (firewall). TS types hand-mirrored at `frontend/src/lib/types.ts`, drift caught by an `insta`-snapshot smoke test in `crates/fw-tauri/tests/dto_schema_smoke.rs`. Revisit `ts-rs` / `specta` at T4.
+
+### 11.5 Dev verification (ADR-0007)
+
+Three layers, accepted via the design doc at `docs/design/dev-verification.md` and now formalized:
+
+- **Layer 1 — Diagnostic commentary** (T1-4): rich event-by-event log with position + decision context. Surfaces brain-dead behavior from text alone.
+- **Layer 2 — Dev-tier 2D tactical board** (T1-2a): minimal PixiJS top-down viewer with dots + ball + tick scrubber. Always-on for dev. Same canvas as the shipped match-day surface gets at T4 polish.
+- **Layer 3 — Behavioral proptest invariants + pair-seed comparison tests** (T1-9): "GK within 30m of own goal 95%+ of ticks", "team width 35-65m during in-possession", "pair-seed tactic-flip changes possession in expected direction", etc.
+
+The canonical-hash regression test (cross-OS BLAKE3 pinned per scenario) sits orthogonal as bedrock. Two T2 candidates flagged: OOTP-style stat-distribution CI gate, EHM-style two-engine cross-check (lean Dixon-Coles as calibration reference).
+
+### 11.6 What's not in this overview
+
+Save format, content-pack pipeline, scouting model, manager AI, training, transfer market, board relations, media, season scheduling — each owns its own design doc as it lands per phase. See `docs/MASTER_PLAN.md` for phase order and `docs/design/*.md` for per-system specs.
+
+---
+
+## 12. Detailed sub-docs (to author in Phase 1)
 
 The following will live under `design/` and be referenced from this doc. None exist yet in the new repo; all need authoring before their Phase 1 implementation work begins.
 
@@ -318,7 +376,7 @@ Architecture-bearing system additions require an ADR per `.claude/rules/design-d
 
 ---
 
-## 12. Open Questions (resolve in next design pass)
+## 13. Open Questions (resolve in next design pass)
 
 1. **Pyramid scope at launch.** One nation (6 tiers, ~96 clubs) is the working assumption. Is a two-nation pyramid feasible inside the EA window, or does it dilute the per-nation depth? Resolution gate: Phase 2 worldbuilding spike.
 2. **How procedural is too procedural.** Player names + club names + biographies are clearly bake-time. Are tactical doctrines, manager archetypes, and signature presentation banks also procedural, or hand-authored? Working assumption: archetypes + signatures hand-authored; commentary banks procedural. Resolution gate: Phase 1 commentary-bank prototype.
