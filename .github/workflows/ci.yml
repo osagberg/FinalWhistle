@@ -128,8 +128,13 @@ jobs:
       # a real visible attribute, and every PlayerTemplate's attributes
       # are in [0, 1] + ceiling invariants hold. Fail-closed (exits
       # non-zero on any violation).
+      #
+      # Debug build (no --release). Validate is a static check + small
+      # RON walk; release-mode compile of fw-content-baker pushed
+      # ubuntu-22.04 over the 20m timeout (run 25810479477). Debug build
+      # is plenty fast for a content-load + validation pass.
       - name: content-pack validation
-        run: cargo run -p fw-content-baker --release -- validate
+        run: cargo run -p fw-content-baker -- validate
 
       # The determinism gate fires here. Release mode per spec §11: debug
       # integer-overflow checks can mask hash-affecting bugs by panicking
