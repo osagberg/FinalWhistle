@@ -4,7 +4,30 @@ Append-only human-readable ship log. One line per shipped MASTER_PLAN task. Phas
 
 ---
 
-## Phase T0 — Scaffold
+## Phase T0: Scaffold — closed 2026-05-13
+
+**Shipped:** an empty repo became a workspace-verifying Rust+Tauri+SolidJS scaffold with deterministic match-sim primitives, a pinned BLAKE3 canonical-state hash, a reconciled blueprint, a 9-step `/next` workflow, and Codex pre-T0 audit findings landed.
+
+- **Crates (8 + Tauri shell)**: `fw-core` (Q32.32 panic-on-overflow + Seed + Tick + durable u32 IDs), `fw-match-sim` (22-player struct + canonical encoder + tick reducer), `fw-content` (schema + integer-bps weights), `fw-content-baker` (CLI scaffold with staged prompts/schemas/validators), `fw-scouting` (stub), `fw-memory` (MemoryEvent stub with Q32 stakes/salience), `fw-replay` (pinned-hash regression test + RON fixture + sanity-non-zero guard + corpus-agreement test), `fw-save` (SaveV1 enum stub), `fw-tauri` (DTOs + IPC handlers in sibling commands module), `src-tauri` (Tauri shell + frontend/dist stub + icon stubs).
+- **Frontend**: Vite + SolidJS + Tailwind v3 + TanStack v8 + PixiJS v8 + ECharts scaffolded with 6 placeholder routes.
+- **Workflow**: 7-agent roster, 6 slash commands, 5 path-scoped rule modules, 5 hooks, 3 context scopes, 8 design templates, 9 patterns.
+- **Determinism gate**: pinned BLAKE3 = `d6258107b2c90c84d2feeaa8633d1f5c159e10ccd2016623b52b41d3d96b1a49` on the smoke seed at tick 60. Bit-identical across 100 fresh runs intra-process on macOS-14. Cross-OS matrix agreement (T0-7b) verified by the phase-gate PR's CI.
+- **Codex pre-T0 audit**: 14 of 16 findings fixed in-tree; 2 intentionally deferred (src-tauri command consolidation → T1-5; bincode dev-dep alignment → T2-9). 7 of 7 open questions resolved.
+- **Canonical-state hash:** `blake3:d6258107…` (60-tick smoke seed).
+- **Tests:** 19 test-runs across 13 crates + integration; all green on macOS-14 dev box. Cross-OS verification pending T0-7b.
+- **Decisions logged:** 0 in `docs/DECISIONS.md` this phase (architectural decisions were made via STATUS open-questions resolution + Codex audit follow-ups, all documented in the commit bodies). First DECISIONS entry expected at T1 (BT-runner contract).
+
+### Commit chain in T0
+
+- `81fdeff` — Rust pivot scaffold (109 files; clean-slate rewrite from Unity+C#)
+- `bc5c683` — pivot cleanup (drop Unity AI session leftovers)
+- `26f1ba0` — blueprint reconciliation (51 files; 14→7 agents, 35→6 commands, 14→5 hooks)
+- `7dc510d` — Codex audit followup quick wins (9 of 16; STATUS bootstrap; sanity hash test)
+- `9eb184e` — Codex Q1+Q2 (Q32 panic-on-overflow + durable u32 IDs)
+- `239594e` — T0-7 pin BLAKE3 canonical hash on macOS-14 dev box
+- `73c1da0` — T0-12 unblock workspace verify (Tauri lib.rs `pub` bug + 4 other scaffold gaps)
+
+### Per-task summary
 
 - 2026-05-13 — **T0-12** Fix pre-existing scaffold build failures — fw-tauri commands moved to sibling module (Tauri 2 `pub` + `#[command]` bug, ref tauri #4665); fw-content-baker dead-code suppressed at staging-module roots (T2-3+ wiring deferred); src-tauri build.rs stubs frontend/dist + icons generated; ui-vocabulary.md meta-references wrapped in sentinels. `cargo {build,clippy,test,fmt} --workspace` ALL green.
 - 2026-05-13 — **T0-7** Pin BLAKE3 canonical hash on macOS-14 dev box — `PINNED_60_TICK = d6258107…` recorded; `#[ignore]` removed; `cargo test -p fw-replay` 4/4 green. Cross-OS matrix verification deferred to T0-7b via the phase-gate PR.
