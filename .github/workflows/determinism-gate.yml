@@ -58,6 +58,47 @@ jobs:
           cache-bin: false
           cache-on-failure: true
 
+      # P0 backstop (Codex full-project audit, 2026-05-13): the bedrock
+      # pinned-hash test `smoke_seed_60_tick_canonical_hash_pinned` MUST
+      # NOT be `#[ignore]`d, or `cargo test` returns 0 (ignored tests
+      # count as passes) and the entire determinism gate silently bypasses.
+      #
+      # Primary defense is the in-process meta-test
+      # `bedrock_pinned_test_is_not_ignored` (in canonical_hash.rs);
+      # commit-time hook (canonical-hash-guard.sh) is the secondary;
+      # this CI step is the tertiary belt-and-braces. Uses no
+      # GitHub-event inputs, so no injection surface.
+      - name: Bedrock-test ignore-attr guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Invoke a small Python script via a literal-quoted heredoc.
+          # No interpolation of any kind; entirely self-contained.
+          python3 - <<'PYEOF'
+          import re, sys
+          path = 'crates/fw-replay/tests/canonical_hash.rs'
+          try:
+              src = open(path).read()
+          except FileNotFoundError:
+              print('::error::expected file ' + path + ' not found')
+              sys.exit(1)
+          bedrock = 'smoke_seed_60_tick_canonical_hash_pinned'
+          fn_match = re.search(r'fn\s+' + re.escape(bedrock), src)
+          if not fn_match:
+              print('::error file=' + path + '::cannot find fn ' + bedrock)
+              sys.exit(1)
+          before = src[:fn_match.start()]
+          test_idx = before.rfind('#[test]')
+          if test_idx == -1:
+              print('::error file=' + path + '::no #[test] attribute precedes ' + bedrock)
+              sys.exit(1)
+          block = before[test_idx:]
+          if '#[ignore' in block:
+              print('::error file=' + path + ',title=Phase-0 gate disabled::Bedrock pinned-hash test is #[ignore]d. The determinism gate is silently bypassed. Remove #[ignore] from ' + bedrock + '. Re-baseline path: docs/specs/determinism-gate.md section 9.')
+              sys.exit(1)
+          print('bedrock-ignore-guard: OK (' + bedrock + ' is live)')
+          PYEOF
+
       # The bedrock: run only the canonical_hash integration test in the
       # fw-replay crate. Release mode (see ci.yml for rationale).
       #

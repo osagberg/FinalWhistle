@@ -249,6 +249,69 @@ fn smoke_seed_corpus_fixture_matches_pinned_constant() {
 }
 
 // -------------------------------------------------------------------------
+// Meta-guard — bedrock pinned-hash test cannot be silently `#[ignore]`d
+//
+// Codex full-project audit P0 (2026-05-13): a contributor (or future
+// Claude) could add `#[ignore]` to the bedrock pinned-hash test, and
+// `cargo test` would return 0 (ignored tests count as passes) — the
+// Phase-0 determinism gate would be silently disabled in CI.
+//
+// This test reads its own source file at compile-time via `include_str!`
+// and asserts the bedrock function's attribute block does NOT contain
+// `#[ignore]`. It fails loudly the moment someone tries to disable the
+// bedrock. The CI workflow `determinism-gate.yml` adds a separate
+// belt-and-braces grep that catches the same condition even if this
+// meta-test is removed; the commit-time hook `canonical-hash-guard.sh`
+// adds a third layer at commit time.
+//
+// Other tests in this file (e.g. `smoke_seed_final_state_snapshot`) are
+// allowed to be `#[ignore]`d; only the bedrock is locked.
+// -------------------------------------------------------------------------
+
+#[test]
+fn bedrock_pinned_test_is_not_ignored() {
+    const SRC: &str = include_str!("canonical_hash.rs");
+    const BEDROCK_FN_NAME: &str = "smoke_seed_60_tick_canonical_hash_pinned";
+
+    // Locate the bedrock function.
+    let fn_marker = format!("fn {BEDROCK_FN_NAME}");
+    let fn_pos = SRC.find(&fn_marker).unwrap_or_else(|| {
+        panic!(
+            "could not find `{fn_marker}` in canonical_hash.rs — \
+             has the bedrock function been renamed? Update \
+             bedrock_pinned_test_is_not_ignored::BEDROCK_FN_NAME to match \
+             OR restore the bedrock test name."
+        )
+    });
+
+    // Find the most recent #[test] attribute before fn_pos. Everything
+    // between that attribute and `fn <name>` is the attribute block.
+    let before = &SRC[..fn_pos];
+    let test_attr_pos = before.rfind("#[test]").unwrap_or_else(|| {
+        panic!(
+            "no #[test] attribute precedes `fn {BEDROCK_FN_NAME}` — \
+             file structure changed unexpectedly. The meta-guard cannot \
+             verify the bedrock is live; investigate."
+        )
+    });
+
+    let attr_block = &SRC[test_attr_pos..fn_pos];
+    assert!(
+        !attr_block.contains("#[ignore"),
+        "BLOCKED: the bedrock pinned-hash test `{BEDROCK_FN_NAME}` is marked #[ignore].\n\
+         \n\
+         The Phase-0 determinism gate is silently disabled. Remove the\n\
+         #[ignore] attribute. If a re-baseline is genuinely required,\n\
+         follow docs/specs/determinism-gate.md §9 — do NOT bypass via\n\
+         #[ignore].\n\
+         \n\
+         Codex audit P0 (2026-05-13): this meta-guard catches the disable\n\
+         at `cargo test` time. The CI workflow + commit hook add\n\
+         additional layers."
+    );
+}
+
+// -------------------------------------------------------------------------
 // Snapshot — human-diffable change detection
 // -------------------------------------------------------------------------
 

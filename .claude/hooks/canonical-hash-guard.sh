@@ -56,15 +56,26 @@ if [ -z "$REPO_ROOT" ]; then exit 0; fi
 cd "$REPO_ROOT"
 
 # Check if the staged diff touches any canonical-state-bearing crate.
-# Tests are EXEMPT because tests don't change canonical state, only
-# assert on it — and we want to allow tests to add new regression
-# assertions without round-tripping through the gate.
 #
-# Crate list mirrors the determinism-gate spec §3 + CLAUDE.md §7:
-#   fw-core, fw-match-sim, fw-memory, fw-replay, fw-save, fw-content
+# In scope (must trigger the guard):
+#   - `src/` under fw-core / fw-match-sim / fw-memory / fw-replay /
+#     fw-save / fw-content (canonical-state-emitting code)
+#   - crates/fw-replay/tests/canonical_hash.rs (the test file itself —
+#     Codex audit P0, 2026-05-13: editing the pinned constant, removing
+#     the bedrock test, or adding `#[ignore]` to it MUST trigger the
+#     guard; previously these slipped through because only `src/`
+#     was watched)
+#   - crates/fw-replay/fixtures/** (the corpus RON files — editing
+#     `expected_hash` alongside re-baselining MUST go through the gate)
+#
+# Out of scope (still exempt):
+#   - tests under other crates (they assert on canonical state but don't
+#     emit it; adding a new proptest invariant doesn't drift the hash)
+#   - non-canonical-state code in any crate's src/ (e.g. fw-tauri,
+#     fw-scouting, fw-content-baker)
 TOUCHES_CANONICAL=0
 if git diff --cached --name-only 2>/dev/null \
-    | grep -E '^crates/(fw-core|fw-match-sim|fw-memory|fw-replay|fw-save|fw-content)/src/' \
+    | grep -E '^crates/(fw-core|fw-match-sim|fw-memory|fw-replay|fw-save|fw-content)/src/|^crates/fw-replay/tests/canonical_hash\.rs$|^crates/fw-replay/fixtures/' \
     >/dev/null 2>&1; then
     TOUCHES_CANONICAL=1
 fi
