@@ -90,6 +90,13 @@ Logged 2026-05-13 from the T1-1-vs-IdentityPacket comparison. Full detail + pinn
 
 These are encoded in MASTER_PLAN T1-3 + T2-3 done-criteria so they fire when the rows do.
 
+## Queued user actions (Codex audit Tranche 7 cleanup)
+
+Cleanup the user runs at their convenience (NOT auto-applied by Claude — these touch user-global state):
+
+- **Remove Unity MCPs from global `claude mcp list`.** Currently `unity-mcp` + `UnityMCP` are still registered. They were used by FW v1; v2 is Rust-only. Run `claude mcp remove unity-mcp` + `claude mcp remove UnityMCP`. Confirm via `claude mcp list`. Codex audit Lane F P2.
+- **Install Claude Preview MCP** if not yet done. When the dev-server prompt fires in Claude Code, click through. Until installed, the `mcp__Claude_Preview__preview_*` tools are loaded as deferred but not exercisable end-to-end. Codex audit Lane F P2. ADR-0008's workflow becomes runnable post-install.
+
 ## Queued research
 
 ### Frontend research wave (run before T1-6, NOT now)

@@ -28,18 +28,20 @@ auto_load: when_editing_matching_path
 
 ## §2. Content-pack-qualified IDs
 
-- Format: `<pack-id>:<entity-type>_<5-digit>`.
+- Format: `<pack-id>:<entity-type>_<5-digit>` (the **default** form for procedural / generated entities).
 - Pack-id is lowercase + dots: `fwh.core`, `fwh.fantasy.elvish`, `mod.community.somerset`.
 - Entity-type is singular lowercase: `player`, `club`, `culture`, `archetype`, `competition`.
 - 5-digit zero-padded: `_00042`, `_01337`, never `_42` or `_1337`.
 - Examples:
   - `fwh.core:player_00042`
   - `fwh.fantasy.elvish:culture_00003`
+- **Hand-authored ID exception (Codex audit P2 carve-out, 2026-05-13):** for hand-authored seed entities (cultures, tactical archetypes, role-affinity tables, named signatures), the dotted form `<pack-id>:<entity-type>.<slug>` is also accepted: `fwh.core:culture.anglo`, `fwh.core:archetype.direct-pressing`, `fwh.core:role-affinities.default`. The procedural form (`_<5-digit>`) applies to entities the baker generates; the dotted form applies to entities a human names. FW-VAL accepts both forms; mods MAY use either.
   - `mod.community.somerset:club_00001`
 
 ## §3. Schema versioning
 
-- Every RON file has `schema_version: <N>` as a top-level field.
+- Every NEW RON-backed content type ships with `schema_version: <N>` as a top-level field from day one. `PlayerTemplate` (T1-1) + `RoleAffinityTable` (T1-1) comply.
+- **Legacy exception (2026-05-13 carve-out per Codex audit P2):** `Culture` + `TacticalArchetype` were authored before this rule and still lack the field. They gain `#[serde(default = ...)] schema_version: u32` opportunistically at T2-3 when the real `ContentStore::load_baked` baked-corpus pipeline lands AND starts gating on schema_version for migration routing. Until then, the loader accepts these legacy fixtures without the field. NO ad-hoc add — the field comes in alongside its consumer.
 - **Forward migration only.** Bumping the schema adds a migration path; the v1 fixtures are NEVER mutated.
 - Migrations live in `crates/fw-content/src/migrations/<N>_to_<N+1>.rs`.
 

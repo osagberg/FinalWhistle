@@ -20,7 +20,7 @@ auto_load: when_editing_matching_path
 ## §2. Tailwind v3 (not v4)
 
 - Utility-first. No custom CSS classes unless component-internal `<style>` is the only option.
-- **DO NOT** use `@apply` in shared CSS.
+- **DO NOT** use `@apply` in shared utility-class CSS (i.e. a class that components compose into their `class=...`). Codex audit P2 (2026-05-13): the prior wording "in shared CSS" was overly broad — `@apply` inside `@layer base` (html / body / scrollbar / global elements) is the standard Tailwind v3 pattern for global element styling, and `frontend/src/styles.css` correctly uses it that way. The rule targets the shared-utility-class anti-pattern (e.g. `.btn-primary { @apply ...; }`), not `@layer base` global selectors.
 - v4 syntax is forbidden (we're on v3 for stability through T4 — see `MEMORY.md` open question).
 - Design tokens live in `tailwind.config.ts`.
 

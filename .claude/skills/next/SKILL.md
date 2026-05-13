@@ -20,7 +20,7 @@ This skill is the manual. The slash command at `.claude/commands/next.md` is a t
 
 - **Braindead-easy UX.** User types `/next`. Claude does everything. Returns one shipped commit. Repeat.
 - **One control point per task.** `/next` does NOT auto-loop. After each task lands, the user re-invokes. This gives the human a built-in checkpoint without bloating the workflow with confirmation prompts.
-- **Self-review baked in.** No external Codex round-trip per task. `pr-review-toolkit` triple runs automatically on any commit ≥100 LoC of code. Codex enters at phase boundaries via `/phase-gate`, not per task.
+- **Self-review baked in.** No external Codex round-trip per task. `pr-review-toolkit` triple runs automatically on any commit ≥100 LoC of code. Codex enters at phase boundaries via `/done` (which prints the `gh pr create` command). There's NO `/phase-gate` skill — that was a planning-time placeholder name. ADR-0015 §"Three review tiers" details Tier-2 mid-phase targeted audits + Tier-3 phase-boundary full audits.
 - **Lighter than FW v1 `/duo-implement`.** No agent-bus topic per task. No `ScheduleWakeup` polling loop. No per-slice commit-proposal/ack ceremony. Smaller failure surface; fewer escalation paths.
 - **Hard stops over hopeful retries.** Two test failures → pause. One unauthorized scope touch → pause. The user is cheap to ask; a hidden bad commit is expensive.
 
@@ -28,7 +28,7 @@ This skill is the manual. The slash command at `.claude/commands/next.md` is a t
 
 | Aspect | FW v1 `/duo-implement` | FW v2 `/next` |
 |---|---|---|
-| Codex review cadence | Per slice via agent-bus | Per phase via `/phase-gate` PR |
+| Codex review cadence | Per slice via agent-bus | Per phase via `/done` PR + selectively mid-phase per ADR-0015 Tier-2 criteria |
 | Self-review | Manual (mandate, soft-reminded by hook) | Auto-invoked on ≥100 LoC code commits |
 | Coordination | `ScheduleWakeup` polling + `dialog/<topic>.jsonl` | None — direct execution |
 | Escalation triggers | 12 distinct triggers across spec + skill | 9 triggers, plain language |
@@ -355,7 +355,7 @@ The skill **STOPS** (does not commit, does not continue) and hands back to the u
 3. **`just test` red after 2 fix attempts** (Step 5) — diagnose + hand back. Do not grind.
 4. **`just lint` red after autofix** (Step 5) — diagnose + hand back.
 5. **`scripts/fw verify` umbrella red after 1 fix** (Step 5) — banned-terms, content-pack-validate, etc.
-6. **Design-doc-level architecture change required mid-task** (any step) — needs `/duo-debate` or `/log-decision` first; not `/next`'s job.
+6. **Design-doc-level architecture change required mid-task** (any step) — author/amend an ADR via `/log-decision` first (and consider a Tier-2 Codex audit per ADR-0015 if it's a load-bearing schema lock); not `/next`'s job. There is no `/duo-debate` skill in FW v2.
 7. **New third-party crate required** (Step 4) — user approves the Cargo.toml addition; security + maintenance review is theirs to do.
 8. **Canonical state schema change** (Step 5/7) — re-baselining pinned hash is authorized in the task-spec OR escalate.
 9. **Unauthorized canonical-hash drift** (Step 7) — hook fires; if not authorized in task-spec, pause + investigate.
@@ -405,7 +405,7 @@ Resume after: <user response / specific file edit / approve a Cargo.toml additio
 - **Create PRs.** `/done` prints the `gh pr create` invocation at phase boundaries.
 - **Run the Tauri app for manual playtest.** User does this via `cargo tauri dev` or similar. `/next` doesn't open the GUI.
 - **Generate / bake the content corpus.** Separate `/bake-content` command (when authored) handles LLM bake-time pipeline at content milestones.
-- **Mutate design docs.** `design/**.md`, `docs/DESIGN_DOC.md`, `CLAUDE.md`, `TECH_APPROACH.md` are out-of-scope. Use `/log-decision` or `/duo-debate` for architecture work.
+- **Mutate design docs.** `design/**.md`, `docs/DESIGN_DOC.md`, `CLAUDE.md`, `TECH_APPROACH.md` are out-of-scope. Use `/log-decision` (or author an ADR directly under `docs/adr/`) for architecture work. There is no `/duo-debate` skill in FW v2.
 - **Mutate `docs/DECISIONS.md` historical entries.** Append-only via Step 8 (hook-enforced).
 - **Re-baseline canonical hashes unless authorized.** Drift is suspicious by default.
 - **Loop autonomously.** One `/next` = one task. User re-invokes.
