@@ -56,7 +56,7 @@ In the sibling archive `/Users/vibelogic/dev/football-archive/design/`:
 - `design/3d-pipeline.md`, `design/anime-presentation-budget.md`, `design/semantic-cinema.md` — 3D/cinematography ambitions cut
 - ADRs 0001 / 0002 / 0008 / 0009 / 0011 — Unity-specific architecture decisions
 - The 7-shot semantic-cinema grammar — replaced by 2D PixiJS tactical board + text recap
-- All `.claude/agents/` for Unity specialty (art-director, unity-specialist, etc) — 15 agents → 5 agents
+- All `.claude/agents/` for Unity specialty (art-director, unity-specialist, etc) — 15 agents → 7 agents (after blueprint reconciliation at commit 26f1ba0; see `docs/BLUEPRINT_RECONCILE.md`)
 - The `scripts/agent-bus` per-slice Codex review protocol — replaced by phase-gate Codex PR review
 - The 4 duo-* skills (`/duo-implement`, `/codex-review-loop`, `/check-reviews`, `/duo-debate`) — replaced by single `/next`
 

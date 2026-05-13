@@ -164,14 +164,16 @@ MemoryEvent {
   emitter: { kind, source_id }
   participants: [{ role, entity_id }]
   what: EventClass
-  stakes: f32 [0,1]
+  stakes: Q32 in [0, 1]              // encoded as u16 basis points (0..=10000) in fw-memory
   emotion: enum
   consequence: [{ kind, delta }]
   callback_eligibility: { recall_after_seasons, recall_tags, expires_after_seasons? }
-  salience: f32 [0,1]  // computed at emission
+  salience: Q32 in [0, 1]            // computed at emission; same basis-points encoding
   schema_version: u16
 }
 ```
+
+> **Determinism note (per Codex pre-T0 audit + `Sim/RULES.md` §1):** `stakes` and `salience` MUST NOT be stored as `f32`/`f64` in canonical state. The fw-memory crate implements them as `Q32` (or equivalently `u16` basis points 0..=10000). The `[0,1]` notation above is conceptual — the wire type is integer-backed.
 
 ### Salience scoring (formula locked; weights are tuning seeds)
 ```

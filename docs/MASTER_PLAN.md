@@ -14,10 +14,10 @@ last_verified: 2026-05-13
 
 ## Snapshot (2026-05-13)
 
-- **Phase:** `T0 — Scaffold` (pre-kickoff)
-- **Current track:** none — repo not yet initialized.
-- **Build health:** N/A (no Rust workspace yet).
-- **Last commit:** N/A.
+- **Phase:** `T0 — Scaffold` (in progress; 10 of 11 rows DONE, T0-7 is critical path).
+- **Current track:** awaiting first `/next` invocation on T0-7 (CI matrix green + pinned BLAKE3 hash).
+- **Build health:** scaffold compiles; `scripts/fw verify` not yet exercised on the matrix.
+- **Last commit:** `26f1ba0` (blueprint reconciliation).
 - **Carry-forward set:** ~50 files queued from `/Users/vibelogic/dev/football-archive/` per `MIGRATION_AUDIT.md` §4.
 - **Frozen Unity snapshot:** `/Users/vibelogic/dev/football-archive/`.
 
@@ -39,8 +39,8 @@ Stale rule: any `IN_PROGRESS` item older than 14 days must be reviewed at next `
 
 ## Now / Next / Blocked
 
-- **Now:** `T0-1` Cargo workspace skeleton.
-- **Next:** `T0-2` Tauri + SolidJS shell.
+- **Now:** `T0-7` GitHub Actions matrix CI green + first real pinned BLAKE3 hash.
+- **Next:** `T1-1` `fw-content` schema (`TeamTemplate` / `PlayerTemplate` / `BehaviorArchetype`).
 - **Blocked:** none.
 
 ---
@@ -81,7 +81,7 @@ Already decided in `docs/DESIGN_DOC.md` §2. Do not relitigate during normal imp
 1. `T0-1` workspace skeleton — empty repo compiles.
 2. `T0-3` `fw-core` Q32.32 + Seed + Tick types — locked primitive contract.
 3. `T0-4` `fw-match-sim` stub — 22-player struct + deterministic tick reducer.
-4. `T0-5` canonical state encoder + SHA-256 hash.
+4. `T0-5` canonical state encoder + BLAKE3 hash.
 5. `T0-6` first insta snapshot — 60-tick canonical hash pinned.
 6. `T0-7` CI matrix green on Mac/Win/Linux.
 7. `T1-2` real BT runner + ball physics ported from the C# design.
@@ -97,26 +97,26 @@ Do not block this on UI polish, signature presentation banks, breakthrough trigg
 
 **Goal:** empty repo compiles, Tauri opens, sim ticks deterministically, pinned hash matches across CI matrix, `/next` works.
 
-**Acceptance gate:** a 22-player dummy sim runs 60 ticks and the canonical SHA-256 hash pins identically on `macos-14`, `windows-latest`, and `ubuntu-22.04` CI.
+**Acceptance gate:** a 22-player dummy sim runs 60 ticks and the canonical BLAKE3 hash pins identically on `macos-14`, `windows-latest`, and `ubuntu-22.04` CI.
 
 | ID | Item | Status | Effort | Dependencies | Done Criteria |
 |---|---|---|---|---|---|
-| T0-1 | Cargo workspace skeleton — 8 crates (`fw-core`, `fw-match-sim`, `fw-content`, `fw-memory`, `fw-scouting`, `fw-save`, `fw-tauri`, `fw-cli`) all compile clean | TODO | M (1d) | — | `cargo build --workspace` green; `cargo fmt --check` + `cargo clippy -- -D warnings` clean |
-| T0-2 | Tauri 2 + SolidJS + Tailwind frontend shell — 5 placeholder routes (Home / League / Squad / Match / Settings) | TODO | M (2d) | T0-1 | `pnpm tauri dev` opens window with 5 routes navigable; Tailwind utility class proves through |
-| T0-3 | `fw-core`: `Q32` newtype (i64-backed Q32.32) + `Seed` + `Tick` + `MatchId` types with derive-locked PartialOrd/Ord/Hash | TODO | M (2d) | T0-1 | Unit tests prove add/sub/mul/div round-trip and cross-platform byte-identical |
-| T0-4 | `fw-match-sim`: 22-player struct + deterministic tick reducer (no behavior yet — stationary players, no ball) | TODO | M (1d) | T0-3 | `step(state, tick) -> state` is pure; 60-tick run produces identical state across two threads |
-| T0-5 | Canonical state encoder + SHA-256 hash function in `fw-core` | TODO | M (1d) | T0-3, T0-4 | Locked field order (Tick + Ball + 22 PlayerStates + score + KeyEvents); round-trip reserialize byte-identical |
-| T0-6 | First `insta` snapshot test — 60-tick canonical hash pinned in `fixtures/replay-corpus/0xdeadbeefdeadbeef.json` | TODO | S (0.5d) | T0-5 | One pinned hash; `cargo test --package fw-match-sim` green |
-| T0-7 | GitHub Actions matrix CI — `macos-14` + `windows-latest` + `ubuntu-22.04` running `cargo test` + `clippy` + `fmt --check` + canonical-hash check | TODO | M (2d) | T0-6 | All three jobs green on a trivial PR; total wall-clock ≤6 min |
-| T0-8 | `Justfile` (or `cargo make`) with dev / test / build / lint / ci-local commands | TODO | S (0.5d) | T0-7 | `just ci-local` reproduces the CI matrix locally on the dev machine |
-| T0-9 | `/next` slash-command implementation + auto-self-review hook (port from old `.claude/commands/next.md` + `.claude/hooks/pr-review-reminder.sh`) | TODO | M (1d) | T0-1 | `/next` parses MASTER_PLAN.md, picks first `TODO`, surfaces dependencies; commit-hook fires soft reminder on ≥100 LoC diffs |
-| T0-10 | `docs/DECISIONS.md` + `protect-decisions.sh` hook (port verbatim from FW `protect-decisions-log.sh`) | TODO | S (0.5d) | T0-1 | Hook rejects Edit-tool mutations to `^- \*\*\d{4}-` lines; happy-path append works |
-| T0-11 | `README.md` + `REFERENCES.md` (the latter points at `/Users/vibelogic/dev/football-archive/` and lists which design docs are still authoritative pre-port) | TODO | S (0.5d) | T0-1 | Both files render on github.com; REFERENCES.md cross-refs MIGRATION_AUDIT carry-forward list |
+| T0-1 | Cargo workspace skeleton — 9 crates (`fw-core`, `fw-match-sim`, `fw-content`, `fw-content-baker`, `fw-memory`, `fw-replay`, `fw-scouting`, `fw-save`, `fw-tauri`) all compile clean | DONE | M (1d) | — | `cargo build --workspace` green (commit 81fdeff). Naming note: `fw-content-baker` replaces the originally-planned `fw-cli` name. |
+| T0-2 | Tauri 2 + SolidJS + Tailwind frontend shell — 6 placeholder routes (Home / Squad / Tactics / Transfers / League / Match) | DONE | M (2d) | T0-1 | Tauri shell opens at 81fdeff. |
+| T0-3 | `fw-core`: `Q32` newtype (i64-backed Q32.32) + `Seed` + `Tick` + `MatchId` types with derive-locked PartialOrd/Ord/Hash | DONE | M (2d) | T0-1 | Landed at 81fdeff. Open follow-up per Codex audit: bare `+ - * /` operators on Q32 wrap silently in release — decision pending (remove operator impls vs add `clippy::arithmetic_side_effects` deny). |
+| T0-4 | `fw-match-sim`: 22-player struct + deterministic tick reducer (no behavior yet — stationary players, no ball) | DONE | M (1d) | T0-3 | Landed at 81fdeff. `MatchState::initial` + `tick_match` reducer in place. |
+| T0-5 | Canonical state encoder + BLAKE3 hash function in `fw-core` | DONE | M (1d) | T0-3, T0-4 | Hand-rolled little-endian encoder at `crates/fw-match-sim/src/canonical.rs` (81fdeff). Switched to BLAKE3 (was SHA-256 in earlier plan). |
+| T0-6 | First `insta` snapshot test — 60-tick canonical hash pinned in `fixtures/replay-corpus/0xdeadbeefdeadbeef.ron` | PARTIAL | S (0.5d) | T0-5 | Test wired, fixture exists (81fdeff). Pinned hash is `[0u8; 32]` placeholder, `#[ignore]`-gated until T0-7 CI green. Sanity test `smoke_seed_canonical_hash_is_nonzero` added (always runs) to prevent silent-pass on accidental all-zero state. |
+| T0-7 | GitHub Actions matrix CI — `macos-14` + `windows-latest` + `ubuntu-22.04` running `cargo test` + `clippy` + `fmt --check` + canonical-hash check; fill pinned BLAKE3 hash on first green pass | TODO | M (2d) | T0-6 | All three jobs green on a trivial PR; pinned hash filled in both `crates/fw-replay/tests/canonical_hash.rs` and `crates/fw-replay/fixtures/0xdeadbeefdeadbeef.ron`; `#[ignore]` removed from `smoke_seed_60_tick_canonical_hash_pinned`; total wall-clock ≤6 min |
+| T0-8 | `Justfile` (or `cargo make`) with dev / test / build / lint / ci-local commands | DONE | S (0.5d) | T0-1 | Justfile + `scripts/fw` bash front-door at 81fdeff. Reconciliation (26f1ba0) added `banned-terms` + `verify-content` + `determinism-audit` recipes. |
+| T0-9 | `/next` slash-command implementation + auto-self-review hook | DONE | M (1d) | T0-1 | Full workflow reconciled at 26f1ba0. 6 commands, 7 agents, 5 hooks, path-scoped rules. |
+| T0-10 | `docs/DECISIONS.md` + `protect-decisions.sh` hook | DONE | S (0.5d) | T0-1 | Hook live at 81fdeff; verified in reconciliation. |
+| T0-11 | `README.md` + `REFERENCES.md` | DONE | S (0.5d) | T0-1 | Both at 81fdeff; REFERENCES.md updated at this audit-followup commit (15→7 agents). |
 
 ### T0 Exit Gate (locked)
 
 - `cargo build --workspace` + `cargo test --workspace` + `cargo clippy -- -D warnings` + `cargo fmt --check` all green on Mac/Win/Linux CI.
-- Canonical-hash regression test pins the same SHA-256 across all three OSes.
+- Canonical-hash regression test pins the same BLAKE3 across all three OSes.
 - `pnpm tauri dev` opens the shell on the dev machine.
 - `/next` picks `T1-1`.
 - Vertical-slice tag: `v0.1.0-scaffold`.

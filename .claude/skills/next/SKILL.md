@@ -214,13 +214,23 @@ Pass each agent: the task title, the relevant file paths from MEMORY's "Files in
 - **P0 / P1 findings:** fix them in-place. Re-run `just test` + `just lint` to confirm no regression. Re-run the relevant self-review agent on the changed area to confirm the fix lands. (One re-run cap per agent per task — if a P0 keeps recurring, PAUSE.)
 - **P2 / P3 findings:** do NOT fix mid-task. Capture them in the commit message under a "Known follow-ups" block (see Step 7 commit format). Optionally call `mcp__ccd_session__spawn_task` to flag a self-contained follow-up if it's a real bug worth a dedicated session.
 
-If a self-review agent itself errors / hangs / returns garbage: log the error in the commit body under "Self-review notes" but do NOT block the commit on agent infrastructure failure. The lint + test + canonical-hash gates are the binding gates; self-review is a quality multiplier, not a blocker.
+If a self-review agent itself errors / hangs / returns garbage: behavior depends on phase + crate.
+
+**T0 (architecture-bearing) + any commit touching `fw-core` / `fw-match-sim` / `fw-memory` / `fw-replay` / `fw-save` / `fw-content`**: **fail closed.** Log the error + PAUSE. Require explicit user approval to proceed without the failing agent's review. (Per Codex pre-T0 audit — the architecture phase is where silent self-review failures land deepest.)
+
+**T1+ on non-canonical paths** (frontend, content authoring, narrative templates, UI styling): log the error in the commit body under "Self-review notes" and proceed. The lint + test + canonical-hash gates are the binding gates; self-review is a quality multiplier, not a blocker.
 
 ### Step 7 — Commit
 
-**Stage exactly the files in `Files in scope`** from MEMORY + the two always-staged files:
-- The MEMORY.md update (Step 8 will clear the current-task block; commit the pre-clear version with the task-complete state)
-- The MASTER_PLAN.md status flip from IN_PROGRESS to DONE
+**Execute Step 8's ledger edits FIRST** (STATUS.md / CHANGELOG.md / DECISIONS.md / MEMORY.md / MASTER_PLAN.md), then stage everything together so the commit is atomic. Order matters — Codex's pre-T0 audit flagged the original "commit then update docs" wording as a half-state risk.
+
+**Stage exactly:**
+- Every file in `files_in_scope` from the MEMORY task spec
+- `docs/MASTER_PLAN.md` (status flip TODO → IN_PROGRESS → DONE)
+- `MEMORY.md` (current-task block populated for the in-flight state; Step 8 clears it AFTER commit)
+- `STATUS.md` (re-pointed at next task)
+- `CHANGELOG.md` (append-only line for this task)
+- `docs/DECISIONS.md` (only if this task logged a decision; if not, do not stage)
 
 Do NOT use `git add -A` or `git add .`. Stage by explicit path.
 
@@ -282,7 +292,7 @@ EOF
 
 If a hook blocks: read the hook output. If you can fix the cause in-place (e.g. unstage `docs/DECISIONS.md` and re-stage as a NEW append), do so and retry. If you cannot fix without scope expansion: **PAUSE + report**. Do NOT `--no-verify`.
 
-### Step 8 — Update docs
+### Step 8 — Update docs (run BEFORE Step 7 stages + commits — the order is the fix from the Codex audit)
 
 **`STATUS.md`:** timestamp is auto-stamped by the Stop hook (`.claude/hooks/update-status-timestamp.sh`). Update the body to reflect the new active task + any blockers cleared by this commit. Keep it under 150 words; it's a state pointer, not a diary.
 

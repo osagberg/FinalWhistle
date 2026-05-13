@@ -85,7 +85,11 @@ impl CanonicalEncoder {
         );
         self.write_u8(state.players.len() as u8);
         for (i, p) in state.players.iter().enumerate() {
-            debug_assert_eq!(
+            // Was debug_assert_eq!; switched to assert_eq! per Codex pre-T0
+            // audit. Release-mode CI must catch slot-order violations too —
+            // they would silently encode bad ordering into the canonical
+            // hash and corrupt the determinism gate.
+            assert_eq!(
                 p.slot as usize, i,
                 "player at Vec index {i} has slot {} — canonical-encoding \
                  invariant violated (slot index must match Vec position)",

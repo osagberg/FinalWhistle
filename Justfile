@@ -76,7 +76,7 @@ bundle:
 # Reproduces the per-PR CI matrix as closely as `just` can on a single
 # host. Use before pushing to `main` direct-commit per CLAUDE.md §4.5.
 # This is what `/next` step 6 (verify) invokes via `scripts/fw verify`.
-ci-local: lint test banned-terms test-determinism
+ci-local: lint test banned-terms test-determinism determinism-audit
 
 # ----------------------------------------------------------------
 # Banned-terms lint (football-native vocabulary)
@@ -95,7 +95,20 @@ banned-terms:
 # Run FW-VAL checks per docs/specs/content-pack-validation-contract.md.
 # Falls back gracefully if fw-content-baker isn't built yet (T0 stub).
 verify-content:
-    cargo run -p fw-cli -- validate-content || echo "fw-cli content validator not yet implemented (T2-3); skipping"
+    cargo run -p fw-content-baker -- validate-content || echo "fw-content-baker validator not yet implemented (T2-3); skipping"
+
+# ----------------------------------------------------------------
+# Determinism audit (Codex pre-T0 audit follow-up)
+# ----------------------------------------------------------------
+
+# Static audit of the determinism bans in Sim/RULES.md (HashMap, tokio,
+# clocks, system RNG, f32/f64). Catches violations that clippy lints
+# don't cover and that may appear via transitive paths. The Python script
+# strips line + block comments before matching, so the rule docs that
+# discuss the bans don't false-positive. Fail-closed: any match exits
+# non-zero so `ci-local` blocks.
+determinism-audit:
+    python3 scripts/determinism-audit.py
 
 # ----------------------------------------------------------------
 # Workspace housekeeping
@@ -113,7 +126,7 @@ clean:
 # Claude API loop; output is reviewed + committed manually per CLAUDE.md
 # §3 (bake-time only, no runtime LLM).
 bake-content:
-    cargo run -p fw-cli -- bake --output content/baked
+    cargo run -p fw-content-baker -- bake --output content/baked
 
 # ----------------------------------------------------------------
 # Snapshot maintenance

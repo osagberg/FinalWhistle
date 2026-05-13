@@ -38,7 +38,10 @@
 //! diff per `docs/specs/determinism-gate.md` §9 + the FW
 //! `golden-replay-corpus.md` discipline.
 
-use std::collections::HashSet;
+// BTreeSet not BTreeSet — sim crates including their tests are bound by
+// Sim/RULES.md §2 (no hash-randomized collections). Semantics identical
+// for "count distinct hashes".
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use blake3::Hasher;
@@ -118,6 +121,43 @@ fn smoke_seed_60_tick_canonical_hash_pinned() {
 }
 
 // -------------------------------------------------------------------------
+// Placeholder-footgun guard — the pinned constant is all-zeros until the
+// first CI green run fills it (see file-header bootstrap protocol). That
+// creates a footgun: if the sim coincidentally produced an all-zero
+// canonical state, the pinned test would falsely pass.
+//
+// This non-ignored test asserts the actual encoded buffer is non-empty
+// AND the hash is non-zero on the smoke seed's initial state. It will
+// stay live forever — once the real hash is pinned and the
+// `#[ignore]` is removed from `smoke_seed_60_tick_canonical_hash_pinned`,
+// this guard remains as cheap defence-in-depth.
+// -------------------------------------------------------------------------
+
+#[test]
+fn smoke_seed_canonical_hash_is_nonzero() {
+    let seed = Seed::from_u64(SMOKE_SEED);
+    let state = MatchState::initial(seed);
+    let bytes = state.encode_canonical();
+
+    assert!(
+        !bytes.is_empty(),
+        "canonical encoder produced an empty buffer — encoder is broken"
+    );
+    assert!(
+        bytes.iter().any(|&b| b != 0),
+        "canonical encoder produced an all-zero buffer — encoder is broken"
+    );
+
+    let hash: [u8; 32] = blake3::hash(&bytes).into();
+    assert_ne!(
+        hash, [0u8; 32],
+        "BLAKE3 of a non-empty buffer produced all zeros — \
+         hashing layer is broken (cosmic coincidence is preferred over \
+         a real bug here; investigate)"
+    );
+}
+
+// -------------------------------------------------------------------------
 // Intra-process determinism — 100 runs, one hash
 // -------------------------------------------------------------------------
 
@@ -130,7 +170,7 @@ fn smoke_seed_runs_100_times_produce_one_hash() {
     // This test runs cheaply (60 ticks × 100 runs ≈ 6k tick evaluations
     // on a tiny state) and catches the most common determinism leaks
     // BEFORE the cross-platform CI matrix has to disagree to surface them.
-    let mut distinct: HashSet<[u8; 32]> = HashSet::new();
+    let mut distinct: BTreeSet<[u8; 32]> = BTreeSet::new();
     for _ in 0..100 {
         let seed = Seed::from_u64(SMOKE_SEED);
         let mut state = MatchState::initial(seed);

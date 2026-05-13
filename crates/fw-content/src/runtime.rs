@@ -52,16 +52,22 @@ fn default_naming_pattern() -> String {
     "{first} {last}".to_string()
 }
 
+/// Sampling weights expressed as **basis points** (0..=10_000 maps to 0.0..=1.0).
+///
+/// `f32` was rejected per Codex pre-T0 audit: even though
+/// `ContentStore::sample_player_name` runs at career-init not match-tick,
+/// the sampled name lands in canonical state. Keeping the whole sampling
+/// path integer-only removes a class of cross-platform rand-version drift.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CultureWeights {
-    /// 0.0–1.0; higher values force a more uniform first-letter distribution
-    /// across sampled names within a club roster.
+    /// 0..=10_000 basis points. Higher values force a more uniform first-letter
+    /// distribution across sampled names within a club roster.
     #[serde(default)]
-    pub first_alpha_diversity: f32,
-    /// 0.0–1.0; probability a sampled last-name is rendered as a compound
-    /// ("Smith-Jones") via two-pull from the last_name_bank.
+    pub first_alpha_diversity_bps: u16,
+    /// 0..=10_000 basis points. Probability a sampled last-name is rendered
+    /// as a compound ("Smith-Jones") via two-pull from the last_name_bank.
     #[serde(default)]
-    pub compound_last_chance: f32,
+    pub compound_last_chance_bps: u16,
 }
 
 // ---------------------------------------------------------------------------
@@ -209,10 +215,13 @@ impl ContentStore {
             .naming_pattern
             .replace("{first}", &culture.first_name_bank[first_idx])
             .replace("{last}", &culture.last_name_bank[last_idx]);
-        // Optional compound last name (per culture weights).
-        if culture.weights.compound_last_chance > 0.0 {
-            let roll: f32 = rng.gen();
-            if roll < culture.weights.compound_last_chance {
+        // Optional compound last name (per culture weights). Integer-only
+        // roll: 0..=9_999 < bps_weight has the same semantics as
+        // `f32_roll < f32_weight` but is platform-portable without any
+        // dependency on rand's f32 distribution stability.
+        if culture.weights.compound_last_chance_bps > 0 {
+            let roll: u16 = rng.gen_range(0..10_000) as u16;
+            if roll < culture.weights.compound_last_chance_bps {
                 let second_last_idx = rng.gen_range(0..culture.last_name_bank.len());
                 let compound = format!(
                     "{}-{}",
