@@ -30,6 +30,7 @@
 
 pub mod ball;
 pub mod canonical;
+pub mod dto;
 pub mod player;
 
 use fw_core::{Q32, Seed, Tick};
@@ -37,6 +38,7 @@ use serde::{Deserialize, Serialize};
 
 pub use ball::BallState;
 pub use canonical::CanonicalEncoder;
+pub use dto::{BallFrameDto, MatchFrameDto, PlayerFrameDto};
 pub use player::PlayerState;
 
 // -------------------------------------------------------------------------

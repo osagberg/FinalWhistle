@@ -1,6 +1,6 @@
 # Final Whistle — Working Memory
 
-> Updated: 2026-05-13 | Phase: T1 First Match (T1-1 closed; full-project-audit Tranches 1-7 closed; pre-T1-2b re-audit GREEN at 5bb0939d; T1-2a unblocked, awaiting final CI green on HEAD)
+> Updated: 2026-05-13 | Phase: T1 First Match (T1-1 closed; pre-T1-2b audit cleared; **T1-2a DONE** — dev-tier 2D tactical board live)
 
 ## Project
 
@@ -31,18 +31,30 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-None active. Re-audit GREEN at `5bb0939d`.
+None active. T1-2a closed.
 
-Pre-T1-2b re-audit is closed. Pass #1 (`80c53f76`) closed 6 of 7 prior P1s; pass #2 (`5bb0939d`) closed the remaining 3 P1s + the xG P2 + state-pointer drift + ADR-0012 wording; pass #3 returned **GREEN — no new P0/P1**.
+**Tier-2 audit recommended** per ADR-0015 §"5 explicit criteria" — T1-2a adds an IPC command (`match_frames`) to fw-tauri (criterion 4: "API surface to UI"). The user can run a focused Codex Tier-2 prompt against the T1-2a commit before T1-2b-i starts.
 
-After CI on HEAD goes green (current commit re-triggers CI with the `--release` flag dropped from the content-pack-validation step — Ubuntu was hitting the 20m timeout building fw-content-baker in release mode), `/next` picks **T1-2a**.
+**Next via `/next`:** T1-2b-i (ball physics — first real behavior-code row in fw-match-sim; TDD mandate fires).
 
-### Deferred follow-ups (NOT blockers)
+<!-- Historical scope-spec for the just-shipped T1-2a retained below for grep-back reference -->
 
-- **T2-1 — xG penalty re-fit.** Phase-1 logistic hits 0.65 for penalty vs. 0.76 target. The miss is structural (single-logistic can't split penalty from 12-yard chance without per-zone intercept). T2-1's calibration loop introduces a penalty-specific β₀ split. Acceptable for T1 playability.
-- **P3 — research-doc LoC-budget remnants.** Caveats are present + visible; cleanup is a one-pass `grep -r` editorial when convenient.
+<details>
+<summary>T1-2a task spec (closed 2026-05-13)</summary>
 
-<!-- Historical scope-spec for the just-shipped T1-1 retained below for grep-back reference -->
+- **id:** T1-2a
+- **title:** Dev-tier 2D tactical board (per ADR-0007 Layer 2 + ADR-0008 browser-dev mode)
+- **started:** 2026-05-13
+- **completed:** 2026-05-13
+- **task class:** frontend (SolidJS + PixiJS + Tauri IPC) + small Rust binary
+- **subagent rotation:** main-thread for Rust chunks (1-2 + 6); `ui-programmer` for frontend chunks (3-5).
+- **TDD exemption:** YES — UI + binary serialization wrapper around existing canonical state; NOT sim/memory/replay/save/content-runtime behavior code.
+
+Implements ADR-0007 Layer 2 (dev verification surface) + ADR-0008 (browser-dev mode). Reuses ADR-0004 IPC contract patterns.
+
+</details>
+
+<!-- Historical scope-spec for the prior T1-1 retained below for grep-back reference -->
 
 <details>
 <summary>T1-1 task spec (closed 2026-05-13)</summary>
@@ -72,7 +84,8 @@ After CI on HEAD goes green (current commit re-triggers CI with the `--release` 
 
 ## Recently completed
 
-- 2026-05-13 — T1-1 `fw-content` schema lock (ADR-0002 55-field player model + Codex Imp #3 conversion + first RON fixtures). `PlayerAttributes` in `fw-core` (14/10/8/6 visible + 14/3 hidden = 55 Q32 fields); `KNOWN_ATTRIBUTE_NAMES` const + size-of static asserts pin schema shape. `AbilityCeiling` encapsulated with `redraw_ceiling` breakthrough mutator (Pillar 3 contract). `RoleId` newtype + `RoleAffinityTable` with collect-all `invalid_roles` + `unknown_attribute_keys` validators. `TacticalArchetype.buildup_speed_factor` → `u16 bps` with `BUILDUP_SPEED_BASELINE_BPS = 10_000`. `PlayerCondition` deliberately NOT on `PlayerTemplate` (save-migration hygiene). `schema_version: 1` on both new content types + fixtures. 65 tests new in fw-core + fw-content; canonical hash UNCHANGED. Self-review triple ran twice — Accept all three. commit `pending`.
+- 2026-05-13 — **T1-2a Dev-tier 2D tactical board** (ADR-0007 Layer 2 + ADR-0008). `MatchFrameDto` in `fw-match-sim::dto` (camelCase serde; Q32→f64 projection; `#![allow(clippy::float_arithmetic)]` scoped + determinism-audit exemption documented). `match_frames(seed_hex, tick_count)` IPC command in fw-tauri returning `Vec<MatchFrameDto>` (length tick_count+1; pinned by 2 sync tests via `tauri::async_runtime::block_on`). `dump_frames` clap CLI binary in `crates/fw-match-sim/src/bin/` — bit-identical stdout across reruns. SolidJS `TacticalBoard.tsx` with PixiJS Application (one-time create in onMount, destroy in onCleanup per Frontend/RULES.md §4). `FrameSource` interface + `TauriFrameSource` + `HttpFrameSource` impls + `frameSourceFromUrlParams` factory (fail-loud on bad `?source=` values per Codex audit). `MatchStateDto` retroactively gained `#[serde(rename_all = "camelCase")]` (Codex audit P0 fix on pre-existing rule violation). `window.fwDev` DEV-only debug surface. E2E verified via Claude Preview: navigated `/dev/board?source=fixture:/dev-fixtures/smoke.json`, fixture loaded, scrubTo(30) + scrubTo(45) drove the scrubber, pitch + 22 dots + ball + readout rendered. ~800 LoC; canonical hash UNCHANGED. Self-review triple: 1 P0 + 4 P1 closed in-place.
+- 2026-05-13 — T1-1 `fw-content` schema lock at commit `69f900b9` (ADR-0002 55-field player model + Codex Imp #3 conversion + first RON fixtures). `PlayerAttributes` in `fw-core` (14/10/8/6 visible + 14/3 hidden = 55 Q32 fields); `KNOWN_ATTRIBUTE_NAMES` const + size-of static asserts pin schema shape. `AbilityCeiling` encapsulated (`new_unchecked` pub(crate) post-audit-pass-1 follow-up). `RoleId` newtype + `RoleAffinityTable` with collect-all validators. `TacticalArchetype.buildup_speed_factor` → `u16 bps` with `BUILDUP_SPEED_BASELINE_BPS = 10_000`. `schema_version: 1` on new content types + fixtures. Followed by ~10 audit-remediation commits (tranches 1-7 of the full-project audit + pre-T1-2b re-audit passes 1, 2, 3). Canonical hash UNCHANGED throughout. All audits ultimately GREEN at `e780792`.
 - 2026-05-13 — T0-12 Fix pre-existing scaffold build failures — fw-tauri commands moved to sibling module (known Tauri 2 `pub` + `#[tauri::command]` bug); fw-content-baker `#![allow(dead_code)]` on staging modules; src-tauri build.rs stubs frontend/dist for clean-clone `cargo build`; tauri icons generated (gitignored); ui-vocabulary.md meta-references wrapped in sentinels. `cargo test --workspace --release` 19 test-runs all green.
 - 2026-05-13 — T0-7 Pin BLAKE3 canonical hash on dev box — `d6258107…` pinned; `cargo test -p fw-replay` 4/4 green; cross-OS matrix → T0-7b.
 

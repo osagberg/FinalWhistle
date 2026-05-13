@@ -76,3 +76,34 @@ export interface Fixture {
   awayId: string;
   competition: string;
 }
+
+// ---------------------------------------------------------------------------
+// T1-2a tactical board DTOs — mirrors fw-match-sim::dto (camelCase serde)
+// ---------------------------------------------------------------------------
+
+export interface PlayerFrameDTO {
+  slot: number;
+  posX: number;
+  posY: number;
+  velX: number;
+  velY: number;
+}
+
+export interface BallFrameDTO {
+  posX: number;
+  posY: number;
+  posZ: number;
+  velX: number;
+  velY: number;
+  velZ: number;
+}
+
+/** Per-tick snapshot from the sim. One entry per integration step. */
+export interface MatchFrameDTO {
+  seedHex: string;
+  tick: number;
+  homeScore: number;
+  awayScore: number;
+  players: PlayerFrameDTO[];
+  ball: BallFrameDTO;
+}

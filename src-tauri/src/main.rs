@@ -31,6 +31,11 @@ fn main() {
             commands::get_league_standings,
             commands::get_squad,
             commands::list_fixtures,
+            // T1-2a: fw_tauri owns the real match_frames implementation (the
+            // src-tauri local commands.rs is placeholder-tier until T1-5
+            // consolidation per Codex Imp #10). match_frames feeds the
+            // dev-tier 2D tactical board via Tauri IPC.
+            fw_tauri::commands::match_frames,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

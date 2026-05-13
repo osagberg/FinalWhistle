@@ -17,8 +17,12 @@ float_arithmetic = "deny"
 fw-core     = { workspace = true }
 fixed       = { workspace = true }
 serde       = { workspace = true }
+serde_json  = { workspace = true }   # MatchFrameDto JSON (DTO module + dump_frames bin)
 rand_chacha = { workspace = true }
 thiserror   = { workspace = true }
+# clap is only used by the dump_frames binary (src/bin/dump_frames.rs).
+# Keeps the dep surface honest: the lib build doesn't pull clap.
+clap        = { version = "4", features = ["derive"] }
 
 [dev-dependencies]
 insta    = { workspace = true }

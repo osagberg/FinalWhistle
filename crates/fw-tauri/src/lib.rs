@@ -30,7 +30,7 @@ use serde::Serialize;
 // `#[tauri::command]` is applied to a `pub` function inside `lib.rs`.
 // See `commands.rs` header for the full reference.
 pub mod commands;
-pub use commands::{get_dummy_state, play_match};
+pub use commands::{get_dummy_state, match_frames, play_match};
 
 // -------------------------------------------------------------------------
 // Frontend DTOs — what the SolidJS side sees
@@ -42,7 +42,15 @@ pub use commands::{get_dummy_state, play_match};
 ///
 /// The renderer is free to interpolate / animate / smooth these; the
 /// canonical state is always re-derivable from `(seed, tick_count)`.
+///
+/// Codex pre-T1-2b audit P0 fix (2026-05-13): `#[serde(rename_all =
+/// "camelCase")]` added to mirror `Tauri/RULES.md §3` ("Use
+/// `#[serde(rename_all = "camelCase")]` on payloads so TS receives
+/// `playerName`, not `player_name`"). Prior version emitted snake_case
+/// over the wire, which the TS consumers in `frontend/src/lib/types.ts`
+/// would have had to compensate for manually.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MatchStateDto {
     pub seed_hex: String,
     pub tick: i64,
@@ -53,6 +61,7 @@ pub struct MatchStateDto {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlayerDto {
     pub slot: u8,
     pub pos_x: f64,
@@ -62,6 +71,7 @@ pub struct PlayerDto {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BallDto {
     pub pos_x: f64,
     pub pos_y: f64,
@@ -116,6 +126,14 @@ fn q32_to_f64(raw_bits: i64) -> f64 {
     raw_bits as f64 / Q32_SCALE
 }
 
+// ---------------------------------------------------------------------------
+// MatchFrameDto — re-exported from fw-match-sim (where it actually lives,
+// so the `dump_frames` binary can use it without inverting the dep graph).
+// See `crates/fw-match-sim/src/dto.rs` for the type def + projection.
+// ---------------------------------------------------------------------------
+
+pub use fw_match_sim::{BallFrameDto, MatchFrameDto, PlayerFrameDto};
+
 // -------------------------------------------------------------------------
 // Smoke
 // -------------------------------------------------------------------------
@@ -144,5 +162,33 @@ mod smoke {
         // Q32::ONE has raw bits 2^32; dividing by 2^32 gives 1.0.
         assert_eq!(q32_to_f64(1_i64 << 32), 1.0);
         assert_eq!(q32_to_f64(0), 0.0);
+    }
+
+    #[test]
+    fn match_frames_tick_count_zero_returns_one_frame() {
+        // Codex pre-T1-2b audit P1 pin: `tick_count = 0` is a valid
+        // input. The handler returns exactly 1 frame (the initial state).
+        // The Vec length contract is `tick_count + 1` everywhere.
+        //
+        // The command is `async fn` because Tauri requires it, but the
+        // body has no `.await` — we can drive the Ready future to
+        // completion synchronously via Tauri's bundled runtime.
+        let frames =
+            tauri::async_runtime::block_on(crate::commands::match_frames("0x1".to_string(), 0))
+                .expect("match_frames");
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].tick, 0);
+    }
+
+    #[test]
+    fn match_frames_returns_tick_count_plus_one_frames() {
+        let frames = tauri::async_runtime::block_on(crate::commands::match_frames(
+            "0xdeadbeef".to_string(),
+            5,
+        ))
+        .expect("match_frames");
+        assert_eq!(frames.len(), 6);
+        assert_eq!(frames[0].tick, 0);
+        assert_eq!(frames[5].tick, 5);
     }
 }

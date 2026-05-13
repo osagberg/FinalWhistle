@@ -10,6 +10,8 @@ const Tactics = lazy(() => import("./routes/Tactics"));
 const Transfers = lazy(() => import("./routes/Transfers"));
 const League = lazy(() => import("./routes/League"));
 const Match = lazy(() => import("./routes/Match"));
+// Dev-only board — T1-2a tactical board with frame scrubber + window.fwDev.
+const DevBoard = lazy(() => import("./routes/Dev/TacticalBoard"));
 
 // Root component receives nested route output via `props.children`. Pattern
 // lifted from the @solidjs/router v0.15 root-layout recipe — it's the only
@@ -28,6 +30,7 @@ export default function App(): JSX.Element {
       <Route path="/transfers" component={Transfers} />
       <Route path="/league" component={League} />
       <Route path="/match" component={Match} />
+      <Route path="/dev/board" component={DevBoard} />
     </Route>
   );
 }

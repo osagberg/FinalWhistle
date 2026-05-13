@@ -25,7 +25,7 @@
 use fw_core::Seed;
 use fw_match_sim::{MatchState, tick_match};
 
-use crate::MatchStateDto;
+use crate::{MatchFrameDto, MatchStateDto};
 
 /// `play_match(seed_hex, tick_count)` — run a smoke match end-to-end and
 /// return the final state as a DTO.
@@ -54,4 +54,41 @@ pub async fn play_match(seed_hex: String, tick_count: u32) -> Result<MatchStateD
 pub async fn get_dummy_state() -> Result<MatchStateDto, String> {
     let state = MatchState::initial(Seed::from_u64(1));
     Ok(MatchStateDto::from_state(&state))
+}
+
+/// `match_frames(seed_hex, tick_count)` — produce a sequence of per-tick
+/// frames for the dev-tier 2D tactical board (T1-2a per ADR-0007 Layer 2).
+///
+/// Returns `Vec<MatchFrameDto>` of length `tick_count + 1` (one entry per
+/// tick from `0` through `tick_count` inclusive — the inclusive endpoint
+/// gives the renderer a frame to display when the scrubber is parked at
+/// the end). Frames are produced by running `tick_match` deterministically
+/// for the given seed; the result is byte-identical across runs.
+///
+/// The frontend `TauriFrameSource` impl calls this command; the
+/// `HttpFrameSource` impl reads JSON produced by the
+/// `crates/fw-match-sim/src/bin/dump_frames.rs` binary (which uses the
+/// same `MatchFrameDto` shape via the camelCase serde convention).
+/// Note on `tick_count` semantics: `tick_count = 0` returns a single
+/// frame (the initial state at tick 0). The returned Vec length is
+/// always `tick_count + 1`. Codex pre-T1-2b audit P1 pin: the
+/// `tick_count_zero_returns_one_frame` test below makes this explicit.
+#[tauri::command]
+pub async fn match_frames(seed_hex: String, tick_count: u32) -> Result<Vec<MatchFrameDto>, String> {
+    let trimmed = seed_hex.trim_start_matches("0x");
+    let raw = u64::from_str_radix(trimmed, 16)
+        .map_err(|e| format!("invalid seed_hex {seed_hex:?}: {e}"))?;
+    let seed = Seed::from_u64(raw);
+
+    let mut state = MatchState::initial(seed);
+    // tick_count + 1 frames: index 0 is the initial state, index
+    // tick_count is the state after `tick_count` advances.
+    let total = (tick_count as usize).saturating_add(1);
+    let mut frames = Vec::with_capacity(total);
+    frames.push(MatchFrameDto::from_state(&state));
+    for _ in 0..tick_count {
+        state = tick_match(state);
+        frames.push(MatchFrameDto::from_state(&state));
+    }
+    Ok(frames)
 }

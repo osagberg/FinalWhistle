@@ -4,39 +4,38 @@
 
 ## Phase
 
-**T1 — First Match** (active; T1-1 closed; Codex pre-T1-2b re-audit GREEN; T1-2a unblocked, awaiting CI green on HEAD)
+**T1 — First Match** (active; T1-1 + T1-2a closed; next: T1-2b-i ball physics — first TDD-mandated row)
 
 ## Active task
 
-(none — re-audit cleared. After full CI on HEAD goes green, `/next` picks T1-2a.)
+(none — T1-2a closed. `/next` picks T1-2b-i.)
 
 ## Phase pointer
 
-- **Just closed:** Codex pre-T1-2b re-audit pass #3 (GREEN, no new P0/P1). Pass #1 closed 6 of 7 prior P1s at `80c53f76`. Pass #2 closed the remaining 3 P1s + the xG P2 + state-pointer drift + ADR-0012 wording at `5bb0939d`. Pass #3 confirms: design + spec audit clean, determinism floor passes, ADR coherence pass, no new findings.
-- **Now:** Final CI verification on HEAD. Determinism Gate green; full CI was cancelled on `5bb0939d` because the new fw-content-baker validate step's release build pushed Ubuntu over the 20m timeout. This commit drops `--release` from that step (validate is a static check; debug build is fast). After this push, CI re-runs.
-- **Next:** Once CI is green on HEAD, `/next` picks **T1-2a** — dev-tier 2D tactical board per ADR-0007 + ADR-0008. Companion specs (Tranche 4) are all on disk: `tactic-fsm.md`, `bt-attribute-binding.md`, `decision-cadence-stagger.md`, `xg-coefficients.md`, `personality-bias-weights.md`. Implementation can begin.
+- **Just closed:** **T1-2a Dev-tier 2D tactical board.** ADR-0007 Layer 2 + ADR-0008 implemented. `MatchFrameDto` lives in `fw-match-sim::dto` (camelCase serde, exempted in determinism-audit). `match_frames` IPC command in fw-tauri. `dump_frames` CLI binary (bit-identical stdout). SolidJS `TacticalBoard.tsx` with PixiJS Application (lifecycle per Frontend/RULES.md §4). FrameSource trait + dual impls + fail-loud URL-param factory + JSON-shape validation. `window.fwDev` DEV-only debug surface for Claude Preview. E2E verified via Claude Preview MCP. 1 P0 + 4 P1 from self-review triple closed in-place.
+- **Now:** Phase T1 critical path advances: T1-2a → **T1-2b-i (ball physics)** → T1-2b-ii (tactic FSM + cadence stagger) → T1-2b-iii (FSM-of-BTs + utility + PlayerSeparation) → T1-2b-iv (signature dispatcher). T1-2b-i is the **first row under the TDD mandate** (per `docs/DECISIONS.md` 2026-05-13 superpowers TDD entry — real behavior code in `fw-match-sim`).
+- **Next:** `T1-2b-i` ball physics — semi-implicit Euler in Q32 (gravity, drag, Magnus, bounce, friction) per ADR-0001 §"7 layers" + v1 carry-forward design. Tier-2 Codex audit recommended pre-implementation per ADR-0015 §"5 explicit criteria" (criterion 1: schema lock — adds ball-state extensions to canonical `MatchState`; criterion 2: new canonical-state surface).
 
 ## Blockers
 
-None. Soft acceptance dependency: Claude Preview MCP install (queued in `MEMORY.md` "Queued user actions"). T1-2a starts without it; the e2e Claude-Preview path is part of T1-2a's done-criteria, not a start blocker.
+None. T1-2a left a clean board (figuratively and literally).
 
 ## Last green verify
 
-2026-05-13 — `scripts/fw verify` green at `5bb0939d` (the last code-touching commit was `80c53f76` and had full CI matrix green; `5bb0939d` is docs-only with Determinism Gate green).
+2026-05-13 — `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings` + `cargo fmt --check` + frontend `pnpm typecheck`/`lint`/`build` + `scripts/fw verify` (banned-terms + determinism-audit + canonical-hash regression + verify-content) — all clean at T1-2a HEAD.
 
 ## Last canonical hash
 
-`blake3:d6258107b2c90c84d2feeaa8633d1f5c159e10ccd2016623b52b41d3d96b1a49` (60-tick smoke seed; pinned T0-7; UNCHANGED through every audit-remediation commit). The hash next re-baselines at T1-2b-ii (Tranche-5 split row that adds `decision_slots: [u8; 22]` + `interrupt_cooldown_until: [Tick; 22]` to canonical `MatchState`, per ADR-0012 trigger #1).
+`blake3:d6258107b2c90c84d2feeaa8633d1f5c159e10ccd2016623b52b41d3d96b1a49` (60-tick smoke seed; pinned T0-7; UNCHANGED through T1-2a — the dev board is a read-only projection of canonical state, doesn't mutate it). Re-baseline expected at T1-2b-ii (`decision_slots: [u8; 22]` + `interrupt_cooldown_until: [Tick; 22]` added to `MatchState` per ADR-0012 trigger #1).
 
 ## Recent commits
 
-- `<this commit>` ci: drop --release from content-pack validation step (Ubuntu timeout fix); STATUS + MEMORY → re-audit green
+- `<this commit>` feat(ui,tauri,sim): T1-2a dev-tier 2D tactical board (ADR-0007 Layer 2 + ADR-0008)
+- `e7807927` ci: drop --release from FW-VAL CI step; STATUS+MEMORY → re-audit green
 - `5bb0939d` docs: close 3 P1s + 3 P2s from Codex re-audit pass #2
 - `80c53f76` fix: re-audit pass #1 P1+P2 fixes (7 P1s closed)
 - `af7df8fa` docs: close 7-tranche audit remediation + queue Codex re-audit
-- `27920de6` Tranche 7 — workflow + rules cleanup
-- `e79adb07` Tranche 6 — real ContentStore loader + real FW-VAL
 
 ## Next up
 
-`/next` picks **T1-2a** as soon as CI on the current HEAD is green. T1-2a scope (per `docs/MASTER_PLAN.md` T1-2a row): `frontend/src/routes/Dev/TacticalBoard.tsx` consuming `MatchFrameDTO` via a `FrameSource` trait (TauriFrameSource + HttpFrameSource impls); `crates/fw-match-sim/src/bin/dump_frames.rs` producing deterministic fixture JSON; `window.fwDev` debug surface for Claude Preview `preview_eval`. Acceptance gate covers Tauri + browser-dev paths end-to-end.
+`/next` will pick **T1-2b-i** — ball physics in `fw-match-sim::ball`. Semi-implicit Euler integration in Q32 (gravity, drag, Magnus, bounce, friction) ported from v1's `BallPhysics.cs` design (NOT code; Rust idioms only). The TDD mandate fires — RED-GREEN-REFACTOR per the `superpowers` plugin skill before each implementation chunk. Tier-2 Codex audit recommended before code lands (per ADR-0015) since this is the first canonical-state extension in T1.

@@ -1,0 +1,14 @@
+# Dev fixtures for T1-2a browser-dev mode (per ADR-0008).
+# These are regenerable from `cargo run --bin dump_frames` and are
+# committed-out so the repo doesn't carry 100s of KB of derived JSON.
+# Vite serves files in this directory at `/dev-fixtures/...`.
+#
+# Regenerate the standard smoke fixture:
+#
+#   cargo run --bin dump_frames -- --seed 0xdeadbeef --ticks 60 > frontend/public/dev-fixtures/smoke.json
+#
+# Then visit:
+#
+#   http://localhost:1420/dev/board?source=fixture:/dev-fixtures/smoke.json
+*.json
+!.gitignore

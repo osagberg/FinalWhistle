@@ -108,6 +108,23 @@ def main() -> int:
             # Skip target/ build artifacts.
             if "target" in rs_file.parts:
                 continue
+            # File-level exemptions for documented Q32 → f64 viewer-side
+            # projection modules. These are NOT canonical-state code —
+            # they project canonical state out to JSON for the renderer.
+            # Each exemption MUST have an `#![allow(clippy::float_arithmetic)]`
+            # at the module head + a `Float boundary` comment block
+            # explaining the one-way contract.
+            rel = rs_file.relative_to(REPO_ROOT)
+            EXEMPT_FILES = {
+                # T1-2a (per ADR-0007 + ADR-0008): MatchFrameDto is the
+                # renderer-side per-tick projection consumed by the
+                # dev-tier 2D tactical board AND by the dump_frames
+                # binary. The Q32 → f64 cast is the only float
+                # arithmetic; nothing reads it back into the sim.
+                Path("crates/fw-match-sim/src/dto.rs"),
+            }
+            if rel in EXEMPT_FILES:
+                continue
             for line_no, rule, snippet in audit_file(rs_file, crate):
                 violations.append((rs_file.relative_to(REPO_ROOT), line_no, rule, snippet))
 

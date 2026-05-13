@@ -114,7 +114,15 @@ node_modules/
 # ==========================================
 # .NET / C# build artifacts (MatchSim + tests)
 # ==========================================
+# `**/bin/` was the original FW-v1 Visual Studio output pattern. Rust
+# uses `src/bin/` for crate-binary source (e.g.
+# `crates/fw-match-sim/src/bin/dump_frames.rs` for T1-2a). The negation
+# below preserves that source directory while still ignoring legacy C#
+# bin/ artefacts (none present in the v2 tree; the .NET dirs were
+# dropped at the pivot per REFERENCES.md).
 **/bin/
+!crates/*/src/bin/
+!crates/*/src/bin/**
 **/obj/
 *.user
 *.userosscache
