@@ -110,10 +110,10 @@ impl Q32 {
 
     // ---- Arithmetic (checked) ------------------------------------------
     //
-    // Bare `+` / `-` / `*` / `/` operators use the underlying `fixed`
-    // crate's `Wrapping`-style semantics on overflow in release mode.
-    // For canonical-state arithmetic we want checked — silent wraparound
-    // is forbidden. Callers in sim crates use these `checked_*` methods.
+    // Bare `+` / `-` / `*` / `/` operators on Q32 panic-on-overflow
+    // (see the operator-impl block at the bottom of this file). For
+    // callers that want to handle overflow gracefully rather than crash,
+    // the `checked_*` family returns `Option<Q32>`.
 
     /// Checked addition. Returns `None` on overflow.
     #[inline]
@@ -204,14 +204,28 @@ impl Q32 {
 }
 
 // -------------------------------------------------------------------------
-// Operator overloads (use checked_* in canonical-state crates)
+// Operator overloads (panic on overflow — Codex pre-T0 audit Option B)
 // -------------------------------------------------------------------------
+//
+// Bare `+ - * /` on Q32 used to delegate to FixedI64's Wrapping semantics,
+// which silently wraps in release mode. That's a determinism cliff: a
+// wrap during sim arithmetic corrupts canonical state without anyone
+// noticing.
+//
+// Fix: every bare operator now calls the underlying `checked_*` method
+// and panics on overflow with an explicit context message. Silent wrap
+// is no longer reachable through bare operators in canonical-state code.
+//
+// For known-bounded-input arithmetic where panic isn't acceptable,
+// callers use the saturating_* methods directly (see above) or the
+// crate's checked_* methods (`Q32::checked_add` etc.) which return
+// `Option<Q32>`.
 
 impl Add for Q32 {
     type Output = Q32;
     #[inline]
     fn add(self, rhs: Q32) -> Q32 {
-        Q32(self.0 + rhs.0)
+        Q32(self.0.checked_add(rhs.0).expect("Q32::add overflow"))
     }
 }
 
@@ -219,7 +233,7 @@ impl Sub for Q32 {
     type Output = Q32;
     #[inline]
     fn sub(self, rhs: Q32) -> Q32 {
-        Q32(self.0 - rhs.0)
+        Q32(self.0.checked_sub(rhs.0).expect("Q32::sub overflow"))
     }
 }
 
@@ -227,7 +241,7 @@ impl Mul for Q32 {
     type Output = Q32;
     #[inline]
     fn mul(self, rhs: Q32) -> Q32 {
-        Q32(self.0 * rhs.0)
+        Q32(self.0.checked_mul(rhs.0).expect("Q32::mul overflow"))
     }
 }
 
@@ -235,7 +249,7 @@ impl Div for Q32 {
     type Output = Q32;
     #[inline]
     fn div(self, rhs: Q32) -> Q32 {
-        Q32(self.0 / rhs.0)
+        Q32(self.0.checked_div(rhs.0).expect("Q32::div by zero or overflow"))
     }
 }
 
@@ -243,35 +257,35 @@ impl Neg for Q32 {
     type Output = Q32;
     #[inline]
     fn neg(self) -> Q32 {
-        Q32(-self.0)
+        Q32(self.0.checked_neg().expect("Q32::neg overflow (value was Q32::MIN)"))
     }
 }
 
 impl AddAssign for Q32 {
     #[inline]
     fn add_assign(&mut self, rhs: Q32) {
-        self.0 += rhs.0;
+        self.0 = self.0.checked_add(rhs.0).expect("Q32::add_assign overflow");
     }
 }
 
 impl SubAssign for Q32 {
     #[inline]
     fn sub_assign(&mut self, rhs: Q32) {
-        self.0 -= rhs.0;
+        self.0 = self.0.checked_sub(rhs.0).expect("Q32::sub_assign overflow");
     }
 }
 
 impl MulAssign for Q32 {
     #[inline]
     fn mul_assign(&mut self, rhs: Q32) {
-        self.0 *= rhs.0;
+        self.0 = self.0.checked_mul(rhs.0).expect("Q32::mul_assign overflow");
     }
 }
 
 impl DivAssign for Q32 {
     #[inline]
     fn div_assign(&mut self, rhs: Q32) {
-        self.0 /= rhs.0;
+        self.0 = self.0.checked_div(rhs.0).expect("Q32::div_assign by zero or overflow");
     }
 }
 

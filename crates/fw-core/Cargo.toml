@@ -17,8 +17,11 @@ float_arithmetic = "deny"
 fixed       = { workspace = true }
 cordic      = { workspace = true }
 serde       = { workspace = true }
-slotmap     = { workspace = true }
 thiserror   = { workspace = true }
+# slotmap dependency removed at the Codex pre-T0 audit follow-up: the ID
+# types are now u32 newtypes (durable across save→load) rather than
+# slotmap keys (runtime-instance-bound). See crates/fw-core/src/ids.rs
+# header for the rationale.
 
 [dev-dependencies]
 ron        = { workspace = true }
