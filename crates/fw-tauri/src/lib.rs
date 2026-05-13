@@ -23,7 +23,7 @@
 //! contract is enforced one crate upstream (`fw-match-sim` et al.).
 
 use fw_core::Seed;
-use fw_match_sim::{tick_match, MatchState};
+use fw_match_sim::{MatchState, tick_match};
 use serde::Serialize;
 
 // -------------------------------------------------------------------------

@@ -95,9 +95,9 @@ pub struct TacticalArchetype {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FormationSlot {
-    pub roster_slot: u8,  // 1..=11
-    pub role: String,     // "GK", "RB", "RCB", ...
-    pub x: i16,           // metres, home-orientation (own goal at X = -52)
+    pub roster_slot: u8, // 1..=11
+    pub role: String,    // "GK", "RB", "RCB", ...
+    pub x: i16,          // metres, home-orientation (own goal at X = -52)
     pub z: i16,
 }
 
@@ -113,14 +113,14 @@ pub struct FormationSlot {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ContentKind {
-    PlayerName     = 0x01,
-    ClubName       = 0x02,
-    StadiumName    = 0x03,
-    PlayerBio      = 0x04,
-    ScoutPhrase    = 0x05,
-    NewsHeadline   = 0x06,
-    ManagerQuote   = 0x07,
-    FanReaction    = 0x08,
+    PlayerName = 0x01,
+    ClubName = 0x02,
+    StadiumName = 0x03,
+    PlayerBio = 0x04,
+    ScoutPhrase = 0x05,
+    NewsHeadline = 0x06,
+    ManagerQuote = 0x07,
+    FanReaction = 0x08,
     CommentaryLine = 0x09,
 }
 
@@ -225,8 +225,7 @@ impl ContentStore {
                 let second_last_idx = rng.gen_range(0..culture.last_name_bank.len());
                 let compound = format!(
                     "{}-{}",
-                    culture.last_name_bank[last_idx],
-                    culture.last_name_bank[second_last_idx]
+                    culture.last_name_bank[last_idx], culture.last_name_bank[second_last_idx]
                 );
                 name = name.replace(&culture.last_name_bank[last_idx], &compound);
             }
@@ -265,7 +264,11 @@ mod tests {
     #[test]
     fn empty_store_returns_none() {
         let store = ContentStore::default();
-        assert!(store.sample_player_name("fwh.core:culture.anglo", 1).is_none());
+        assert!(
+            store
+                .sample_player_name("fwh.core:culture.anglo", 1)
+                .is_none()
+        );
     }
 
     #[test]

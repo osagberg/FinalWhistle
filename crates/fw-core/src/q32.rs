@@ -22,9 +22,8 @@
 //! codebase imports a single, well-named primitive (`Q32`) rather than
 //! sprinkling `FixedI64<U32>` everywhere.
 
-use cordic::CordicNumber;
-use fixed::types::extra::U32;
 use fixed::FixedI64;
+use fixed::types::extra::U32;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt;
@@ -160,20 +159,12 @@ impl Q32 {
 
     #[inline]
     pub fn min(self, other: Q32) -> Q32 {
-        if self.0 <= other.0 {
-            self
-        } else {
-            other
-        }
+        if self.0 <= other.0 { self } else { other }
     }
 
     #[inline]
     pub fn max(self, other: Q32) -> Q32 {
-        if self.0 >= other.0 {
-            self
-        } else {
-            other
-        }
+        if self.0 >= other.0 { self } else { other }
     }
 
     // ---- Sqrt (CORDIC) --------------------------------------------------
@@ -249,7 +240,10 @@ impl Div for Q32 {
     type Output = Q32;
     #[inline]
     fn div(self, rhs: Q32) -> Q32 {
-        Q32(self.0.checked_div(rhs.0).expect("Q32::div by zero or overflow"))
+        Q32(self
+            .0
+            .checked_div(rhs.0)
+            .expect("Q32::div by zero or overflow"))
     }
 }
 
@@ -257,7 +251,10 @@ impl Neg for Q32 {
     type Output = Q32;
     #[inline]
     fn neg(self) -> Q32 {
-        Q32(self.0.checked_neg().expect("Q32::neg overflow (value was Q32::MIN)"))
+        Q32(self
+            .0
+            .checked_neg()
+            .expect("Q32::neg overflow (value was Q32::MIN)"))
     }
 }
 
@@ -285,7 +282,10 @@ impl MulAssign for Q32 {
 impl DivAssign for Q32 {
     #[inline]
     fn div_assign(&mut self, rhs: Q32) {
-        self.0 = self.0.checked_div(rhs.0).expect("Q32::div_assign by zero or overflow");
+        self.0 = self
+            .0
+            .checked_div(rhs.0)
+            .expect("Q32::div_assign by zero or overflow");
     }
 }
 

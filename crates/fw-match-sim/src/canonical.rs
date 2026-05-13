@@ -61,7 +61,9 @@ pub struct CanonicalEncoder {
 impl CanonicalEncoder {
     /// Fresh encoder with the magic + version prefix already written.
     pub fn new() -> CanonicalEncoder {
-        let mut enc = CanonicalEncoder { buf: Vec::with_capacity(2048) };
+        let mut enc = CanonicalEncoder {
+            buf: Vec::with_capacity(2048),
+        };
         enc.buf.extend_from_slice(MAGIC);
         enc.write_u16(VERSION);
         enc

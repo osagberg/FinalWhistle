@@ -29,7 +29,11 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-None active. Next via `/next`.
+None active. Next via `/next` (suggested: T0-12).
+
+## Recently completed
+
+- 2026-05-13 — T0-7 Pin BLAKE3 canonical hash on dev box — `d6258107…` pinned; `cargo test -p fw-replay` 4/4 green; cross-OS matrix → T0-7b.
 
 ## Active decisions
 

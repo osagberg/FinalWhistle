@@ -1,9 +1,12 @@
 // Phase-0 smoke fixture for the determinism gate.
 //
 // Loaded by `tests/canonical_hash.rs::smoke_seed_corpus_fixture_matches_pinned_constant`.
-// The `expected_hash` field is `"blake3:" + lowercase-hex(blake3-digest)`. All-zeros
-// means PLACEHOLDER — replaced on first CI green pass per the bootstrap protocol in
-// the test file's header comment and `docs/specs/determinism-gate.md` §9.
+// The `expected_hash` field is `"blake3:" + lowercase-hex(blake3-digest)`.
+//
+// Pinned 2026-05-13 (T0-7) on the macOS-14 dev box; cross-OS matrix
+// agreement is verified by the phase-gate PR (T0-7b). Re-baselining
+// requires updating this value AND `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
+// in the same commit per `docs/specs/determinism-gate.md` §9.
 //
 // Fixture schema is `ReplayCorpusEntry` in `crates/fw-replay/src/lib.rs`; the
 // canonical_hash test parses a minimal subset of the same shape.
@@ -11,10 +14,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:0000000000000000000000000000000000000000000000000000000000000000",
+    expected_hash: "blake3:d6258107b2c90c84d2feeaa8633d1f5c159e10ccd2016623b52b41d3d96b1a49",
     metadata: (
         description: "Phase-0 smoke fixture. 22-player dummy sim, 60 ticks, no behavior.",
         generated_at: "2026-05-13",
-        notes: "Hash will be filled on first CI green pass per determinism-gate.md §9.",
+        notes: "Pinned on macOS-14 dev box at T0-7. Cross-OS matrix verification via phase-gate PR (T0-7b).",
     ),
 )

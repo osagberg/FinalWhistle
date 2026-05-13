@@ -24,9 +24,7 @@ pub const TICKS_PER_SECOND: i64 = 60;
 
 /// A monotonic in-sim tick. Construct via `Tick::ZERO` + `successor()`,
 /// `Tick::from_raw(i64)`, or arithmetic.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Tick(i64);
 
@@ -155,8 +153,14 @@ mod tests {
     #[test]
     fn arithmetic_uses_saturating_at_extremes() {
         // saturate, don't panic
-        assert_eq!(Tick::from_raw(i64::MAX) + Tick::from_raw(1), Tick::from_raw(i64::MAX));
-        assert_eq!(Tick::from_raw(i64::MIN) - Tick::from_raw(1), Tick::from_raw(i64::MIN));
+        assert_eq!(
+            Tick::from_raw(i64::MAX) + Tick::from_raw(1),
+            Tick::from_raw(i64::MAX)
+        );
+        assert_eq!(
+            Tick::from_raw(i64::MIN) - Tick::from_raw(1),
+            Tick::from_raw(i64::MIN)
+        );
     }
 
     #[test]

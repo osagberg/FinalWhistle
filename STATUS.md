@@ -8,7 +8,7 @@
 
 ## Active task
 
-None — awaiting first `/next` invocation.
+None — awaiting next `/next` invocation. Suggested: `T0-12` (fix pre-existing fw-tauri + fw-content-baker scaffold build failures discovered during T0-7).
 
 ## Phase progress (T0)
 
@@ -19,8 +19,10 @@ None — awaiting first `/next` invocation.
 | T0-3 fw-core Q32/Seed/Tick/IDs | DONE | Q32 newtype with checked_* arithmetic; bare operators panic-on-overflow (post-audit Q1=B refinement). IDs are u32 newtypes (durable, save→load round-trip). PlayerSlot=u8 runtime handle lives in fw-match-sim. |
 | T0-4 fw-match-sim stub | DONE | 22-player struct + tick reducer (no behavior). |
 | T0-5 Canonical encoder + BLAKE3 hash | DONE | Hand-rolled little-endian encoder in `crates/fw-match-sim/src/canonical.rs`. Uses BLAKE3 (MASTER_PLAN earlier referenced SHA-256 — that's stale; doc-fixed). |
-| T0-6 Pinned hash + insta snapshot | PARTIAL | Test exists but pinned hash is `[0u8; 32]` placeholder, gated by `#[ignore]`. Sanity test added (`smoke_seed_canonical_hash_is_nonzero`) so the placeholder can't silently pass on real state. Filling the real hash is T0-7. |
-| T0-7 GitHub Actions matrix CI green | TODO | Critical-path next task. Workflow files exist; first green run will surface the pinned BLAKE3 hash. |
+| T0-6 Canonical-hash regression test wiring | DONE | Test + fixture + 4-test surface live in `crates/fw-replay`. Sanity test (`smoke_seed_canonical_hash_is_nonzero`) prevents the all-zero footgun. Reframed as test-wiring-only per Codex audit; the actual pinning was T0-7. |
+| T0-7 Pin BLAKE3 canonical hash on dev box | DONE | `PINNED_60_TICK = d6258107b2c90c84d2feeaa8633d1f5c159e10ccd2016623b52b41d3d96b1a49`. `cargo test --release -p fw-replay`: 4 passed / 1 ignored (insta baseline, separate work) / 0 failed. RON fixture + in-code constant agree. `#[ignore]` removed from `smoke_seed_60_tick_canonical_hash_pinned`. |
+| T0-7b Cross-OS canonical-hash matrix agreement | TODO | Phase-gate task. Open the T0 review PR via `/done`; CI matrix `[macos-14, windows-latest, ubuntu-22.04]` must produce the same BLAKE3 digest. Drift on any platform = real determinism leak, debug before merge. |
+| T0-12 Fix pre-existing fw-tauri + fw-content-baker scaffold build failures | TODO | Discovered during T0-7 verify. `fw-tauri` fails `cargo build` with 5 E0255 errors (duplicate `__cmd__*` items from `#[tauri::command]` expansion — likely missing Cargo feature flag). `fw-content-baker` fails clippy `-D warnings` with 14 dead-code errors (constants + validators authored ahead of T2-3 wiring). Cleanest fix: 1-line Cargo.toml feature + `#![allow(dead_code)]` at module roots. Unblocks `cargo test --workspace` so `/next` can use full-workspace verify from here on. |
 | T0-8 Justfile / scripts/fw | DONE | Justfile + bash front-door at 81fdeff. Reconciliation added `banned-terms` + `verify-content` + `determinism-audit` recipes. |
 | T0-9 /next slash command + hooks | DONE | Full blueprint reconciled at 26f1ba0. 6 commands, 7 agents, 5 hooks, path-scoped rules. |
 | T0-10 DECISIONS.md + protect hook | DONE | Hook live; append-only enforced. |
@@ -28,7 +30,7 @@ None — awaiting first `/next` invocation.
 
 ## Blockers
 
-None. T0-7 is the critical path before T1.
+None for T0-7 (DONE). T0-12 is the critical path before T1 (workspace verify currently red on pre-existing scaffold debt).
 
 ## Last green verify
 
@@ -36,7 +38,7 @@ Not yet run end-to-end on this branch — `scripts/fw verify` will be exercised 
 
 ## Last canonical hash
 
-Placeholder `[0u8; 32]`. Real hash pinned at T0-7 (first CI green pass).
+`blake3:d6258107b2c90c84d2feeaa8633d1f5c159e10ccd2016623b52b41d3d96b1a49` (macOS-14 dev box, T0-7, 2026-05-13). Cross-OS matrix agreement pending T0-7b at phase-gate.
 
 ## Recent commits
 
@@ -57,4 +59,4 @@ Placeholder `[0u8; 32]`. Real hash pinned at T0-7 (first CI green pass).
 
 ## Next up
 
-`/next` will pick **T0-7** (CI matrix green + canonical hash pinned).
+`/next` will pick **T0-12** (fw-tauri + fw-content-baker scaffold fixes). After T0-12 lands, run `/done` to open the T0 phase-gate PR (which exercises T0-7b cross-OS matrix verification).

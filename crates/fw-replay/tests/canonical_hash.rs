@@ -49,7 +49,7 @@ use hex_literal::hex;
 use serde::Deserialize;
 
 use fw_core::{Q32, Seed, Tick};
-use fw_match_sim::{tick_match, MatchState};
+use fw_match_sim::{MatchState, tick_match};
 
 // -------------------------------------------------------------------------
 // Pinned-hash table (compile-time-enforced)
@@ -62,18 +62,19 @@ use fw_match_sim::{tick_match, MatchState};
 const SMOKE_SEED: u64 = 0xDEAD_BEEF_DEAD_BEEF;
 const SMOKE_TICK_COUNT: u32 = 60;
 
-/// **PLACEHOLDER** — filled in on first CI green pass. All zeros forces
-/// the smoke test to fail noisily if the placeholder is forgotten.
+/// Pinned BLAKE3 of the 60-tick smoke seed's canonical state, recorded on
+/// the macOS-14 dev box (T0-7, 2026-05-13). Cross-OS matrix agreement
+/// (Win + Linux producing the same digest) is verified via the phase-gate
+/// PR opened by `/done` (T0-7b in `docs/MASTER_PLAN.md`).
 ///
-/// On first introduction, the developer:
-/// 1. Runs `cargo test -p fw-replay canonical_hash --release` locally.
-/// 2. Captures the actual hash from the failure output.
-/// 3. Replaces this literal AND the RON fixture's `expected_hash` field.
-/// 4. Removes the `#[ignore]` from `smoke_seed_60_tick_canonical_hash_pinned`.
-/// 5. Verifies all three OSes in CI agree on the new hash.
-const PINNED_60_TICK: [u8; 32] = hex!(
-    "0000000000000000000000000000000000000000000000000000000000000000"
-);
+/// Re-baselining requires: task-spec authorization + simultaneous update
+/// of this constant + the RON fixture's `expected_hash` field + commit
+/// body noting the new short BLAKE3 + the reason. Drift not authorized
+/// by the task spec is a real determinism regression — investigate before
+/// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
+/// re-baselining procedure.
+const PINNED_60_TICK: [u8; 32] =
+    hex!("d6258107b2c90c84d2feeaa8633d1f5c159e10ccd2016623b52b41d3d96b1a49");
 
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.
@@ -81,16 +82,14 @@ const PINNED_60_TICK: [u8; 32] = hex!(
 /// Currently only the Tier-A smoke seed is pinned. Tier-D (RC gate)
 /// expands this list per `docs/specs/determinism-gate.md` §11.
 #[allow(dead_code)] // referenced by future corpus-iteration tests
-const PINNED_HASHES: &[(&str, u32, [u8; 32])] = &[
-    ("0xdeadbeefdeadbeef", SMOKE_TICK_COUNT, PINNED_60_TICK),
-];
+const PINNED_HASHES: &[(&str, u32, [u8; 32])] =
+    &[("0xdeadbeefdeadbeef", SMOKE_TICK_COUNT, PINNED_60_TICK)];
 
 // -------------------------------------------------------------------------
 // The Phase-0 acceptance test
 // -------------------------------------------------------------------------
 
 #[test]
-#[ignore = "placeholder hash — fill on first CI green pass per file-header bootstrap protocol"]
 fn smoke_seed_60_tick_canonical_hash_pinned() {
     let seed = Seed::from_u64(SMOKE_SEED);
     let mut state = MatchState::initial(seed);
@@ -102,7 +101,8 @@ fn smoke_seed_60_tick_canonical_hash_pinned() {
     let hash: [u8; 32] = blake3::hash(&bytes).into();
 
     assert_eq!(
-        hash, PINNED_60_TICK,
+        hash,
+        PINNED_60_TICK,
         "\nCanonical-state hash drift on the Phase-0 smoke seed.\n\
          Seed:        0x{SMOKE_SEED:016x}\n\
          Ticks:       {SMOKE_TICK_COUNT}\n\
@@ -187,10 +187,7 @@ fn smoke_seed_runs_100_times_produce_one_hash() {
         "100 runs of the same seed produced {} distinct hashes — \
          hidden non-determinism. Hashes: {:?}",
         distinct.len(),
-        distinct
-            .iter()
-            .map(|h| hex_string(h))
-            .collect::<Vec<_>>(),
+        distinct.iter().map(|h| hex_string(h)).collect::<Vec<_>>(),
     );
 }
 
@@ -226,8 +223,8 @@ fn smoke_seed_corpus_fixture_matches_pinned_constant() {
             fixture_path.display()
         )
     });
-    let entry: ReplayCorpusEntry = ron::from_str(&raw)
-        .expect("failed to parse corpus fixture as RON");
+    let entry: ReplayCorpusEntry =
+        ron::from_str(&raw).expect("failed to parse corpus fixture as RON");
 
     assert_eq!(
         entry.schema_version, 1,
@@ -236,8 +233,8 @@ fn smoke_seed_corpus_fixture_matches_pinned_constant() {
     assert_eq!(entry.seed, "0xdeadbeefdeadbeef");
     assert_eq!(entry.tick_count, SMOKE_TICK_COUNT);
 
-    let fixture_hash = parse_blake3_hex(&entry.expected_hash)
-        .expect("fixture expected_hash field is malformed");
+    let fixture_hash =
+        parse_blake3_hex(&entry.expected_hash).expect("fixture expected_hash field is malformed");
     assert_eq!(
         fixture_hash,
         PINNED_60_TICK,
@@ -279,9 +276,7 @@ fn smoke_seed_final_state_snapshot() {
 /// `crates/fw-replay/fixtures/<seed>.ron`.
 fn locate_fixture(filename: &str) -> PathBuf {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    PathBuf::from(manifest_dir)
-        .join("fixtures")
-        .join(filename)
+    PathBuf::from(manifest_dir).join("fixtures").join(filename)
 }
 
 /// Parse a `"blake3:<64-hex-chars>"` string into a 32-byte digest.

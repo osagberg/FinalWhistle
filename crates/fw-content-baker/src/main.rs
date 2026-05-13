@@ -132,14 +132,27 @@ fn main() -> anyhow::Result<()> {
     log::info!("seed:      0x{:016x}", cli.seed);
 
     match cli.command {
-        Command::BakeNames { culture, count_per_bank } => {
-            log::info!("bake-names: culture={:?} count_per_bank={}", culture, count_per_bank);
+        Command::BakeNames {
+            culture,
+            count_per_bank,
+        } => {
+            log::info!(
+                "bake-names: culture={:?} count_per_bank={}",
+                culture,
+                count_per_bank
+            );
             stub_unimplemented("bake-names", "T2-3")
         }
-        Command::BakeBios { culture, archetype, templates_per_cell } => {
+        Command::BakeBios {
+            culture,
+            archetype,
+            templates_per_cell,
+        } => {
             log::info!(
                 "bake-bios: culture={:?} archetype={:?} templates_per_cell={}",
-                culture, archetype, templates_per_cell
+                culture,
+                archetype,
+                templates_per_cell
             );
             stub_unimplemented("bake-bios", "T2-4")
         }
@@ -159,10 +172,14 @@ fn main() -> anyhow::Result<()> {
             log::info!("bake-fan-reactions");
             stub_unimplemented("bake-fan-reactions", "T3+ (Stretch)")
         }
-        Command::BakeCommentary { event_type, templates_per_type } => {
+        Command::BakeCommentary {
+            event_type,
+            templates_per_type,
+        } => {
             log::info!(
                 "bake-commentary: event_type={:?} templates_per_type={}",
-                event_type, templates_per_type
+                event_type,
+                templates_per_type
             );
             stub_unimplemented("bake-commentary", "T3-3")
         }

@@ -10,16 +10,16 @@
 
 pub mod archetype;
 pub mod player;
-pub mod team;
 pub mod runtime;
+pub mod team;
 
 pub use archetype::BehaviorArchetype;
 pub use player::{GeneVector, PlayerTemplate};
-pub use team::TeamTemplate;
 pub use runtime::{
-    ContentKind, ContentLoadError, ContentStore, Culture, CultureWeights,
-    FormationSlot, TacticalArchetype, derive_seed,
+    ContentKind, ContentLoadError, ContentStore, Culture, CultureWeights, FormationSlot,
+    TacticalArchetype, derive_seed,
 };
+pub use team::TeamTemplate;
 
 use thiserror::Error;
 
