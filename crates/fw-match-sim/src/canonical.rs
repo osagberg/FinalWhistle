@@ -38,20 +38,55 @@
 //!   [ scalar × scalar_count ]
 //!     [ key u16 LE ]
 //!     [ value i64 LE (raw Q32 bits) ]
-//! [ ball ]                                  (T1-2b-i: 9 × Q32 = 72 bytes)
-//!   [ pos_x i64, pos_y i64, pos_z i64 ]     (24 bytes)
-//!   [ vel_x i64, vel_y i64, vel_z i64 ]     (24 bytes)
-//!   [ spin_x i64, spin_y i64, spin_z i64 ]  (24 bytes; new at T1-2b-i)
+//! [ decision_slots ]                               (T1-2b-ii: 22 raw u8 bytes)
+//!   [ slot_0 u8 .. slot_21 u8 ]                   (22 bytes)
+//! [ interrupt_cooldown_until ]                     (T1-2b-ii: 22 × i64 LE = 176 bytes)
+//!   [ cooldown_0 i64 .. cooldown_21 i64 ]         (Tick::to_raw() as i64 LE)
+//! [ team_tactic_states ]                           (T1-2b-ii: 2 × TeamTacticState)
+//!   [ per TeamTacticState: ]
+//!     [ state_tag u8 ]                             (TacticState discriminant)
+//!     [ setpiece_kind_tag u8 ]                     (present only when state_tag == SetPiece)
+//!     [ entry_tick i64 LE ]
+//! [ ball ]                                         (T1-2b-i: 9 × Q32 = 72 bytes)
+//!   [ pos_x i64, pos_y i64, pos_z i64 ]           (24 bytes)
+//!   [ vel_x i64, vel_y i64, vel_z i64 ]           (24 bytes)
+//!   [ spin_x i64, spin_y i64, spin_z i64 ]        (24 bytes; new at T1-2b-i)
 //! ```
+//!
+//! **Field order rationale (T1-2b-ii):** the three new fields are emitted
+//! after the player loop and before the ball block. This preserves the T0/T1-2b-i
+//! player-section layout while appending the new fields in a forward-compatible
+//! position. The ball block remains last.
+//!
+//! **TacticState encoding discriminants (stable; do not reorder):**
+//! - 0 = `HighPress`
+//! - 1 = `MidBlock`
+//! - 2 = `LowBlock`
+//! - 3 = `CounterAttack`
+//! - 4 = `SetPiece(_)` (followed by a second u8 for `SetPieceKind`)
+//!
+//! **SetPieceKind encoding discriminants (stable; do not reorder):**
+//! - 0 = `KickOff`
+//! - 1 = `GoalKick`
+//! - 2 = `GoalKickOpponent`
+//! - 3 = `CornerFor`
+//! - 4 = `CornerAgainst`
+//! - 5 = `FreeKickFor`
+//! - 6 = `FreeKickAgainst`
+//! - 7 = `ThrowInFor`
+//! - 8 = `ThrowInAgainst`
+//! - 9 = `PenaltyFor`
+//! - 10 = `PenaltyAgainst`
 //!
 //! Adding a new field is a determinism-corpus-invalidating event. The
 //! pinned hash will drift; re-baseline per
 //! `docs/specs/determinism-gate.md` §9.
 
+use crate::tactic_fsm::{SetPieceKind, TacticState, TeamTacticState};
 use crate::{BallState, MatchState, PlayerState};
 
 const MAGIC: &[u8; 4] = b"FWMS";
-const VERSION: u16 = 1;
+const VERSION: u16 = 2; // bumped at T1-2b-ii: MatchState gained three new fields
 
 /// Streaming canonical encoder. Append bytes as values are emitted; call
 /// `finish()` to get the buffer for hashing.
@@ -72,6 +107,13 @@ impl CanonicalEncoder {
     }
 
     /// Encode a `MatchState`. Single call site in `MatchState::encode_canonical`.
+    ///
+    /// Wire layout (T1-2b-ii):
+    /// 1. Header: seed, tick, scores, player count.
+    /// 2. Player loop (slot-ordered, stable).
+    /// 3. Decision cadence: `decision_slots` (22 u8) + `interrupt_cooldown_until` (22 × i64).
+    /// 4. Team tactic states: 2 × `TeamTacticState` (variable width; SetPiece adds 1 byte).
+    /// 5. Ball: 9 × Q32 = 72 bytes.
     pub fn encode_match_state(&mut self, state: &MatchState) {
         self.write_u64(state.seed.to_u64());
         self.write_i64(state.tick.to_raw());
@@ -102,6 +144,27 @@ impl CanonicalEncoder {
             self.encode_player(p);
         }
 
+        // T1-2b-ii: decision_slots — 22 raw u8 bytes (one per roster index).
+        // Emitted after the player loop, before the ball, per the T1-2b-ii
+        // wire-format spec comment at the top of this file.
+        for &slot in &state.decision_slots {
+            self.write_u8(slot);
+        }
+
+        // T1-2b-ii: interrupt_cooldown_until — 22 × i64 LE (176 bytes).
+        // `Tick::to_raw()` returns i64; little-endian for cross-platform parity.
+        for &cooldown in &state.interrupt_cooldown_until {
+            self.write_i64(cooldown.to_raw());
+        }
+
+        // T1-2b-ii: team_tactic_states — 2 × TeamTacticState.
+        // Each state emits: state_tag u8 + (optional setpiece_kind_tag u8) + entry_tick i64.
+        // SetPiece adds one byte for the SetPieceKind discriminant; all other
+        // states are 1 + 8 = 9 bytes. This is fixed-width per non-SetPiece state.
+        for &tts in &state.team_tactic_states {
+            self.encode_team_tactic_state(&tts);
+        }
+
         self.encode_ball(&state.ball);
     }
 
@@ -124,6 +187,25 @@ impl CanonicalEncoder {
             self.write_u16(*k);
             self.write_i64(v.to_bits());
         }
+    }
+
+    /// Encode one `TeamTacticState`.
+    ///
+    /// Layout: `[state_tag u8] [setpiece_kind_tag u8?] [entry_tick i64 LE]`
+    ///
+    /// The `setpiece_kind_tag` is only present when `state_tag == 4`
+    /// (`TacticState::SetPiece`). This makes the encoding variable-width:
+    /// 9 bytes for non-SetPiece states, 10 bytes for SetPiece states.
+    ///
+    /// Discriminants are stable (documented in the module wire-format comment
+    /// above); do NOT reorder `TacticState` or `SetPieceKind` variants.
+    fn encode_team_tactic_state(&mut self, tts: &TeamTacticState) {
+        let (state_tag, maybe_spk) = tactic_state_to_tags(tts.state);
+        self.write_u8(state_tag);
+        if let Some(spk_tag) = maybe_spk {
+            self.write_u8(spk_tag);
+        }
+        self.write_i64(tts.entry_tick.to_raw());
     }
 
     /// Encode the ball: 9 × Q32 = 72 bytes total. Layout is fixed at
@@ -181,6 +263,41 @@ impl Default for CanonicalEncoder {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Stable encoding helpers — discriminant tables
+// ---------------------------------------------------------------------------
+
+/// Map a `TacticState` to its canonical encoding tag(s).
+///
+/// Returns `(state_tag, maybe_setpiece_kind_tag)`.
+/// `SetPiece` emits two tags; all other states emit one.
+fn tactic_state_to_tags(state: TacticState) -> (u8, Option<u8>) {
+    match state {
+        TacticState::HighPress => (0, None),
+        TacticState::MidBlock => (1, None),
+        TacticState::LowBlock => (2, None),
+        TacticState::CounterAttack => (3, None),
+        TacticState::SetPiece(kind) => (4, Some(set_piece_kind_tag(kind))),
+    }
+}
+
+/// Map a `SetPieceKind` to its canonical encoding tag (0..=10).
+fn set_piece_kind_tag(kind: SetPieceKind) -> u8 {
+    match kind {
+        SetPieceKind::KickOff => 0,
+        SetPieceKind::GoalKick => 1,
+        SetPieceKind::GoalKickOpponent => 2,
+        SetPieceKind::CornerFor => 3,
+        SetPieceKind::CornerAgainst => 4,
+        SetPieceKind::FreeKickFor => 5,
+        SetPieceKind::FreeKickAgainst => 6,
+        SetPieceKind::ThrowInFor => 7,
+        SetPieceKind::ThrowInAgainst => 8,
+        SetPieceKind::PenaltyFor => 9,
+        SetPieceKind::PenaltyAgainst => 10,
+    }
+}
+
 // -------------------------------------------------------------------------
 // Tests
 // -------------------------------------------------------------------------
@@ -188,7 +305,7 @@ impl Default for CanonicalEncoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fw_core::Seed;
+    use fw_core::{Seed, Tick};
 
     #[test]
     fn encoded_buffer_starts_with_magic_and_version() {
@@ -196,6 +313,14 @@ mod tests {
         let bytes = s.encode_canonical();
         assert_eq!(&bytes[0..4], MAGIC);
         assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), VERSION);
+    }
+
+    #[test]
+    fn version_is_2_after_t1_2b_ii_schema_bump() {
+        assert_eq!(
+            VERSION, 2,
+            "VERSION should be 2 after T1-2b-ii canonical schema bump"
+        );
     }
 
     #[test]
@@ -214,19 +339,11 @@ mod tests {
     /// T1-2b-i Chunk 1 RED: the canonical ball block is now 9 fields
     /// (position + velocity + spin), each `Q32` (8 bytes), so the ball
     /// segment of the encoded buffer must be 72 bytes — up from 48 in T0.
-    /// Test asserts the total encoded length increased by exactly 24
-    /// bytes (3 new Q32 fields × 8 bytes) vs. the implied T0 layout.
     #[test]
     fn ball_block_encodes_spin_after_velocity() {
         let s = MatchState::initial(Seed::from_u64(1));
         let bytes = s.encode_canonical();
-        // Header + 22 players + 1 ball + scoreline. We don't pin the
-        // total here (canonical_hash.rs::PINNED_60_TICK does that with
-        // a BLAKE3); we just confirm the BALL segment grew by exactly
-        // 24 bytes for the 3 new Q32 spin fields.
-        //
-        // The encoder writes position (3 × Q32 = 24B), velocity (24B),
-        // and spin (24B). 72 bytes total per ball.
+        // Probe the ball block directly via a fresh encoder
         let mut probe = CanonicalEncoder::new();
         probe.encode_ball(&fw_match_sim_test_ball_with_spin());
         let probe_bytes = probe.finish();
@@ -246,6 +363,73 @@ mod tests {
         assert!(
             bytes.len() > 100,
             "encoded MatchState was suspiciously short"
+        );
+    }
+
+    /// T1-2b-ii: decision_slots block is present in encoding.
+    /// Mutate one slot and verify the encoding changes.
+    #[test]
+    fn encoding_reflects_decision_slots() {
+        let mut s = MatchState::initial(Seed::from_u64(1));
+        let a = s.encode_canonical();
+        // Mutate one decision slot to a value different from its current value
+        let original = s.decision_slots[0];
+        s.decision_slots[0] = if original == 14 { 0 } else { 14 };
+        let b = s.encode_canonical();
+        assert_ne!(a, b, "changing decision_slots should change the encoding");
+    }
+
+    /// T1-2b-ii: interrupt_cooldown_until block is present in encoding.
+    #[test]
+    fn encoding_reflects_interrupt_cooldown() {
+        let mut s = MatchState::initial(Seed::from_u64(1));
+        let a = s.encode_canonical();
+        s.interrupt_cooldown_until[0] = Tick::from_raw(42);
+        let b = s.encode_canonical();
+        assert_ne!(
+            a, b,
+            "changing interrupt_cooldown_until should change the encoding"
+        );
+    }
+
+    /// T1-2b-ii: team_tactic_states block is present in encoding.
+    #[test]
+    fn encoding_reflects_team_tactic_state() {
+        use crate::tactic_fsm::{TacticState, TeamTacticState};
+        let mut s = MatchState::initial(Seed::from_u64(1));
+        let a = s.encode_canonical();
+        s.team_tactic_states[0] =
+            TeamTacticState::initial().transition(TacticState::HighPress, Tick::from_raw(100));
+        let b = s.encode_canonical();
+        assert_ne!(
+            a, b,
+            "changing team_tactic_states should change the encoding"
+        );
+    }
+
+    /// T1-2b-ii: SetPiece state encodes both the state tag and the
+    /// SetPieceKind tag.
+    #[test]
+    fn setpiece_encoding_includes_kind_tag() {
+        use crate::tactic_fsm::{SetPieceKind, TacticState, TeamTacticState};
+        let mut probe_a = CanonicalEncoder::new();
+        let tts_penalty = TeamTacticState {
+            state: TacticState::SetPiece(SetPieceKind::PenaltyFor),
+            entry_tick: Tick::ZERO,
+        };
+        probe_a.encode_team_tactic_state(&tts_penalty);
+
+        let mut probe_b = CanonicalEncoder::new();
+        let tts_corner = TeamTacticState {
+            state: TacticState::SetPiece(SetPieceKind::CornerFor),
+            entry_tick: Tick::ZERO,
+        };
+        probe_b.encode_team_tactic_state(&tts_corner);
+
+        assert_ne!(
+            probe_a.finish(),
+            probe_b.finish(),
+            "different SetPieceKind variants must produce different encodings"
         );
     }
 

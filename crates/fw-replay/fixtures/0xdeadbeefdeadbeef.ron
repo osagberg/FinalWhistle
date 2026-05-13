@@ -1,4 +1,4 @@
-// Phase-0/T1-2b-i smoke fixture for the determinism gate.
+// Phase-0/T1-2b-ii smoke fixture for the determinism gate.
 //
 // Loaded by `tests/canonical_hash.rs::smoke_seed_corpus_fixture_matches_pinned_constant`.
 // The `expected_hash` field is `"blake3:" + lowercase-hex(blake3-digest)`.
@@ -9,6 +9,12 @@
 //   2026-05-13 (T1-2b-i)   — `0ddf91ef…c5722090` per ADR-0012 trigger #1
 //                             (BallState gained spin fields + tick_match
 //                             now advances ball physics)
+//   2026-05-13 (T1-2b-ii)  — `5aea582b…cf5c544` per ADR-0012 trigger #1
+//                             (MatchState gained decision_slots [u8;22],
+//                             interrupt_cooldown_until [Tick;22],
+//                             team_tactic_states [TeamTacticState;2];
+//                             wire-format VERSION bumped 1→2; tactic-FSM
+//                             heartbeat wired into tick_match every 30 ticks)
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -20,10 +26,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:0ddf91ef183d1a5ac4c5ef8bf4c645276db489da1a49894a675ee868c5722090",
+    expected_hash: "blake3:5aea582bce2c75a5e06bc3ddb4c7724057e1019d5959f4ba4b0896f08cf5c544",
     metadata: (
-        description: "T1-2b-i smoke fixture. 22-player dummy sim + ball physics integrator advancing each tick, 60 ticks.",
+        description: "T1-2b-ii smoke fixture. 22-player dummy sim + ball physics + tactic FSM heartbeat + decision-cadence stagger, 60 ticks.",
         generated_at: "2026-05-13",
-        notes: "Re-pinned at T1-2b-i (canonical schema bump per ADR-0012 #1). The centre-spot ball stays at zero velocity through 60 ticks because phase1_seeds has gravity acting only on Y>0, but the encoded layout grew by 24 bytes/ball for the new spin_{x,y,z} fields.",
+        notes: "Re-pinned at T1-2b-ii (canonical schema bump per ADR-0012 #1). MatchState gained three new fields: decision_slots [u8;22] (22 bytes), interrupt_cooldown_until [Tick;22] (176 bytes), team_tactic_states [TeamTacticState;2] (~18 bytes). Wire-format VERSION bumped 1→2. Tactic-FSM 2Hz heartbeat now wired into tick_match; neither team transitions during the 60-tick window since both start in MidBlock (heartbeat has no rule for MidBlock at T1-2b-ii).",
     ),
 )

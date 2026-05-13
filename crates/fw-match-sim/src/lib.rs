@@ -31,8 +31,10 @@
 pub mod ball;
 pub mod ball_physics;
 pub mod canonical;
+pub mod decision_cadence;
 pub mod dto;
 pub mod player;
+pub mod tactic_fsm;
 
 use fw_core::{Q32, Seed, Tick};
 use serde::{Deserialize, Serialize};
@@ -40,8 +42,13 @@ use serde::{Deserialize, Serialize};
 pub use ball::BallState;
 pub use ball_physics::{BallPhysicsCoefficients, dt_per_tick, phase1_seeds};
 pub use canonical::CanonicalEncoder;
+pub use decision_cadence::{SeedLayer, assign_decision_slots, seed_fn, should_decide};
 pub use dto::{BallFrameDto, MatchFrameDto, PlayerFrameDto};
 pub use player::PlayerState;
+pub use tactic_fsm::{
+    ArchetypeParams, CounterIntent, PressIntensity, SetPieceKind, TacticEvent, TacticState,
+    TeamTacticState,
+};
 
 // -------------------------------------------------------------------------
 // Constants
@@ -52,6 +59,14 @@ pub const PLAYERS_PER_TEAM: usize = 11;
 
 /// Total players on the pitch (both teams).
 pub const TOTAL_PLAYERS: usize = PLAYERS_PER_TEAM * 2;
+
+// Codex P3 from self-review: `MatchState::initial` casts `TOTAL_PLAYERS` to
+// `u8` via `slot as u8`. If `PLAYERS_PER_TEAM` ever grew past 127 the cast
+// would silently truncate. Make the truncation a compile-time error.
+const _: () = assert!(
+    TOTAL_PLAYERS <= u8::MAX as usize,
+    "TOTAL_PLAYERS exceeds u8 — canonical-encoder slot field would silently truncate"
+);
 
 /// Slot index for a player. Stable for the duration of a match — the slot
 /// holds the canonical position in the team's ordered roster (GK = slot 0,
@@ -73,6 +88,21 @@ pub type PlayerSlot = u8;
 ///
 /// Encoded canonically via [`CanonicalEncoder`]; hashed via BLAKE3 by
 /// `crates/fw-replay/tests/canonical_hash.rs`.
+///
+/// ## T1-2b-ii additions
+///
+/// Three new canonical fields (per `docs/specs/decision-cadence-stagger.md`
+/// + `docs/specs/tactic-fsm.md`; ADR-0012 trigger #1 — canonical schema bump):
+///
+/// - `decision_slots: [u8; 22]` — match-init stagger assignment. Never
+///   mutated after initialization. Fisher-Yates over `SLOT_TEMPLATE` seeded
+///   by `seed_fn(match_seed, 0, SeedLayer::Decision, 0)`.
+/// - `interrupt_cooldown_until: [Tick; 22]` — parallel cooldown field for
+///   reactive interrupts (ADR-0001 layer 6). Initialized to `Tick::ZERO`;
+///   mutated by the reactive-interrupt path (T1-2b-iii). `decision_slots` is
+///   never mutated — the balanced-multiset invariant holds for the full match.
+/// - `team_tactic_states: [TeamTacticState; 2]` — one FSM state per team
+///   (index 0 = home, index 1 = away). Initialized to `[MidBlock @ Tick::ZERO; 2]`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MatchState {
     /// The match seed. Echoes the seed `MatchState::initial` was constructed
@@ -99,6 +129,23 @@ pub struct MatchState {
 
     /// Away-team score.
     pub away_score: u8,
+
+    /// Decision-cadence stagger slots. `decision_slots[i]` is the slot
+    /// (0..15) assigned to roster index `i` (roster_slot = `i + 1`).
+    ///
+    /// **Immutable after match-init.** Reactive interrupts do NOT modify
+    /// this array; they update `interrupt_cooldown_until` instead.
+    pub decision_slots: [u8; 22],
+
+    /// Reactive-interrupt cooldown end ticks. `interrupt_cooldown_until[i]`
+    /// is the tick up to which roster index `i`'s scheduled decision is
+    /// suppressed by a reactive interrupt. Initialized to `Tick::ZERO`
+    /// (no cooldown). Updated by the reactive-interrupt path (T1-2b-iii).
+    pub interrupt_cooldown_until: [Tick; 22],
+
+    /// Team-tactic FSM state. Index 0 = home team, index 1 = away team.
+    /// Both teams start in `MidBlock @ Tick::ZERO`.
+    pub team_tactic_states: [TeamTacticState; 2],
 }
 
 impl MatchState {
@@ -129,6 +176,12 @@ impl MatchState {
             ball: BallState::centre_spot(),
             home_score: 0,
             away_score: 0,
+            // T1-2b-ii: decision-cadence stagger assigned from match seed.
+            decision_slots: assign_decision_slots(seed),
+            // T1-2b-ii: all cooldowns start at zero (no active interrupts).
+            interrupt_cooldown_until: [Tick::ZERO; 22],
+            // T1-2b-ii: both teams start in neutral MidBlock.
+            team_tactic_states: [TeamTacticState::initial(); 2],
         }
     }
 
@@ -149,20 +202,48 @@ impl MatchState {
 
 /// Advance the match by one tick.
 ///
-/// Phase-0 scope: increments `state.tick` and returns. Future ticks (T1+)
-/// run player BTs, ball physics, set-piece state machines, and so on. The
-/// signature `MatchState -> MatchState` lets callers stash intermediate
-/// states for rewind/replay; the function takes self-by-value to make the
-/// "old state is consumed" semantics explicit (no aliased mutation across
-/// ticks).
+/// Phase T1-2b-ii scope:
+/// - Increments `state.tick`.
+/// - Advances ball physics (T1-2b-i).
+/// - Runs the 2 Hz tactic-FSM heartbeat every 30 ticks per team
+///   (T1-2b-ii). The heartbeat is a pure predicate; if it fires, it
+///   updates the team's `TeamTacticState`.
+///
+/// Future (T1-2b-iii): player BTs are dispatched via `should_decide`.
+/// The `decision_slots` + `interrupt_cooldown_until` fields are consumed
+/// there; T1-2b-ii only populates them.
 pub fn tick_match(mut state: MatchState) -> MatchState {
     state.tick = state.tick.successor();
-    // T1-2b-i: advance ball physics by one 60Hz tick. The ball is the
-    // only canonical-state entity with continuous integration at T1;
-    // player positions are advanced by the decision-runner stagger at
-    // T1-2b-ii via `decision_slots` (NOT here). Coefficients are pinned
-    // by `phase1_seeds`; future archetypes may override per-match.
+    // T1-2b-i: advance ball physics by one 60Hz tick.
     state.ball = ball_physics::ball_step(&state.ball, &ball_physics::phase1_seeds());
+
+    // T1-2b-ii: 2 Hz tactic-FSM heartbeat (every 30 ticks per team).
+    // The heartbeat is at tick modulo 30 == 0 (fires at t=30, 60, 90, ...).
+    // Offset teams by 15 ticks to avoid two heartbeats on the same tick
+    // (reduces peak work-per-tick, preserves determinism since both teams
+    // get exactly one heartbeat per 30 ticks).
+    //
+    // Home team heartbeat: tick % 30 == 0.
+    // Away team heartbeat: tick % 30 == 15.
+    let tick_raw = state.tick.to_raw();
+    // Codex P2 from self-review: heartbeat_check now returns the FULL
+    // new TeamTacticState (with entry_tick already advanced), so callers
+    // can no longer accidentally leave entry_tick stale.
+    if tick_raw % tactic_fsm::HEARTBEAT_INTERVAL_TICKS == 0 {
+        // Home team 2Hz heartbeat. If the FSM fires, apply the transition.
+        if let Some(new_tts) = tactic_fsm::heartbeat_check(&state.team_tactic_states[0], state.tick)
+        {
+            state.team_tactic_states[0] = new_tts;
+        }
+    }
+    if tick_raw % tactic_fsm::HEARTBEAT_INTERVAL_TICKS == 15 {
+        // Away team 2Hz heartbeat (offset 15 ticks from home to reduce peak load).
+        if let Some(new_tts) = tactic_fsm::heartbeat_check(&state.team_tactic_states[1], state.tick)
+        {
+            state.team_tactic_states[1] = new_tts;
+        }
+    }
+
     state
 }
 
@@ -228,6 +309,104 @@ mod smoke {
         assert!(
             state.ball.pos_y < initial_pos_y,
             "ball didn't fall under gravity"
+        );
+    }
+
+    /// T1-2b-ii: initial MatchState has decision_slots populated (not
+    /// all-zero or all-same-value — a flat array would be the default
+    /// zero-initialized form but is structurally wrong).
+    #[test]
+    fn initial_state_has_decision_slots_populated() {
+        let s = MatchState::initial(Seed::from_u64(1));
+        // The balanced-multiset invariant means at least two different values
+        // appear in the slot array (slot 0..6 doubled, 7..14 single). A
+        // zero-filled array would fail this since all values would be 0.
+        let distinct_values: std::collections::BTreeSet<u8> =
+            s.decision_slots.iter().copied().collect();
+        assert!(
+            distinct_values.len() > 1,
+            "decision_slots should contain multiple distinct values; got {:?}",
+            distinct_values
+        );
+    }
+
+    /// T1-2b-ii: initial MatchState has interrupt_cooldown_until all at zero.
+    #[test]
+    fn initial_state_has_zero_cooldowns() {
+        let s = MatchState::initial(Seed::from_u64(1));
+        assert!(
+            s.interrupt_cooldown_until.iter().all(|&t| t == Tick::ZERO),
+            "interrupt_cooldown_until should be all Tick::ZERO at match-init"
+        );
+    }
+
+    /// T1-2b-ii: initial MatchState has both teams in MidBlock.
+    #[test]
+    fn initial_state_both_teams_in_midblock() {
+        let s = MatchState::initial(Seed::from_u64(1));
+        assert_eq!(s.team_tactic_states[0].state, TacticState::MidBlock);
+        assert_eq!(s.team_tactic_states[1].state, TacticState::MidBlock);
+        assert_eq!(s.team_tactic_states[0].entry_tick, Tick::ZERO);
+        assert_eq!(s.team_tactic_states[1].entry_tick, Tick::ZERO);
+    }
+
+    /// T1-2b-ii: decision_slots immutability across 60 ticks.
+    #[test]
+    fn decision_slots_unchanged_after_60_ticks() {
+        let mut state = MatchState::initial(Seed::from_u64(42));
+        let initial_slots = state.decision_slots;
+        for _ in 0..60 {
+            state = tick_match(state);
+        }
+        assert_eq!(
+            state.decision_slots, initial_slots,
+            "decision_slots mutated during tick_match — must be immutable"
+        );
+    }
+
+    /// T1-2b-ii: heartbeat fires correctly. HighPress at entry_tick=0
+    /// should transition to MidBlock when tick > 600 (>10s).
+    #[test]
+    fn heartbeat_transitions_highpress_after_timeout() {
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        // Put home team into HighPress at tick 0
+        state.team_tactic_states[0] = TeamTacticState {
+            state: TacticState::HighPress,
+            entry_tick: Tick::ZERO,
+        };
+
+        // Advance 630 ticks (>600 threshold; heartbeat fires at multiples of 30)
+        for _ in 0..630 {
+            state = tick_match(state);
+        }
+
+        // The heartbeat at tick 630 (630 % 30 == 0) should have fired and
+        // transitioned home team back to MidBlock.
+        assert_eq!(
+            state.team_tactic_states[0].state,
+            TacticState::MidBlock,
+            "heartbeat should have transitioned HighPress → MidBlock after >600 ticks; \
+             at tick {} the team was still in {:?}",
+            state.tick.to_raw(),
+            state.team_tactic_states[0].state
+        );
+    }
+
+    /// T1-2b-ii: encode_canonical output changes when decision_slots are added.
+    #[test]
+    fn encode_canonical_includes_new_fields() {
+        let s = MatchState::initial(Seed::from_u64(1));
+        let bytes = s.encode_canonical();
+        // The encoded output should be longer than the T1-2b-i layout:
+        // decision_slots [u8; 22] = 22 bytes
+        // interrupt_cooldown_until [Tick; 22] = 22 × 8 = 176 bytes
+        // team_tactic_states [TeamTacticState; 2] = 2 × (1 + 8) = 18 bytes minimum
+        // Total new bytes: ≥ 216 bytes more than T1-2b-i
+        // T1-2b-i encoded length for seed=1 was ~364 bytes; new should be ~580+
+        assert!(
+            bytes.len() > 500,
+            "encoded MatchState suspiciously short ({} bytes); expected >500 with new fields",
+            bytes.len()
         );
     }
 }

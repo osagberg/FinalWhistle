@@ -19,6 +19,9 @@ fixed       = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }   # MatchFrameDto JSON (DTO module + dump_frames bin)
 rand_chacha = { workspace = true }
+# RngCore + SeedableRng traits are accessed via `rand_chacha::rand_core`
+# re-export — avoids a direct `rand` dep per Codex P1 self-review finding.
+blake3      = { workspace = true }
 thiserror   = { workspace = true }
 # clap is only used by the dump_frames binary (src/bin/dump_frames.rs).
 # Keeps the dep surface honest: the lib build doesn't pull clap.
