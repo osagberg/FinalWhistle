@@ -38,13 +38,16 @@ None.
 
 ## Next up
 
-`/next` will pick **T1-1** — `fw-content` schema (`TeamTemplate` + `PlayerTemplate` + `BehaviorArchetype` + first RON fixtures under `content/sources/`).
+`/next` will pick **T1-1** — `fw-content` schema (`TeamTemplate` + `PlayerTemplate` + `BehaviorArchetype` + first RON fixtures under `content/sources/`, folding in the Codex Imp #3 `f32 → u16 bps` conversion).
 
-Per `docs/MASTER_PLAN.md` T1 acceptance gate: two procedural teams play one match end-to-end; text recap surfaces with goals + score + key events.
+T1 was restructured 2026-05-13 to insert a developer-tier verification surface: see `docs/design/dev-verification.md`. Row count went 8 → 10 to add T1-2a (2D tactical board, pulled forward from T4) and T1-9 (behavioral proptest invariants). The XL T1-2 split into T1-2a (board, M) + T1-2b (BT runner, L). Rationale: without a visual debug surface, "is this football or random walking?" is unanswerable, and FW v1's worst sim bugs (static-ball, brain-dead pressing, GK-wanders-midfield) were only ever caught by eyeballing the dots viewer.
 
-## T1 risks (carried from postmortem)
+Per `MASTER_PLAN` T1 acceptance gate: two procedural teams play one match end-to-end; the 2D board renders it; a stranger watching 30s can identify formation shape + sides; 5 behavioral invariants hold over 100 random seeds; text recap surfaces goals + score + diagnostic commentary.
 
-- **T1-2 size** — ball physics + 22-player BT runner is XL (~1w). Largest single row on the plan; determinism cliffs concentrated there. Consider splitting into T1-2a (ball physics integrator) + T1-2b (BT runner) if early progress is slow.
-- **f32 in TacticalArchetype.buildup_speed_factor** (Codex Imp #3 deferred) — needs conversion to u16 bps before BT-runner consumes it. T1-1 is the right phase to do that since it's the first row to touch TacticalArchetype materially.
-- **src-tauri command consolidation** (Codex Imp #10) — placeholder commands shadow fw-tauri; T1-5 is the planned consolidation.
-- **insta-snapshot baseline** — `smoke_seed_final_state_snapshot` still `#[ignore]`. T1-1 or T1-2 should unignore once there's real sim behavior to snapshot.
+## Open T1 risks
+
+- **T1-2b (BT runner) is still the largest row even after splitting.** L (5d). Determinism cliffs concentrate there. A Codex pre-T1-2 audit is recommended (same model as the pre-T0 audit that caught 14 real findings).
+- **f32 in TacticalArchetype.buildup_speed_factor** (Codex Imp #3) — folded into T1-1 done-criteria.
+- **src-tauri command consolidation** (Codex Imp #10) — folded into T1-5 done-criteria.
+- **insta-snapshot baseline** — `smoke_seed_final_state_snapshot` still `#[ignore]`. T1-2b should unignore once real sim behavior exists to snapshot.
+- **Sports-sim research in flight** (this session) — 10 parallel agents researching how Football Manager, OOTP, Pro Cycling Manager, etc. structure their match engines. Findings land in `docs/research/sports-sims/` and inform T1-2b's BT-runner architecture before implementation begins.

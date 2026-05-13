@@ -204,4 +204,19 @@ Destructive / shared-state / third-party-upload actions need explicit user confi
 
 ---
 
+## 12. Communication style
+
+The user is technical but attention-span-limited. When reporting status, decisions, audit findings, or anything else not-code: **plain English first, lists only when they genuinely help.** Technical depth stays — formatting just stops being a wall.
+
+- One good sentence beats six bullets. "T0 done; 22 players tick deterministically and the canonical hash agrees across macOS/Win/Linux" beats a 12-row table of test results.
+- Tables when they actually save scanning — verdicts, scoreboards, before/after comparisons. Not for "here are five things I did."
+- Don't pad with severity tags / scoring rubrics / process meta-commentary unless asked.
+- For decisions: give a one-line recommendation + your reasoning, then the alternatives, then stop. Don't enumerate every consideration.
+- For code review or audit output: lead with the verdict (Accept / Revise / Reject), then the 2-3 findings that matter, then stop.
+- "Here's where we are, here's what I just did, here's what's next" is the right shape for status reports — three short paragraphs, not three sections of bullets.
+
+When a list IS the right format (e.g., a numbered procedure, a verdict table, file paths to read in order), use it without apology. The rule is "lists serve communication," not "lists are banned."
+
+---
+
 *Authored 2026-05-13. v2 pivot from Unity+C# to Rust+Tauri. Blueprint reconciled in-place from `/Users/vibelogic/dev/blueprint/` (slim, Rust-flavored). Revise at each phase transition.*

@@ -125,28 +125,39 @@ Do not block this on UI polish, signature presentation banks, breakthrough trigg
 
 ---
 
-## Tier 1 — First Match (8 items)
+## Tier 1 — First Match (10 items)
 
-**Goal:** the user can click "Play Match" between two procedural teams and get a text recap with goals, score, and key events.
+**Goal:** the user can click "Play Match" between two procedural teams and get a text recap with goals, score, and key events. The developer can verify it's actually football via the 2D tactical board + behavioral assertions.
+
+**Verification surface:** see `docs/design/dev-verification.md` for the three-layer dev-tier strategy (diagnostic commentary + tactical board + behavioral proptest invariants) that closes the "is this really football?" gap left by FW v1's text-only iteration.
 
 | ID | Item | Status | Effort | Dependencies | Done Criteria |
 |---|---|---|---|---|---|
-| T1-1 | `fw-content` schema: `TeamTemplate` + `PlayerTemplate` + `BehaviorArchetype` (serde + RON files under `content/base/`) | TODO | M (2d) | T0-1 | Round-trip serde test; RON files load via `cargo test` |
-| T1-2 | `fw-match-sim`: ball physics + 22-player BT runner (port from C# design — gravity, drag, Magnus, bounce, friction; semi-implicit Euler in Q32) | TODO | XL (1w) | T0-4, T1-1 | 600-tick run with two `direct-pressing` archetypes produces ball trajectory + player positions; canonical hash pinned |
-| T1-3 | `fw-match-sim`: signatures stub — type system only, no triggers yet (`SignatureId` + `SimBiasSnapshot` + stacking policy types) | TODO | M (2d) | T1-2 | Types compile; one no-op signature applies in the BT runner without affecting hashes |
-| T1-4 | `fw-match-sim`: event emission — `MatchEvent` enum (Goal / Shot / Pass / KickOff / FullTime) + ledger output struct | TODO | M (2d) | T1-2 | Events emit in tick-order; hash includes event stream; replay reconstructs events identically |
-| T1-5 | `fw-tauri`: `play_match` command returning serialized `MatchResult` (final score + event list + canonical hash) | TODO | M (2d) | T1-4 | `pnpm tauri dev` → click Play → console shows scoreline; round-trip via Tauri IPC preserves canonical hash |
-| T1-6 | Frontend: Match page with "Play" button, text recap rendering (goals + minute markers), simple event-list view | TODO | M (3d) | T1-5 | Stranger reads the recap and understands what happened in <60s; no broken states |
-| T1-7 | Procedural content stub — 22 player names (Markov chain seeded by region prior) + 2 team names + 1 manager archetype YAML port | TODO | M (2d) | T1-1 | Two distinct teams generated from one seed; same seed → identical names |
-| T1-8 | Replay corpus fixture #1 — smoke seed, 600 ticks, two-archetype matchup, pinned canonical hash on CI matrix | TODO | S (1d) | T1-2, T1-4, T0-7 | `fixtures/replay-corpus/0xfeedbeefcafefade.json` exists; CI matrix green on all three OSes |
+| T1-1 | `fw-content` schema: `TeamTemplate` + `PlayerTemplate` + `BehaviorArchetype` (serde + RON files under `content/sources/`). Folds in Codex Imp #3 deferred from T0 (`TacticalArchetype.buildup_speed_factor: f32 → u16 bps` integer-only sampling). | TODO | M (2d) | T0-1 | Round-trip serde test; RON files load via `cargo test`; no `f32` in any field that feeds canonical state |
+| T1-2a | **Dev-tier 2D tactical board** (verification surface — pulled forward from T4). `frontend/src/routes/Dev/TacticalBoard.tsx` consuming `MatchFrameDTO` stream over Tauri IPC; renders 22 dots + ball + tick scrubber on top-down pitch. Always-on for dev; not the shipped UI (that's T4 polish). | TODO | M (3d) | T0-2 | `pnpm tauri dev` → /dev/board route → dots render from a T0 stationary fixture; scrubber advances tick; no jank |
+| T1-2b | `fw-match-sim`: ball physics + 22-player BT runner (port from FW v1 C# design — gravity, drag, Magnus, bounce, friction; semi-implicit Euler in Q32). | TODO | L (5d) | T0-4, T1-1, T1-2a | 600-tick run with two `direct-pressing` archetypes; ball trajectory + player positions render on the T1-2a board and visually resemble football (manual eyeball); canonical hash pinned |
+| T1-3 | `fw-match-sim`: signatures stub — type system only, no triggers yet (`SignatureId` + `SimBiasSnapshot` + stacking policy types) | TODO | M (2d) | T1-2b | Types compile; one no-op signature applies in the BT runner without affecting hashes |
+| T1-4 | `fw-match-sim`: event emission — `MatchEvent` enum (Goal / Shot / Pass / KickOff / FullTime) + ledger output struct + **diagnostic commentary templates** (rich enough to spot brain-dead behavior from text alone — see dev-verification §Layer 1). | TODO | M (3d) | T1-2b | Events emit in tick-order; hash includes event stream; replay reconstructs identically; commentary surfaces position + decision context per significant event |
+| T1-5 | `fw-tauri`: `play_match` command returning serialized `MatchResult` (final score + event list + canonical hash) + `match_frames` streaming command feeding T1-2a board. Folds in Codex Imp #10 deferred from T0 (src-tauri consolidation — drop local placeholder commands, delegate to fw-tauri). | TODO | M (3d) | T1-4 | `pnpm tauri dev` → click Play → console shows scoreline; round-trip via Tauri IPC preserves canonical hash; src-tauri/main.rs has zero local `#[tauri::command]` impls |
+| T1-6 | Frontend: Match page with "Play" button, text recap rendering (goals + minute markers), simple event-list view. Reuses T1-2a board component (debug toggle to surface it during a live match). | TODO | M (3d) | T1-5 | Stranger reads the recap and understands what happened in <60s; toggling the dev-board mid-recap shows the moment in 2D |
+| T1-7 | Procedural content stub — 22 player names (Markov chain seeded by region prior) + 2 team names + 1 manager archetype RON port | TODO | M (2d) | T1-1 | Two distinct teams generated from one seed; same seed → identical names |
+| T1-8 | Replay corpus fixture #1 — smoke seed, 600 ticks, two-archetype matchup, pinned canonical hash on CI matrix | TODO | S (1d) | T1-2b, T1-4, T0-7 | `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron` exists; CI matrix green on all three OSes |
+| T1-9 | **Behavioral assertions** (verification surface — see dev-verification §Layer 3). `crates/fw-match-sim/tests/behavior_proptest.rs` with 5+ invariants on emergent behavior: GK within 30m of own goal 95%+ of ticks; team width 35-65m during in-possession; no sustained >12m/s sprint >4s; defender depth tracks tactical archetype within 8m. | TODO | M (2d) | T1-2b | All 5 invariants hold over 100 random seeds; CI matrix runs the proptest suite |
 
 ### T1 Exit Gate (locked)
 
 - "Play Match" produces a sensible text recap (2-5 goals total across the 600 ticks, no NaN-tier weirdness).
+- **The 2D tactical board renders the match and it visually resembles football** — a stranger watching for 30 seconds can identify formation shape, defending side, attacking side. This is the headline behavioral gate; everything else flows from it.
+- **All 5 behavioral proptest invariants hold over 100 random seeds.**
+- Diagnostic commentary surfaces enough position + decision context that brain-dead behavior (GK roaming midfield, defenders ignoring 1-v-1s) is spottable from text alone.
 - Replay corpus has ≥2 fixtures, both pin across CI matrix.
 - `cargo test --workspace` green; clippy + fmt clean.
 - No `unwrap()` calls in `fw-match-sim` non-test code.
 - Vertical-slice tag: `v0.1.0-first-match`.
+
+### T1 sequencing note
+
+The dev-tier board (T1-2a) lands BEFORE the BT runner (T1-2b) on purpose. The board first renders T0's stationary fixture — that proves the rendering pipeline. Then the BT runner work begins, and every iteration is visually verifiable in real time. Layer 3 behavioral assertions (T1-9) come last because authoring them well requires having watched matches play out first — you encode the invariants whose violation you'd notice visually.
 
 ---
 
