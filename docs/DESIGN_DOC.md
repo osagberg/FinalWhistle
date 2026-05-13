@@ -342,12 +342,12 @@ Frame streaming: Tauri events (`match:frame`) at ~10Hz; PixiJS interpolates to 3
 
 Async on the IPC quintet only; sim crates stay sync (firewall). TS types hand-mirrored at `frontend/src/lib/types.ts`, drift caught by an `insta`-snapshot smoke test in `crates/fw-tauri/tests/dto_schema_smoke.rs`. Revisit `ts-rs` / `specta` at T4.
 
-### 11.5 Dev verification (ADR-0007)
+### 11.5 Dev verification (ADR-0007 + ADR-0008)
 
 Three layers, accepted via the design doc at `docs/design/dev-verification.md` and now formalized:
 
 - **Layer 1 — Diagnostic commentary** (T1-4): rich event-by-event log with position + decision context. Surfaces brain-dead behavior from text alone.
-- **Layer 2 — Dev-tier 2D tactical board** (T1-2a): minimal PixiJS top-down viewer with dots + ball + tick scrubber. Always-on for dev. Same canvas as the shipped match-day surface gets at T4 polish.
+- **Layer 2 — Dev-tier 2D tactical board** (T1-2a): minimal PixiJS top-down viewer with dots + ball + tick scrubber. Always-on for dev. Same canvas as the shipped match-day surface gets at T4 polish. **Per ADR-0008** the board reads frames from either Tauri IPC (default) or a JSON fixture (browser-dev mode, selected by URL param), which lets Claude Preview MCP drive visual verification without a Tauri runtime — unlocking AI-paced "is this football?" iteration.
 - **Layer 3 — Behavioral proptest invariants + pair-seed comparison tests** (T1-9): "GK within 30m of own goal 95%+ of ticks", "team width 35-65m during in-possession", "pair-seed tactic-flip changes possession in expected direction", etc.
 
 The canonical-hash regression test (cross-OS BLAKE3 pinned per scenario) sits orthogonal as bedrock. Two T2 candidates flagged: OOTP-style stat-distribution CI gate, EHM-style two-engine cross-check (lean Dixon-Coles as calibration reference).

@@ -153,6 +153,14 @@ If the chunk count would exceed 7, the task is too big — **PAUSE and recommend
 - New invariant → `proptest` invariant under `proptest/` in the relevant crate.
 - New IPC command → integration test in `fw-tauri` that round-trips through the IPC boundary.
 
+**Superpowers TDD skill — MANDATORY from T1-2b onward** (per `docs/DECISIONS.md` 2026-05-13 entry). Before writing any new behavior code in `fw-match-sim`, `fw-memory`, `fw-replay`, `fw-save`, or `fw-content` runtime modules, **invoke the `superpowers` plugin's TDD skill at the start of the implementation chunk.** It enforces RED-GREEN-REFACTOR: write the failing test → watch it fail → write the minimal code to pass → watch it pass → refactor → commit. This prevents the "just start coding" failure mode that's the dominant risk on the match-engine work.
+
+Exemptions (no TDD skill required, but cite the exemption in the commit body):
+- T1-1 (schema + content-pack RON authoring) — data-only, no behavior to test
+- Mechanical refactors (renames, fmt fixes, clippy autofixes)
+- STATUS / CHANGELOG / MASTER_PLAN sync writes
+- Doc-only edits
+
 **Determinism patterns are non-negotiable** (per `CLAUDE.md §7`):
 - `HashMap` / `HashSet` banned in sim crates. `BTreeMap` / `BTreeSet` only. Clippy enforces.
 - `f32` / `f64` banned in canonical match state, `MatchEvent`, `MemoryEvent`. Q32.32 newtype only.
