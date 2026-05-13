@@ -1,10 +1,12 @@
 # ADR-0003 — Decision-utility math primitives
 
-**Status:** Proposed
+**Status:** Proposed (amended 2026-05-13 per Codex full-project audit P1)
 
-**Date:** 2026-05-13
+**Date:** 2026-05-13 (amended same-day)
 
 **Decider:** osagberg (+ Codex review at the T1 phase gate)
+
+**Amendments:** 2026-05-13 — §5 personality bias section reconciled with ADR-0002's 14-element `PersonalityVector` (was claiming an "8-element hidden vector" that contradicted ADR-0002). Two of the eight biases in the sketch table (`FlairBias`, `Composure`) are now correctly attributed to `MentalAttributes.flair` / `MentalAttributes.composure` (visible attributes used as bias-like inputs). The full 7-consideration × 14-element matrix is a Tranche 4 deliverable at `docs/design/personality-bias-weights.md`.
 
 ---
 
@@ -22,7 +24,7 @@ This ADR locks the math shapes only. Numeric coefficients (β values, σ widths,
 
 ## Decision
 
-We will use **four closed-form Q32 primitives** for decision utility: logistic xG, baked xT-delta from a fixed-point Bellman solve, Spearman-style per-point pitch control, and product-form pressing intensity. Personality bias is applied as a **multiplicative per-consideration tilt**, with a **fixed mapping table** from utility considerations to bias-vector elements. Tie-breaking uses **top-N softmax sampling** seeded by `(match_seed, tick, decision_id)`. The full-pitch / per-decision-point trade-off for pitch-control resolves to **per-decision-point evaluation now, with a budget-permitting upgrade hook to full-pitch later** — explained in §5 below.
+We will use **four closed-form Q32 primitives** for decision utility: logistic xG, baked xT-delta from a fixed-point Bellman solve, Spearman-style per-point pitch control, and product-form pressing intensity. Personality bias is applied as a **multiplicative per-consideration tilt**, with a **fixed mapping table** from utility considerations to bias-vector elements. Tie-breaking uses **top-N softmax sampling** seeded by `seed_fn(match_seed, tick, SeedLayer::UtilityTieBreak, decision_id)` per ADR-0009. The full-pitch / per-decision-point trade-off for pitch-control resolves to **per-decision-point evaluation now, with a budget-permitting upgrade hook to full-pitch later** — explained in §5 below.
 
 ### 1. Shot utility — `xg_utility`
 
@@ -132,7 +134,16 @@ Synthesis open-question resolved (research notes line 67): `press_radius` and th
 
 ### 5. Personality bias — multiplicative per consideration
 
-The 8-element hidden vector (`Determination`, `PressureTolerance`, `FlairBias`, `WorkRate`, `Aggression`, `Selflessness`, `RiskAppetite`, `Composure` — `00-synthesis.md` line 94) tilts utility **multiplicatively per consideration**. Not additive offset, not global scaler — an Aggression-0 player should be near-zero on pressing utility (not "pressing minus a constant"), which only multiplicative captures cleanly at the limit.
+Bias inputs read from two ADR-0002 surfaces:
+
+- **The 14-element `PersonalityVector`** (hidden; ADR-0002 §"Choices" item 2): `Determination`, `WorkRate`, `Ambition`, `Professionalism`, `Loyalty`, `Temperament`, `PressureTolerance`, `BigMatchAppetite`, `Adaptability`, `Aggression`, `RiskAppetite`, `Selflessness`, `Consistency`, `Versatility`.
+- **Two `MentalAttributes` fields** (visible) read as bias-like inputs: `flair` (used as "FlairBias" in the mapping table below) and `composure` (used as "Composure"). These are visible-on-the-record so scouts surface them, but they tilt utility-scoring the same way the hidden vector does.
+
+The 7-consideration mapping below uses **8 named biases** drawn from the union of these surfaces (`Determination`, `PressureTolerance`, `FlairBias` ≡ `mental.flair`, `WorkRate`, `Aggression`, `Selflessness`, `RiskAppetite`, `Composure` ≡ `mental.composure`). The remaining 11 PersonalityVector elements (`Ambition`, `Professionalism`, `Loyalty`, `Temperament`, `BigMatchAppetite`, `Adaptability`, `Consistency`, `Versatility`) carry over into longer-tail systems (transfer market, dressing room, press, big-match heuristics) NOT covered by this match-tick utility mapping. The full 7 × 14 + visible-input matrix lands in `docs/design/personality-bias-weights.md` (Tranche 4 / pre-T1-2b deliverable per Codex audit).
+
+Tilt is **multiplicative per consideration**, not additive offset, not global scaler — an Aggression-0 player should be near-zero on pressing utility (not "pressing minus a constant"), which only multiplicative captures cleanly at the limit.
+
+**Note (amended 2026-05-13 per Codex audit P1):** the prior version of this section claimed an "8-element hidden vector" as the canonical bias surface, contradicting ADR-0002's 14-field PersonalityVector. Reconciled above by acknowledging the full 14-element vector + the two MentalAttributes inputs used in the sketch table.
 
 **Bias mapping** (locked structurally; `k₁..k₁₄` Phase-1 values in `docs/design/personality-bias-weights.md`):
 
@@ -155,7 +166,7 @@ The brief's open question: straight `gen_range(0..n_tied)` (synthesis recommenda
 1. Score candidates; sort descending.
 2. Take top-3 (or all candidates if fewer).
 3. Compute `w_i = exp_q32(u_i / T)` with `T ≈ 0.15` (Phase-1 tuning).
-4. Sample by cumulative weight against `ChaCha8Rng::seed_from_u64(seed_fn(match_seed, tick, decision_id)).gen::<u64>()` cast to Q32 [0, 1).
+4. Sample by cumulative weight against `ChaCha8Rng::seed_from_u64(seed_fn(match_seed, tick, SeedLayer::UtilityTieBreak, decision_id)).gen::<u64>()` cast to Q32 [0, 1).
 
 `exp_q32` is the natural sibling of `sigmoid_q32` (same LUT shape, same bake pattern, same `[-8, +8]` clamp), living in `fw-core::math`.
 

@@ -40,7 +40,7 @@ What this means in practice:
 - **AI architecture**: behavior trees + utility scoring + influence maps + steering + personality bias vector compose as planned. FSM per-role state taxonomies (ZOXEXIVO-style) are also viable now that we're not budget-constrained — the choice is about clarity vs composability, not bytes.
 
 What this does NOT lift:
-- **Determinism contract** — cross-OS BLAKE3 canonical-hash regression, Q32.32 fixed-point in canonical state, BTreeMap-only in sim crates, `ChaCha8Rng` seeded by `(match_seed, tick, event_id)`, no `tokio`/`async` in `fw-match-sim` or `fw-memory`. These are pillars.
+- **Determinism contract** — cross-OS BLAKE3 canonical-hash regression, Q32.32 fixed-point in canonical state, BTreeMap-only in sim crates, `ChaCha8Rng` seeded via the canonical `seed_fn(match_seed, tick, layer, site)` (ADR-0009), no `tokio`/`async` in `fw-match-sim` or `fw-memory`. These are pillars.
 - **No runtime LLM** — bake-time only. Architectural choice.
 - **Procedural fantasy only** — no real licensed data, ever.
 - **Text-first shipping surface** — no 3D viewer in the shipped game. The 2D tactical board is the dev verification surface AND the shipped match-day surface.
@@ -131,7 +131,7 @@ Multi-season career. Players you trained reach breakthroughs. Players you sold c
 ### Determinism contract
 - **Pinned canonical-state hash regression corpus.** Every commit runs the corpus (`scripts/fw verify`) on Mac + Windows + Linux via CI. Drift on any platform fails merge.
 - **Fixed-point Q32.32 everywhere in canonical state.** No `f64` / `f32` in the sim's authoritative path.
-- **Deterministic RNG:** `ChaCha8Rng` seeded from `(match_seed, tick, event_id)`. No `HashMap` iteration in sim paths; deterministic containers (`BTreeMap` / `BTreeSet` / `Vec`) only.
+- **Deterministic RNG:** `ChaCha8Rng` seeded via the canonical `seed_fn(match_seed, tick, layer, site)` (ADR-0009). Layers are non-overlapping (`Decision` / `UtilityTieBreak` / `ReactiveInterrupt` / `BallPhysics` / `SignatureTrigger` / `MemoryEvent` / `ScoutObservation` / `ContentBake`); `site` disambiguates within a layer. No `HashMap` iteration in sim paths; deterministic containers (`BTreeMap` / `BTreeSet` / `Vec`) only.
 - **Replay seed per match:** every match carries `match_seed: u64`; replay reconstructs frame-identical canonical state.
 
 ### Presentation contract
@@ -352,9 +352,21 @@ Three layers, accepted via the design doc at `docs/design/dev-verification.md` a
 
 The canonical-hash regression test (cross-OS BLAKE3 pinned per scenario) sits orthogonal as bedrock. Two T2 candidates flagged: OOTP-style stat-distribution CI gate, EHM-style two-engine cross-check (lean Dixon-Coles as calibration reference).
 
-### 11.6 What's not in this overview
+### 11.6 Cross-cutting infrastructure (ADR-0009 + ADR-0010 + ADR-0011 + ADR-0012 + ADR-0013 + ADR-0014 + ADR-0015)
 
-Save format, content-pack pipeline, scouting model, manager AI, training, transfer market, board relations, media, season scheduling — each owns its own design doc as it lands per phase. See `docs/MASTER_PLAN.md` for phase order and `docs/design/*.md` for per-system specs.
+Seven additional ADRs added 2026-05-13 in response to the Codex full-project audit:
+
+- **ADR-0009 — RNG seed derivation.** Single canonical `seed_fn(match_seed, tick, layer, site) -> u64` (BLAKE3 over 17-byte buffer, truncated). Eight `SeedLayer` discriminants (`Decision` / `UtilityTieBreak` / `ReactiveInterrupt` / `BallPhysics` / `SignatureTrigger` / `MemoryEvent` / `ScoutObservation` / `ContentBake`). Resolves drift across 4 docs that previously cited different seed tuples.
+- **ADR-0010 — Save format.** bincode 2 + zstd + forward-only migrations. Magic `"FWS1"` + u32 version prefix uncompressed for cheap version-check. Mod-load fingerprint via BLAKE3 of sorted (mod_id, mod_version) pairs.
+- **ADR-0011 — Signature system.** 24-signature catalogue (3 × 8 role families). `SignatureDefinition { trigger, bias_snapshot, presentation, cooldown }`. Per-player affinity via `PlayerTemplate.signature_candidates` (T1-3 schema change; v1 carry-forward). Softmax dispatch. Stacking across category boundaries; counterplay via defensive signatures with cancellation predicates.
+- **ADR-0012 — Pinned-hash rebaseline policy.** Four legitimate triggers (canonical schema bump / encoder change / documented sim-behavior change / cross-OS divergence repair). Commit-body marker `canonical hash: REBASELINED (trigger: N; ...)`. Three-layer guard from commit `eb0b952e` stays untouched.
+- **ADR-0013 — Licensed-data policy.** Three-layer enforcement: banned-terms lint (CI) + FW-VAL validator (bake-time, cosine + Soundex against ~50k-name corpus) + human review (long tail). Per-bake audit report committed alongside RON. Post-ship collision fix flow defined.
+- **ADR-0014 — Runtime AI / content boundary.** Shipped game makes ZERO LLM calls. All generation at bake-time via `fw-content-baker` (dev tool, not shipped). Bake manifest captures `model_id + prompt_hash + seed + corpus_version`. Rebake policy + future-proofing path documented.
+- **ADR-0015 — Phase-gate review policy.** Three tiers: Tier 1 = per-task self-review on ≥100 LoC (auto). Tier 2 = mid-phase targeted Codex audit (fires on 5 explicit criteria including schema lock + new canonical-state surface). Tier 3 = phase-boundary full audit at every `/done`. T1-1 demonstrated phase-boundary-only was too coarse.
+
+### 11.7 What's not in this overview
+
+Content-pack pipeline, manager AI, training, transfer market, board relations, media, season scheduling — each owns its own design doc as it lands per phase. See `docs/MASTER_PLAN.md` for phase order and `docs/design/*.md` for per-system specs.
 
 ---
 

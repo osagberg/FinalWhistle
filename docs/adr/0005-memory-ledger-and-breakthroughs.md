@@ -1,10 +1,12 @@
 # ADR-0005 — Memory ledger event model + breakthrough triggers
 
-**Status:** Proposed
+**Status:** Proposed (amended 2026-05-13 per Codex full-project audit P2)
 
-**Date:** 2026-05-13
+**Date:** 2026-05-13 (amended same-day)
 
 **Decider:** Claude (synthesis from research wave 2026-05-13 + DESIGN_DOC §7 review) + Codex (pending pre-T3 audit)
+
+**Amendments:** 2026-05-13 — Event class catalogue count reconciled to 30 (was 29 in §catalogue header but the §"Mod-overlay compatibility" inline comment said 28; `Compaction` was referenced in prose but absent from the enum). Added `Compaction` as the sixth thematic group's sole "system" variant.
 
 ---
 
@@ -146,13 +148,15 @@ pub enum EntityRef {
 
 `MemoryLedger` (already stubbed in `crates/fw-memory/src/lib.rs`) gains an append API that allocates the next `EventId` and stamps salience via the scoring function before pushing. `BTreeMap<EventId, usize>` indexes from id to position when a reader needs O(log n) lookup; the source-of-truth is still the `Vec` for canonical iteration order.
 
-### Event class catalogue (initial set, 29 entries)
+### Event class catalogue (initial set, 30 entries)
 
 A non-exhaustive `EventClass` enum, locked at schema_version = 1. Mod content packs add classes via `UnknownEventClass` (see "Mod-overlay compatibility" below); upgrading a mod class into core requires a schema migration.
 
+The 30 variants split into six thematic groups: 6 performance / 8 contract+transfer / 4 relational / 6 competition / 5 career-shape / 1 system. The `Compaction` system event records what the 5-season compactor dropped — see "Compaction is well-defined" in §Consequences. Amended 2026-05-13 per Codex full-project audit P2 (the prior catalogue header said 29 but the §"Mod-overlay compatibility" inline comment said "28 core variants above"; `Compaction` was referenced in prose without being in the enum). Reconciled to 30 with `Compaction` explicit.
+
 ```rust
 pub enum EventClass {
-    // Performance moments
+    // Performance moments (6)
     BreakthroughMoment,         // pillar 3 trigger — the redraw event itself
     SignatureFirstFired,        // a player's signature move executed cleanly for the first time
     LegacyGoal,                 // a goal that survives compaction (cup final winner, derby winner)
@@ -160,7 +164,7 @@ pub enum EventClass {
     BigMatchScar,               // sub-par performance in a high-stakes context
     RegressiveCollapse,         // pillar 3 inverse trigger — PA-down redraw
 
-    // Contract / transfer arc
+    // Contract / transfer arc (8)
     PromisedYouthMinutes,       // manager promise event; emits a BrokenPromise if expired
     BrokenPromise,              // a previously-emitted promise expired without delivery
     ContractRenewalRejected,    // player turned down an offered renewal
@@ -170,13 +174,13 @@ pub enum EventClass {
     SoldUnderProtest,           // sold against the player's wishes
     BoughtOnDeadlineDay,        // arrived at the buzzer; surfaces as commentary flavor
 
-    // Relational
+    // Relational (4)
     RivalryFormed,              // two players, or player-and-club, escalated to rival status
     MentorTeammate,             // an older player mentored a younger one across a season
     DerbyControversy,           // red-card lash-out, after-match incident, manager touchline drama
     FormerClubReunion,          // player faces a club they previously played for
 
-    // Competition arc
+    // Competition arc (6)
     CupFinalWin,                // a cup-final victory; near-permanent recall eligibility
     CupFinalLoss,
     PromotionWon,
@@ -184,12 +188,15 @@ pub enum EventClass {
     TitleWon,
     UnbeatenRunEnded,           // a notable streak broke
 
-    // Career-shape
+    // Career-shape (5)
     DebutSenior,                // first senior appearance
     DebutClub,                  // first appearance for a new club
     Retirement,                 // the player retired; the ledger closes for them
     InjuryLongTerm,             // ≥ 3-month absence; surfaces in scout reports + commentary
     InternationalCallUp,        // first national-team call (procedural-fantasy nation only)
+
+    // System (1)
+    Compaction,                 // emitted by the 5-season compactor; records what was dropped + summarised
 }
 ```
 
@@ -313,7 +320,7 @@ A mod content pack adds new event classes via the `UnknownEventClass` variant:
 
 ```rust
 pub enum EventClass {
-    // ... 28 core variants above ...
+    // ... 30 core variants above ...
 
     /// Mod-defined event class the host engine does not recognise.
     /// Round-trips losslessly through serde + canonical hash. Readers
