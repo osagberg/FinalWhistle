@@ -10,11 +10,50 @@
 //! T2-3 → T3-5 per `docs/CONTENT_PIPELINE.md` §6.
 
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
+
+/// Walk `dir` and return every `*.ron` file path, sorted alphabetically.
+///
+/// **Sorting is load-bearing for determinism** (`.claude/rules/Sim/RULES.md`
+/// §2). `fs::read_dir` iteration order is filesystem-dependent; sorting
+/// guarantees the same load order on every platform + every run.
+fn walk_ron_files(dir: &Path) -> Result<Vec<PathBuf>, ContentLoadError> {
+    let mut entries: Vec<PathBuf> = Vec::new();
+    let read = fs::read_dir(dir).map_err(|source| ContentLoadError::Io {
+        path: dir.to_path_buf(),
+        source,
+    })?;
+    for entry in read {
+        let entry = entry.map_err(|source| ContentLoadError::Io {
+            path: dir.to_path_buf(),
+            source,
+        })?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("ron") {
+            entries.push(path);
+        }
+    }
+    entries.sort();
+    Ok(entries)
+}
+
+/// Parse a single `*.ron` file into a typed `T`. Errors surface with the
+/// file path attached for diagnostic visibility.
+fn parse_ron_file<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, ContentLoadError> {
+    let raw = fs::read_to_string(path).map_err(|source| ContentLoadError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    ron::de::from_str(&raw).map_err(|source| ContentLoadError::Parse {
+        path: path.to_path_buf(),
+        source,
+    })
+}
 
 // ---------------------------------------------------------------------------
 // Per-culture naming corpus
@@ -185,6 +224,8 @@ pub struct ContentStore {
     pub corpus_version: u32,
     pub cultures: BTreeMap<String, Culture>,
     pub tactical_archetypes: BTreeMap<String, TacticalArchetype>,
+    pub player_templates: BTreeMap<String, crate::PlayerTemplate>,
+    pub role_affinity_tables: BTreeMap<String, crate::RoleAffinityTable>,
     // TODO(T2-3): bios, scout phrases, headlines, manager quotes, fan
     // reactions, commentary — wired in as each baker subcommand lands.
 }
@@ -210,26 +251,93 @@ pub enum ContentLoadError {
 }
 
 impl ContentStore {
-    /// Load the baked corpus from a directory tree.
+    /// Load the on-disk content corpus from a directory tree.
+    ///
+    /// Codex audit P1 (2026-05-13): this was previously
+    /// `pub fn load_baked(_) -> Ok(Self::default())` — a stub that
+    /// returned an empty store while the docs claimed it loaded
+    /// content. The current implementation walks `content/sources/*`
+    /// under `path` and populates every BTreeMap on the store from
+    /// the on-disk RON.
     ///
     /// Expected layout under `path`:
     /// ```text
     /// content/
-    ///   baked/
-    ///     manifest.ron
-    ///     cultures/<id>.ron     ← TODO T2-3 once the baker writes here
     ///   sources/
-    ///     cultures/<id>.ron
-    ///     archetypes/<id>.ron
+    ///     cultures/<id>.ron         → Culture
+    ///     archetypes/<id>.ron       → TacticalArchetype
+    ///     role-affinities/<id>.ron  → RoleAffinityTable
+    ///     players/<id>.ron          → PlayerTemplate
+    ///   baked/                      ← TODO T2-3: bake-pipeline output
+    ///     manifest.ron
+    ///     cultures/<id>.ron, ...
     /// ```
     ///
-    /// At T0 this stub only loads `content/sources/cultures/*.ron` and
-    /// `content/sources/archetypes/*.ron` so the runtime has *something* to
-    /// sample from before the baker exists.
-    pub fn load_baked(_path: &Path) -> Result<Self, ContentLoadError> {
-        // TODO(T2-3): walk content/baked/**.ron, parse, populate; honor mod
-        // load order; verify corpus_version against the manifest.
-        Ok(Self::default())
+    /// **T1-2b scope:** loads `content/sources/*` only. The `content/baked/`
+    /// path + manifest validation + mod-overlay load order all land at T2-3
+    /// alongside the real baker pipeline (per `docs/MASTER_PLAN.md` T2-3).
+    /// Until then, `load_sources` is the only loader path and is what
+    /// `load_baked` delegates to.
+    ///
+    /// Errors propagate as `ContentLoadError`; the loader is fail-closed.
+    /// No silent defaults; no `unwrap_or_default` fallbacks.
+    pub fn load_sources(content_root: &Path) -> Result<Self, ContentLoadError> {
+        let sources_dir = content_root.join("sources");
+        if !sources_dir.is_dir() {
+            return Err(ContentLoadError::MissingDir(sources_dir));
+        }
+        let mut store = Self::default();
+
+        // Cultures
+        let cultures_dir = sources_dir.join("cultures");
+        if cultures_dir.is_dir() {
+            for entry in walk_ron_files(&cultures_dir)? {
+                let parsed: Culture = parse_ron_file(&entry)?;
+                store.cultures.insert(parsed.id.clone(), parsed);
+            }
+        }
+
+        // Tactical archetypes
+        let archetypes_dir = sources_dir.join("archetypes");
+        if archetypes_dir.is_dir() {
+            for entry in walk_ron_files(&archetypes_dir)? {
+                let parsed: TacticalArchetype = parse_ron_file(&entry)?;
+                store.tactical_archetypes.insert(parsed.id.clone(), parsed);
+            }
+        }
+
+        // Role-affinity tables
+        let role_aff_dir = sources_dir.join("role-affinities");
+        if role_aff_dir.is_dir() {
+            for entry in walk_ron_files(&role_aff_dir)? {
+                let parsed: crate::RoleAffinityTable = parse_ron_file(&entry)?;
+                store.role_affinity_tables.insert(parsed.id.clone(), parsed);
+            }
+        }
+
+        // Player templates
+        let players_dir = sources_dir.join("players");
+        if players_dir.is_dir() {
+            for entry in walk_ron_files(&players_dir)? {
+                let parsed: crate::PlayerTemplate = parse_ron_file(&entry)?;
+                store
+                    .player_templates
+                    .insert(parsed.qualified_id.clone(), parsed);
+            }
+        }
+
+        Ok(store)
+    }
+
+    /// Delegate to `load_sources` while the baked-corpus pipeline is being
+    /// implemented (T2-3). The signature is preserved for forward-compat —
+    /// callers will not need to change paths when T2-3 lands.
+    pub fn load_baked(content_root: &Path) -> Result<Self, ContentLoadError> {
+        // TODO(T2-3): walk content/baked/**.ron, parse manifest, honour mod
+        // load order, verify corpus_version. For now, delegate to
+        // load_sources — every existing caller treats the result the same
+        // way regardless of source/baked origin.
+        Self::load_sources(content_root)
     }
 
     /// Deterministically sample a player display name from a given culture.
@@ -301,6 +409,94 @@ mod tests {
             store
                 .sample_player_name("fwh.core:culture.anglo", 1)
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn load_sources_walks_content_directory() {
+        // Locate the workspace-root content/ directory the same way
+        // crates/fw-content/tests/fixtures_load.rs does. CARGO_MANIFEST_DIR
+        // = crates/fw-content; workspace root = ../..
+        let content_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("content");
+        let store = ContentStore::load_sources(&content_root)
+            .expect("load_sources should succeed against the committed fixtures");
+        // Sample assertions — fixtures must contain at least one of each.
+        assert!(
+            !store.cultures.is_empty(),
+            "expected at least one culture loaded from content/sources/cultures/"
+        );
+        assert!(
+            !store.tactical_archetypes.is_empty(),
+            "expected at least one tactical archetype loaded"
+        );
+        assert!(
+            !store.role_affinity_tables.is_empty(),
+            "expected at least one role-affinity table loaded"
+        );
+        assert!(
+            !store.player_templates.is_empty(),
+            "expected at least one player template loaded"
+        );
+    }
+
+    #[test]
+    fn load_sources_is_deterministic() {
+        // Codex audit P1 lineage: confirm load order is sorted so the
+        // result is reproducible across platforms.
+        let content_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("content");
+        let a = ContentStore::load_sources(&content_root).expect("load 1");
+        let b = ContentStore::load_sources(&content_root).expect("load 2");
+        // BTreeMap iteration is sorted by key; same keys + same values
+        // = same iteration; if the file walk had non-deterministic order
+        // a parse error would also surface in one but not the other.
+        assert_eq!(
+            a.cultures.keys().collect::<Vec<_>>(),
+            b.cultures.keys().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            a.tactical_archetypes.keys().collect::<Vec<_>>(),
+            b.tactical_archetypes.keys().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            a.role_affinity_tables.keys().collect::<Vec<_>>(),
+            b.role_affinity_tables.keys().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            a.player_templates.keys().collect::<Vec<_>>(),
+            b.player_templates.keys().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn load_sources_missing_root_errors() {
+        // Fail-closed: a missing content directory surfaces as an error,
+        // not a silent empty store.
+        let bogus = PathBuf::from("/tmp/this/path/does/not/exist-fwh-test");
+        let result = ContentStore::load_sources(&bogus);
+        assert!(matches!(result, Err(ContentLoadError::MissingDir(_))));
+    }
+
+    #[test]
+    fn load_baked_delegates_to_load_sources() {
+        // Until T2-3 lands the real baked-corpus path, load_baked
+        // delegates. This test pins the contract — if anyone changes
+        // load_baked without updating load_sources or vice-versa, this
+        // breaks loudly.
+        let content_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("content");
+        let sources = ContentStore::load_sources(&content_root).expect("load_sources");
+        let baked = ContentStore::load_baked(&content_root).expect("load_baked");
+        assert_eq!(
+            sources.cultures.keys().collect::<Vec<_>>(),
+            baked.cultures.keys().collect::<Vec<_>>()
         );
     }
 

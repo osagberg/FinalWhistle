@@ -76,7 +76,7 @@ bundle:
 # Reproduces the per-PR CI matrix as closely as `just` can on a single
 # host. Use before pushing to `main` direct-commit per CLAUDE.md §4.5.
 # This is what `/next` step 6 (verify) invokes via `scripts/fw verify`.
-ci-local: lint test banned-terms test-determinism determinism-audit
+ci-local: lint test banned-terms test-determinism determinism-audit verify-content
 
 # ----------------------------------------------------------------
 # Banned-terms lint (football-native vocabulary)
@@ -93,9 +93,22 @@ banned-terms:
 # ----------------------------------------------------------------
 
 # Run FW-VAL checks per docs/specs/content-pack-validation-contract.md.
-# Falls back gracefully if fw-content-baker isn't built yet (T0 stub).
+#
+# Codex full-project audit P1 (2026-05-13) Tranche 6 fix:
+# - Was: `cargo run -p fw-content-baker -- validate-content || echo
+#        "fw-content-baker validator not yet implemented (T2-3); skipping"`.
+#   Two bugs there: (a) `validate-content` isn't a valid subcommand (the
+#   CLI's command is `validate`); (b) `|| echo` masked any failure, so the
+#   recipe silently passed.
+# - Now: invokes the real `validate` subcommand. Exits non-zero on any
+#   validation error (fail-closed). No silent skip.
+#
+# Runtime content validators (RoleAffinityTable + PlayerAttributes range)
+# are real as of Tranche 6. The bake-time validators (banned-terms shell-
+# out + licensed-data corpus + cliché detection) are still NOT
+# IMPLEMENTED — they land at T2-3 when their consumer (bake-names) lands.
 verify-content:
-    cargo run -p fw-content-baker -- validate-content || echo "fw-content-baker validator not yet implemented (T2-3); skipping"
+    cargo run -p fw-content-baker -- validate
 
 # ----------------------------------------------------------------
 # Determinism audit (Codex pre-T0 audit follow-up)

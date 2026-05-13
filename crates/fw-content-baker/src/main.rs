@@ -193,9 +193,92 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Validate => {
             log::info!("validate");
-            stub_unimplemented("validate", "T2-3")
+            run_validate(&cli)
         }
     }
+}
+
+/// `validate` subcommand entry point.
+///
+/// Codex full-project audit P1 (2026-05-13): the prior stub returned
+/// `Ok(())` unconditionally; the Justfile recipe `verify-content` masked
+/// any failure with `|| echo`. Both issues fixed: this function actually
+/// runs every available validator and exits non-zero on failure.
+///
+/// What's implemented today (real, fail-closed):
+/// - Load every committed content fixture under `content/sources/*` via
+///   `fw_content::ContentStore::load_sources` (Codex Tranche 6 loader).
+/// - For each loaded `RoleAffinityTable`, assert:
+///   * `invalid_roles()` is empty (every role weights sum to 10_000)
+///   * `unknown_attribute_keys()` is empty (every weight key resolves to
+///     `fw_core::VISIBLE_ATTRIBUTE_NAMES`)
+/// - For each loaded `PlayerTemplate`, assert that
+///   `attributes.validate_unit_range()` is empty (every Q32 field in
+///   `[0, 1]`).
+///
+/// What's NOT implemented yet (T2-3 backlog; explicit NOT_IMPLEMENTED
+/// return rather than silent-pass per Codex audit):
+/// - The bake-time validators (`crates/fw-content-baker/src/validators.rs`
+///   `check_banned_terms` / `check_licensed_data` / `check_cliche`). These
+///   still return `Ok(())` because they have NO consumers yet (no bake
+///   subcommand calls them); making them fail-closed would break a path
+///   nothing currently uses. They become fail-closed during T2-3 when
+///   `bake-names` is the first consumer.
+fn run_validate(cli: &Cli) -> anyhow::Result<()> {
+    use fw_content::ContentStore;
+    use std::path::PathBuf;
+
+    let content_root: PathBuf = PathBuf::from(&cli.workspace).join("content");
+    println!(
+        "fw-content-baker: validating content at {}",
+        content_root.display()
+    );
+
+    let store = ContentStore::load_sources(&content_root)
+        .map_err(|e| anyhow::anyhow!("content load failed: {e}"))?;
+
+    let mut errors = Vec::<String>::new();
+
+    // Role-affinity validation (composes the methods on RoleAffinityTable
+    // landed in Tranche 2).
+    for (id, table) in &store.role_affinity_tables {
+        for (role, sum_bps) in table.invalid_roles() {
+            errors.push(format!(
+                "role-affinity {id:?}: role {role:?} weights sum to {sum_bps} bps (expected 10_000)"
+            ));
+        }
+        for (role, bad_key) in table.unknown_attribute_keys() {
+            errors.push(format!(
+                "role-affinity {id:?}: role {role:?} contains unknown / hidden attribute key {bad_key:?}"
+            ));
+        }
+    }
+
+    // Player-template validation (composes
+    // PlayerAttributes::validate_unit_range landed in Tranche 2).
+    for (qid, template) in &store.player_templates {
+        for err in template.attributes.validate_unit_range() {
+            errors.push(format!("player {qid:?}: {err}"));
+        }
+    }
+
+    println!(
+        "fw-content-baker: validated {} cultures, {} archetypes, {} role-affinity tables, {} player templates",
+        store.cultures.len(),
+        store.tactical_archetypes.len(),
+        store.role_affinity_tables.len(),
+        store.player_templates.len(),
+    );
+
+    if !errors.is_empty() {
+        for e in &errors {
+            eprintln!("validation error: {e}");
+        }
+        anyhow::bail!("{} validation error(s); see stderr above", errors.len());
+    }
+
+    println!("fw-content-baker: validation passed.");
+    Ok(())
 }
 
 fn stub_unimplemented(cmd: &str, milestone: &str) -> anyhow::Result<()> {
