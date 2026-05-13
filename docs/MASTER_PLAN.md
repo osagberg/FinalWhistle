@@ -14,9 +14,9 @@ last_verified: 2026-05-13
 
 ## Snapshot (2026-05-13)
 
-- **Phase:** T1 (First Match) active. T1-1 (fw-content schema lock) closed at commit `69f900b9`. Codex full-project audit landed at `c3945227` with ~50 findings; P0 fix at `eb0b952e`; doc-drift cleanup in progress. Tranches 2-7 of remediation queued. **Awaiting next `/next` for Tranche 2 work.**
-- **Build health:** local `main` is currently ahead of `origin/main`; CI on HEAD will run after the upcoming push (Tranche 1 final step). Last cross-OS-green commit on `origin/main` is `20314655`. Pinned BLAKE3 canonical hash matches across platforms at last verified point.
-- **Codex audit:** see `docs/audits/codex-full-audit-2026-05-13.md` for the full triage (10 lanes, 7 tranches). Notable gaps: `ContentStore::load_baked` is a stub returning empty; FW-VAL validators are fail-open; RNG seed tuple inconsistent across docs; 8Hz cadence math wrong (60/8=7.5); T1-2b companion specs missing; PlayerSeparation contract not in v2.
+- **Phase:** T1 (First Match) active. T1-1 (fw-content schema lock) closed at `69f900b9`. Codex full-project audit Tranches 1-7 closed (`eb0b952e..27920de6`). Codex pre-T1-2b re-audit returned YELLOW (0 new P0, 7 residual P1) — those P1s being fixed in the current commit set. **Next: clear residual P1s, re-run re-audit, then `/next` picks T1-2a.**
+- **Build health:** local `main` synced with `origin/main` through `af7df8fa`. Determinism Gate green on HEAD; full CI matrix runs on each push. Pinned BLAKE3 canonical hash matches cross-platform.
+- **Codex audits on disk:** `docs/audits/codex-full-audit-2026-05-13.md` (full-project audit) + `docs/audits/codex-pre-t1-2b-prompt.md` (re-audit Tier-2 prompt). Pre-T1-2b re-audit findings being remediated in-flight.
 - **Carry-forward set:** ~50 files queued from `/Users/vibelogic/dev/football-archive/` per `MIGRATION_AUDIT.md` §4 (mostly consumed during pivot + reconciliation; remainder lands during T1). v1→v2 carry-forward debts logged at `REFERENCES.md` "Carry-forward debts" table.
 - **Frozen Unity snapshot:** `/Users/vibelogic/dev/football-archive/`.
 
@@ -38,9 +38,9 @@ Stale rule: any `IN_PROGRESS` item older than 14 days must be reviewed at next `
 
 ## Now / Next / Blocked
 
-- **Now:** Codex full-project audit remediation in progress. Tranche 1 (P0 fix + doc-drift cleanup) landing this session; Tranches 2-7 queued via `/next` cycles. See `docs/audits/codex-full-audit-2026-05-13.md` for the full triage.
-- **Next:** Tranches 2-4 (T1-1 schema follow-ups + ADR work for RNG seed / cadence / save format / signatures / hash-rebaseline / licensed-data / runtime-AI + T1-2b companion specs). THEN `T1-2a` dev-tier 2D tactical board. Browser-dev mode design landed; **Claude Preview MCP wiring is loaded (tool schemas active) but not yet exercised end-to-end against a real `dump_frames` fixture** — that exercise is part of T1-2a's done-criteria (the `dump_frames` binary doesn't exist yet).
-- **Blocked:** T1-2a is queued behind audit Tranches 2-4. No external blockers.
+- **Now:** Codex pre-T1-2b re-audit P1 remediation (in-flight commit set). Tranches 1-7 of the full-project audit closed at `27920de6`. Re-audit found 7 residual P1s — being fixed in the current commit set (AbilityCeiling escape hatch, stale RNG-tuple refs across load-bearing docs, MASTER_PLAN/MEMORY refresh, hook durability claim, decision-cadence-stagger math bug, BT attribute-binding field paths, xG coefficient hand-tuning).
+- **Next:** Re-run focused re-audit after the P1 fixes land; if clean → `/next` picks T1-2a (dev-tier 2D tactical board per ADR-0007 + ADR-0008). Claude Preview MCP install is queued (`MEMORY.md` "Queued user actions").
+- **Blocked:** T1-2a starts only after the re-audit returns GREEN (or YELLOW with no P0/P1).
 
 ---
 

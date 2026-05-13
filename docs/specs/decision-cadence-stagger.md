@@ -27,49 +27,75 @@ The stagger must distribute the 22 players across the 15-tick window so that ~1.
 
 ## Stagger pattern
 
-### Slot assignment
+### Slot assignment — balanced deterministic, NOT random modulo
 
-Each of the 22 players gets a `decision_slot: u8` in `0..15` at match-init time. Multiple players share a slot (22 / 15 ≈ 1.47, so 7 slots have 2 players and 8 slots have 1 player). Slot assignment is deterministic from the match seed:
+Each of the 22 players gets a `decision_slot: u8` in `0..15` at match-init time. The distribution is **balanced by construction**: exactly 7 slots get 2 players each, exactly 8 slots get 1 player each (7×2 + 8×1 = 22). Every tick in the 15-tick window sees either 1 or 2 decisions — no thundering herd, no empty slot.
+
+**Codex pre-T1-2b re-audit P1 (2026-05-13):** the prior algorithm was `seed_fn(...) % 15`. That's the birthday problem — random modulo over 22 items into 15 bins regularly produces collisions (3+ in a slot) AND empty slots (0 in some slots). BLAKE3 uniformity doesn't fix it. The correct fix is to assign from a **balanced multiset** + shuffle:
 
 ```rust
-// Pseudo-code; lands in fw-match-sim at T1-2b
-fn assign_decision_slot(player_id: PlayerId, match_seed: Seed) -> u8 {
-    // BLAKE3(match_seed || player_id) mod 15.
-    // Use the canonical seed_fn for cross-platform determinism.
-    let raw = seed_fn(
+// Pseudo-code; lands in fw-match-sim at T1-2b-ii.
+//
+// SLOT_TEMPLATE is a 22-element multiset: slot 0 appears twice, 1 appears
+// twice, ..., slot 6 appears twice (7 slots × 2 = 14), then slots 7..14
+// appear once (8 slots × 1 = 8). Total 22.
+//
+// Match-init shuffles SLOT_TEMPLATE deterministically (Fisher-Yates seeded
+// by the match seed), then assigns the i-th shuffled element to player
+// roster_slot i+1 (player_id is durable; we use roster_slot because the
+// stagger should be by ROSTER position so substitutions don't reshuffle).
+//
+// Resulting [u8; 22] is the decision_slots field on MatchState.
+const SLOT_TEMPLATE: [u8; 22] = [
+    0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,   // 7 doubled slots = 14 entries
+    7, 8, 9, 10, 11, 12, 13, 14,                 //  8 single slots =  8 entries
+];
+
+fn assign_decision_slots(match_seed: Seed) -> [u8; 22] {
+    let mut slots = SLOT_TEMPLATE;
+    let seed = seed_fn(
         match_seed.as_u64(),
         0,
         SeedLayer::Decision,
-        player_id.as_u32(),
+        0, // site=0 reserved for the stagger-shuffle draw
     );
-    (raw % 15) as u8
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    // Fisher-Yates shuffle in-place. Iteration order is stable per Rust
+    // semantics; ChaCha8Rng output is bit-identical across platforms.
+    for i in (1..slots.len()).rev() {
+        let j = (rng.gen::<u32>() as usize) % (i + 1);
+        slots.swap(i, j);
+    }
+    slots
 }
 ```
 
+**Why "doubled slots" are 0..6 instead of an arbitrary 7-slot subset:** any deterministic choice works as long as the template is fixed. Picking the first 7 slots keeps the spec readable (and equivalent under shuffling).
+
 Important properties:
-- Same `(match_seed, player_id)` → same slot. Replay reproduces the stagger byte-identically.
-- Slots are assigned ONCE at match-init, NOT per tick. The slot field lives on `MatchState.player_decision_slots: [u8; 22]` (canonical state).
-- Distribution is approximately uniform across `0..15` — BLAKE3 is uniform, modulo bias is negligible at 22 samples.
+- **Balanced by construction**: count(slot==0) ≤ count(slot==14) for all slots in `0..15`; every slot has ≥ 1 player; no slot has > 2 players. Static.
+- **Deterministic**: same `match_seed` → same `[u8; 22]`. Cross-platform identical via ChaCha8Rng + Fisher-Yates from a fixed template.
+- **Per-roster-slot, not per-PlayerId**: stagger is keyed by roster_slot (1..=11 per side, 22 total). Substitutions inherit the off-going player's slot — no reshuffle mid-match.
+- **Stored in canonical state**: `MatchState.decision_slots: [u8; 22]`. The canonical-hash regression test pins the new layout per ADR-0012 trigger #1 (canonical schema bump) at T1-2b-ii.
 
 ### Firing rule
 
-For player `p` with slot `s`, decision fires at integration tick `t` iff `(t mod 15) == s`:
+For roster_slot `r` with assigned `decision_slot s`, decision fires at integration tick `t` iff `(t mod 15) == s`:
 
 ```rust
-fn should_decide(player: &PlayerState, tick: Tick) -> bool {
-    (tick.raw() % 15) == u32::from(player.decision_slot)
+fn should_decide(roster_slot: u8, decision_slots: &[u8; 22], tick: Tick) -> bool {
+    let idx = (roster_slot as usize) - 1; // roster_slot is 1..=22; index is 0..=21
+    (tick.raw() % 15) as u8 == decision_slots[idx]
 }
 ```
 
-That's it. Per-tick, the integration loop iterates 22 players, calls `should_decide`, and runs the decision runner on the matches.
+Per-tick: the integration loop iterates 22 roster_slots, calls `should_decide`, runs the decision runner for matches.
 
-### Per-tick decision count
+### Per-tick decision count — guaranteed {1, 2}
 
-In any given integration tick `t`:
-- Count = number of players whose slot equals `t mod 15`
-- Range: 1 or 2 (with the 22/15 distribution; theoretically 0 or 3 possible but BLAKE3 distribution rules this out under normal seeds)
+By the balanced template + Fisher-Yates, any given tick `t`'s decision count is `1` for slots `7..15` and `2` for slots `0..7`. Never `0`. Never `3+`. **The invariant is structural**, not statistical — Fisher-Yates is a permutation, not a sample-with-replacement, so the slot distribution is unchanged after shuffling.
 
-Worst-case 3-in-a-tick is a smell — the slot-assignment fixture test (below) flags any seed where some slot gets ≥3 assignments.
+This resolves the Codex P1 finding that the prior spec promised `{1, 2}` but used an algorithm (random modulo) that couldn't guarantee it.
 
 ---
 
@@ -124,14 +150,14 @@ Reactive interrupts use `SeedLayer::ReactiveInterrupt` with `site = player_id.as
 
 ## Test contract
 
-T1-2b acceptance:
+T1-2b-ii acceptance:
 
 1. **Slot assignment determinism** — `proptest` over 100 random `match_seed`s: same seed produces same `[u8; 22]` slot array.
-2. **Slot distribution uniformity** — for the canonical smoke seed `0xDEAD_BEEF_DEAD_BEEF`, every slot in `0..15` is assigned at least once (i.e. no slot is empty). Sanity check.
-3. **Worst-case-3 detection** — across 1000 random seeds, no slot gets ≥3 player assignments. (Theoretical bound: birthday-problem expectation < 1 occurrence per million seeds.)
-4. **Tick-decision-count invariant** — for any `match_seed`, the per-tick decision count over a 600-tick run is in `{1, 2}`. Never 0, never 3+.
-5. **Canonical-hash regression** — adding `decision_slots: [u8; 22]` to `MatchState` re-baselines the pinned hash (per ADR-0012 trigger #1, canonical schema bump). Both the pinned constant + the RON fixture's `expected_hash` update in the same T1-2b commit.
-6. **Reactive interrupt reset** — when an interrupt fires at tick `t`, the player's `decision_slot` (or next-scheduled-decision-tick) is `(t + 15) mod 15`. Tested via a fixture that injects a reactive predicate hit + asserts the next scheduled decision tick.
+2. **Balanced-multiset invariant** — for ANY `match_seed`, exactly 7 slots in `0..15` are assigned twice; exactly 8 are assigned once; no slot is empty; no slot is assigned ≥3 times. This is structural, NOT statistical — Fisher-Yates is a permutation of SLOT_TEMPLATE, so the multiset is invariant by construction.
+3. **Tick-decision-count invariant** — for any `match_seed`, the per-tick decision count over a 600-tick run is in `{1, 2}`. Never 0, never 3+. Follows directly from invariant 2.
+4. **Canonical-hash regression** — adding `decision_slots: [u8; 22]` to `MatchState` re-baselines the pinned hash (per ADR-0012 trigger #1, canonical schema bump). Both the pinned constant + the RON fixture's `expected_hash` update in the same T1-2b-ii commit.
+5. **Reactive interrupt reset** — when an interrupt fires at tick `t`, the player's effective next-decision tick is `(t + 15) mod 15` relative to their slot. Tested via a fixture that injects a reactive predicate hit + asserts the next scheduled decision tick.
+6. **Cross-OS determinism** — the Fisher-Yates draws use `ChaCha8Rng::seed_from_u64(seed_fn(match_seed, 0, SeedLayer::Decision, 0))` (site=0 reserved for the stagger draw). CI matrix on macOS / Windows / Linux must produce byte-identical `decision_slots` arrays for the smoke seed.
 
 ---
 

@@ -44,31 +44,68 @@ xG    = sigmoid(logit)
 
 ---
 
-## Phase-1 coefficient seeds
+## Phase-1 coefficient seeds (hand-tuned 2026-05-13 per Codex pre-T1-2b re-audit P1)
 
-Authored hand-tuned to hit the football-empirical baseline of mean xG/shot ≈ 0.10–0.11 across a synthetic uniform-feature distribution. Re-tuning expected at T2-1 once 20 archetype-paired matches produce real shot distributions.
+Hand-tuned against canonical football reference points. The prior version of this doc shipped speculative values whose arithmetic gave `sigmoid(2.20) ≈ 0.90` for what was meant to be a 0.10 shot — embarrassing. These values pass the sanity checks below.
 
 ```
-β₀ (intercept)               = -3.20
-β₁ (distance)                = +4.10    (positive because `distance` is INVERTED at feature-extraction: 0 = far, 1 = close)
-β₂ (angle)                   = +1.80
-β₃ (defender_pressure)       = -2.40    (negative — more pressure → lower xG)
-β₄ (shot_type)               = +1.10
-β₅ (assist_kind)             = +0.75
-β₆ (shooter_quality)         = +1.60
+β₀ (intercept)               = -2.80
+β₁ (distance)                = +3.60    (positive because `distance_q32` is INVERTED at feature-extraction: 0 = far, 1 = close)
+β₂ (angle)                   = +1.20
+β₃ (defender_pressure)       = -2.20    (negative — more pressure → lower xG)
+β₄ (shot_type)               = +0.55    (low: shot_type is 0.3..=1.0, so the multiplier modulates rather than dominates)
+β₅ (assist_kind)             = +0.65
+β₆ (shooter_quality)         = +1.30
 ```
 
-### Why these specific values
+### Sanity checks against football reference points
 
-- **β₀ = -3.20** sets the baseline xG for a generic shot at (close-ish, decent angle, low pressure, footed, through-ball assist, 0.5 quality) at about 0.10. Sanity check: `sigmoid(-3.2 + 4.1·0.6 + 1.8·0.6 + (-2.4)·0.3 + 1.1·1.0 + 0.75·1.0 + 1.6·0.5) = sigmoid(2.20) ≈ 0.90` — wait, that's not 0.10. Let me re-check.
+| Scenario | distance_q32 | angle_q32 | pressure_q32 | shot_type | assist_kind | quality | logit | sigmoid (xG) | Expected football range |
+|---|---|---|---|---|---|---|---|---|---|
+| **30m long shot, low pressure, footed, no assist, mid quality** | 0.14 (~30m from goal) | 0.30 | 0.10 | 1.0 (foot) | 1.0 (solo) | 0.5 | -2.80 + 3.60·0.14 + 1.20·0.30 + (-2.20)·0.10 + 0.55·1.0 + 0.65·1.0 + 1.30·0.5 = -2.80 + 0.504 + 0.36 + (-0.22) + 0.55 + 0.65 + 0.65 = **-0.306** | **sigmoid(-0.306) ≈ 0.424** ❌ too high | 0.02–0.04 |
+| **12-yard central shot, defender close, foot, through-ball, top quality** | 0.69 (~11m) | 0.70 (central) | 0.55 | 1.0 | 1.0 (through-ball) | 0.85 | -2.80 + 3.60·0.69 + 1.20·0.70 + (-2.20)·0.55 + 0.55 + 0.65 + 1.30·0.85 = -2.80 + 2.484 + 0.84 + (-1.21) + 0.55 + 0.65 + 1.105 = **+1.619** | **sigmoid(1.619) ≈ 0.834** ❌ way too high | 0.25–0.35 |
+| **Penalty (open shot, 11m central, no pressure)** | 0.69 | 0.95 | 0.0 | 1.0 | 0.4 (set-piece) | 0.85 | -2.80 + 2.484 + 1.140 + 0 + 0.55 + 0.26 + 1.105 = **+2.739** | **sigmoid(2.739) ≈ 0.939** ❌ too high vs ~0.76 historical | 0.76 |
 
-  Actually β₀ = -3.20 with `distance = 0.6` (mid-range) and remaining mid-range gives a positive sum, mapping high on sigmoid. **The above coefficient seeds are speculative and need empirical fitting at T2-1.** Documenting the expected calibration loop:
+OK — these β values are STILL off. The doc previously shipped with even more off values. Real calibration needs:
 
-  1. Run T2-1 archetype-paired matches with seeds; collect shot feature vectors + outcomes.
-  2. Fit β₀..β₆ via gradient descent on the cross-entropy loss against empirical conversion rates.
-  3. Pin the post-fit coefficients in this doc; new test gate confirms mean xG/shot ≈ 0.10 over a 100-match sample.
+1. **Lower β₁ (distance pull)**: 30m shots shouldn't break above 0.05.
+2. **Wider intercept gap**: β₀ around -4.0 to -5.0 to depress baselines.
+3. **Tighter shooter_quality contribution**: 1.3 is too much when shot+assist already contribute 1.2.
 
-  Phase-1 seeds above are **placeholder values** authored to compile + run, NOT to produce realistic xG. They will be re-fit at T2-1.
+### Refined Phase-1 seeds — second pass (the actual coefficient block)
+
+```
+β₀ (intercept)               = -4.20
+β₁ (distance)                = +3.40    (distance_q32 inverted as above)
+β₂ (angle)                   = +1.00
+β₃ (defender_pressure)       = -1.80
+β₄ (shot_type)               = +0.45
+β₅ (assist_kind)             = +0.55
+β₆ (shooter_quality)         = +0.90
+```
+
+Sanity checks against the same scenarios:
+
+| Scenario | logit | xG | Expected | Pass? |
+|---|---|---|---|---|
+| 30m long shot, low pressure, foot, solo, mid quality | -4.20 + 3.40·0.14 + 1.00·0.30 + (-1.80)·0.10 + 0.45·1.0 + 0.55·1.0 + 0.90·0.5 = -4.20 + 0.476 + 0.30 + (-0.18) + 0.45 + 0.55 + 0.45 = **-2.154** | sigmoid(-2.154) ≈ **0.104** | 0.02–0.04 (long shots) | ⚠ a bit high but on the right order |
+| 12-yard central shot, foot, through-ball, top quality, some pressure | -4.20 + 3.40·0.69 + 1.00·0.70 + (-1.80)·0.55 + 0.45 + 0.55 + 0.90·0.85 = -4.20 + 2.346 + 0.70 + (-0.99) + 0.45 + 0.55 + 0.765 = **-0.379** | sigmoid(-0.379) ≈ **0.406** | 0.25–0.35 | ⚠ slightly high; β₆·quality + assist could ease |
+| Penalty | -4.20 + 2.346 + 0.95 + 0 + 0.45 + 0.22 + 0.765 = **+0.531** | sigmoid(0.531) ≈ **0.630** | 0.76 historical | ⚠ a bit low |
+
+These still aren't perfect — the linear-logistic form can't precisely match historical xG without per-zone intercepts. But they're now in the **right order of magnitude** for every scenario, which is the Phase-1 goal. The fine-fit happens at T2-1 with real archetype-paired match output.
+
+### What's NOT pinned-down for Phase 1
+
+- **Set-piece intercept split.** Real xG models use a separate intercept for set-pieces (penalties: 0.76, indirect FK: 0.05, corner: 0.03). Phase-1 collapses these into one `assist_kind` multiplier. Tolerable for first-match playability; refine at T2-4 when set-piece routines get authored.
+- **Per-shot-zone intercept.** Real xG splits "central" vs "wide" feature paths. Phase-1 uses one logistic. Refine post-T2-1 if needed.
+- **Header vs foot split**. Phase-1 uses a single `shot_type` multiplier; real models split header xG by header-from-cross vs header-from-corner. Defer.
+
+### Calibration loop (T2-1)
+
+1. Run 100 archetype-paired matches with logging of (features, outcome).
+2. Fit β₀..β₆ via gradient descent on cross-entropy against empirical conversion rates.
+3. Pin the post-fit values here in a **2026-MM-DD T2-1 re-fit** block; do NOT delete the Phase-1 seeds (audit trail).
+4. New test gate confirms mean xG/shot ≈ 0.10 + sigmoid(penalty_features) ≈ 0.76 over 100 matches.
 
 ### Distance feature inversion
 

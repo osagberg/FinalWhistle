@@ -175,7 +175,8 @@ mod tests {
                     dirtiness: Q32::ZERO,
                 },
             },
-            ceiling: AbilityCeiling::new(half, Q32::from_raw(3i64 << 30)), // ~0.5 / ~0.75
+            ceiling: AbilityCeiling::try_new(half, Q32::from_raw(3i64 << 30))
+                .expect("sample ceiling is valid"), // ~0.5 / ~0.75
             preferred_role: RoleId::new("AM"),
         }
     }

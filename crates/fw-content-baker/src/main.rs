@@ -255,10 +255,14 @@ fn run_validate(cli: &Cli) -> anyhow::Result<()> {
     }
 
     // Player-template validation (composes
-    // PlayerAttributes::validate_unit_range landed in Tranche 2).
+    // PlayerAttributes::validate_unit_range landed in Tranche 2 +
+    // AbilityCeiling::validate landed in pre-T1-2b re-audit P1 fix).
     for (qid, template) in &store.player_templates {
         for err in template.attributes.validate_unit_range() {
-            errors.push(format!("player {qid:?}: {err}"));
+            errors.push(format!("player {qid:?} attributes: {err}"));
+        }
+        if let Err(err) = template.ceiling.validate() {
+            errors.push(format!("player {qid:?} ceiling: {err}"));
         }
     }
 

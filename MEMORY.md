@@ -1,6 +1,6 @@
 # Final Whistle — Working Memory
 
-> Updated: 2026-05-13 | Phase: T1 First Match (T1-1 closed; Codex audit remediation in progress)
+> Updated: 2026-05-13 | Phase: T1 First Match (T1-1 closed; full-project-audit Tranches 1-7 closed; re-audit P1 fixes in flight)
 
 ## Project
 
@@ -31,7 +31,16 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-Codex audit Tranche 1 (doc-drift cleanup + `.claude/launch.json` track + push). Tranches 2-7 queued via `/next` cycles after this lands. See `docs/audits/codex-full-audit-2026-05-13.md` for the full sequence.
+Codex pre-T1-2b re-audit P1 remediation. Full-project-audit Tranches 1-7 closed at `27920de6`. Re-audit returned YELLOW with 7 residual P1s — fixing in the current commit set:
+1. AbilityCeiling `new` escape hatch → `new_unchecked` + `validate()` + FW-VAL wiring (DONE this commit)
+2. Stale RNG tuple across CLAUDE.md / Sim/RULES.md / seed.rs / fw-match-sim/lib.rs / gameplay-programmer.md → ADR-0009 seed_fn signature (DONE this commit)
+3. MASTER_PLAN + MEMORY refresh (in progress)
+4. ADR-0012 hook-durability claim
+5. decision-cadence-stagger balanced-deterministic algorithm
+6. bt-attribute-binding table corrections
+7. xG Phase-1 coefficient hand-tuning
+
+After fixes land, focused re-audit re-runs, then `/next` picks T1-2a.
 
 <!-- Historical scope-spec for the just-shipped T1-1 retained below for grep-back reference -->
 
@@ -96,6 +105,7 @@ Cleanup the user runs at their convenience (NOT auto-applied by Claude — these
 
 - **Remove Unity MCPs from global `claude mcp list`.** Currently `unity-mcp` + `UnityMCP` are still registered. They were used by FW v1; v2 is Rust-only. Run `claude mcp remove unity-mcp` + `claude mcp remove UnityMCP`. Confirm via `claude mcp list`. Codex audit Lane F P2.
 - **Install Claude Preview MCP** if not yet done. When the dev-server prompt fires in Claude Code, click through. Until installed, the `mcp__Claude_Preview__preview_*` tools are loaded as deferred but not exercisable end-to-end. Codex audit Lane F P2. ADR-0008's workflow becomes runnable post-install.
+- **(Optional) Install repo-local git pre-commit hook for canonical-hash-guard.** Per ADR-0012 §"Three-layer guard" reconciliation, the `.claude/hooks/canonical-hash-guard.sh` is convenience-only — it only fires for commits made via Claude Code. Adding a repo-local `.githooks/pre-commit` that calls the same script would make layer 3 durable. Not required (layers 1 + 2 are already durable + CI-enforced), but useful if you frequently commit via the terminal. To install: `mkdir -p .githooks && cp .claude/hooks/canonical-hash-guard.sh .githooks/pre-commit && chmod +x .githooks/pre-commit && git config core.hooksPath .githooks`.
 
 ## Queued research
 

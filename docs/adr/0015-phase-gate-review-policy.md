@@ -70,11 +70,11 @@ Quality bar: brutal but specific. file:line anchors required.
 DO NOT mutate code; read-only audit. Recommendations only.
 ```
 
-The template lives at `docs/templates/tier-2-codex-prompt.md` (Tranche 4 deliverable).
+The canonical Tier-2 prompt template lives at `docs/audits/codex-pre-t1-2b-prompt.md` (the 2026-05-13 pre-T1-2b prompt — first concrete Tier-2 prompt; future audits use it as the reference shape). Codex pre-T1-2b re-audit P2 (2026-05-13) reconciled this — the prior reference to `docs/templates/tier-2-codex-prompt.md` was a placeholder path that never landed; the prompt at `docs/audits/codex-pre-t1-2b-prompt.md` is the authoritative example.
 
 ### Tier 3 prompt template
 
-Lives at `docs/templates/tier-3-codex-prompt.md` (Tranche 4 deliverable). The 2026-05-13 full-project audit prompt is the canonical reference shape.
+The canonical Tier-3 prompt template is the 2026-05-13 full-project audit prompt, preserved at `docs/audits/codex-full-audit-2026-05-13.md` for reference. Future phase-gate audits use that as the reference shape — adapt the 10-lane structure to whatever phase is closing.
 
 ### When does Tier 3 fire?
 
@@ -123,9 +123,9 @@ Lives at `docs/templates/tier-3-codex-prompt.md` (Tranche 4 deliverable). The 20
 - `CLAUDE.md` §5 (Tier-1 self-review mandate)
 - `CLAUDE.md` §6 (the original phase-gate-only rule this ADR amends)
 - `.claude/skills/next/SKILL.md` Step 6 (Tier-1 implementation)
-- `.claude/skills/done/SKILL.md` (Tier-3 trigger via `/done`)
+- `.claude/commands/done.md` (Tier-3 trigger; `/done` slash command — there is no separate `.claude/skills/done/SKILL.md`, the command file is the single source)
 - `docs/audits/codex-full-audit-2026-05-13.md` (the audit that surfaced this ADR's need)
-- `docs/templates/tier-2-codex-prompt.md` (Tranche 4 deliverable)
-- `docs/templates/tier-3-codex-prompt.md` (Tranche 4 deliverable)
+- `docs/audits/codex-pre-t1-2b-prompt.md` (canonical Tier-2 prompt example)
+- `docs/audits/codex-full-audit-2026-05-13.md` (canonical Tier-3 prompt + report example)
 - v1: `scripts/agent-bus` (the retired protocol this ADR's Tier 2 effectively replaces)
 - Codex full-project audit Lane B "missing ADRs" + Lane E "phase-only review missed T1-1"

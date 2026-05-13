@@ -42,11 +42,13 @@ The CI step that proves this is `determinism-gate.yml`'s "Run canonical-hash reg
 ### Three-layer guard from Codex P0 fix
 
 Per commit `eb0b952e`:
-1. **In-process meta-test** `bedrock_pinned_test_is_not_ignored` (`canonical_hash.rs`) — fails `cargo test` if the bedrock has `#[ignore]`.
-2. **CI workflow step** `Bedrock-test ignore-attr guard` (`determinism-gate.yml`) — fails CI if the bedrock has `#[ignore]`.
-3. **Commit hook** `canonical-hash-guard.sh` — refuses to commit when the staged diff touches canonical-state code OR the bedrock test file OR the corpus fixture, unless the test passes.
+1. **In-process meta-test** `bedrock_pinned_test_is_not_ignored` (`canonical_hash.rs`) — fails `cargo test` if the bedrock has `#[ignore]`. **DURABLE**: runs on every `cargo test` invocation locally + in CI.
+2. **CI workflow step** `Bedrock-test ignore-attr guard` (`determinism-gate.yml`) — fails CI if the bedrock has `#[ignore]`. **DURABLE**: enforced for every push.
+3. **Commit hook** `canonical-hash-guard.sh` — refuses to commit when the staged diff touches canonical-state code OR the bedrock test file OR the corpus fixture, unless the test passes. **CONVENIENCE-ONLY**: this is a Claude-Code PreToolUse hook wired in `.claude/settings.json`, not a git hook (`core.hooksPath` is unset). It fires for `Bash(git commit*)` invocations made through Claude Code's Bash tool. Commits made via the OS shell (`git commit` from a terminal, IDE git integrations, CI bots) bypass it. **The durable protection is layers 1 + 2** — both fire regardless of how the commit is made.
 
 These three layers are NOT subject to rebaseline. The hash itself rebaselines; the guard infrastructure stays untouched.
+
+**Codex pre-T1-2b re-audit P1 reconciliation (2026-05-13):** the original ADR text treated all three layers as equally durable. They are not — layer 3 is convenience-only. The text above is the post-reconciliation framing. Optional future tightening: install repo-local `.githooks/pre-commit` that calls the same script, switching layer 3 from convenience-only to durable; tracked as a follow-up in `MEMORY.md` "Queued user actions" but NOT required because layers 1 + 2 are already adequate.
 
 ### Re-baselining workflow
 

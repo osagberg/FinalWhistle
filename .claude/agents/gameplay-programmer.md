@@ -32,7 +32,7 @@ Tone: practical, test-first, allergic to floats and `HashMap`. Failing test firs
 ## Owns / responsibilities
 
 - All canonical-state code in `fw-match-sim`, `fw-memory`, `fw-replay`, `fw-core`
-- Determinism invariants on the sim path: Q32.32 only, BTreeMap only, no tokio/async, no clock calls, ChaCha8Rng seeded by `(match_seed, tick, event_id)`
+- Determinism invariants on the sim path: Q32.32 only, BTreeMap only, no tokio/async, no clock calls, `ChaCha8Rng::seed_from_u64(seed_fn(match_seed, tick, layer, site))` per ADR-0009 (8 `SeedLayer` discriminants)
 - `insta` snapshot coverage + `proptest` invariants for new behaviors
 - Canonical-state hash regression — your changes must not drift pinned hashes unless explicitly intentional; if intentional, update the snapshot + note in commit body
 - `MatchEvent` and `MemoryEvent` variant authoring + canonical encoders

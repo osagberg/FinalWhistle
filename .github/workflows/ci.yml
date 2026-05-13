@@ -122,6 +122,15 @@ jobs:
       - name: determinism-audit
         run: python3 scripts/determinism-audit.py
 
+      # Content-pack validation (FW-VAL). Runs the real validator (Codex
+      # full-project audit Tranche 6 + pre-T1-2b re-audit P2): asserts
+      # every RoleAffinityTable's weights sum to 10_000 + every key is
+      # a real visible attribute, and every PlayerTemplate's attributes
+      # are in [0, 1] + ceiling invariants hold. Fail-closed (exits
+      # non-zero on any violation).
+      - name: content-pack validation
+        run: cargo run -p fw-content-baker --release -- validate
+
       # The determinism gate fires here. Release mode per spec §11: debug
       # integer-overflow checks can mask hash-affecting bugs by panicking
       # instead of producing a different hash; release lets the hash

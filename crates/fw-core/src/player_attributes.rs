@@ -508,10 +508,11 @@ pub struct AbilityCeiling {
 
 /// Errors returned when constructing or validating an `AbilityCeiling`.
 ///
-/// Codex audit P1 (2026-05-13): the previous `AbilityCeiling::new`
+/// Codex audit P1 (2026-05-13): the original `AbilityCeiling::new`
 /// constructor was unchecked, so doc claims of "Q32 in [0, 1]" + "CA ≤ PA"
 /// were carried by convention only. This enum + the `try_new` constructor
-/// make the invariants enforceable.
+/// make the invariants enforceable. Pre-T1-2b re-audit P1 follow-up:
+/// the unchecked path was renamed to `pub(crate) new_unchecked`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum AbilityCeilingError {
     /// `current` is outside `[Q32::ZERO, Q32::ONE]`.
@@ -531,18 +532,29 @@ pub enum AbilityCeilingError {
 }
 
 impl AbilityCeiling {
-    /// Construct an `AbilityCeiling`. **Unchecked**; only legal in this
-    /// crate's tests + the `try_new` constructor below. External callers
-    /// MUST use `try_new`.
-    ///
-    /// Kept `pub const` for serde's derive-generated `Deserialize` impl
-    /// (which lives in the same crate and needs a straight-line
-    /// constructor path). Content-pack RON validation is FW-VAL's job at
-    /// load time, NOT this constructor — the constructor is the lowest
-    /// layer and stays minimal.
+    /// Unchecked construction. Codex pre-T1-2b re-audit P1 (2026-05-13):
+    /// the prior `pub const fn new` was a bypass route around `try_new`'s
+    /// range + monotonicity invariants. Renamed + visibility tightened to
+    /// `pub(crate) const fn new_unchecked`. Now usable only from within
+    /// `fw-core` (in-crate tests construct directly; serde's derived
+    /// `Deserialize` reaches the `pub(crate)` fields directly without
+    /// needing a constructor). All external callers route through
+    /// `try_new`. `#[allow(dead_code)]` because non-test builds have no
+    /// caller — `try_new` is the only path used in production code.
+    #[allow(dead_code)]
     #[must_use]
-    pub const fn new(current: Q32, potential: Q32) -> Self {
+    pub(crate) const fn new_unchecked(current: Q32, potential: Q32) -> Self {
         Self { current, potential }
+    }
+
+    /// Range + monotonicity check on an already-constructed `AbilityCeiling`.
+    /// Returns `Err(AbilityCeilingError::*)` on violation. Used by
+    /// `fw-content-baker validate` to gate content-pack-loaded ceilings
+    /// (Codex pre-T1-2b re-audit P1: FW-VAL validated `template.attributes`
+    /// but not `template.ceiling`). Equivalent to running the
+    /// `try_new(self.current, self.potential)` check.
+    pub fn validate(&self) -> Result<(), AbilityCeilingError> {
+        Self::try_new(self.current, self.potential).map(|_| ())
     }
 
     /// Construct an `AbilityCeiling`, validating the three invariants:
@@ -748,14 +760,14 @@ mod tests {
 
     #[test]
     fn ability_ceiling_constructor_and_accessors() {
-        let c = AbilityCeiling::new(Q32::from_raw(1i64 << 30), Q32::from_raw(3i64 << 30));
+        let c = AbilityCeiling::new_unchecked(Q32::from_raw(1i64 << 30), Q32::from_raw(3i64 << 30));
         assert_eq!(c.current(), Q32::from_raw(1i64 << 30));
         assert_eq!(c.potential(), Q32::from_raw(3i64 << 30));
     }
 
     #[test]
     fn ability_ceiling_breakthrough_writer() {
-        let mut c = AbilityCeiling::new(Q32::ZERO, Q32::from_raw(1i64 << 30)); // PA ~0.25
+        let mut c = AbilityCeiling::new_unchecked(Q32::ZERO, Q32::from_raw(1i64 << 30)); // PA ~0.25
         c.redraw_ceiling(Q32::from_raw(3i64 << 30)); // PA ~0.75
         assert_eq!(c.potential(), Q32::from_raw(3i64 << 30));
         // CA untouched.
@@ -813,6 +825,26 @@ mod tests {
             result,
             Err(AbilityCeilingError::CurrentExceedsPotential { .. })
         ));
+    }
+
+    #[test]
+    fn ability_ceiling_validate_method_catches_malformed_post_construction() {
+        // A ceiling constructed via the in-crate unchecked path with bad
+        // values returns Err on validate(). This is the path FW-VAL uses
+        // to catch malformed content-pack ceilings post-load.
+        let bad = AbilityCeiling::new_unchecked(Q32::from_int(2), Q32::ONE);
+        assert!(matches!(
+            bad.validate(),
+            Err(AbilityCeilingError::CurrentOutOfRange { .. })
+        ));
+        let inverted =
+            AbilityCeiling::new_unchecked(Q32::from_raw(3i64 << 30), Q32::from_raw(1i64 << 30));
+        assert!(matches!(
+            inverted.validate(),
+            Err(AbilityCeilingError::CurrentExceedsPotential { .. })
+        ));
+        let good = AbilityCeiling::new_unchecked(Q32::ZERO, Q32::ONE);
+        assert!(good.validate().is_ok());
     }
 
     #[test]

@@ -36,8 +36,8 @@ These rules are **reject-on-sight** for `lead-programmer` review. Clippy + the c
 ## §4. No system RNG
 
 - **BANNED:** `rand::thread_rng()`, `rand::rngs::StdRng::from_entropy()`, OsRng, `getrandom`.
-- **REQUIRED:** `ChaCha8Rng` (from `rand_chacha`) seeded by `(match_seed, tick, event_id)`. The seed-from-tuple function lives in `fw-core::seed`.
-- Same `(match_seed, tick, event_id)` → same output. Always. Across platforms.
+- **REQUIRED:** `ChaCha8Rng::seed_from_u64(seed_fn(match_seed, tick, layer, site))` per ADR-0009. `seed_fn` lives in `fw-core::seed`; `SeedLayer` enumerates 8 non-overlapping discriminants (`Decision` / `UtilityTieBreak` / `ReactiveInterrupt` / `BallPhysics` / `SignatureTrigger` / `MemoryEvent` / `ScoutObservation` / `ContentBake`). `site` is the per-layer disambiguator (e.g. `(player_id << 16) | slot` for `Decision`).
+- Same `(match_seed, tick, layer, site)` → same `u64` → same output. Always. Across platforms. BLAKE3 over a 17-byte fixed-order buffer, truncated to u64 LE.
 
 ## §5. No async / no tokio
 

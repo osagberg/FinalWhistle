@@ -99,14 +99,14 @@ Reads:
 ### Press — initiate
 
 Reads:
-- **Primary:** `mental.anticipation`, `physical.acceleration`, `physical.stamina`, `mental.work_rate` *(NOTE: work_rate lives on PersonalityVector, not MentalAttributes — read via the bias path, not as a primary)*
+- **Primary:** `mental.anticipation`, `physical.acceleration`, `physical.stamina`
 - **Secondary:** `mental.positioning`, `physical.pace`
-- **Bias:** `Aggression`, `WorkRate`
+- **Bias:** `Aggression`, `WorkRate` (the latter via the bias path — `WorkRate` is `personality.work_rate`, NOT a primary read)
 
 ### Mark — close marker
 
 Reads:
-- **Primary:** `mental.marking` *(NOTE: `marking` lives on TechnicalAttributes, not MentalAttributes — verify field path at T1-2b implementation; the binding here is to `technical.marking`)*, `mental.anticipation`, `physical.pace`, `mental.concentration`
+- **Primary:** `technical.marking`, `mental.anticipation`, `physical.pace`, `mental.concentration`
 - **Secondary:** `physical.strength`, `physical.balance`
 - **Bias:** `Determination`
 
@@ -137,7 +137,7 @@ Bias: `Determination`
 
 ### Shot incoming (defending goalkeeper attention)
 
-Reads (GK only): `goalkeeper.reflexes`, `goalkeeper.positioning`, `goalkeeper.handling`
+Reads (GK only): `goalkeeper.reflexes`, `mental.positioning`, `goalkeeper.handling`
 Bias: `Composure` (mental.composure)
 
 ### Marker arrived (under pressure, off-ball player)
@@ -156,7 +156,7 @@ Bias: `Aggression`
 
 ### Shot stopping
 
-Reads: `goalkeeper.reflexes`, `goalkeeper.handling`, `goalkeeper.one_on_ones`, `mental.composure`
+Reads: `goalkeeper.reflexes`, `goalkeeper.handling`, `goalkeeper.one_on_ones`, `mental.positioning`, `mental.composure`
 Bias: `Composure` (mental.composure)
 
 ### Cross collection
@@ -187,7 +187,7 @@ Across the bindings above, the attribute consumption count (`# of sites where th
 
 **High-use (≥4 sites):** `mental.composure`, `mental.anticipation`, `mental.positioning`, `mental.vision`, `mental.decisions`, `physical.pace`, `physical.acceleration`, `physical.stamina`, `technical.passing`, `technical.first_touch`.
 
-**Mid-use (2–3 sites):** `mental.teamwork`, `mental.concentration`, `mental.bravery`, `mental.flair`, `physical.balance`, `physical.strength`, `physical.agility`, `technical.finishing`, `technical.technique`, `technical.dribbling`, `technical.crossing`, `technical.marking`, `goalkeeper.handling`, `goalkeeper.kicking`, `goalkeeper.command_of_area`, `goalkeeper.one_on_ones`, `goalkeeper.aerial_reach`, `goalkeeper.reflexes`, `goalkeeper.positioning` *(NOTE: there is no `goalkeeper.positioning` field — see implementation note below)*.
+**Mid-use (2–3 sites):** `mental.teamwork`, `mental.concentration`, `mental.bravery`, `mental.flair`, `physical.balance`, `physical.strength`, `physical.agility`, `technical.finishing`, `technical.technique`, `technical.dribbling`, `technical.crossing`, `technical.marking`, `goalkeeper.handling`, `goalkeeper.kicking`, `goalkeeper.command_of_area`, `goalkeeper.one_on_ones`, `goalkeeper.aerial_reach`, `goalkeeper.reflexes`.
 
 **Low-use (1 site):** `technical.long_shots`, `technical.heading`, `technical.tackling`, `technical.free_kicks`, `technical.penalty_taking`, `technical.corners`, `technical.long_throws`, `physical.jumping_reach`, `physical.natural_fitness`, `mental.off_the_ball`.
 
@@ -202,16 +202,18 @@ Every one of the 55 fields has a consumer or a deferred-consumer. None is dead w
 
 ---
 
-## Implementation notes (caveats surfaced during spec authoring)
+## Implementation notes — field-path conventions
 
-These caveats are flagged for the T1-2b implementation pass — they're either field-path discrepancies between this spec and the ADR-0002 struct shape OR potential ADR amendments needed:
+Codex pre-T1-2b re-audit P1 (2026-05-13): the prior version of this section flagged 3 field-path discrepancies as "caveats" while leaving the tables uncorrected. Tables are now corrected; the conventions documented here are the binding contract:
 
-1. **`mental.work_rate` mistake** in the Press site above — `work_rate` lives on `PersonalityVector`, not `MentalAttributes`. The Press site reads it via the bias path, NOT as a primary. Corrected.
-2. **`mental.marking` mistake** in the Mark site above — `marking` lives on `TechnicalAttributes`, not `MentalAttributes`. Path is `technical.marking`. Corrected.
-3. **`goalkeeper.positioning` doesn't exist** — `positioning` is in `MentalAttributes`. GK shot-stopping reads `mental.positioning` (the keeper's positioning, which is a mental attribute even though the keeper is the keeper). Likewise GK distribution reads `mental.vision` etc.
-4. **Reading `personality.flair` vs `mental.flair`** — `flair` is on MentalAttributes (visible), not PersonalityVector. Same for `composure`. Per ADR-0003 §5 amendment, these visible-attributes are read as bias-like inputs even though they're not hidden.
+1. **`work_rate` lives on `PersonalityVector`, NOT `MentalAttributes`.** The Press site reads it via the bias path (`WorkRate`), not as a primary attribute. Same shape for any other bias-vector field that has a tempting `mental.*` reading.
+2. **`marking` lives on `TechnicalAttributes`, NOT `MentalAttributes`.** Path is `technical.marking`. Mark site primary reads include `technical.marking`.
+3. **There is no `goalkeeper.positioning` field.** Per ADR-0002 §"Concrete shape", positioning is `mental.positioning` regardless of role. GK shot-stopping + reactive "shot incoming" predicates read `mental.positioning` (the keeper's positioning is a mental attribute even when the player is a keeper).
+4. **`flair` + `composure` are visible MentalAttributes, used as bias inputs.** Per ADR-0003 §5 amendment, `mental.flair` (read as `FlairBias` in the bias mapping) and `mental.composure` (read as `Composure`) are visible attributes used as bias-like inputs. Distinct from PersonalityVector fields, but consumed in the same multiplicative-bias surface.
 
-These caveats are NOT ADR amendments — they're path corrections within the spec. The 55-field schema (ADR-0002) stands.
+The 55-field schema (ADR-0002) stands. These are path conventions, not schema changes.
+
+**T1-2b acceptance includes a path-correctness test** (per the test contract below) that walks every primary/secondary attribute path named in this spec and asserts it resolves to a real `fw_core::PlayerAttributes` field. The test catches future drift between this spec and the ADR-0002 struct shape.
 
 ---
 

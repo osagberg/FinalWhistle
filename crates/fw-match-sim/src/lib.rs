@@ -15,8 +15,10 @@
 //! - **No `tokio` / `async`.** The sim is sync. Tauri IPC handlers wrap
 //!   the sim and may be async; the sim itself runs to completion on its
 //!   calling thread.
-//! - **Seeded RNG only.** `rand_chacha::ChaCha8Rng` derived from
-//!   `(match_seed, tick, event_id)`. Never `thread_rng()`.
+//! - **Seeded RNG only.** `rand_chacha::ChaCha8Rng::seed_from_u64(
+//!   seed_fn(match_seed, tick, layer, site))` per ADR-0009. Never
+//!   `thread_rng()`. The 8 `SeedLayer` discriminants ensure non-
+//!   overlapping random-draw spaces across layer-1..7.
 //!
 //! ## Phase-0 scope
 //!

@@ -1,10 +1,13 @@
 //! `Seed` — the deterministic-RNG seed newtype.
 //!
-//! Every match starts from a `Seed`. The sim derives a `ChaCha8Rng` per-event
-//! via the `(match_seed, tick, event_id)` triple per the determinism contract;
-//! the raw u64 inside `Seed` is the match-level entropy source. Seeds are
-//! reproducible by design — the same `Seed` + the same content pack must
-//! produce the same canonical-state hash on every platform.
+//! Every match starts from a `Seed`. The sim derives a `ChaCha8Rng` per-draw
+//! via `seed_fn(match_seed, tick, layer, site)` per ADR-0009 (canonical
+//! signature; 8 `SeedLayer` discriminants); the raw u64 inside `Seed` is the
+//! match-level entropy source. Seeds are reproducible by design — the same
+//! `Seed` + the same content pack must produce the same canonical-state hash
+//! on every platform. The `seed_fn` lands alongside its first real consumer
+//! at T1-2b-ii (per `docs/specs/decision-cadence-stagger.md`); the doc shape
+//! is ADR-0009-locked.
 //!
 //! The newtype prevents bare `u64` from being passed where a `Seed` is
 //! expected — a load-bearing type-safety invariant; mixing up "the player's
