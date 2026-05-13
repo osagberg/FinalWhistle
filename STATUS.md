@@ -4,39 +4,42 @@
 
 ## Phase
 
-**T1 — First Match** (active; T1-1 closed; remediation in progress per Codex full-project audit)
+**T1 — First Match** (active; T1-1 closed; Codex audit remediation Tranches 1–7 closed; pre-T1-2b Codex re-audit queued; ready for T1-2a)
 
 ## Active task
 
-(none — Codex audit remediation queued. Tranche 1 in progress this session; Tranches 2-7 queued via `/next` cycles. T1-2a starts only after Tranche 1 lands + design-tranche specs settle.)
+(none — Codex re-audit prompt queued at `docs/audits/codex-pre-t1-2b-prompt.md`. User runs Codex against the remediation commits, applies any P0/P1 fixes, then `/next` picks up T1-2a.)
 
 ## Phase pointer
 
-- **Just closed:** T1-1 — `fw-content` schema lock at commit `69f900b9`. 55-field player model (ADR-0002), encapsulated `AbilityCeiling`, `RoleId` newtype, `TacticalArchetype.buildup_speed_factor: f32 → u16 bps` (Codex Imp #3 from T0), `schema_version: 1` on new content types, first RON fixtures.
-- **Just landed:** Codex full-project audit (`c3945227`), P0 three-layer bedrock-`#[ignore]` guard (`eb0b952e`). Carry-forward debts logged at `821d3875`.
-- **Now:** Codex audit remediation. ~50 findings triaged into 7 tranches at `docs/audits/codex-full-audit-2026-05-13.md`.
-- **Next:** Tranche 1 doc-drift cleanup (this commit); then Tranche 2 (T1-1 schema follow-ups: try_new on AbilityCeiling, VISIBLE vs KNOWN attribute names split, Q32Inner re-export removal). Then Tranche 3 (ADRs for RNG seed, cadence reconciliation, save format, signatures, hash rebaseline, licensed-data, runtime-AI). Then Tranche 4 (T1-2b companion specs). THEN T1-2a.
+- **Just closed:** Codex full-project audit + 7-tranche remediation. Audit at `docs/audits/codex-full-audit-2026-05-13.md` (~50 findings). Remediation commits `eb0b952e..27920de6` cover P0 + every headline P1 + most P2/P3.
+- **Now:** Pre-T1-2b Codex re-audit queued. The prompt at `docs/audits/codex-pre-t1-2b-prompt.md` is a focused Tier-2 audit (per ADR-0015) covering the remediation commits + the new ADRs + the companion specs.
+- **Next (after re-audit clears):** `T1-2a` dev-tier 2D tactical board (per ADR-0007 + ADR-0008). Then T1-2b sub-rows i → ii → iii → iv per the Tranche-5 split.
 
 ## Blockers
 
-None. Codex re-audit before T1-2b code is queued, not blocking T1-2a.
+None. T1-2a can begin once the user runs the re-audit + applies any new P0/P1.
 
 ## Last green verify
 
-2026-05-13 — `scripts/fw verify` green at commit `eb0b952e`: `cargo fmt --check` + `cargo clippy --workspace --all-targets -- -D warnings` + `cargo test --workspace` + `banned-terms` + `determinism-audit` + canonical-hash regression all clean. **Note:** local `main` is currently ahead of `origin/main`; CI on HEAD will run on next push (Tranche 1 final step).
+2026-05-13 — `scripts/fw verify` green at commit `27920de6`: fmt + clippy + workspace tests + banned-terms + determinism-audit + canonical-hash regression + **`verify-content` (FW-VAL, real as of Tranche 6)** all clean.
 
 ## Last canonical hash
 
-`blake3:d6258107b2c90c84d2feeaa8633d1f5c159e10ccd2016623b52b41d3d96b1a49` (60-tick smoke seed; pinned T0-7; UNCHANGED through T1-1 + P0 fix — `MatchState` does not yet reference `PlayerAttributes`).
+`blake3:d6258107b2c90c84d2feeaa8633d1f5c159e10ccd2016623b52b41d3d96b1a49` (60-tick smoke seed; pinned T0-7; UNCHANGED through all 7 tranches — no canonical-state-feeding paths were touched).
 
-## Recent commits
+## Recent commits (7-tranche remediation summary)
 
+- `27920de6` docs(workflow,rules): Tranche 7 — retired-command + rules drift cleanup
+- `e79adb0`  fix(content,baker,ci): Tranche 6 — real ContentStore loader + real FW-VAL
+- `1dc2fd0`  docs(plan): Tranche 5 — split T1-2b into 4 sub-rows + PlayerSeparation
+- `e54d59a`  docs(specs): Tranche 4 — T1-2b companion specs (5 files, ~840 LoC)
+- `fba546b`  docs(adr): Tranche 3 — 4 ADR amendments + 7 new ADRs from Codex audit
+- `bf439f7`  fix(content,core): Tranche 2 — T1-1 schema follow-ups from Codex audit
+- `ccd4d20b` docs(audit): Tranche 1 doc-drift cleanup + track .claude/launch.json
 - `eb0b952e` fix(determinism): three-layer guard against bedrock-test #[ignore] disable (Codex audit P0)
-- `c3945227` docs(audit): land Codex full-project audit verbatim + triage tranches
-- `821d3875` docs(refs): log FW v1 → v2 carry-forward debts from T1-1 comparison
-- `69f900b9` feat(content): fw-content schema lock — ADR-0002 55-field player model [T1-1]
-- `20314655` docs(adr): ADR-0008 browser-dev mode + superpowers TDD skill mandate
+- `c3945227` docs(audit): land Codex full-project audit verbatim + Claude's triage tranches
 
 ## Next up
 
-Tranche 1 of audit remediation finishes this session (this STATUS commit + `.claude/launch.json` track + push to origin). Tranche 2 starts in the next session via `/next`-style cycles. T1-2a's "browser-dev wiring confirmed" claim is dialed back to "MCP tools loaded, end-to-end against a real fixture pending T1-2a" — the workflow runs but the deterministic frame JSON consumer doesn't exist yet (`crates/fw-match-sim/src/bin/dump_frames.rs` is in T1-2a's scope, not landed).
+User runs the Codex re-audit using `docs/audits/codex-pre-t1-2b-prompt.md`. Findings come back; P0/P1 fixed via `/next` cycles; then T1-2a starts. `/next` will pick T1-2a once the re-audit clears.
