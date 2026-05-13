@@ -1,6 +1,6 @@
 # Final Whistle — Working Memory
 
-> Updated: 2026-05-13 | Phase: T1 First Match (T1-1, T1-2a, T1-2b-i closed; **T1-2b-ii DONE** — tactic FSM + decision-cadence stagger live; canonical state schema bumped per ADR-0012 trigger #1)
+> Updated: 2026-05-13 | Phase: T1 First Match (T1-1 / T1-2a / T1-2b-i / T1-2b-ii closed; **T1-2b-iii-a DONE** — BT runner + per-role BT skeletons + dispatch + player position integration; canonical state schema bumped per ADR-0012 trigger #1)
 
 ## Project
 
@@ -12,7 +12,7 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 | Module | State | Key file | Notes |
 |---|---|---|---|
 | `fw-core` | T1-1 schema lock landed | `crates/fw-core/src/player_attributes.rs` | Q32 (panic-on-overflow, Codex Q1). Durable u32 IDs (Codex Q2). Seed + Tick + cordic sqrt. **NEW post-T1-1:** `PlayerAttributes` (55-field record), `AbilityCeiling` (encapsulated + breakthrough mutator), `PlayerCondition`, `KNOWN_ATTRIBUTE_NAMES` const. CI matrix green; deterministic macOS-14 + Win + Linux. **Codex audit followups queued:** Q32Inner re-export removal (Tranche 2); AbilityCeiling::try_new validation (Tranche 2); VISIBLE_ATTRIBUTE_NAMES split (Tranche 2). |
-| `fw-match-sim` | T1-2b-ii tactic FSM + cadence live | `crates/fw-match-sim/src/tactic_fsm.rs` + `decision_cadence.rs` | All T1-2b-i carryover. **NEW at T1-2b-ii:** `TacticState` 5-state FSM + `SetPieceKind` 11-variant sub-discriminant + `TeamTacticState { state, entry_tick }` (pub(crate) fields; atomic via `transition()`); `apply_event` transition function + `heartbeat_check` returning full new `TeamTacticState`; `decision_cadence` module with `SLOT_TEMPLATE` balanced multiset + `assign_decision_slots(seed)` Fisher-Yates + `should_decide()` predicate with reactive-interrupt cooldown semantics. `SeedLayer` enum (8 variants per ADR-0009) lives here; **owed move to `fw-core` at T1-3** so sibling crates can use it without depending on fw-match-sim (Codex P1 self-review type-design). `MatchState` gained 3 canonical fields (`decision_slots`, `interrupt_cooldown_until`, `team_tactic_states`); canonical encoder VERSION 1→2. T1-2b-iii: FSM-of-BTs + utility selector + PlayerSeparation. |
+| `fw-match-sim` | T1-2b-iii-a BT skeletons live | `crates/fw-match-sim/src/{bt,dispatch,role_states,subtree_library,goalkeeper_fsm}.rs` | All prior carryover. **NEW at T1-2b-iii-a:** BT runner (`Tree` / `Node` / `NodeStatus` / Selector / Sequence / Decorator / Leaf / Condition); `Role` (4 variants) + per-role state enums (GK/DEF/MID/FWD ~7-8 variants each); `PlayerRoleState` typed enum atomically pairing role+state (makes illegal pairs unrepresentable; replaces split `role: Role` + `role_state: u8` on PlayerState); `SubtreeLibrary` with hardcoded 4-3-3 stub trees (every leaf returns `MoveToFormationPosition`); pure-FSM goalkeeper module; `dispatch.rs` iterates 22 roster slots calling `should_decide` then evaluate_transitions then either GK FSM or outfield BT; `apply_intent` mutates player vel; `tick_match` now integrates player position from velocity. PlayerState gained `role_state: PlayerRoleState` + `local_decision_counter: u32` (`pub(crate)` with public `decision_counter()` accessor). Canonical encoder VERSION 2→3. T1-2b-iii-b: utility selector + xG/xT/pitch-control/pressing + 14-dim personality bias. |
 | `fw-content` | T1-1 schema lock landed | `crates/fw-content/src/player.rs` + `role_affinity.rs` | `PlayerTemplate` (wraps fw-core types + `schema_version: 1` + `RoleId`), `RoleAffinityTable` (sum-to-10_000 + collect-all `invalid_roles` + `unknown_attribute_keys`), `TacticalArchetype.buildup_speed_factor: u16 bps` (Codex Imp #3 from T0; `BUILDUP_SPEED_BASELINE_BPS = 10_000`). First RON fixtures live. **Codex audit gaps:** `ContentStore::load_baked` returns `Ok(Self::default())` (Tranche 6 — block runtime use until real); CA-weight validation accepts hidden/durability keys (Tranche 2). |
 | `fw-content-baker` | CLI stub | `crates/fw-content-baker/src/main.rs` | clap CLI; prompt + schema + validator modules `#![allow(dead_code)]`-staged (T2-3+). Wires to Claude API at T2-3. |
 | `fw-scouting` | Empty | `crates/fw-scouting/src/lib.rs` | Compiles, no types. T3-5 begins. |
@@ -31,7 +31,81 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-(none — T1-2b-ii closed. `/next` picks T1-2b-iii: FSM-of-BTs + utility selector + PlayerSeparation.)
+(none — T1-2b-iii-a closed. `/next` picks T1-2b-iii-b: utility selector + personality bias.)
+
+<details>
+<summary>T1-2b-iii-a task spec (closed 2026-05-13)</summary>
+
+- **id:** T1-2b-iii-a
+- **title:** `fw-match-sim`: BT runner + per-role BT skeletons (FSM-of-BTs skeleton tier per ADR-0006)
+- **started:** 2026-05-13
+- **task class:** sim-rust (canonical-state extension + per-player decision dispatch; ≥100 LoC; gameplay-programmer required)
+- **required subagent:** `gameplay-programmer`
+- **TDD mandate:** **YES** — third row under the superpowers TDD mandate (per `docs/DECISIONS.md` 2026-05-13). RED-GREEN-REFACTOR per chunk.
+- **Canonical-hash rebaseline:** AUTHORIZED in this task-spec — adding per-player BT state + `local_decision_counter` to `MatchState` is a canonical schema bump per ADR-0012 trigger #1. Both `PINNED_60_TICK` and the RON fixture `expected_hash` update atomically.
+
+### Design references
+- `docs/adr/0006-bt-vs-fsm-decision-layer.md` — the architectural source-of-truth. FSM-of-BTs for outfield (Defender / Midfielder / Forward); pure FSM for Goalkeeper. Nodes are code; trees are content-pack data.
+- `docs/specs/bt-attribute-binding.md` — 21 BT sites grouped (7 on-ball + 5 off-ball + 4 reactive-interrupt + 5 GK-specific). T1-2b-iii-a wires the SCAFFOLDING; -iii-b wires the actual attribute reads + utility scoring.
+- `docs/specs/decision-cadence-stagger.md` — `should_decide()` predicate from T1-2b-ii is the dispatch trigger.
+- `docs/adr/0009-rng-seed-derivation.md` — per-player BT draws use `seed_fn(match_seed, tick, SeedLayer::Decision, (player_id << 16) | local_decision_counter)`.
+- `docs/adr/0012-hash-rebaseline-policy.md` — trigger #1 (canonical schema bump).
+
+### Acceptance criteria (from MASTER_PLAN T1-2b-iii-a row)
+1. **BT runner compiles + runs** — `Tree` / `Node` / `NodeStatus` / `Selector` / `Sequence` / `Decorator` / `Leaf` / `Condition` types with deterministic tree traversal.
+2. **10 outfield BT skeletons + GK FSM compile** — every outfield role-state has a stub BT that traverses to a `MoveToFormationPosition` leaf returning `NodeStatus::Success`; GK FSM has stub Rust functions per state returning a stub `PlayerIntent`.
+3. **Per-player BT state encoded canonically** — `PlayerState` gains `role: Role` + `role_state: u8` (per-role state enum tag) + `local_decision_counter: u32`. Canonical encoder extended; wire-format diagram updated.
+4. **`tick_match` iterates 22 roster slots calling `should_decide`** — per ADR-0006 `dispatch_tick`. Pre-emption hooks stubbed (returns None). Role-specific tick dispatches to GK FSM or outfield BT runner. `apply_intent` mutates player vel based on returned `PlayerIntent`.
+5. **`local_decision_counter` increments deterministically** — increments per BT decision invocation; resets at match-init to 0. Tested via fixture that fires N decisions + asserts counter == N for that player.
+6. **Canonical hash REBASELINED** per ADR-0012 trigger #1; both `PINNED_60_TICK` + RON fixture updated atomically.
+7. **insta snapshot of canonical state at tick 60 matches across reruns** — intra-process determinism witness.
+8. **BT traversal proptest** — any seeded run produces a deterministic trace (same seed → same node-visit order → same PlayerIntent outputs across reruns).
+
+### Files in scope
+- `crates/fw-match-sim/src/bt.rs` (NEW; BT runner core types — `Tree`, `Node`, `NodeStatus`, `Selector`, `Sequence`, `Decorator`, `Leaf`, `Condition`)
+- `crates/fw-match-sim/src/role_states.rs` (NEW; `Role` enum + per-role state enums — `GoalkeeperState`, `DefenderState`, `MidfielderState`, `ForwardState` — plus `PlayerIntent` type)
+- `crates/fw-match-sim/src/dispatch.rs` (NEW; `dispatch_tick`, role-specific tick functions, pre-emption-hooks stub, `apply_intent` velocity mutation)
+- `crates/fw-match-sim/src/goalkeeper_fsm.rs` (NEW; pure-FSM stub Rust functions per `GoalkeeperState` per ADR-0006 §"Concrete sketch")
+- `crates/fw-match-sim/src/subtree_library.rs` (NEW; hardcoded stub subtree library for T1-2b-iii-a — one stub subtree per role-state returning `MoveToFormationPosition`. Defer content-pack RON loading to -iii-b or T2-3.)
+- `crates/fw-match-sim/src/player.rs` (MODIFIED; `PlayerState` gains `role` + `role_state: u8` + `local_decision_counter: u32`)
+- `crates/fw-match-sim/src/lib.rs` (MODIFIED; mod declarations + `MatchState::initial` assigns roles by slot (1 GK + 4 DEF + 3 MID + 3 FWD per side = 4-3-3 default for T1) + `tick_match` calls `dispatch_tick` after the heartbeat)
+- `crates/fw-match-sim/src/canonical.rs` (MODIFIED; encoder extension for new PlayerState fields)
+- `crates/fw-match-sim/tests/bt_runner_proptest.rs` (NEW; traversal determinism + role assignment determinism + decision-counter increment invariants)
+- `crates/fw-match-sim/tests/dispatch_proptest.rs` (NEW; dispatch_tick determinism over 100 random seeds)
+- `crates/fw-replay/tests/canonical_hash.rs` (MODIFIED; `PINNED_60_TICK` rebaselined)
+- `crates/fw-replay/fixtures/0xdeadbeefdeadbeef.ron` (MODIFIED; `expected_hash` updated)
+
+### Files out of scope (do NOT touch — escalate if needed)
+- `docs/DESIGN_DOC.md` / `docs/DECISIONS.md` / `docs/adr/*.md` / `docs/specs/*.md` (source-of-truth; no spec mutation during impl)
+- `CLAUDE.md` / `docs/MASTER_PLAN.md` (status flip is the only allowed mutation)
+- `crates/fw-content/**` (BT subtrees as content-pack data defer to -iii-b/T2-3; T1-2b-iii-a uses hardcoded stubs)
+- `content/sources/**` (no RON authoring this row)
+- `crates/fw-core/**` (Q32 + Tick + Seed locked; `SeedLayer` defer-to-move at T1-3)
+- `crates/fw-tauri/**` (no IPC changes; per-player BT state DTO projection defers to T1-6 frontend)
+- `frontend/**` (TacticalBoard doesn't surface role/role_state yet)
+- `crates/fw-match-sim/src/ball*.rs`, `tactic_fsm.rs`, `decision_cadence.rs` (prior rows; no changes)
+- `crates/fw-match-sim/src/dto.rs` (DTO projection defers)
+
+### Intentionally NOT done in this task
+- Real BT decision logic — every leaf is `MoveToFormationPosition`. -iii-b adds xG / xT / pitch-control / pressing / personality bias to make decisions real.
+- BT subtree authoring as content-pack RON data. Subtree library is hardcoded Rust for -iii-a.
+- Universal pre-emption hooks (single-chaser claim, foul reaction, set-piece switchover) — stubbed to return `None`. Wired in -iii-b or T1-4 when MatchEvent exists.
+- PlayerSeparation pass — that's -iii-c.
+- Manual eyeball acceptance gate — that's -iii-c.
+- Real GK FSM behavior — each GK state's Rust function returns a stub PlayerIntent. Real positioning + shot-stopping + sweeper-keeper logic at -iii-b.
+- `MatchEvent` emission from BT decisions (Goal / Shot / Pass) — T1-4.
+- BT site bindings to specific `PlayerAttributes` reads — -iii-b consumes `bt-attribute-binding.md` proper.
+- Resumable BT state (a leaf returning `NodeStatus::Running`) — for -iii-a, every leaf returns `Success` immediately. Resumable trees defer to -iii-b when leaves can actually pause (e.g. "execute a 3-tick dribble move").
+
+### Plan (6 chunks; TDD RED-GREEN-REFACTOR per chunk per superpowers mandate)
+- [x] Chunk 1 (RED+GREEN): `bt.rs` core types — `NodeStatus` (Success / Failure / Running) + `Node` enum (Selector / Sequence / Decorator / Leaf / Condition) + `Tree` wrapper + `tick()` traversal function. Tests: empty tree returns Success; single-leaf tree returns leaf's status; Sequence short-circuits on Failure; Selector short-circuits on Success; deterministic traversal order over BTreeMap-keyed subtree refs.
+- [x] Chunk 2 (RED+GREEN): `role_states.rs` — `Role` enum (GK/DEF/MID/FWD) + per-role state enums (`GoalkeeperState` ~10 variants, `DefenderState` ~7 variants, `MidfielderState` ~7 variants, `ForwardState` ~7 variants per ADR-0006 §"Concrete sketch") + `PlayerIntent` type (initially: enum with `MoveToPosition { x, y }` variant only). Tests: enum round-trip (serde); default state per role.
+- [x] Chunk 3 (RED+GREEN): `subtree_library.rs` — `SubtreeLibrary::default_skeleton()` returns hardcoded BTreeMap of (Role, state_tag) → stub Tree. Each stub Tree is a single `Leaf(MoveToFormationPosition)` returning Success. Tests: every (role, state) combo resolves to a tree; stub tree returns Success.
+- [x] Chunk 4 (RED+GREEN): `goalkeeper_fsm.rs` — pure Rust per-state functions per ADR-0006. T1-2b-iii-a stub: every function returns `PlayerIntent::MoveToPosition { x: own_goal_x, y: 0 }`. `GoalkeeperState::evaluate_transitions()` defaults to `InBoxPositioning` always. Tests: GK tick returns goal-line position regardless of state.
+- [x] Chunk 5 (RED+GREEN): `PlayerState` extensions — `role: Role` + `role_state: u8` (tagged into per-role enum) + `local_decision_counter: u32`. `MatchState::initial` assigns 4-3-3 formation: slot 0 + 11 = GK; slots 1-4 + 12-15 = DEF; slots 5-7 + 16-18 = MID; slots 8-10 + 19-21 = FWD. Canonical encoder extended for new fields (4-byte counter + 1-byte role + 1-byte role_state per player; +6 bytes × 22 = +132 bytes per match-state). Wire-format module doc updated.
+- [x] Chunk 6 (RED+GREEN + REBASELINE): dispatch_tick + apply_intent + position integration wired. Canonical hash rebaselined to `blake3:c0b5e395…c1430ff`. Subsequently the self-review fix pass (P0 player-position integration + P1 PlayerRoleState collapse + 5 other findings) landed without changing the hash further — `PlayerRoleState` is byte-identical to the prior split-field encoding, and position integration produces zero displacement when all 22 players start at formation positions.
+
+</details>
 
 <details>
 <summary>T1-2b-ii task spec (closed 2026-05-13)</summary>
@@ -156,6 +230,7 @@ Implements ADR-0007 Layer 2 (dev verification surface) + ADR-0008 (browser-dev m
 
 ## Recently completed
 
+- 2026-05-13 — **T1-2b-iii-a `fw-match-sim` BT runner + per-role BT skeletons (skeleton tier).** Five new modules in fw-match-sim: `bt` (Tree/Node/NodeStatus/Selector/Sequence/Decorator/Leaf/Condition + ordered Vec traversal), `role_states` (Role 4-variant enum + per-role state enums + `PlayerRoleState` typed-pair enum + PlayerIntent), `subtree_library` (4-3-3 hardcoded stub trees + FORMATION_4_3_3_POSITIONS const), `goalkeeper_fsm` (pure Rust functions per GK state per ADR-0006), `dispatch` (dispatch_tick + apply_intent + preempt_check stub + evaluate_transitions stub). `PlayerState` gained `role_state: PlayerRoleState` (replaces split role+role_state via atomic typed pairing — illegal states unrepresentable) + `local_decision_counter: u32` (pub(crate) + accessor). Canonical encoder VERSION 2→3; wire-format diagram extended for new player section. `tick_match` now: (1) advances ball physics, (2) runs tactic-FSM heartbeat, (3) calls `dispatch_tick` iterating 22 roster slots gated by `should_decide`, (4) integrates player position from velocity each tick (P0 fix — without it the sim modeled nothing). Roles assigned by slot per default 4-3-3 (1 GK + 4 DEF + 3 MID + 3 FWD per side). **Canonical hash REBASELINED** per ADR-0012 trigger #1: `blake3:5aea582b…cf5c544` → `blake3:c0b5e395…c1430ff`. Third row under the superpowers TDD mandate. Self-review triple landed 1 P0 + 4 P1 + 3 P2 fixed in-place (player position integration P0; PlayerRoleState typed-pair collapse making illegal states unrepresentable, P1 — load-bearing fix per type-design; `SubtreeLibrary::lookup_outfield` infallible — panics loudly on miss instead of silent Idle fallback, P1; `local_decision_counter` visibility tightening with `bump_decision_counter()` method, P1; outfield `evaluate_transitions` step before BT lookup matching ADR-0006 §"Concrete sketch", P1; `formation_position` unconditional `assert!` replacing release-stripped debug_assert+clamp, P2; misleading test renamed + honest movement-verifying replacement added, P2; `roster_slot`/`formation_slot` naming disambiguation, P2). P3 deferred: PlayerState::at Midfielder default footgun, PlayerIntent::priority field, LeafKind/PlayerIntent Idle redundancy, wire-format insta snapshot. ~880 LoC source + ~470 LoC tests + ~150 LoC self-review refactor. 138 unit tests + 19 proptest integrations; `scripts/fw verify` clean.
 - 2026-05-13 — **T1-2b-ii `fw-match-sim` tactic FSM + decision-cadence stagger.** Two new modules (`tactic_fsm.rs` + `decision_cadence.rs`) implementing `docs/specs/tactic-fsm.md` (5 states + 2 Hz heartbeat + transition table) + `docs/specs/decision-cadence-stagger.md` (Fisher-Yates balanced [u8;22] slot assignment + `should_decide` predicate + reactive-interrupt cooldown semantics). `MatchState` gained 3 canonical fields: `decision_slots: [u8;22]` + `interrupt_cooldown_until: [Tick;22]` + `team_tactic_states: [TeamTacticState;2]`. Canonical encoder VERSION 1→2; wire-format diagram updated. Heartbeat wired into `tick_match` (home tick % 30 == 0, away tick % 30 == 15; offset reduces peak load). **Canonical hash REBASELINED**: `blake3:0ddf91ef…c5722090` → `blake3:5aea582b…cf5c544`. Second row under the superpowers TDD mandate; RED-GREEN-REFACTOR per chunk. ~900 LoC code + ~470 LoC tests = ~1370 LoC total. Self-review triple landed: 5 P1s + 2 P2s + 2 P3s fixed in-place (rand dep redundancy → `rand_chacha::rand_core` re-export; `should_decide`/`seed_fn` negative-tick wrap → `rem_euclid` + `debug_assert`; `TeamTacticState` field visibility tightened to `pub(crate)` with `state()` + `entry_tick()` accessors; `heartbeat_check` signature returns full `TeamTacticState` to remove caller-must-transition contract; cadence test #3 immutability now fires synthetic interrupts; `SLOT_TEMPLATE` → `pub(crate)`; `TOTAL_PLAYERS` const-assert against u8 truncation; TacticEvent → MatchEvent reconciliation TODO for T1-4). 2 P1s deferred to T1-3 (SeedLayer owed move to `fw-core` per ADR-0009) + T1-2b-iii (SetPieceKind For/Against naming harmonization). `scripts/fw verify` clean.
 - 2026-05-13 — **T1-2b-i `fw-match-sim` ball physics** — semi-implicit Euler in Q32 (gravity, drag, Magnus stub, bounce, friction). `BallState` extended with `spin_{x,y,z}: Q32` (canonical schema bump per ADR-0012 trigger #1); canonical-state ball block grew from 48 → 72 bytes per ball. `BallPhysicsCoefficients` + `phase1_seeds()` (g=9.81, drag=0.02, magnus=0, bounce=0.55, friction=0.25) + `is_well_formed()` validator. `ball_step(state, coeffs)` integrator wired into `tick_match`. 3 proptest invariants live (energy-monotone, no-overflow over 1800 ticks, validator rejects out-of-range). **Canonical hash REBASELINED**: `blake3:d6258107…d96b1a49` → `blake3:0ddf91ef…c5722090` (both `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK` and the RON fixture `0xdeadbeefdeadbeef.ron::expected_hash` updated atomically). First row under the superpowers-plugin TDD mandate; RED-GREEN-REFACTOR observed per chunk. Self-review triple: 1 P0 (rolling-friction-fires-on-zero-bounce-tick) + 2 P1s (is_well_formed deadcode gate, stale wire-format diagram) + 1 P3 (#[must_use] on CanonicalEncoder::new) fixed in-place; P2/P3 follow-ups captured in commit body. ~480 LoC; 27 fw-match-sim tests + 3 proptest invariants + 5 fw-replay canonical_hash tests all green; `scripts/fw verify` clean.
 - 2026-05-13 — **T1-2a Dev-tier 2D tactical board** (ADR-0007 Layer 2 + ADR-0008). `MatchFrameDto` in `fw-match-sim::dto` (camelCase serde; Q32→f64 projection; `#![allow(clippy::float_arithmetic)]` scoped + determinism-audit exemption documented). `match_frames(seed_hex, tick_count)` IPC command in fw-tauri returning `Vec<MatchFrameDto>` (length tick_count+1; pinned by 2 sync tests via `tauri::async_runtime::block_on`). `dump_frames` clap CLI binary in `crates/fw-match-sim/src/bin/` — bit-identical stdout across reruns. SolidJS `TacticalBoard.tsx` with PixiJS Application (one-time create in onMount, destroy in onCleanup per Frontend/RULES.md §4). `FrameSource` interface + `TauriFrameSource` + `HttpFrameSource` impls + `frameSourceFromUrlParams` factory (fail-loud on bad `?source=` values per Codex audit). `MatchStateDto` retroactively gained `#[serde(rename_all = "camelCase")]` (Codex audit P0 fix on pre-existing rule violation). `window.fwDev` DEV-only debug surface. E2E verified via Claude Preview: navigated `/dev/board?source=fixture:/dev-fixtures/smoke.json`, fixture loaded, scrubTo(30) + scrubTo(45) drove the scrubber, pitch + 22 dots + ball + readout rendered. ~800 LoC; canonical hash UNCHANGED. Self-review triple: 1 P0 + 4 P1 closed in-place.

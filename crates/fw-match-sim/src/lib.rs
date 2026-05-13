@@ -30,13 +30,20 @@
 
 pub mod ball;
 pub mod ball_physics;
+pub mod bt;
 pub mod canonical;
 pub mod decision_cadence;
+pub mod dispatch;
 pub mod dto;
+pub mod goalkeeper_fsm;
 pub mod player;
+pub mod role_states;
+pub mod subtree_library;
 pub mod tactic_fsm;
 
-use fw_core::{Q32, Seed, Tick};
+#[cfg(test)]
+use fw_core::Q32;
+use fw_core::{Seed, Tick};
 use serde::{Deserialize, Serialize};
 
 pub use ball::BallState;
@@ -45,6 +52,10 @@ pub use canonical::CanonicalEncoder;
 pub use decision_cadence::{SeedLayer, assign_decision_slots, seed_fn, should_decide};
 pub use dto::{BallFrameDto, MatchFrameDto, PlayerFrameDto};
 pub use player::PlayerState;
+pub use role_states::{
+    DefenderState, ForwardState, GoalkeeperState, MidfielderState, PlayerIntent, PlayerRoleState,
+    Role,
+};
 pub use tactic_fsm::{
     ArchetypeParams, CounterIntent, PressIntensity, SetPieceKind, TacticEvent, TacticState,
     TeamTacticState,
@@ -149,24 +160,44 @@ pub struct MatchState {
 }
 
 impl MatchState {
-    /// Initial state at `Tick::ZERO`. Players in canonical kick-off
-    /// formation (placeholder positions for T0; real formations land in T1
-    /// when `fw-content` ships `TeamTemplate`).
+    /// Initial state at `Tick::ZERO`. Players placed at their 4-3-3 formation
+    /// positions with roles assigned per roster slot.
+    ///
+    /// ## Role assignment (T1-2b-iii-a default 4-3-3)
+    ///
+    /// Home team (slots 0..11):
+    ///   slot  0 → Goalkeeper
+    ///   slots 1-4 → Defender (4 defenders)
+    ///   slots 5-7 → Midfielder (3 midfielders)
+    ///   slots 8-10 → Forward (3 forwards)
+    ///
+    /// Away team (slots 11..22): mirrors home with +11 offset.
+    ///   slot 11 → Goalkeeper
+    ///   slots 12-15 → Defender
+    ///   slots 16-18 → Midfielder
+    ///   slots 19-21 → Forward
+    ///
+    /// Formation positions are from
+    /// [`subtree_library::FORMATION_4_3_3_POSITIONS`].
     pub fn initial(seed: Seed) -> MatchState {
+        use crate::role_states::Role;
+        use crate::subtree_library::formation_position;
+
         let mut players = Vec::with_capacity(TOTAL_PLAYERS);
 
-        // T0 placeholder layout: home on x = -10, away on x = +10. Each
-        // player gets a unique y so the canonical encoding has structurally
-        // distinct positions. Real kick-off formations + role placement
-        // arrive in T1 per `docs/MASTER_PLAN.md` (Phase-1 sim core).
         for slot in 0..TOTAL_PLAYERS as u8 {
-            let team = slot / PLAYERS_PER_TEAM as u8; // 0 = home, 1 = away
-            let in_team_index = slot % PLAYERS_PER_TEAM as u8;
-            let x_sign = if team == 0 { -1 } else { 1 };
-            let x = Q32::from_int(10 * x_sign);
-            // Spread y across [-5, 5]; in-team index 0..10 maps to that band.
-            let y = Q32::from_int(in_team_index as i32) - Q32::from_int(5);
-            players.push(PlayerState::at(slot, x, y));
+            // Determine role by slot within the 4-3-3 formation.
+            // Per-team offset: home slots 0..11, away slots 11..22.
+            let in_team = slot % PLAYERS_PER_TEAM as u8;
+            let role = match in_team {
+                0 => Role::Goalkeeper,
+                1..=4 => Role::Defender,
+                5..=7 => Role::Midfielder,
+                _ => Role::Forward, // 8, 9, 10
+            };
+
+            let (x, y) = formation_position(slot);
+            players.push(PlayerState::with_role(slot, x, y, role));
         }
 
         MatchState {
@@ -202,45 +233,48 @@ impl MatchState {
 
 /// Advance the match by one tick.
 ///
-/// Phase T1-2b-ii scope:
+/// T1-2b-iii-a scope:
 /// - Increments `state.tick`.
 /// - Advances ball physics (T1-2b-i).
-/// - Runs the 2 Hz tactic-FSM heartbeat every 30 ticks per team
-///   (T1-2b-ii). The heartbeat is a pure predicate; if it fires, it
-///   updates the team's `TeamTacticState`.
-///
-/// Future (T1-2b-iii): player BTs are dispatched via `should_decide`.
-/// The `decision_slots` + `interrupt_cooldown_until` fields are consumed
-/// there; T1-2b-ii only populates them.
+/// - Runs the 2 Hz tactic-FSM heartbeat every 30 ticks per team (T1-2b-ii).
+/// - Dispatches per-player BT / GK-FSM decisions via `dispatch_tick`
+///   (T1-2b-iii-a): for each roster slot where `should_decide` fires, runs
+///   the appropriate decision runner and applies the returned `PlayerIntent`
+///   by mutating `vel_x`/`vel_y`.
 pub fn tick_match(mut state: MatchState) -> MatchState {
     state.tick = state.tick.successor();
     // T1-2b-i: advance ball physics by one 60Hz tick.
     state.ball = ball_physics::ball_step(&state.ball, &ball_physics::phase1_seeds());
 
     // T1-2b-ii: 2 Hz tactic-FSM heartbeat (every 30 ticks per team).
-    // The heartbeat is at tick modulo 30 == 0 (fires at t=30, 60, 90, ...).
-    // Offset teams by 15 ticks to avoid two heartbeats on the same tick
-    // (reduces peak work-per-tick, preserves determinism since both teams
-    // get exactly one heartbeat per 30 ticks).
-    //
     // Home team heartbeat: tick % 30 == 0.
-    // Away team heartbeat: tick % 30 == 15.
+    // Away team heartbeat: tick % 30 == 15 (offset reduces peak load).
     let tick_raw = state.tick.to_raw();
-    // Codex P2 from self-review: heartbeat_check now returns the FULL
-    // new TeamTacticState (with entry_tick already advanced), so callers
-    // can no longer accidentally leave entry_tick stale.
-    if tick_raw % tactic_fsm::HEARTBEAT_INTERVAL_TICKS == 0 {
-        // Home team 2Hz heartbeat. If the FSM fires, apply the transition.
-        if let Some(new_tts) = tactic_fsm::heartbeat_check(&state.team_tactic_states[0], state.tick)
-        {
-            state.team_tactic_states[0] = new_tts;
-        }
+    if tick_raw % tactic_fsm::HEARTBEAT_INTERVAL_TICKS == 0
+        && let Some(new_tts) = tactic_fsm::heartbeat_check(&state.team_tactic_states[0], state.tick)
+    {
+        state.team_tactic_states[0] = new_tts;
     }
-    if tick_raw % tactic_fsm::HEARTBEAT_INTERVAL_TICKS == 15 {
-        // Away team 2Hz heartbeat (offset 15 ticks from home to reduce peak load).
-        if let Some(new_tts) = tactic_fsm::heartbeat_check(&state.team_tactic_states[1], state.tick)
+    if tick_raw % tactic_fsm::HEARTBEAT_INTERVAL_TICKS == 15
+        && let Some(new_tts) = tactic_fsm::heartbeat_check(&state.team_tactic_states[1], state.tick)
+    {
+        state.team_tactic_states[1] = new_tts;
+    }
+
+    // T1-2b-iii-a: per-player decision dispatch.
+    state = dispatch::dispatch_tick(state);
+
+    // T1-2b-iii-a self-review P0-1: integrate player velocity into position.
+    // Every player's position advances by vel * dt each tick, using the same
+    // dt_per_tick() the ball physics uses (1/60 s in Q32.32).
+    let dt = ball_physics::dt_per_tick();
+    for p in state.players.iter_mut() {
+        // checked_mul/add: prefer explicit overflow protection over panic.
+        if let (Some(dx), Some(dy)) = (p.vel_x.checked_mul(dt), p.vel_y.checked_mul(dt))
+            && let (Some(nx), Some(ny)) = (p.pos_x.checked_add(dx), p.pos_y.checked_add(dy))
         {
-            state.team_tactic_states[1] = new_tts;
+            p.pos_x = nx;
+            p.pos_y = ny;
         }
     }
 
@@ -361,6 +395,29 @@ mod smoke {
         assert_eq!(
             state.decision_slots, initial_slots,
             "decision_slots mutated during tick_match — must be immutable"
+        );
+    }
+
+    /// T1-2b-iii-a P0-1: player with nonzero velocity ends up at a different
+    /// position after 60 ticks. Verifies that tick_match integrates vel→pos.
+    #[test]
+    fn player_position_integrates_from_velocity_over_60_ticks() {
+        let mut state = MatchState::initial(Seed::from_u64(99));
+        // Give player 6 (home MID centre) a fixed velocity of 3 m/s along +X.
+        // Player 6 starts at (-10, 0); after 60 ticks (1 s) at 3 m/s they
+        // should be at approximately (-10 + 3*1) = -7 m along X.
+        let initial_pos_x = state.players[6].pos_x;
+        state.players[6].vel_x = Q32::from_int(3);
+        state.players[6].vel_y = Q32::ZERO;
+        for _ in 0..60 {
+            state = tick_match(state);
+        }
+        assert!(
+            state.players[6].pos_x > initial_pos_x,
+            "player did not move in +X after 60 ticks with vel_x=3; \
+             pos_x={:?} initial={:?}",
+            state.players[6].pos_x,
+            initial_pos_x,
         );
     }
 

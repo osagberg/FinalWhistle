@@ -1,20 +1,28 @@
-// Phase-0/T1-2b-ii smoke fixture for the determinism gate.
+// Phase-0/T1-2b-iii-a smoke fixture for the determinism gate.
 //
 // Loaded by `tests/canonical_hash.rs::smoke_seed_corpus_fixture_matches_pinned_constant`.
 // The `expected_hash` field is `"blake3:" + lowercase-hex(blake3-digest)`.
 //
 // Re-baseline history:
-//   2026-05-13 (T0-7)      — `d6258107…d96b1a49` (initial; 22 players +
-//                             stationary ball, no integration)
-//   2026-05-13 (T1-2b-i)   — `0ddf91ef…c5722090` per ADR-0012 trigger #1
-//                             (BallState gained spin fields + tick_match
-//                             now advances ball physics)
-//   2026-05-13 (T1-2b-ii)  — `5aea582b…cf5c544` per ADR-0012 trigger #1
-//                             (MatchState gained decision_slots [u8;22],
-//                             interrupt_cooldown_until [Tick;22],
-//                             team_tactic_states [TeamTacticState;2];
-//                             wire-format VERSION bumped 1→2; tactic-FSM
-//                             heartbeat wired into tick_match every 30 ticks)
+//   2026-05-13 (T0-7)        — `d6258107…d96b1a49` (initial; 22 players +
+//                               stationary ball, no integration)
+//   2026-05-13 (T1-2b-i)     — `0ddf91ef…c5722090` per ADR-0012 trigger #1
+//                               (BallState gained spin fields + tick_match
+//                               now advances ball physics)
+//   2026-05-13 (T1-2b-ii)    — `5aea582b…cf5c544` per ADR-0012 trigger #1
+//                               (MatchState gained decision_slots [u8;22],
+//                               interrupt_cooldown_until [Tick;22],
+//                               team_tactic_states [TeamTacticState;2];
+//                               wire-format VERSION bumped 1→2; tactic-FSM
+//                               heartbeat wired into tick_match every 30 ticks)
+//   2026-05-13 (T1-2b-iii-a) — `c0b5e395…c1430ff` per ADR-0012 trigger #1
+//                               (PlayerState gained role [u8] + role_state [u8]
+//                               + local_decision_counter [u32 LE]; net +6
+//                               bytes x 22 players = +132 bytes per match.
+//                               Wire-format VERSION bumped 2→3.
+//                               MatchState::initial now places players at
+//                               4-3-3 formation positions. tick_match now
+//                               dispatches BT/GK-FSM via dispatch_tick.)
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -26,10 +34,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:5aea582bce2c75a5e06bc3ddb4c7724057e1019d5959f4ba4b0896f08cf5c544",
+    expected_hash: "blake3:c0b5e3955662ccd3e56b75072d4dad71366f2e58f806ff89013aaf7eac1430ff",
     metadata: (
-        description: "T1-2b-ii smoke fixture. 22-player dummy sim + ball physics + tactic FSM heartbeat + decision-cadence stagger, 60 ticks.",
+        description: "T1-2b-iii-a smoke fixture. 22-player BT runner skeleton + GK FSM + ball physics + tactic FSM heartbeat + decision-cadence stagger, 60 ticks.",
         generated_at: "2026-05-13",
-        notes: "Re-pinned at T1-2b-ii (canonical schema bump per ADR-0012 #1). MatchState gained three new fields: decision_slots [u8;22] (22 bytes), interrupt_cooldown_until [Tick;22] (176 bytes), team_tactic_states [TeamTacticState;2] (~18 bytes). Wire-format VERSION bumped 1→2. Tactic-FSM 2Hz heartbeat now wired into tick_match; neither team transitions during the 60-tick window since both start in MidBlock (heartbeat has no rule for MidBlock at T1-2b-ii).",
+        notes: "Re-pinned at T1-2b-iii-a (canonical schema bump per ADR-0012 #1). PlayerState gained role (u8, Role tag) + role_state (u8, per-role state tag) + local_decision_counter (u32 LE). Net +6 bytes x 22 = +132 bytes per match-state. Wire-format VERSION bumped 2→3. MatchState::initial now places players at default 4-3-3 formation positions instead of T0 placeholder grid. tick_match now calls dispatch_tick, which iterates roster slots and fires BT decisions / GK-FSM. Every leaf returns MoveToFormationPosition (skeleton tier). GK players start at their goal-line positions so vel remains 0 after their decision; outfield players will drift toward formation.",
     ),
 )

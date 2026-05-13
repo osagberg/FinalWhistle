@@ -38,6 +38,9 @@
 //!   [ scalar × scalar_count ]
 //!     [ key u16 LE ]
 //!     [ value i64 LE (raw Q32 bits) ]
+//!   [ role u8 ]                                    (T1-2b-iii-a: Role canonical tag)
+//!   [ role_state u8 ]                              (T1-2b-iii-a: per-role state tag)
+//!   [ local_decision_counter u32 LE ]              (T1-2b-iii-a: monotonic per-player counter)
 //! [ decision_slots ]                               (T1-2b-ii: 22 raw u8 bytes)
 //!   [ slot_0 u8 .. slot_21 u8 ]                   (22 bytes)
 //! [ interrupt_cooldown_until ]                     (T1-2b-ii: 22 × i64 LE = 176 bytes)
@@ -53,10 +56,21 @@
 //!   [ spin_x i64, spin_y i64, spin_z i64 ]        (24 bytes; new at T1-2b-i)
 //! ```
 //!
-//! **Field order rationale (T1-2b-ii):** the three new fields are emitted
-//! after the player loop and before the ball block. This preserves the T0/T1-2b-i
-//! player-section layout while appending the new fields in a forward-compatible
-//! position. The ball block remains last.
+//! **Field order rationale (T1-2b-iii-a):** the new per-player fields
+//! (`role` + `role_state` + `local_decision_counter`) are appended AFTER the
+//! existing player scalar section, BEFORE the match-level fields. This
+//! preserves the T0/T1-2b-i/T1-2b-ii outer layout while extending the player
+//! sub-record forward-compatibly. Per-player byte count increases by +6 bytes
+//! (1 + 1 + 4) × 22 = +132 bytes per match-state.
+//!
+//! **Role encoding discriminants (T1-2b-iii-a; stable; do not reorder):**
+//! - 0 = `Goalkeeper`
+//! - 1 = `Defender`
+//! - 2 = `Midfielder`
+//! - 3 = `Forward`
+//!
+//! **Per-role state-tag discriminants (variant order = tag; stable):**
+//! See `role_states.rs` module doc for the full table.
 //!
 //! **TacticState encoding discriminants (stable; do not reorder):**
 //! - 0 = `HighPress`
@@ -86,7 +100,13 @@ use crate::tactic_fsm::{SetPieceKind, TacticState, TeamTacticState};
 use crate::{BallState, MatchState, PlayerState};
 
 const MAGIC: &[u8; 4] = b"FWMS";
-const VERSION: u16 = 2; // bumped at T1-2b-ii: MatchState gained three new fields
+// VERSION history:
+//   1 — T0 / T1-2b-i baseline (players + ball)
+//   2 — T1-2b-ii: MatchState gained decision_slots, interrupt_cooldown_until,
+//        team_tactic_states
+//   3 — T1-2b-iii-a: PlayerState gained role (u8) + role_state (u8) +
+//        local_decision_counter (u32 LE); +6 bytes per player × 22 = +132
+const VERSION: u16 = 3;
 
 /// Streaming canonical encoder. Append bytes as values are emitted; call
 /// `finish()` to get the buffer for hashing.
@@ -187,6 +207,15 @@ impl CanonicalEncoder {
             self.write_u16(*k);
             self.write_i64(v.to_bits());
         }
+
+        // T1-2b-iii-a: role (u8) + role_state (u8) + local_decision_counter (u32 LE).
+        // Appended AFTER scalars; does not disturb byte positions of prior fields.
+        // P1-1: use to_tags() from typed PlayerRoleState — byte-identical to the
+        // prior split-field encoding so the canonical hash is UNCHANGED.
+        let (role_tag, state_tag) = p.role_state.to_tags();
+        self.write_u8(role_tag);
+        self.write_u8(state_tag);
+        self.write_u32(p.local_decision_counter);
     }
 
     /// Encode one `TeamTacticState`.
@@ -247,6 +276,9 @@ impl CanonicalEncoder {
         self.buf.push(v);
     }
     fn write_u16(&mut self, v: u16) {
+        self.buf.extend_from_slice(&v.to_le_bytes());
+    }
+    fn write_u32(&mut self, v: u32) {
         self.buf.extend_from_slice(&v.to_le_bytes());
     }
     fn write_u64(&mut self, v: u64) {
@@ -316,10 +348,11 @@ mod tests {
     }
 
     #[test]
-    fn version_is_2_after_t1_2b_ii_schema_bump() {
+    fn version_is_3_after_t1_2b_iii_a_schema_bump() {
         assert_eq!(
-            VERSION, 2,
-            "VERSION should be 2 after T1-2b-ii canonical schema bump"
+            VERSION, 3,
+            "VERSION should be 3 after T1-2b-iii-a canonical schema bump \
+             (PlayerState gained role + role_state + local_decision_counter)"
         );
     }
 

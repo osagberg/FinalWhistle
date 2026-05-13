@@ -82,6 +82,15 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   (~18 bytes). Wire-format VERSION bumped from 1 → 2. Tactic-FSM
 ///   heartbeat now runs every 30 ticks in `tick_match`. Authorized by
 ///   the T1-2b-ii task-spec in MEMORY.md.
+/// - 2026-05-13 (T1-2b-iii-a) — **re-baselined to `c0b5e395…c1430ff`** per
+///   ADR-0012 trigger #1 (canonical schema bump): `PlayerState` gained
+///   `role: Role` (u8, 1 byte) + `role_state: u8` (1 byte) +
+///   `local_decision_counter: u32` (4 bytes LE). Net: +6 bytes × 22 players
+///   = +132 bytes per match-state. Wire-format VERSION bumped 2 → 3.
+///   `MatchState::initial` now places players at 4-3-3 formation positions
+///   (replacing the T0 placeholder grid). `tick_match` now dispatches
+///   per-player BT / GK-FSM decisions via `dispatch_tick`. Authorized by
+///   the T1-2b-iii-a task-spec in MEMORY.md.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -90,7 +99,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("5aea582bce2c75a5e06bc3ddb4c7724057e1019d5959f4ba4b0896f08cf5c544");
+    hex!("c0b5e3955662ccd3e56b75072d4dad71366f2e58f806ff89013aaf7eac1430ff");
 
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.
