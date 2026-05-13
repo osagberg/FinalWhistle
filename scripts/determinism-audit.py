@@ -79,13 +79,71 @@ def strip_comments(source: str) -> str:
     return source
 
 
+def strip_cfg_test_blocks(source: str) -> str:
+    """Replace #[cfg(test)] mod blocks with blank lines (preserving line count).
+
+    Test helpers are allowed to use f64 for convenient literal construction;
+    they never participate in canonical state. This keeps the audit focused on
+    production code paths.
+    """
+    lines = source.split("\n")
+    out: list[str] = []
+    depth = 0       # brace depth inside the cfg(test) region
+    in_test = False # True while scanning inside #[cfg(test)] mod
+    skip_next = False  # True after we see the #[cfg(test)] line
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        if skip_next:
+            # This line should be `mod tests {` or similar
+            if "{" in stripped:
+                depth = stripped.count("{") - stripped.count("}")
+                in_test = True
+                out.append("")  # blank out
+                skip_next = False
+                i += 1
+                continue
+            # Edge case: attribute on next non-blank line
+            out.append("")
+            skip_next = False
+            i += 1
+            continue
+
+        if in_test:
+            depth += stripped.count("{") - stripped.count("}")
+            out.append("")  # blank out the line
+            if depth <= 0:
+                in_test = False
+                depth = 0
+            i += 1
+            continue
+
+        # Detect #[cfg(test)]
+        if re.match(r"#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]", stripped):
+            out.append("")  # blank out the attribute line
+            skip_next = True
+            i += 1
+            continue
+
+        out.append(line)
+        i += 1
+
+    return "\n".join(out)
+
+
 def audit_file(path: Path, crate_dir: str) -> list[tuple[int, str, str]]:
     """Return list of (line_number, rule_name, line_snippet) violations."""
     try:
         text = path.read_text(encoding="utf-8")
     except (UnicodeDecodeError, OSError):
         return []
-    stripped = strip_comments(text)
+    # Strip cfg(test) blocks first (test helpers may use f64 literals — that
+    # is allowed and does not touch canonical state).  Then strip comments so
+    # rule-doc prose mentioning banned terms doesn't false-positive.
+    stripped = strip_cfg_test_blocks(strip_comments(text))
     violations: list[tuple[int, str, str]] = []
     for rule_name, pattern, applies_to in RULES:
         if applies_to is not None and crate_dir not in applies_to:
@@ -122,6 +180,17 @@ def main() -> int:
                 # binary. The Q32 → f64 cast is the only float
                 # arithmetic; nothing reads it back into the sim.
                 Path("crates/fw-match-sim/src/dto.rs"),
+                # T1-2b-iii-b (per ADR-0012): math.rs builds the 257-entry
+                # sigmoid + exp LUTs at startup using f64 — IEEE-754
+                # deterministic, result quantised to Q32 before any canonical
+                # path uses it. The per-tick lut_eval path is pure Q32.
+                Path("crates/fw-core/src/math.rs"),
+                # q32.rs contains one f64-bearing function: from_f64_clamped,
+                # which is pub(crate) and called ONLY from math.rs's LazyLock
+                # bake closure. The per-tick paths in q32.rs are pure Q32.
+                # Exempted as the f64 surface is narrowed to crate-internal
+                # bake-time use only (T1-2b-iii-b self-review P1-6).
+                Path("crates/fw-core/src/q32.rs"),
             }
             if rel in EXEMPT_FILES:
                 continue

@@ -113,6 +113,29 @@ impl Q32 {
         self.0.to_bits()
     }
 
+    /// Alias for `to_bits()`.  Preferred in the math module where "raw"
+    /// reads more naturally than "bits".
+    #[inline]
+    pub const fn to_raw(self) -> i64 {
+        self.0.to_bits()
+    }
+
+    /// Convert from `f64`, clamping the result to Q32's representable range.
+    ///
+    /// Used ONLY at LUT startup (in `fw_core::math`) — never in per-tick
+    /// canonical paths. Exposing f64 to the wider workspace is forbidden per
+    /// `Sim/RULES.md §1`; hence `pub(crate)`.
+    ///
+    /// The `f64` arithmetic is deterministic across IEEE-754 platforms;
+    /// the Q32 conversion is exact (truncates fractional bits).
+    ///
+    /// Clamps to `[Q32::MIN, Q32::MAX]` rather than panicking.
+    #[inline]
+    pub(crate) fn from_f64_clamped(v: f64) -> Q32 {
+        // fixed::FixedI64::<U32>::from_num saturates on out-of-range.
+        Q32(Q32Inner::saturating_from_num(v))
+    }
+
     // ---- Arithmetic (checked) ------------------------------------------
     //
     // Bare `+` / `-` / `*` / `/` operators on Q32 panic-on-overflow
@@ -174,6 +197,22 @@ impl Q32 {
     }
 
     // ---- Sqrt (CORDIC) --------------------------------------------------
+
+    /// Arc-cosine via CORDIC.
+    ///
+    /// Input must be in `[-1, 1]`; panics in both debug AND release on out-of-range
+    /// (matches `Q32::sqrt` precedent — undefined CORDIC result must not propagate
+    /// silently into canonical state).
+    /// Returns a value in `[0, π]` radians as Q32.
+    #[inline]
+    pub fn acos(self) -> Q32 {
+        assert!(
+            self.0 >= Q32Inner::NEG_ONE && self.0 <= Q32Inner::ONE,
+            "Q32::acos argument out of [-1, 1]: {:?}",
+            self
+        );
+        Q32(cordic::acos(self.0))
+    }
 
     /// Non-negative square root via CORDIC. Panics on negative input.
     ///

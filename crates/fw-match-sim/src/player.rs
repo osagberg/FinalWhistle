@@ -21,7 +21,7 @@
 //! about; subsequent phases extend it with `#[serde(default)]` fields where
 //! backward compatibility is needed.
 
-use fw_core::Q32;
+use fw_core::{PlayerAttributes, Q32};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -84,6 +84,17 @@ pub struct PlayerState {
     ///
     /// Visibility is `pub(crate)` — external code uses `decision_counter()`.
     pub(crate) local_decision_counter: u32,
+
+    // ---- T1-2b-iii-b addition ----
+    /// Player attribute record — 55 Q32 fields.
+    ///
+    /// Initialised to `PlayerAttributes::mid_range_baseline()` at match-init.
+    /// BT utility scorers read via `attributes()` accessor.
+    /// The canonical encoder appends these as 55 × i64 LE after the decision
+    /// counter; canonical encoder bumped to VERSION 4 at T1-2b-iii-b.
+    /// Visibility: `pub(crate)` — external code uses the `attributes()` accessor.
+    #[serde(default = "PlayerAttributes::mid_range_baseline")]
+    pub(crate) attributes: PlayerAttributes,
 }
 
 impl PlayerState {
@@ -102,6 +113,7 @@ impl PlayerState {
             scalars: BTreeMap::new(),
             role_state: PlayerRoleState::initial(role),
             local_decision_counter: 0,
+            attributes: PlayerAttributes::mid_range_baseline(),
         }
     }
 
@@ -127,6 +139,14 @@ impl PlayerState {
     #[must_use]
     pub fn decision_counter(&self) -> u32 {
         self.local_decision_counter
+    }
+
+    /// Read the player's attribute record. External code (IPC DTOs, tests)
+    /// uses this accessor; BT utility scorers in the same crate access
+    /// `self.attributes` directly.
+    #[must_use]
+    pub fn attributes(&self) -> &PlayerAttributes {
+        &self.attributes
     }
 
     /// Increment the decision counter (crate-internal; only `dispatch.rs`

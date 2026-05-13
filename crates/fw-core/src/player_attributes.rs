@@ -393,6 +393,86 @@ pub struct AttributeRangeError {
 }
 
 impl PlayerAttributes {
+    /// Construct a mid-range baseline with all 55 fields set to exactly 0.5
+    /// (`Q32::from_raw(1i64 << 31)`).
+    ///
+    /// Used as the canonical default for newly-generated players before an
+    /// ability-derivation pass, and as the stable test fixture for BT utility
+    /// scorer unit tests (`T1-2b-iii-b`).
+    #[must_use]
+    pub fn mid_range_baseline() -> Self {
+        let half = Q32::from_raw(1i64 << 31);
+        PlayerAttributes {
+            technical: TechnicalAttributes {
+                finishing: half,
+                long_shots: half,
+                passing: half,
+                crossing: half,
+                first_touch: half,
+                technique: half,
+                dribbling: half,
+                heading: half,
+                tackling: half,
+                marking: half,
+                free_kicks: half,
+                penalty_taking: half,
+                corners: half,
+                long_throws: half,
+            },
+            mental: MentalAttributes {
+                anticipation: half,
+                composure: half,
+                decisions: half,
+                vision: half,
+                off_the_ball: half,
+                positioning: half,
+                concentration: half,
+                bravery: half,
+                teamwork: half,
+                flair: half,
+            },
+            physical: PhysicalAttributes {
+                pace: half,
+                acceleration: half,
+                stamina: half,
+                strength: half,
+                agility: half,
+                balance: half,
+                jumping_reach: half,
+                natural_fitness: half,
+            },
+            goalkeeper: GoalkeeperAttributes {
+                handling: half,
+                reflexes: half,
+                one_on_ones: half,
+                aerial_reach: half,
+                command_of_area: half,
+                kicking: half,
+            },
+            personality: PersonalityVector {
+                determination: half,
+                work_rate: half,
+                ambition: half,
+                professionalism: half,
+                loyalty: half,
+                temperament: half,
+                pressure_tolerance: half,
+                big_match_appetite: half,
+                adaptability: half,
+                aggression: half,
+                risk_appetite: half,
+                selflessness: half,
+                consistency: half,
+                versatility: half,
+            },
+            durability: DurabilityProfile {
+                injury_proneness: half,
+                recovery_rate: half,
+                dirtiness: half,
+            },
+        }
+    }
+
     /// Verify every field is in `[Q32::ZERO, Q32::ONE]`. Returns
     /// `Vec<AttributeRangeError>` listing every violation (collect-all,
     /// not first-only — matches the `RoleAffinityTable::invalid_roles`
@@ -974,5 +1054,19 @@ mod tests {
         let s = ron::ser::to_string(&attrs).expect("ron encode");
         let decoded: PlayerAttributes = ron::de::from_str(&s).expect("ron decode");
         assert_eq!(decoded, attrs);
+    }
+
+    // P2-3 (T1-2b-iii-b self-review): assert that mid_range_baseline() produces
+    // a valid PlayerAttributes. This cheap test keeps mid_range_baseline() and
+    // validate_unit_range() in sync — if a future field is added to one but
+    // not the other, this test will fail.
+    #[test]
+    fn mid_range_baseline_is_in_unit_range() {
+        let attrs = PlayerAttributes::mid_range_baseline();
+        let errors = attrs.validate_unit_range();
+        assert!(
+            errors.is_empty(),
+            "mid_range_baseline() produced out-of-range fields: {errors:?}"
+        );
     }
 }

@@ -40,6 +40,7 @@ pub mod player;
 pub mod role_states;
 pub mod subtree_library;
 pub mod tactic_fsm;
+pub mod utility;
 
 #[cfg(test)]
 use fw_core::Q32;

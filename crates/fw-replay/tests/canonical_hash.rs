@@ -91,6 +91,16 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   (replacing the T0 placeholder grid). `tick_match` now dispatches
 ///   per-player BT / GK-FSM decisions via `dispatch_tick`. Authorized by
 ///   the T1-2b-iii-a task-spec in MEMORY.md.
+/// - 2026-05-13 (T1-2b-iii-b) — **re-baselined to `b3b0e64f…d4da1169`** per
+///   ADR-0012 trigger #1 (canonical schema bump): `PlayerState` gained
+///   `attributes: PlayerAttributes` (55 × i64 LE = 440 bytes per player).
+///   Net: +440 bytes × 22 players = +9680 bytes per match-state. Wire-format
+///   VERSION bumped 3 → 4. `PlayerAttributes::mid_range_baseline()` added
+///   to `fw-core`. All 5 utility primitives added to `fw-match-sim::utility`:
+///   xG logistic, xT 16×12 grid, Spearman pitch-control, product-form
+///   pressing, top-N softmax. `fw-core::math` gained `sigmoid_q32` +
+///   `exp_q32` 257-entry LUTs. Authorized by the T1-2b-iii-b task-spec in
+///   MEMORY.md.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -99,7 +109,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("c0b5e3955662ccd3e56b75072d4dad71366f2e58f806ff89013aaf7eac1430ff");
+    hex!("b3b0e64fbf6d5f1e1c1f54434e4c5aa277ebdcdc2815ac06e41d82d2d4da1169");
 
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.

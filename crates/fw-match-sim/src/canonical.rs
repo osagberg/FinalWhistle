@@ -106,7 +106,9 @@ const MAGIC: &[u8; 4] = b"FWMS";
 //        team_tactic_states
 //   3 — T1-2b-iii-a: PlayerState gained role (u8) + role_state (u8) +
 //        local_decision_counter (u32 LE); +6 bytes per player × 22 = +132
-const VERSION: u16 = 3;
+//   4 — T1-2b-iii-b: PlayerState gained attributes (55 × i64 LE);
+//        +440 bytes per player × 22 = +9680 bytes per match-state
+const VERSION: u16 = 4;
 
 /// Streaming canonical encoder. Append bytes as values are emitted; call
 /// `finish()` to get the buffer for hashing.
@@ -216,6 +218,72 @@ impl CanonicalEncoder {
         self.write_u8(role_tag);
         self.write_u8(state_tag);
         self.write_u32(p.local_decision_counter);
+
+        // T1-2b-iii-b: 55 attribute fields in struct-declaration order.
+        // Each field is a Q32 serialised as i64 LE (8 bytes); total +440 bytes
+        // per player, +9680 bytes per match-state. VERSION bumped to 4.
+        let a = &p.attributes;
+        // Technical (14)
+        self.write_i64(a.technical.finishing.to_bits());
+        self.write_i64(a.technical.long_shots.to_bits());
+        self.write_i64(a.technical.passing.to_bits());
+        self.write_i64(a.technical.crossing.to_bits());
+        self.write_i64(a.technical.first_touch.to_bits());
+        self.write_i64(a.technical.technique.to_bits());
+        self.write_i64(a.technical.dribbling.to_bits());
+        self.write_i64(a.technical.heading.to_bits());
+        self.write_i64(a.technical.tackling.to_bits());
+        self.write_i64(a.technical.marking.to_bits());
+        self.write_i64(a.technical.free_kicks.to_bits());
+        self.write_i64(a.technical.penalty_taking.to_bits());
+        self.write_i64(a.technical.corners.to_bits());
+        self.write_i64(a.technical.long_throws.to_bits());
+        // Mental (10)
+        self.write_i64(a.mental.anticipation.to_bits());
+        self.write_i64(a.mental.composure.to_bits());
+        self.write_i64(a.mental.decisions.to_bits());
+        self.write_i64(a.mental.vision.to_bits());
+        self.write_i64(a.mental.off_the_ball.to_bits());
+        self.write_i64(a.mental.positioning.to_bits());
+        self.write_i64(a.mental.concentration.to_bits());
+        self.write_i64(a.mental.bravery.to_bits());
+        self.write_i64(a.mental.teamwork.to_bits());
+        self.write_i64(a.mental.flair.to_bits());
+        // Physical (8)
+        self.write_i64(a.physical.pace.to_bits());
+        self.write_i64(a.physical.acceleration.to_bits());
+        self.write_i64(a.physical.stamina.to_bits());
+        self.write_i64(a.physical.strength.to_bits());
+        self.write_i64(a.physical.agility.to_bits());
+        self.write_i64(a.physical.balance.to_bits());
+        self.write_i64(a.physical.jumping_reach.to_bits());
+        self.write_i64(a.physical.natural_fitness.to_bits());
+        // Goalkeeper (6)
+        self.write_i64(a.goalkeeper.handling.to_bits());
+        self.write_i64(a.goalkeeper.reflexes.to_bits());
+        self.write_i64(a.goalkeeper.one_on_ones.to_bits());
+        self.write_i64(a.goalkeeper.aerial_reach.to_bits());
+        self.write_i64(a.goalkeeper.command_of_area.to_bits());
+        self.write_i64(a.goalkeeper.kicking.to_bits());
+        // Personality (14)
+        self.write_i64(a.personality.determination.to_bits());
+        self.write_i64(a.personality.work_rate.to_bits());
+        self.write_i64(a.personality.ambition.to_bits());
+        self.write_i64(a.personality.professionalism.to_bits());
+        self.write_i64(a.personality.loyalty.to_bits());
+        self.write_i64(a.personality.temperament.to_bits());
+        self.write_i64(a.personality.pressure_tolerance.to_bits());
+        self.write_i64(a.personality.big_match_appetite.to_bits());
+        self.write_i64(a.personality.adaptability.to_bits());
+        self.write_i64(a.personality.aggression.to_bits());
+        self.write_i64(a.personality.risk_appetite.to_bits());
+        self.write_i64(a.personality.selflessness.to_bits());
+        self.write_i64(a.personality.consistency.to_bits());
+        self.write_i64(a.personality.versatility.to_bits());
+        // Durability (3)
+        self.write_i64(a.durability.injury_proneness.to_bits());
+        self.write_i64(a.durability.recovery_rate.to_bits());
+        self.write_i64(a.durability.dirtiness.to_bits());
     }
 
     /// Encode one `TeamTacticState`.
@@ -348,11 +416,11 @@ mod tests {
     }
 
     #[test]
-    fn version_is_3_after_t1_2b_iii_a_schema_bump() {
+    fn version_is_4_after_t1_2b_iii_b_schema_bump() {
         assert_eq!(
-            VERSION, 3,
-            "VERSION should be 3 after T1-2b-iii-a canonical schema bump \
-             (PlayerState gained role + role_state + local_decision_counter)"
+            VERSION, 4,
+            "VERSION should be 4 after T1-2b-iii-b canonical schema bump \
+             (PlayerState gained attributes: 55 x i64 LE)"
         );
     }
 

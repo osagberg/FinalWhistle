@@ -22,6 +22,7 @@
 //! See `docs/specs/determinism-gate.md` for the full contract.
 
 pub mod ids;
+pub mod math;
 pub mod player_attributes;
 pub mod q32;
 pub mod seed;
@@ -32,6 +33,7 @@ pub mod tick;
 // -------------------------------------------------------------------------
 
 pub use ids::{ClubId, MatchId, PlayerId};
+pub use math::{exp_q32, sigmoid_q32};
 pub use player_attributes::{
     AbilityCeiling, AbilityCeilingError, AttributeRangeError, DurabilityProfile,
     GoalkeeperAttributes, HIDDEN_ATTR_COUNT, HIDDEN_ATTRIBUTE_NAMES, KNOWN_ATTRIBUTE_NAMES,

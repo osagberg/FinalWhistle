@@ -1,4 +1,4 @@
-// Phase-0/T1-2b-iii-a smoke fixture for the determinism gate.
+// Phase-0/T1-2b-iii-b smoke fixture for the determinism gate.
 //
 // Loaded by `tests/canonical_hash.rs::smoke_seed_corpus_fixture_matches_pinned_constant`.
 // The `expected_hash` field is `"blake3:" + lowercase-hex(blake3-digest)`.
@@ -23,6 +23,16 @@
 //                               MatchState::initial now places players at
 //                               4-3-3 formation positions. tick_match now
 //                               dispatches BT/GK-FSM via dispatch_tick.)
+//   2026-05-13 (T1-2b-iii-b) — `b3b0e64f…d4da1169` per ADR-0012 trigger #1
+//                               (PlayerState gained attributes [PlayerAttributes]
+//                               = 55 x i64 LE = 440 bytes per player; net
+//                               +9680 bytes per match-state. Wire-format
+//                               VERSION bumped 3→4. fw-core::math gained
+//                               sigmoid_q32 + exp_q32 257-entry LUTs.
+//                               fw-match-sim::utility gained xG logistic,
+//                               xT 16x12 grid, Spearman pitch-control,
+//                               product-form pressing, top-N softmax.
+//                               PlayerAttributes::mid_range_baseline() added.)
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -34,10 +44,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:c0b5e3955662ccd3e56b75072d4dad71366f2e58f806ff89013aaf7eac1430ff",
+    expected_hash: "blake3:b3b0e64fbf6d5f1e1c1f54434e4c5aa277ebdcdc2815ac06e41d82d2d4da1169",
     metadata: (
-        description: "T1-2b-iii-a smoke fixture. 22-player BT runner skeleton + GK FSM + ball physics + tactic FSM heartbeat + decision-cadence stagger, 60 ticks.",
+        description: "T1-2b-iii-b smoke fixture. Utility math primitives (xG, xT, pitch-control, pressing, softmax) + PlayerAttributes mid-range baseline + canonical encoder VERSION 4.",
         generated_at: "2026-05-13",
-        notes: "Re-pinned at T1-2b-iii-a (canonical schema bump per ADR-0012 #1). PlayerState gained role (u8, Role tag) + role_state (u8, per-role state tag) + local_decision_counter (u32 LE). Net +6 bytes x 22 = +132 bytes per match-state. Wire-format VERSION bumped 2→3. MatchState::initial now places players at default 4-3-3 formation positions instead of T0 placeholder grid. tick_match now calls dispatch_tick, which iterates roster slots and fires BT decisions / GK-FSM. Every leaf returns MoveToFormationPosition (skeleton tier). GK players start at their goal-line positions so vel remains 0 after their decision; outfield players will drift toward formation.",
+        notes: "Re-pinned at T1-2b-iii-b (canonical schema bump per ADR-0012 #1). PlayerState gained attributes: PlayerAttributes (55 x i64 LE = 440 bytes per player, +9680 bytes per match-state). Wire-format VERSION bumped 3→4. All players initialised with mid_range_baseline() (all 55 fields = 0.5 = Q32::from_raw(1i64 << 31)). fw-core::math gained sigmoid_q32 + exp_q32 via 257-entry LazyLock LUT over [-8,+8]. fw-match-sim::utility gained: xg (6-feature logistic, third-pass beta values), xt (16x12 Bellman grid, hand-authored), pitch_control (Spearman closed-form), pressing (product-form Bauer 2025), softmax (top-3 ChaCha8Rng).",
     ),
 )
