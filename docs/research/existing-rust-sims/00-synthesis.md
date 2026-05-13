@@ -1,5 +1,7 @@
 # Existing Rust football sims — synthesis brief
 
+> **Caveat (2026-05-13 reframe):** this brief was authored under a "~3000 LoC match-sim budget" framing that has since been retracted (see `docs/DESIGN_DOC.md` §1 "Scope ambition"). Recommendations of the form "X is too big for our budget" — particularly around FSM-with-large-state-taxonomies and ZOXEXIVO's per-role catalog — should be re-read as "the choice is now open, decide on clarity-vs-composition merits, not LoC." Pillar constraints (determinism, no-runtime-LLM, procedural-fantasy only, text-first) all remain.
+
 **Compared:** 2026-05-13
 **Projects:** openfootmanager (57K LoC) + ZOXEXIVO/open-football (217K LoC)
 **For:** Final Whistle T1-2b architecture decisions
