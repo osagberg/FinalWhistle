@@ -6,6 +6,12 @@
 //! discipline) AND validate post-response. Anything that fails schema
 //! validation is rejected, logged, and retried with a tighter prompt — or
 //! escalated to the dev for manual review.
+
+// Schemas authored ahead of consumers — same staging as prompts.rs. The
+// 5 schema consts are referenced by the bake subcommands that land in
+// T2-3 / T2-4 / T3-3 / T3-5. Silenced at module root to keep additions
+// painless before those wires light up.
+#![allow(dead_code)]
 //!
 //! These schemas are intentionally strict: extra properties are rejected,
 //! types are pinned, string lengths bounded. The point of bake-time is to

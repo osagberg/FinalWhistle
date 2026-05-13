@@ -8,7 +8,7 @@
 
 ## Active task
 
-None — awaiting next `/next` invocation. Suggested: `T0-12` (fix pre-existing fw-tauri + fw-content-baker scaffold build failures discovered during T0-7).
+None — T0-12 just landed. T0 is effectively complete on dev box. Next: run `/done` to open the phase-gate PR for Codex review + cross-OS canonical-hash matrix verification (T0-7b).
 
 ## Phase progress (T0)
 
@@ -22,7 +22,7 @@ None — awaiting next `/next` invocation. Suggested: `T0-12` (fix pre-existing 
 | T0-6 Canonical-hash regression test wiring | DONE | Test + fixture + 4-test surface live in `crates/fw-replay`. Sanity test (`smoke_seed_canonical_hash_is_nonzero`) prevents the all-zero footgun. Reframed as test-wiring-only per Codex audit; the actual pinning was T0-7. |
 | T0-7 Pin BLAKE3 canonical hash on dev box | DONE | `PINNED_60_TICK = d6258107b2c90c84d2feeaa8633d1f5c159e10ccd2016623b52b41d3d96b1a49`. `cargo test --release -p fw-replay`: 4 passed / 1 ignored (insta baseline, separate work) / 0 failed. RON fixture + in-code constant agree. `#[ignore]` removed from `smoke_seed_60_tick_canonical_hash_pinned`. |
 | T0-7b Cross-OS canonical-hash matrix agreement | TODO | Phase-gate task. Open the T0 review PR via `/done`; CI matrix `[macos-14, windows-latest, ubuntu-22.04]` must produce the same BLAKE3 digest. Drift on any platform = real determinism leak, debug before merge. |
-| T0-12 Fix pre-existing fw-tauri + fw-content-baker scaffold build failures | TODO | Discovered during T0-7 verify. `fw-tauri` fails `cargo build` with 5 E0255 errors (duplicate `__cmd__*` items from `#[tauri::command]` expansion — likely missing Cargo feature flag). `fw-content-baker` fails clippy `-D warnings` with 14 dead-code errors (constants + validators authored ahead of T2-3 wiring). Cleanest fix: 1-line Cargo.toml feature + `#![allow(dead_code)]` at module roots. Unblocks `cargo test --workspace` so `/next` can use full-workspace verify from here on. |
+| T0-12 Fix pre-existing fw-tauri + fw-content-baker scaffold build failures | DONE | Root cause was a known Tauri 2 limitation (`pub` + `#[tauri::command]` in lib.rs), NOT a feature-flag issue. Fix: moved commands to sibling `commands.rs` module. Also addressed: fw-content-baker dead-code (`#![allow(dead_code)]` at staging modules), src-tauri frontend/dist stub (build.rs creates index.html on clean clones), src-tauri tauri-icons (stub PNGs gitignored), and ui-vocabulary.md sentinel wraps. Workspace verify (build + clippy + test + fmt + determinism-audit + banned-terms) ALL GREEN. |
 | T0-8 Justfile / scripts/fw | DONE | Justfile + bash front-door at 81fdeff. Reconciliation added `banned-terms` + `verify-content` + `determinism-audit` recipes. |
 | T0-9 /next slash command + hooks | DONE | Full blueprint reconciled at 26f1ba0. 6 commands, 7 agents, 5 hooks, path-scoped rules. |
 | T0-10 DECISIONS.md + protect hook | DONE | Hook live; append-only enforced. |
@@ -30,7 +30,7 @@ None — awaiting next `/next` invocation. Suggested: `T0-12` (fix pre-existing 
 
 ## Blockers
 
-None for T0-7 (DONE). T0-12 is the critical path before T1 (workspace verify currently red on pre-existing scaffold debt).
+None. T0 is feature-complete on the dev box. Cross-OS matrix verification (T0-7b) is the only remaining gate before T1.
 
 ## Last green verify
 
@@ -59,4 +59,4 @@ Not yet run end-to-end on this branch — `scripts/fw verify` will be exercised 
 
 ## Next up
 
-`/next` will pick **T0-12** (fw-tauri + fw-content-baker scaffold fixes). After T0-12 lands, run `/done` to open the T0 phase-gate PR (which exercises T0-7b cross-OS matrix verification).
+Run **`/done`** to open the T0 phase-gate PR. CI matrix verifies T0-7b. On merge: T1 begins with the first MASTER_PLAN T1 row.

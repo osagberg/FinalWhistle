@@ -22,9 +22,15 @@
 //! consumes f64. That translation has to compile. The determinism
 //! contract is enforced one crate upstream (`fw-match-sim` et al.).
 
-use fw_core::Seed;
-use fw_match_sim::{MatchState, tick_match};
+use fw_match_sim::MatchState;
 use serde::Serialize;
+
+// Command handlers live in a sibling module to sidestep the Tauri 2
+// `E0255 __cmd__<name> defined multiple times` bug that fires when
+// `#[tauri::command]` is applied to a `pub` function inside `lib.rs`.
+// See `commands.rs` header for the full reference.
+pub mod commands;
+pub use commands::{get_dummy_state, play_match};
 
 // -------------------------------------------------------------------------
 // Frontend DTOs — what the SolidJS side sees
@@ -111,45 +117,13 @@ fn q32_to_f64(raw_bits: i64) -> f64 {
 }
 
 // -------------------------------------------------------------------------
-// Tauri command handlers
-// -------------------------------------------------------------------------
-
-/// `play_match(seed_hex, tick_count)` — run a smoke match end-to-end and
-/// return the final state as a DTO.
-///
-/// Phase-0 stub. T1+ adds streaming progress events + early-termination on
-/// stoppage time. The `seed_hex` parameter accepts `"0x..."` or bare hex.
-#[tauri::command]
-pub async fn play_match(seed_hex: String, tick_count: u32) -> Result<MatchStateDto, String> {
-    let trimmed = seed_hex.trim_start_matches("0x");
-    let raw = u64::from_str_radix(trimmed, 16)
-        .map_err(|e| format!("invalid seed_hex {seed_hex:?}: {e}"))?;
-    let seed = Seed::from_u64(raw);
-
-    let mut state = MatchState::initial(seed);
-    for _ in 0..tick_count {
-        state = tick_match(state);
-    }
-
-    Ok(MatchStateDto::from_state(&state))
-}
-
-/// `get_dummy_state()` — return a fresh `MatchState::initial(seed=1)` as
-/// the smallest live IPC round-trip the frontend can render against. Used
-/// by the Phase-0 / T0-2 scaffold smoke test in the SolidJS side.
-#[tauri::command]
-pub async fn get_dummy_state() -> Result<MatchStateDto, String> {
-    let state = MatchState::initial(Seed::from_u64(1));
-    Ok(MatchStateDto::from_state(&state))
-}
-
-// -------------------------------------------------------------------------
 // Smoke
 // -------------------------------------------------------------------------
 
 #[cfg(test)]
 mod smoke {
     use super::*;
+    use fw_core::Seed;
 
     #[test]
     fn smoke() {

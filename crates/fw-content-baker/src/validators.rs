@@ -3,6 +3,12 @@
 //! Every baker subcommand pipes generated fragments through these validators
 //! before writing RON. A Category-A hit rejects the fragment outright. A
 //! Category-B / cliché hit is logged and surfaces in the bake review report.
+
+// Validators authored ahead of the bake subcommands that pipe through
+// them. T2-3 wires bake-names through `validate_fragment`; the inner
+// `check_*` helpers land their consumers as each baker subcommand is
+// implemented. Same staging strategy as prompts.rs / schemas.rs.
+#![allow(dead_code)]
 //!
 //! Three layers:
 //!   1. `banned_terms` — shells out to `scripts/lint-banned-terms.py` with

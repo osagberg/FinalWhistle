@@ -6,6 +6,7 @@ Append-only human-readable ship log. One line per shipped MASTER_PLAN task. Phas
 
 ## Phase T0 — Scaffold
 
+- 2026-05-13 — **T0-12** Fix pre-existing scaffold build failures — fw-tauri commands moved to sibling module (Tauri 2 `pub` + `#[command]` bug, ref tauri #4665); fw-content-baker dead-code suppressed at staging-module roots (T2-3+ wiring deferred); src-tauri build.rs stubs frontend/dist + icons generated; ui-vocabulary.md meta-references wrapped in sentinels. `cargo {build,clippy,test,fmt} --workspace` ALL green.
 - 2026-05-13 — **T0-7** Pin BLAKE3 canonical hash on macOS-14 dev box — `PINNED_60_TICK = d6258107…` recorded; `#[ignore]` removed; `cargo test -p fw-replay` 4/4 green. Cross-OS matrix verification deferred to T0-7b via the phase-gate PR.
 - 2026-05-13 — **Codex audit followup** (`9eb184e`) — Q32 operators panic-on-overflow; IDs are durable `u32` newtypes (slotmap dropped). 7 of 7 Q1–Q7 audit decisions resolved.
 - 2026-05-13 — **Codex audit quick wins** (`7dc510d`) — STATUS.md created; hash-non-zero sanity test; DESIGN_DOC float fields → Q32 basis points; fw-content weights → integer bps; determinism-audit script (comment-aware); 9 of 16 Codex findings fixed.

@@ -39,8 +39,8 @@ Stale rule: any `IN_PROGRESS` item older than 14 days must be reviewed at next `
 
 ## Now / Next / Blocked
 
-- **Now:** `T0-12` fix pre-existing fw-tauri + fw-content-baker scaffold build failures (unblocks `cargo test --workspace`).
-- **Next:** `T0-7b` cross-OS matrix agreement (deferred to `/done` phase-gate PR after T0-12).
+- **Now:** none — T0-12 DONE. T0 phase essentially complete on dev box; T0-7b cross-OS matrix verification is the last gate.
+- **Next:** `/done` opens the T0 phase-gate PR for Codex review; CI matrix exercises T0-7b.
 - **Blocked:** none.
 
 ---
@@ -113,7 +113,7 @@ Do not block this on UI polish, signature presentation banks, breakthrough trigg
 | T0-9 | `/next` slash-command implementation + auto-self-review hook | DONE | M (1d) | T0-1 | Full workflow reconciled at 26f1ba0. 6 commands, 7 agents, 5 hooks, path-scoped rules. |
 | T0-10 | `docs/DECISIONS.md` + `protect-decisions.sh` hook | DONE | S (0.5d) | T0-1 | Hook live at 81fdeff; verified in reconciliation. |
 | T0-11 | `README.md` + `REFERENCES.md` | DONE | S (0.5d) | T0-1 | Both at 81fdeff; REFERENCES.md updated at this audit-followup commit (15→7 agents). |
-| T0-12 | Fix pre-existing scaffold build failures. (a) `fw-tauri` fails `cargo build` with 5 E0255 errors (`__cmd__*` macro expansion items "defined multiple times"; tauri 2.11.1 + tauri-macros 2.6.1 — likely missing `features = ["macros"]` or similar on `tauri = { workspace = true }`). (b) `fw-content-baker` fails `cargo clippy -D warnings` with 14 dead-code errors (10 consts + 4 fns authored ahead of T2-3 wiring). Acceptance: `cargo test --workspace` green; `cargo clippy --workspace --all-targets -- -D warnings` clean. | TODO | S (1d) | T0-1 | Unblocks workspace-wide verify for every subsequent `/next` cycle. Discovered during T0-7 when first workspace clippy ran on the scaffold. |
+| T0-12 | Fix pre-existing scaffold build failures. (a) fw-tauri `#[tauri::command]` E0255 — root cause: known Tauri 2 bug when `pub` + `#[tauri::command]` are applied inside `lib.rs`. Fix: moved both commands to a sibling `commands.rs` module and re-exported. Ref: tauri-apps/tauri discussion #4665. (b) fw-content-baker dead-code — root cause: 10 consts + 4 fns authored ahead of T2-3 wiring. Fix: `#![allow(dead_code)]` at the three staging module roots with TODO(T2-3/T2-4/T3-3/T3-5) comments. (c) src-tauri frontend/dist requirement — root cause: `tauri::generate_context!` validates `frontendDist` at compile time. Fix: `build.rs` stubs `frontend/dist/index.html` on fresh clones; Vite overwrites on real build. (d) src-tauri icons missing/non-RGBA — root cause: scaffold left `icons/` empty. Fix: solid-green stub PNGs (RGBA) + icon.icns / icon.ico via magick + sips (gitignored — real art lands at T4). (e) ui-vocabulary.md meta-references — root cause: catalog file mentions banned terms it bans, tripping the lint. Fix: `<!-- ui-lint:ignore-start/end -->` blocks around the meta-references. | DONE | S (1d) | T0-1 | `cargo build --workspace` + `cargo clippy --workspace --all-targets -- -D warnings` + `cargo test --workspace --release` + `cargo fmt --check` + `determinism-audit` + `banned-terms` ALL CLEAN. 19 test-runs across all crates, all green. |
 
 ### T0 Exit Gate (locked)
 

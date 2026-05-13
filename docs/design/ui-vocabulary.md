@@ -10,9 +10,11 @@ status: T0 stub. Categories A.1-A.5 + B + C ported from FW v1 docs/design/ui-voc
 
 The procedural-fantasy USP (DESIGN_DOC §3 Pillar 1) creates a structural
 risk: an LLM-baked corpus can drift toward fantasy-RPG vocabulary
-("Awakened", "The Hush", "Kismet", "DNA Score") which would make the game
-read like a JRPG over football rather than a football management sim with
-procedural-fantasy worldbuilding.
+<!-- ui-lint:ignore-start -->
+("Awakened", "The Hush", "Kismet", "DNA Score")
+<!-- ui-lint:ignore-end -->
+which would make the game read like a JRPG over football rather than a
+football management sim with procedural-fantasy worldbuilding.
 
 This catalog is the structural floor. Every player-facing string —
 commentary, headlines, scout reports, manager quotes, fan reactions, UI
@@ -117,10 +119,12 @@ at `dev-config/region-analogues.json`, gitignored from runtime builds.
 
 Avoid unless the specific surface genuinely needs them. Exemption mechanism:
 
+<!-- ui-lint:ignore-start -->
 ```rust
 // ui-lint:allow term="weapon" reason="cup-final commentary, deliberate" reviewer="osagberg"
 commentary.push("He'll need his best weapon in this final.");
 ```
+<!-- ui-lint:ignore-end -->
 
 Rules:
 - `term=` must match a Category-B banned term exactly.
