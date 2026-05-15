@@ -4,39 +4,38 @@
 
 ## Phase
 
-**T1 — First Match** (active; T1-2b-iii sub-phase **CLOSED**: T1-1 + T1-2a + T1-2b-i + T1-2b-ii + T1-2b-iii-a + T1-2b-iii-b + T1-2b-iii-c + **T1-2b-iii-d** all done; next: T1-2b-iv signature dispatcher; final T1-2b row before T1-3 onward)
+**T1 — First Match** (T1-2b-iii sub-phase CLOSED + **T1-3 DONE**; next: T1-2b-iv signature dispatcher; final T1-2b row)
 
 ## Active task
 
-(none — T1-2b-iii-d closed; T1-2b-iii sub-phase fully complete. `/next` picks T1-2b-iv.)
+(none — T1-3 closed. `/next` picks T1-2b-iv.)
 
 ## Phase pointer
 
-- **Just closed:** **T1-2b-iii-d PlayerSeparation + visual playtest gate.** FW v1 `PlayerSeparation.cs` carry-forward as a deterministic Q32 pure function. 231-pair lex-order iteration; cordic sqrt; position-only adjustment so vel magnitude preserved trivially; zero-distance fallback deterministic by slot order; `tick_match` doc-comment enumerates 6 explicit steps. 7 unit tests + 7 proptests cover all 6 acceptance invariants 1:1 (test-coverage gaps caught + closed BEFORE the eyeball gate per the iii-c lesson). 600-tick smoke fixture generated cleanly. Canonical hash rebaselined to `1db6020c…59c798`. **Manual eyeball gate PASSED 2026-05-15** on the dev-board scrub: separation resolves overlaps within a few ticks; the residual back-and-forth movement is downstream of separation (skeletal-BT oscillation from identical mid_range_baseline attrs across all 22 players + no MatchEvent emission yet).
-- **Now:** **T1-2b-iii sub-phase fully closed.** Phase T1 critical path: T1-2b-iii-d → **T1-2b-iv (signature dispatcher + first 3 signatures end-to-end)** → T1-3 (signature schema follow-up) → T1-4 (MatchEvent emission) → T1-5 (Tauri play_match command) → T1-6 (frontend Match route).
-- **Next:** `T1-2b-iv` — partial implementation of ADR-0011 to validate the signature dispatcher path end-to-end. 3 representative signatures (one defensive, one attacking, one build-up) implement `TriggerPredicate` + `SimBiasSnapshot` + basic `PresentationRecipe`. Cooldown state added to canonical `MatchState`. Per-player `signature_candidates` schema landed at T1-3 (separate row); T1-2b-iv consumes it. `MemoryEvent::SignatureFirstFired` emitted. Softmax dispatch deterministic via `SeedLayer::SignatureTrigger`. Canonical hash REBASELINED (intentional).
+- **Just closed:** **T1-3 signature schema stub in fw-content.** Type-system-only row implementing ADR-0011 §"Mechanical shape" + §"Stacking policy" + §"Cooldown" + §"Per-player affinity". New `signature.rs` module ships `SignatureId` (with validated try_new constructor — dotted-pack-id format per Content/RULES.md §2 mod-pack carve-out), `SignatureCandidate::try_new` with affinity range validator, 8-variant `RoleFamily` + 4-variant `BiasCategory` enums (stable u8 discriminants), `SimBiasSnapshot` (5 Q32 multipliers collapsing ADR-0003 §5's 7 surfaces), `CooldownPolicy` (default 600 ticks), `StackingPolicy::Exclusive`, `SignatureTrigger::NoOpStub` (T1-2b-iv expands), `SignaturePresentationRecipe` stub, `SignatureDefinition`. `PlayerTemplate.signature_candidates: Vec<SignatureCandidate>` field with `#[serde(default)]`. `ContentStore` walks `content/sources/signatures/*.ron`; one no-op fixture lives at `content/sources/signatures/no-op-stub.ron`; one player fixture (`sample-am.ron`) references it. Canonical hash **UNCHANGED** at `1db6020c…59c798` (PlayerTemplate isn't in MatchState path). Data-only TDD-exempt; type-design self-review 2 P1s closed in-place (SignatureId validator tightening + SignatureCandidate::try_new).
+- **Now:** Phase T1 critical path: T1-3 → **T1-2b-iv (signature dispatcher + first 3 signatures end-to-end)** → T1-4 (MatchEvent emission) → T1-5 (Tauri play_match) → T1-6 (frontend Match route) → T1-7 (content procgen stub) → T1-8 (replay corpus #1) → T1-9 (behavioral assertions).
+- **Next:** `T1-2b-iv` — final T1-2b row. Partial ADR-0011 implementation: 3 representative signatures (one defensive, one attacking, one build-up) implementing `TriggerPredicate` + `SimBiasSnapshot` + basic `PresentationRecipe`. Cooldown state in canonical MatchState (`signature_cooldowns: BTreeMap<(PlayerId, SignatureId), Tick>`). Softmax dispatch deterministic via `SeedLayer::SignatureTrigger`. Bias snapshot multiplies into BT utility scoring. `MemoryEvent::SignatureFirstFired` emitted. Canonical hash REBASELINE intentional. After this row, T1-2b is fully done and T1-4 onward carries T1 to its acceptance gate.
 
 ## Blockers
 
-None. T1-2b-iii-d shipped clean with `scripts/fw verify` green; 269+ unit tests + 33 proptest integrations.
+None. T1-3 shipped clean with `scripts/fw verify` green.
 
 ## Last green verify
 
-2026-05-15 — `scripts/fw verify` clean: fmt + clippy + `cargo test --workspace` + release-mode canonical-hash regression on `1db6020c…59c798` + banned-terms + determinism-audit + `fw-content-baker validate`. Cross-OS matrix verification happens on the post-commit CI run.
+2026-05-15 — `scripts/fw verify` clean: fmt + clippy + `cargo test --workspace` (54 unit tests in fw-content + 32 across other crates + 33 proptest integrations) + release-mode canonical-hash regression UNCHANGED at `1db6020c…59c798` + banned-terms + determinism-audit + `fw-content-baker validate`.
 
 ## Last canonical hash
 
-`blake3:1db6020c7ac3181fac9f73b2e30423708d9fdd55a846e38c8e81c8c7ab59c798` (60-tick smoke seed; rebaselined T1-2b-iii-d per ADR-0012 trigger #1 — PlayerSeparation pass added to `tick_match` at documented step 6; player positions now corrected after integration each tick; prior pin `235f6c5e…181288d` was T1-2b-iii-c baseline). VERSION constant unchanged at 4 (no schema bump; just behavior change). Another rebaseline expected at T1-2b-iv (signature cooldown state joins canonical MatchState).
+`blake3:1db6020c7ac3181fac9f73b2e30423708d9fdd55a846e38c8e81c8c7ab59c798` (60-tick smoke seed; pinned at T1-2b-iii-d; **UNCHANGED through T1-3** since fw-content additions don't touch MatchState bytes). Encoder VERSION 4. Next rebaseline expected at T1-2b-iv (signature cooldown state joins canonical MatchState; ADR-0012 trigger #1 schema bump).
 
 ## Recent commits
 
-- `<this commit>` feat(sim): T1-2b-iii-d PlayerSeparation + manual eyeball PASS (ADR-0012 #1 rebaseline)
+- `<this commit>` feat(content): T1-3 signature schema stub + per-player affinity field
+- `7ae18f3` feat(sim): T1-2b-iii-d PlayerSeparation + visual playtest gate PASS
 - `7840c1f` feat(sim): T1-2b-iii-c BT site bindings + personality bias + utility-scored leaves
 - `d471892` feat(sim,core): T1-2b-iii-b utility math primitives + PlayerAttributes baseline
-- `7786db0` docs(plan): further-split T1-2b-iii into iii-b/c/d
-- `abebdf0` feat(sim): T1-2b-iii-a BT runner + per-role skeletons
 - earlier — see CHANGELOG.
 
 ## Next up
 
-`/next` will pick **T1-2b-iv** — the final T1-2b row. 3 representative signatures implementing ADR-0011 end-to-end (defensive `BodyShieldPressure` + attacking `LongRangeStrike` + build-up `FirstTimeDiagonalSwitch`). Cooldown state in canonical MatchState; softmax dispatch deterministic via `SeedLayer::SignatureTrigger`; `MemoryEvent::SignatureFirstFired` emitted. After this row closes, T1-2b is done and T1-3 onward (signatures schema, MatchEvent, Tauri play_match, frontend Match route, content procgen stub, replay corpus, behavioral assertions) carries Phase T1 to its acceptance gate.
+`/next` will pick **T1-2b-iv** — the final T1-2b row. 3 representative signatures (`BodyShieldPressure` defensive, `LongRangeStrike` attacking, `FirstTimeDiagonalSwitch` build-up) implement `TriggerPredicate` + `SimBiasSnapshot` + basic `PresentationRecipe`. Cooldown state joins canonical MatchState; softmax dispatch via `SeedLayer::SignatureTrigger`; bias snapshot multiplies into BT utility scoring. Canonical hash REBASELINE intentional. T1-2b closes after this row.

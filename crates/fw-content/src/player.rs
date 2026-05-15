@@ -23,6 +23,7 @@ use fw_core::{AbilityCeiling, PlayerAttributes, PlayerId};
 use serde::{Deserialize, Serialize};
 
 use crate::role_affinity::RoleId;
+use crate::signature::SignatureCandidate;
 
 /// Current schema version for `PlayerTemplate`. Bumped at every
 /// breaking-shape change; forward-migration only (per
@@ -83,6 +84,16 @@ pub struct PlayerTemplate {
     /// An unrecognized role at lookup time surfaces as a load-time
     /// FW-VAL error.
     pub preferred_role: RoleId,
+
+    /// Per-player signature affinities. Carry-forward from FW v1's
+    /// `IdentityPacket.SignatureCandidates`. Typically 0–3 entries.
+    /// Deserialized with `serde(default)` so existing fixtures that omit
+    /// the field continue to load unchanged — no mass fixture migration.
+    ///
+    /// Not part of the 55-field `PlayerAttributes` model (ADR-0002);
+    /// signatures are an independent identity surface per ADR-0011.
+    #[serde(default)]
+    pub signature_candidates: Vec<SignatureCandidate>,
 }
 
 // ---------------------------------------------------------------------------
@@ -178,6 +189,7 @@ mod tests {
             ceiling: AbilityCeiling::try_new(half, Q32::from_raw(3i64 << 30))
                 .expect("sample ceiling is valid"), // ~0.5 / ~0.75
             preferred_role: RoleId::new("AM"),
+            signature_candidates: vec![],
         }
     }
 

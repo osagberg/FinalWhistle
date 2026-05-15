@@ -1,0 +1,38 @@
+// T1-3 no-op signature stub. id: fwh.core:signature.no-op-stub
+//
+// This signature's trigger predicate (NoOpStub) always returns false —
+// the signature never fires in actual gameplay. Its purpose is to:
+//   1. Prove the type system compiles (T1-3 acceptance criterion #1).
+//   2. Exercise the RON loader without affecting canonical match-state hashes
+//      (T1-3 acceptance criterion #2).
+//   3. Give the sample-am.ron player fixture a valid signature_candidates
+//      reference (T1-3 acceptance criterion #4).
+//
+// Real trigger predicates + a 24-signature catalogue land at T1-2b-iv.
+//
+// Q32 serde form: (bits: <i64>) where i64 = round(decimal * 2^32).
+// Q32::ONE = (bits: 4294967296); Q32::ZERO = (bits: 0).
+//
+// Schema version 1. All new RON-backed types start at schema_version 1
+// per Content/RULES.md §3.
+SignatureDefinition(
+    schema_version: 1,
+    id: SignatureId("fwh.core:signature.no-op-stub"),
+    display_name: "No-Op Stub Signature",
+    role_family: CentralMidfielder,
+    trigger: NoOpStub,
+    bias_snapshot: (
+        shoot_mul:   (bits: 4294967296),  // Q32::ONE = 1.0 (no-op)
+        pass_mul:    (bits: 4294967296),  // 1.0
+        dribble_mul: (bits: 4294967296),  // 1.0
+        press_mul:   (bits: 4294967296),  // 1.0
+        cover_mul:   (bits: 4294967296),  // 1.0
+    ),
+    presentation: (
+        commentary_line_bank_id: "placeholder",
+        camera_framing_hint: "default",
+        schema_version: 1,
+    ),
+    cooldown: EveryTicks(600),
+    stacking: Exclusive(category: BuildUp),
+)

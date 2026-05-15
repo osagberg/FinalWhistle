@@ -16,8 +16,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use fw_content::{
-    BUILDUP_SPEED_MAX_BPS, BUILDUP_SPEED_MIN_BPS, Culture, PlayerTemplate, RoleAffinityTable,
-    RoleId, TacticalArchetype,
+    BUILDUP_SPEED_MAX_BPS, BUILDUP_SPEED_MIN_BPS, ContentStore, Culture, PlayerTemplate,
+    RoleAffinityTable, RoleId, SignatureDefinition, TacticalArchetype,
 };
 
 /// Walk a content directory and apply `parse` to every `.ron` file.
@@ -168,4 +168,106 @@ fn player_fixtures_load() {
             "{path:?} preferred_role is empty"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// T1-3 tests: signature fixtures + canonical-hash-unchanged assertion
+// ---------------------------------------------------------------------------
+
+/// All `content/sources/signatures/*.ron` must deserialize as
+/// `SignatureDefinition` without error. Schema version must be 1.
+#[test]
+fn signature_fixtures_load() {
+    let dir = content_sources_root().join("signatures");
+    let sigs = for_each_ron::<SignatureDefinition, _>(&dir, |s| ron::de::from_str(s));
+    assert!(
+        !sigs.is_empty(),
+        "expected at least one signature fixture under {dir:?}; \
+         content/sources/signatures/no-op-stub.ron was added at T1-3"
+    );
+    for (path, sig) in &sigs {
+        assert_eq!(
+            sig.schema_version, 1,
+            "{path:?} schema_version {} unexpected (T1-3 ships at 1)",
+            sig.schema_version
+        );
+        let id = sig.id.as_str();
+        assert!(
+            id.contains(":signature."),
+            "{path:?} id {id:?} missing ':signature.' segment"
+        );
+        assert!(
+            !sig.display_name.is_empty(),
+            "{path:?} display_name is empty"
+        );
+    }
+}
+
+/// The no-op stub must load via `ContentStore::load_sources` without panic,
+/// and must appear in `store.signature_definitions`.
+#[test]
+fn no_op_stub_loads_via_content_store() {
+    let content_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("content");
+    let store = ContentStore::load_sources(&content_root)
+        .expect("ContentStore::load_sources failed — check fixture files");
+    let sig = store
+        .signature_definitions
+        .get("fwh.core:signature.no-op-stub")
+        .expect("no-op-stub signature not found in store after load");
+    assert_eq!(sig.schema_version, 1);
+    assert_eq!(sig.id.as_str(), "fwh.core:signature.no-op-stub");
+}
+
+/// Adding `signature_candidates` to `PlayerTemplate` and loading signatures
+/// from disk must NOT affect the canonical match-state hash for the smoke
+/// seed. PlayerTemplate is template data only; `MatchState::initial` uses
+/// hardcoded positions + `mid_range_baseline()`, never loaded templates.
+///
+/// Hash must remain at 1db6020c7ac3181fac9f73b2e30423708d9fdd55a846e38c8e81c8c7ab59c798
+/// per T1-3 acceptance criterion #2. If this test fails, that's a scope-leak
+/// signal — fw-match-sim is accidentally consuming PlayerTemplate data.
+#[test]
+fn signature_load_does_not_drift_canonical_hash() {
+    use fw_core::Seed;
+    use fw_match_sim::{MatchState, tick_match};
+
+    const SMOKE_SEED: u64 = 0xdeadbeefdeadbeef;
+    const SMOKE_TICKS: u32 = 60;
+    // Pinned at T1-2b-iii-d. Must remain unchanged through T1-3.
+    // Represented as raw bytes so we can compare without a hex crate.
+    const EXPECTED: [u8; 32] = [
+        0x1d, 0xb6, 0x02, 0x0c, 0x7a, 0xc3, 0x18, 0x1f, 0xac, 0x9f, 0x73, 0xb2, 0xe3, 0x04, 0x23,
+        0x70, 0x8d, 0x9f, 0xdd, 0x55, 0xa8, 0x46, 0xe3, 0x8c, 0x8e, 0x81, 0xc8, 0xc7, 0xab, 0x59,
+        0xc7, 0x98,
+    ];
+
+    // Load the content store (exercises the new signature loader).
+    let content_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("content");
+    let _store =
+        ContentStore::load_sources(&content_root).expect("ContentStore::load_sources failed");
+
+    // Run the smoke seed through tick_match — independent of the loaded store.
+    let seed = Seed::from_u64(SMOKE_SEED);
+    let mut state = MatchState::initial(seed);
+    for _ in 0..SMOKE_TICKS {
+        state = tick_match(state);
+    }
+    let bytes = state.encode_canonical();
+    let actual: [u8; 32] = blake3::hash(&bytes).into();
+
+    assert_eq!(
+        actual, EXPECTED,
+        "\nCanonical-state hash drifted after T1-3 signature additions.\n\
+         This means fw-match-sim is accidentally consuming PlayerTemplate data\n\
+         or the signature schema was wired into MatchState prematurely.\n\
+         Expected: 1db6020c7ac3181fac9f73b2e30423708d9fdd55a846e38c8e81c8c7ab59c798\n\
+         Actual:   {:02x?}",
+        actual
+    );
 }

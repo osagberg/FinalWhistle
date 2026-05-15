@@ -12,6 +12,7 @@ pub mod archetype;
 pub mod player;
 pub mod role_affinity;
 pub mod runtime;
+pub mod signature;
 pub mod team;
 
 pub use archetype::BehaviorArchetype;
@@ -23,6 +24,11 @@ pub use runtime::{
     BUILDUP_SPEED_BASELINE_BPS, BUILDUP_SPEED_MAX_BPS, BUILDUP_SPEED_MIN_BPS, ContentKind,
     ContentLoadError, ContentStore, Culture, CultureWeights, FormationSlot, TacticalArchetype,
     derive_seed,
+};
+pub use signature::{
+    BiasCategory, CooldownPolicy, RoleFamily, SignatureCandidate, SignatureCandidateError,
+    SignatureDefinition, SignatureId, SignatureIdError, SignaturePresentationRecipe,
+    SignatureTrigger, SimBiasSnapshot, StackingPolicy,
 };
 pub use team::TeamTemplate;
 

@@ -27,3 +27,5 @@ blake3      = { workspace = true }
 
 [dev-dependencies]
 insta       = { workspace = true }
+fw-match-sim = { workspace = true }
+blake3      = { workspace = true }

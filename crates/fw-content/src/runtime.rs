@@ -226,6 +226,10 @@ pub struct ContentStore {
     pub tactical_archetypes: BTreeMap<String, TacticalArchetype>,
     pub player_templates: BTreeMap<String, crate::PlayerTemplate>,
     pub role_affinity_tables: BTreeMap<String, crate::RoleAffinityTable>,
+    /// Signature definitions — keyed by `SignatureId.as_str()` for O(log n)
+    /// look-up at T1-2b-iv dispatch time. Loaded from
+    /// `content/sources/signatures/*.ron`. BTreeMap for deterministic iteration.
+    pub signature_definitions: BTreeMap<String, crate::SignatureDefinition>,
     // TODO(T2-3): bios, scout phrases, headlines, manager quotes, fan
     // reactions, commentary — wired in as each baker subcommand lands.
 }
@@ -323,6 +327,19 @@ impl ContentStore {
                 store
                     .player_templates
                     .insert(parsed.qualified_id.clone(), parsed);
+            }
+        }
+
+        // Signature definitions (T1-3). Optional — dir may not exist yet in
+        // older content packs; silently skip if absent (same guard pattern as
+        // cultures/archetypes/players above).
+        let signatures_dir = sources_dir.join("signatures");
+        if signatures_dir.is_dir() {
+            for entry in walk_ron_files(&signatures_dir)? {
+                let parsed: crate::SignatureDefinition = parse_ron_file(&entry)?;
+                store
+                    .signature_definitions
+                    .insert(parsed.id.as_str().to_owned(), parsed);
             }
         }
 

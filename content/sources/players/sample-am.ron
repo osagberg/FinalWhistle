@@ -103,4 +103,12 @@ PlayerTemplate(
         potential: (bits: 3350074491),  // 0.78
     ),
     preferred_role: "AM",
+    // T1-3: per-player signature affinities. Carry-forward from FW v1
+    // IdentityPacket.SignatureCandidates. Affinity (bits: 3006477107) = ~0.70.
+    signature_candidates: [
+        (
+            signature_id: SignatureId("fwh.core:signature.no-op-stub"),
+            affinity: (bits: 3006477107),  // 0.70
+        ),
+    ],
 )

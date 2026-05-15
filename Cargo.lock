@@ -1341,6 +1341,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "fw-core",
+ "fw-match-sim",
  "insta",
  "rand 0.8.6",
  "rand_chacha 0.3.1",
