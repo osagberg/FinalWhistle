@@ -125,6 +125,12 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   P1-1: debug_assert on bias helper raw inputs. P1-2: unreachable!() fallback
 ///   in select_outfield_intent. P1-4: SeedLayer::UtilityTieBreak for softmax RNG.
 ///   P2-2: DefenderPressure + IsProgressive newtypes for arg-safety.
+/// - 2026-05-14 (T1-2b-iii-d PlayerSeparation) — **re-baselined to `1db6020c…59c798`**
+///   per ADR-0012 trigger #1 (behavioral change, authorized by T1-2b-iii-d task-spec
+///   in MEMORY.md). The player-separation positional-correction pass (step 6 in
+///   `tick_match`) adjusts player positions after velocity integration, so canonical
+///   state (which encodes pos_x/pos_y) changes. No schema bump; only position values
+///   change. Separation is purely deterministic (Q32 arithmetic, no RNG).
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -133,7 +139,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("235f6c5e841c7b529104b5f3fa57b69315aebe439677fbbc7549c62bc181288d");
+    hex!("1db6020c7ac3181fac9f73b2e30423708d9fdd55a846e38c8e81c8c7ab59c798");
 
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.

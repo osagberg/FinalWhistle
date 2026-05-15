@@ -55,6 +55,13 @@
 //                               uses bare operators. P0-4: xt_delta returns negative
 //                               for backpasses. P1-4: SeedLayer::UtilityTieBreak
 //                               for softmax RNG (was Decision).
+//   2026-05-14 (T1-2b-iii-d)   — `1db6020c…59c798` per ADR-0012 trigger #1
+//                               (behavioral change, authorized by T1-2b-iii-d
+//                               task-spec in MEMORY.md). Player-separation
+//                               positional-correction pass added as step 6 in
+//                               tick_match, after position integration. Adjusts
+//                               pos_x/pos_y for overlapping pairs → canonical
+//                               state changes. No schema bump; no new fields.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -66,10 +73,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:235f6c5e841c7b529104b5f3fa57b69315aebe439677fbbc7549c62bc181288d",
+    expected_hash: "blake3:1db6020c7ac3181fac9f73b2e30423708d9fdd55a846e38c8e81c8c7ab59c798",
     metadata: (
-        description: "T1-2b-iii-c P0+P1 fix-pass smoke fixture. Spec-correct attr bindings + real GK transitions + xt_delta fix + SeedLayer fix.",
-        generated_at: "2026-05-13",
-        notes: "Re-pinned at T1-2b-iii-c P0+P1 fix pass (behavioral change per ADR-0012 #1). P0-1: all 12 outfield BT utility sites now read EXACTLY the attrs from bt-attribute-binding.md; binding-correctness tests added (12 pairs). P0-2: goalkeeper_fsm evaluate_transitions now uses ball-position predicates (ShotStopping when ball in penalty area + approaching; SweeperKeeperRush in own half approaching; DistributingFromHand near goal line; InBoxPositioning default). P0-3: lib.rs position integration uses bare operators (p.pos_x += p.vel_x * dt) not checked_mul/add. P0-4: xt_delta returns DST-SRC (can be negative for backpasses). P1-1: debug_assert on bias helper raw inputs. P1-2: unreachable!() fallback in select_outfield_intent. P1-4: SeedLayer::UtilityTieBreak for softmax RNG in dispatch.rs. P2-2: DefenderPressure + IsProgressive newtypes.",
+        description: "T1-2b-iii-d PlayerSeparation smoke fixture. Positional-correction pass added as step 6 in tick_match.",
+        generated_at: "2026-05-14",
+        notes: "Re-pinned at T1-2b-iii-d (behavioral change per ADR-0012 #1). Player-separation pass (separation.rs) resolves inter-player overlaps (min 0.4 m) using Q32 cordic sqrt + half-overlap push. Single iteration per tick; no convergence loop. Velocity untouched. 231 pairs iterated in lex order (slot_i < slot_j). 5 unit tests + 6 proptest invariants added in separation_proptest.rs.",
     ),
 )

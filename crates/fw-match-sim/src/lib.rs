@@ -38,6 +38,7 @@ pub mod dto;
 pub mod goalkeeper_fsm;
 pub mod player;
 pub mod role_states;
+pub mod separation;
 pub mod subtree_library;
 pub mod tactic_fsm;
 pub mod utility;
@@ -234,14 +235,18 @@ impl MatchState {
 
 /// Advance the match by one tick.
 ///
-/// T1-2b-iii-a scope:
-/// - Increments `state.tick`.
-/// - Advances ball physics (T1-2b-i).
-/// - Runs the 2 Hz tactic-FSM heartbeat every 30 ticks per team (T1-2b-ii).
-/// - Dispatches per-player BT / GK-FSM decisions via `dispatch_tick`
-///   (T1-2b-iii-a): for each roster slot where `should_decide` fires, runs
-///   the appropriate decision runner and applies the returned `PlayerIntent`
-///   by mutating `vel_x`/`vel_y`.
+/// Six sequential steps (T1-2b-iii-d adds step 6):
+///   1. Increment `state.tick`.
+///   2. Advance ball physics (T1-2b-i).
+///   3. Run the 2 Hz tactic-FSM heartbeat every 30 ticks per team (T1-2b-ii).
+///   4. Dispatch per-player BT / GK-FSM decisions via `dispatch_tick`
+///      (T1-2b-iii-a): for each roster slot where `should_decide` fires,
+///      run the appropriate decision runner and apply the returned
+///      `PlayerIntent` by mutating `vel_x`/`vel_y`.
+///   5. Integrate player velocity into position (`pos += vel × dt`).
+///   6. Player-separation positional-correction pass (T1-2b-iii-d):
+///      for each pair (i,j) with slot_i < slot_j, push apart if within
+///      `separation::MIN_PLAYER_DISTANCE` (0.4 m). Velocities untouched.
 pub fn tick_match(mut state: MatchState) -> MatchState {
     state.tick = state.tick.successor();
     // T1-2b-i: advance ball physics by one 60Hz tick.
@@ -265,7 +270,7 @@ pub fn tick_match(mut state: MatchState) -> MatchState {
     // T1-2b-iii-a: per-player decision dispatch.
     state = dispatch::dispatch_tick(state);
 
-    // T1-2b-iii-a self-review P0-1: integrate player velocity into position.
+    // Step 5: integrate player velocity into position.
     // Every player's position advances by vel * dt each tick, using the same
     // dt_per_tick() the ball physics uses (1/60 s in Q32.32).
     let dt = ball_physics::dt_per_tick();
@@ -276,6 +281,11 @@ pub fn tick_match(mut state: MatchState) -> MatchState {
         p.pos_x += p.vel_x * dt;
         p.pos_y += p.vel_y * dt;
     }
+
+    // Step 6 (T1-2b-iii-d): player-separation positional correction.
+    // Runs after integration so velocities are already applied; corrects
+    // positions only — velocities remain as the BT runner last wrote them.
+    separation::apply_player_separation(&mut state);
 
     state
 }
