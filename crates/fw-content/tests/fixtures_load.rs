@@ -238,15 +238,17 @@ fn signature_load_does_not_drift_canonical_hash() {
 
     const SMOKE_SEED: u64 = 0xdeadbeefdeadbeef;
     const SMOKE_TICKS: u32 = 60;
-    // Rebaselined at T1-2b-fix: canonical encoder VERSION bumped 5 → 6;
-    // P1-2 schema bump: per-player signature_candidates added to canonical encoding.
+    // Rebaselined at T1-2b-fix P1-5/P2-9: bias helper multiplicative forms corrected per spec.
+    // Three bias helpers changed math at uniform attrs: apply_lay_off_bias (2→1 factor),
+    // apply_mark_bias (2→1 factor), apply_run_off_ball_bias (k₉→k₁₀ first factor).
+    // utility_shoot long_shots demoted from primary to secondary modifier.
+    // Prior T1-2b-fix hash: dbe4f49bdb8b866d47c9e46a16e22416dfddbcb6edd9355139114133a25085f2
     // Prior T1-2b-iv hash: 18f1776c2f77939d32849dc72e05909caf78b93bf6ce50a1222b28f9c6a5d048
-    // Prior T1-2b-iii-d / T1-3 hash: 1db6020c7ac3181fac9f73b2e30423708d9fdd55a846e38c8e81c8c7ab59c798
     // Represented as raw bytes so we can compare without a hex crate.
     const EXPECTED: [u8; 32] = [
-        0xdb, 0xe4, 0xf4, 0x9b, 0xdb, 0x8b, 0x86, 0x6d, 0x47, 0xc9, 0xe4, 0x6a, 0x16, 0xe2, 0x24,
-        0x16, 0xdf, 0xdd, 0xbc, 0xb6, 0xed, 0xd9, 0x35, 0x51, 0x39, 0x11, 0x41, 0x33, 0xa2, 0x50,
-        0x85, 0xf2,
+        0xd3, 0x76, 0xba, 0x26, 0x24, 0x64, 0x6f, 0x19, 0xe3, 0x06, 0x13, 0x42, 0xf5, 0x85, 0x4b,
+        0xc1, 0x17, 0xed, 0x0a, 0x35, 0xa2, 0xb9, 0x9a, 0x13, 0xf5, 0x1a, 0x14, 0x3b, 0xc4, 0x46,
+        0xfa, 0x93,
     ];
 
     // Load the content store (exercises the new signature loader).
@@ -269,9 +271,9 @@ fn signature_load_does_not_drift_canonical_hash() {
     assert_eq!(
         actual, EXPECTED,
         "\nCanonical-state hash drifted unexpectedly.\n\
-         T1-2b-fix rebaselined to dbe4f49bdb8b866d47c9e46a16e22416dfddbcb6edd9355139114133a25085f2\n\
-         (VERSION 5→6; P1-2 signature_candidates per-player encoding added).\n\
-         If this drifts again, it must be an authorized rebaseline — check encoder VERSION bump.\n\
+         T1-2b-fix P1-5/P2-9 rebaselined to d376ba2624646f19e3061342f5854bc117ed0a35a2b99a13f51a143bc446fa93\n\
+         (bias helper math corrections: lay_off 2→1 factor, mark 2→1 factor, run_off_ball k₉→k₁₀).\n\
+         If this drifts again, it must be an authorized rebaseline — ADR-0012 trigger #3.\n\
          Actual:   {:02x?}",
         actual
     );

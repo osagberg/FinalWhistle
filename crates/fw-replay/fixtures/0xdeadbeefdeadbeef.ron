@@ -86,6 +86,18 @@
 //                               dispatcher weights affinity × fit_score.
 //                               P1-8: anti-vacuousness companion tests added
 //                               for all 5 proptest ACs.
+//   2026-05-15 (T1-2b-fix P1-5/P2-9) — `d376ba26…fa93` per ADR-0012 trigger #3
+//                               (behavioral change, authorized by T1-2b-fix
+//                               P1-5/P2-9 task-spec). Attribute-binding corrections
+//                               for 6 BT decision sites: lay_off bias 2->1 factor
+//                               (selflessness only); mark bias 2->1 factor
+//                               (determination only); run_off_ball k9->k10 first
+//                               factor (aggression->work_rate). utility_shoot:
+//                               long_shots demoted from 4th primary factor to
+//                               secondary modifier (0.30 weight). cross and
+//                               hold_formation: equivalent math, different attrs.
+//                               4 reactive predicates rewritten to spec (P2-9;
+//                               not wired into dispatch until T1-4).
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -97,10 +109,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:dbe4f49bdb8b866d47c9e46a16e22416dfddbcb6edd9355139114133a25085f2",
+    expected_hash: "blake3:d376ba2624646f19e3061342f5854bc117ed0a35a2b99a13f51a143bc446fa93",
     metadata: (
-        description: "T1-2b-fix Codex audit P1 fix-pass smoke fixture. Canonical encoder VERSION 5→6; P1-2 per-player signature_candidates added; TriggerFn -> Q32 fit-score; tick_goalkeeper player param.",
+        description: "T1-2b-fix P1-5/P2-9 attribute-binding corrections smoke fixture. Bias helpers corrected: lay_off selflessness-only, mark determination-only, run_off_ball work_rate+risk. utility_shoot long_shots as secondary.",
         generated_at: "2026-05-15",
-        notes: "Re-pinned at T1-2b-fix (Codex audit P1 fix-pass per ADR-0012 #1). VERSION 5→6. P1-2: per-player signature_candidates vec encoded per player. signature_firing reshaped to 2D [[Option<SignatureFiring>;4];22]. P1-3/P1-4: SeedLayer/seed_fn moved to fw-core::seed; tick_goalkeeper accepts player param. P1-6: TriggerFn -> Q32; dispatcher multiplies affinity x fit_score for softmax. P1-8: 4 anti-vacuousness companion tests added.",
+        notes: "Re-pinned at T1-2b-fix P1-5/P2-9 (ADR-0012 trigger #3). Six BT decision sites corrected per bt-attribute-binding.md. Bias helper multiplicative forms changed for lay_off, mark, run_off_ball. utility_shoot: long_shots moved to secondary modifier. 4 reactive predicates rewritten (P2-9, not wired). No schema bump.",
     ),
 )

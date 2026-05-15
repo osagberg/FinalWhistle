@@ -9,13 +9,13 @@
 //! function (primary + secondary + bias-via-helper). Binding-correctness tests
 //! verify that non-spec attributes have no effect on utility output.
 //!
-//! ## Key binding notes
+//! ## Key binding notes (P1-5 spec-drift corrections)
 //!
-//! - `personality.work_rate` is a bias-path input for Press and Track-back.
-//!   It is NOT a primary read inside the utility function bodies — it is
-//!   consumed via `apply_press_bias` and `apply_cover_bias` respectively.
-//!   `hold_formation` does NOT read `work_rate` directly; it reads
-//!   `mental.teamwork` as its third primary attribute.
+//! - `personality.work_rate` is a bias-path input for Press and Track-back ONLY.
+//!   It is NOT consumed by Mark, RunOffBall, or HoldFormation (P1-5 fix).
+//! - Mark: Determination bias ONLY (not cover_bias which also reads work_rate).
+//! - RunOffBall: WorkRate + RiskAppetite bias (not press_bias which reads aggression).
+//! - HoldFormation: Professionalism + Determination bias (not cover_bias with work_rate).
 //!
 //! ## Spatial stub note (T1-2b-iii-c)
 //!
@@ -29,7 +29,10 @@
 
 use fw_core::Q32;
 
-use crate::bt::personality_bias::{apply_cover_bias, apply_press_bias};
+use crate::bt::personality_bias::{
+    apply_cover_bias, apply_hold_formation_bias, apply_mark_bias, apply_press_bias,
+    apply_run_off_ball_bias,
+};
 use crate::player::PlayerState;
 use crate::role_states::PlayerIntent;
 use crate::subtree_library::formation_position;
@@ -76,7 +79,7 @@ pub const PRESS_ATTRS: &[&str] = &[
 ///
 /// Primary (spec): `technical.marking`, `mental.anticipation`, `physical.pace`, `mental.concentration`
 /// Secondary (spec): `physical.strength`, `physical.balance`
-/// Bias via helper: `personality.determination` (k₁₁ via cover_bias)
+/// Bias via helper: `personality.determination` (Determination ONLY per spec)
 pub const MARK_PLAYER_ATTRS: &[&str] = &[
     "technical.marking",
     "mental.anticipation",
@@ -84,16 +87,15 @@ pub const MARK_PLAYER_ATTRS: &[&str] = &[
     "mental.concentration",
     "physical.strength",
     "physical.balance",
-    // bias path:
+    // bias path (via apply_mark_bias — determination only):
     "personality.determination",
-    "personality.work_rate",
 ];
 
 /// Attributes read by `utility_run_off_ball` — for binding-correctness tests.
 ///
 /// Primary (spec): `mental.off_the_ball`, `physical.pace`, `physical.acceleration`, `mental.anticipation`
 /// Secondary (spec): `mental.flair`, `physical.stamina`
-/// Bias via helper: `personality.aggression` (k₉ via press_bias), `personality.work_rate` (k₁₀)
+/// Bias via helper: `personality.work_rate` (WorkRate), `personality.risk_appetite` (RiskAppetite)
 pub const RUN_OFF_BALL_ATTRS: &[&str] = &[
     "mental.off_the_ball",
     "physical.pace",
@@ -101,26 +103,24 @@ pub const RUN_OFF_BALL_ATTRS: &[&str] = &[
     "mental.anticipation",
     "mental.flair",
     "physical.stamina",
-    // bias path:
-    "personality.aggression",
+    // bias path (via apply_run_off_ball_bias — work_rate + risk_appetite per spec):
     "personality.work_rate",
+    "personality.risk_appetite",
 ];
 
 /// Attributes read by `utility_hold_formation` — for binding-correctness tests.
 ///
 /// Primary (spec): `mental.positioning`, `mental.teamwork`, `mental.concentration`
 /// Secondary (spec): `mental.decisions`
-/// Bias via helper: `personality.professionalism` + `personality.determination`
-///   — cover_bias reads determination + work_rate. Professionalism deferred to
-///   a dedicated hold-bias helper (T2-1 polish pass); cover_bias is the proxy.
+/// Bias via helper: `personality.professionalism` (Professionalism) + `personality.determination` (Determination)
 pub const HOLD_FORMATION_ATTRS: &[&str] = &[
     "mental.positioning",
     "mental.teamwork",
     "mental.concentration",
     "mental.decisions",
-    // bias path:
+    // bias path (via apply_hold_formation_bias — professionalism + determination per spec):
+    "personality.professionalism",
     "personality.determination",
-    "personality.work_rate",
 ];
 
 // ---------------------------------------------------------------------------
@@ -179,7 +179,7 @@ pub fn utility_press(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q3
 /// Utility for marking an opponent.
 ///
 /// Attribute binding (spec): marking × anticipation × pace × concentration (primary);
-/// strength + balance as secondary; determination via bias.
+/// strength + balance as secondary; determination ONLY via bias.
 pub fn utility_mark_player(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
@@ -194,7 +194,8 @@ pub fn utility_mark_player(player: &PlayerState, roster_slot: u8) -> (PlayerInte
         (Q32::ONE + w_str * a.physical.strength) * (Q32::ONE + w_bal * a.physical.balance);
     let raw = raw * secondary;
 
-    let biased = apply_cover_bias(raw, a);
+    // Mark bias: Determination ONLY per spec (P1-5 fix — was cover_bias which also read work_rate).
+    let biased = apply_mark_bias(raw, a);
 
     let mark_slot: u8 = if (roster_slot as usize) < 11 { 12 } else { 1 };
     let (target_x, target_y) = formation_position(mark_slot);
@@ -204,7 +205,7 @@ pub fn utility_mark_player(player: &PlayerState, roster_slot: u8) -> (PlayerInte
 /// Utility for making a run off the ball.
 ///
 /// Attribute binding (spec): off_the_ball × pace × acceleration × anticipation (primary);
-/// flair + stamina as secondary; aggression + work_rate via bias (press_bias proxy).
+/// flair + stamina as secondary; work_rate + risk_appetite via bias.
 pub fn utility_run_off_ball(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
@@ -219,9 +220,8 @@ pub fn utility_run_off_ball(player: &PlayerState, roster_slot: u8) -> (PlayerInt
         (Q32::ONE + w_flair * a.mental.flair) * (Q32::ONE + w_stam * a.physical.stamina);
     let raw = raw * secondary;
 
-    // Press bias (Aggression + WorkRate) models the "run more aggressively"
-    // personality tilt — consistent with spec's `WorkRate` + `RiskAppetite` bias.
-    let biased = apply_press_bias(raw, a);
+    // RunOffBall bias: WorkRate + RiskAppetite per spec (P1-5 fix — was press_bias which used aggression).
+    let biased = apply_run_off_ball_bias(raw, a);
 
     let (fx, fy) = formation_position(roster_slot);
     let advance = Q32::from_int(10);
@@ -242,10 +242,7 @@ pub fn utility_run_off_ball(player: &PlayerState, roster_slot: u8) -> (PlayerInt
 /// Utility for holding formation position.
 ///
 /// Attribute binding (spec): positioning × teamwork × concentration (primary);
-/// decisions as secondary gate; determination + work_rate via bias (cover_bias proxy).
-///
-/// Note: `personality.work_rate` is consumed ONLY via `apply_cover_bias`, NOT
-/// as a direct `a.personality.work_rate` read in this function body.
+/// decisions as secondary gate; professionalism + determination via bias.
 pub fn utility_hold_formation(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
@@ -257,8 +254,8 @@ pub fn utility_hold_formation(player: &PlayerState, roster_slot: u8) -> (PlayerI
     let secondary = Q32::ONE + w_dec * a.mental.decisions;
     let raw = raw * secondary;
 
-    // Cover bias: determination + work_rate (bias path; work_rate not read directly above).
-    let biased = apply_cover_bias(raw, a);
+    // HoldFormation bias: Professionalism + Determination per spec (P1-5 fix — was cover_bias with work_rate).
+    let biased = apply_hold_formation_bias(raw, a);
 
     let (target_x, target_y) = formation_position(roster_slot);
     (PlayerIntent::HoldFormation { target_x, target_y }, biased)
@@ -421,6 +418,21 @@ mod tests {
     }
 
     #[test]
+    fn mark_player_work_rate_not_in_binding() {
+        // work_rate must NOT affect mark_player utility (P1-5 fix: was cover_bias proxy).
+        let mut p_a = mid_player(6);
+        let mut p_b = mid_player(6);
+        p_a.attributes.personality.work_rate = Q32::ZERO;
+        p_b.attributes.personality.work_rate = Q32::ONE;
+        let (_, u_a) = utility_mark_player(&p_a, 6);
+        let (_, u_b) = utility_mark_player(&p_b, 6);
+        assert_eq!(
+            u_a, u_b,
+            "work_rate must not affect mark_player utility (P1-5 spec fix — determination only)"
+        );
+    }
+
+    #[test]
     fn mark_player_spec_primary_attr_changes_utility() {
         let mut p_hi = mid_player(6);
         let mut p_lo = mid_player(6);
@@ -452,6 +464,36 @@ mod tests {
     }
 
     #[test]
+    fn run_off_ball_aggression_not_in_binding() {
+        // aggression must NOT affect run_off_ball utility (P1-5 fix: was press_bias proxy).
+        let mut p_a = mid_player(6);
+        let mut p_b = mid_player(6);
+        p_a.attributes.personality.aggression = Q32::ZERO;
+        p_b.attributes.personality.aggression = Q32::ONE;
+        let (_, u_a) = utility_run_off_ball(&p_a, 6);
+        let (_, u_b) = utility_run_off_ball(&p_b, 6);
+        assert_eq!(
+            u_a, u_b,
+            "aggression must not affect run_off_ball utility (P1-5 spec fix — work_rate+risk_appetite)"
+        );
+    }
+
+    #[test]
+    fn run_off_ball_risk_appetite_via_bias_changes_utility() {
+        // personality.risk_appetite IS in the run_off_ball binding now (P1-5 fix).
+        let mut p_hi = mid_player(6);
+        let mut p_lo = mid_player(6);
+        p_hi.attributes.personality.risk_appetite = Q32::ONE;
+        p_lo.attributes.personality.risk_appetite = Q32::ZERO;
+        let (_, hi) = utility_run_off_ball(&p_hi, 6);
+        let (_, lo) = utility_run_off_ball(&p_lo, 6);
+        assert!(
+            hi > lo,
+            "personality.risk_appetite (spec bias) must affect run_off_ball utility (P1-5)"
+        );
+    }
+
+    #[test]
     fn run_off_ball_spec_primary_attr_changes_utility() {
         let mut p_hi = mid_player(6);
         let mut p_lo = mid_player(6);
@@ -469,9 +511,7 @@ mod tests {
 
     #[test]
     fn hold_formation_non_spec_attr_has_no_effect() {
-        // `personality.professionalism` has no direct read in hold_formation.
-        // (It should affect via professionalism-specific bias at T2-1, but not now.)
-        // Use `technical.finishing` as an unambiguously non-spec attr.
+        // `technical.finishing` is unambiguously not in hold_formation binding.
         let mut p_a = mid_player(6);
         let mut p_b = mid_player(6);
         p_a.attributes.technical.finishing = Q32::ZERO;
@@ -485,20 +525,32 @@ mod tests {
     }
 
     #[test]
-    fn hold_formation_work_rate_not_direct_primary() {
-        // `personality.work_rate` is consumed via cover_bias ONLY — the function
-        // body must not read it as a primary. Verify: changing only work_rate
-        // changes utility (via bias), but teamwork (primary) also changes utility.
-        let mut p_hi_wr = mid_player(6);
-        let mut p_lo_wr = mid_player(6);
-        p_hi_wr.attributes.personality.work_rate = Q32::ONE;
-        p_lo_wr.attributes.personality.work_rate = Q32::ZERO;
-        let (_, u_hi) = utility_hold_formation(&p_hi_wr, 6);
-        let (_, u_lo) = utility_hold_formation(&p_lo_wr, 6);
-        // Bias path: u_hi should be >= u_lo (work_rate increases cover bias).
+    fn hold_formation_work_rate_not_in_binding() {
+        // work_rate must NOT affect hold_formation utility (P1-5 fix: was cover_bias proxy).
+        let mut p_a = mid_player(6);
+        let mut p_b = mid_player(6);
+        p_a.attributes.personality.work_rate = Q32::ZERO;
+        p_b.attributes.personality.work_rate = Q32::ONE;
+        let (_, u_a) = utility_hold_formation(&p_a, 6);
+        let (_, u_b) = utility_hold_formation(&p_b, 6);
+        assert_eq!(
+            u_a, u_b,
+            "work_rate must not affect hold_formation utility (P1-5 spec fix — professionalism+determination)"
+        );
+    }
+
+    #[test]
+    fn hold_formation_professionalism_via_bias_changes_utility() {
+        // personality.professionalism IS in the hold_formation binding now (P1-5 fix).
+        let mut p_hi = mid_player(6);
+        let mut p_lo = mid_player(6);
+        p_hi.attributes.personality.professionalism = Q32::ONE;
+        p_lo.attributes.personality.professionalism = Q32::ZERO;
+        let (_, hi) = utility_hold_formation(&p_hi, 6);
+        let (_, lo) = utility_hold_formation(&p_lo, 6);
         assert!(
-            u_hi >= u_lo,
-            "work_rate via bias must not decrease hold_formation utility"
+            hi > lo,
+            "personality.professionalism (spec bias) must affect hold_formation utility (P1-5)"
         );
     }
 

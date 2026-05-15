@@ -148,6 +148,24 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   - `TriggerFn` signature changed `→ bool` to `→ Q32` (fit-score) per P1-6.
 ///   - `tick_goalkeeper` gained `player: &PlayerState` param per P1-3/P1-4.
 ///   - Authorized by the T1-2b-fix task-spec in MEMORY.md.
+/// - 2026-05-15 (T1-2b-fix P1-5 + P2-9 attribute-binding corrections) —
+///   **re-baselined to `d376ba26…fa93`** per ADR-0012 trigger #3 (sim behavior
+///   change with documented intent): six BT decision sites corrected to match
+///   `bt-attribute-binding.md` spec exactly. Bias helper multiplicative forms
+///   changed:
+///   - `apply_lay_off_bias`: 2 → 1 factor (selflessness only; was safe_pass proxy
+///     with risk_appetite inverse + selflessness).
+///   - `apply_mark_bias`: 2 → 1 factor (determination only; was cover proxy with
+///     determination + work_rate).
+///   - `apply_run_off_ball_bias`: k₉ (0.45) → k₁₀ (0.35) first factor coefficient
+///     (aggression → work_rate for first factor).
+///   - `apply_cross_bias`, `apply_hold_formation_bias`: coefficient-equivalent
+///     swap (no numeric change at uniform attrs, but different attrs read).
+///   - `utility_shoot`: `long_shots` demoted from 4th primary factor to secondary
+///     modifier `(1 + 0.30×long_shots)` to keep primary product magnitude consistent.
+///   - 4 reactive predicates rewritten to spec (P2-9; not wired into dispatch, so
+///     no simulation output change — predicates unused until T1-4).
+///   - Authorized by the T1-2b-fix P1-5/P2-9 task-spec in MEMORY.md.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -156,7 +174,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("dbe4f49bdb8b866d47c9e46a16e22416dfddbcb6edd9355139114133a25085f2");
+    hex!("d376ba2624646f19e3061342f5854bc117ed0a35a2b99a13f51a143bc446fa93");
 
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.

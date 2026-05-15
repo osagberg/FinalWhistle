@@ -87,6 +87,15 @@ impl IsProgressive {
 // k₁₃= 0.35 (same as k₅)
 // k₁₄= 0.30 (same as k₁)
 //
+// Per-site P1-5 helpers (k₁₅..k₂₀ — added at T1-2b-fix for spec-drift sites):
+// k₁₅= 0.35 — Cross: WorkRate factor
+// k₁₆= 0.30 — Cross: FlairBias factor
+// k₁₇= 0.35 — LayOff: Selflessness-only bias
+// k₁₈= 0.40 — Shoot: RiskAppetite factor (added per spec)
+// k₁₉= 0.40 — Mark: Determination-only bias
+// k₂₀= 0.35 — RunOffBall: RiskAppetite factor
+// k₂₁= 0.35 — HoldFormation: Professionalism factor
+//
 // PT divisor coefficient: 0.75 = 3/4 → bits = 3 << 30 = 3_221_225_472 (0x_C000_0000)
 //
 // All values below are the exact 32-bit fractional parts (stored in the low 32
@@ -96,6 +105,7 @@ impl IsProgressive {
 pub const K_1_SHOOT_FLAIR: Q32 = Q32::from_raw(1_288_490_188);
 /// Shoot (xG) — secondary: Composure (under pressure), k₂ = 0.40.
 pub const K_2_SHOOT_COMPOSURE: Q32 = Q32::from_raw(1_717_986_918);
+// NOTE: k₁₈ = 0.40 added at end of constant block (RiskAppetite for Shoot).
 /// Long pass / through ball — primary: RiskAppetite, k₃ = 0.45.
 pub const K_3_LONG_PASS_RISK: Q32 = Q32::from_raw(1_932_735_283);
 /// Long pass / through ball — secondary: FlairBias, k₄ = 0.25.
@@ -125,18 +135,38 @@ pub const K_14_HOLD_PT: Q32 = Q32::from_raw(1_288_490_188);
 /// `read_defender_pressure` divides raw by `(1 + 0.75 · PT)`.
 pub const PT_DIVISOR_COEFF: Q32 = Q32::from_raw(3_221_225_472);
 
+// P1-5 per-site bias constants (T1-2b-fix spec-drift corrections):
+/// Cross — WorkRate factor, k₁₅ = 0.35.
+pub const K_15_CROSS_WR: Q32 = Q32::from_raw(1_503_238_553);
+/// Cross — FlairBias factor, k₁₆ = 0.30.
+pub const K_16_CROSS_FLAIR: Q32 = Q32::from_raw(1_288_490_188);
+/// LayOff — Selflessness-only factor, k₁₇ = 0.35.
+pub const K_17_LAY_OFF_SELF: Q32 = Q32::from_raw(1_503_238_553);
+/// Shoot — RiskAppetite factor (adds "audacious shot" tilt), k₁₈ = 0.40.
+pub const K_18_SHOOT_RISK: Q32 = Q32::from_raw(1_717_986_918);
+/// Mark — Determination-only factor, k₁₉ = 0.40.
+pub const K_19_MARK_DET: Q32 = Q32::from_raw(1_717_986_918);
+/// RunOffBall — RiskAppetite factor, k₂₀ = 0.35.
+pub const K_20_RUN_OFF_RISK: Q32 = Q32::from_raw(1_503_238_553);
+/// HoldFormation — Professionalism factor, k₂₁ = 0.35.
+pub const K_21_HOLD_FORM_PROF: Q32 = Q32::from_raw(1_503_238_553);
+
 // ---------------------------------------------------------------------------
 // Per-consideration bias helpers
 // ---------------------------------------------------------------------------
 
 /// Apply Shoot (xG) personality bias.
 ///
-/// Form: `raw · (1 + k₁·flair) · (1 + k₂·composure·defender_pressure)`
+/// Form: `raw · (1 + k₁·flair) · (1 + k₂·composure·defender_pressure) · (1 + k₁₈·risk_appetite)`
+///
+/// Per spec §"Shoot" bias: FlairBias (k₁), Composure (k₂), RiskAppetite (k₁₈).
+/// `risk_appetite` tilts toward audacious shots when high (e.g. long-range strikes).
 ///
 /// - `flair`             = `attrs.mental.flair` (visible)
 /// - `composure`         = `attrs.mental.composure` (visible)
 /// - `defender_pressure` = effective pressure (after PT divisor,
 ///   see `read_defender_pressure`)
+/// - `risk_appetite`     = `attrs.personality.risk_appetite`
 ///
 /// All Q32 in `[0, 1]`. Returns Q32.
 pub fn apply_shoot_bias(raw: Q32, attrs: &PlayerAttributes, pressure: DefenderPressure) -> Q32 {
@@ -147,8 +177,83 @@ pub fn apply_shoot_bias(raw: Q32, attrs: &PlayerAttributes, pressure: DefenderPr
     );
     let flair = attrs.mental.flair;
     let composure = attrs.mental.composure;
+    let risk = attrs.personality.risk_appetite;
     let factor1 = Q32::ONE + K_1_SHOOT_FLAIR * flair;
     let factor2 = Q32::ONE + K_2_SHOOT_COMPOSURE * composure * pressure.0;
+    let factor3 = Q32::ONE + K_18_SHOOT_RISK * risk;
+    raw * factor1 * factor2 * factor3
+}
+
+/// Apply Cross personality bias.
+///
+/// Form: `raw · (1 + k₁₅·work_rate) · (1 + k₁₆·flair)`
+///
+/// Per spec §"Cross" bias: WorkRate (personality.work_rate), FlairBias (mental.flair).
+/// Replaces the former safe-pass proxy bias for cross (P1-5 fix).
+pub fn apply_cross_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
+    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    let work_rate = attrs.personality.work_rate;
+    let flair = attrs.mental.flair;
+    let factor1 = Q32::ONE + K_15_CROSS_WR * work_rate;
+    let factor2 = Q32::ONE + K_16_CROSS_FLAIR * flair;
+    raw * factor1 * factor2
+}
+
+/// Apply Lay-off personality bias.
+///
+/// Form: `raw · (1 + k₁₇·selflessness)`
+///
+/// Per spec §"Lay-off / one-touch return" bias: Selflessness ONLY.
+/// Replaces the former safe-pass proxy bias (which also consumed risk_appetite — P1-5 fix).
+pub fn apply_lay_off_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
+    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    let selflessness = attrs.personality.selflessness;
+    let factor = Q32::ONE + K_17_LAY_OFF_SELF * selflessness;
+    raw * factor
+}
+
+/// Apply Mark-player personality bias.
+///
+/// Form: `raw · (1 + k₁₉·determination)`
+///
+/// Per spec §"Mark — close marker" bias: Determination ONLY.
+/// Replaces the former cover_bias proxy (which also consumed work_rate — P1-5 fix).
+pub fn apply_mark_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
+    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    let determination = attrs.personality.determination;
+    let factor = Q32::ONE + K_19_MARK_DET * determination;
+    raw * factor
+}
+
+/// Apply Run-off-ball personality bias.
+///
+/// Form: `raw · (1 + k₁₀·work_rate) · (1 + k₂₀·risk_appetite)`
+///
+/// Per spec §"Running off-ball — make a run" bias: WorkRate + RiskAppetite.
+/// Replaces the former press_bias proxy (which consumed aggression instead of
+/// risk_appetite — P1-5 fix).
+pub fn apply_run_off_ball_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
+    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    let work_rate = attrs.personality.work_rate;
+    let risk = attrs.personality.risk_appetite;
+    let factor1 = Q32::ONE + K_10_PRESS_WR * work_rate;
+    let factor2 = Q32::ONE + K_20_RUN_OFF_RISK * risk;
+    raw * factor1 * factor2
+}
+
+/// Apply Hold-formation personality bias.
+///
+/// Form: `raw · (1 + k₂₁·professionalism) · (1 + k₁₁·determination)`
+///
+/// Per spec §"Hold formation slot" bias: Professionalism + Determination.
+/// Replaces the former cover_bias proxy (which consumed work_rate instead of
+/// professionalism — P1-5 fix).
+pub fn apply_hold_formation_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
+    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    let professionalism = attrs.personality.professionalism;
+    let determination = attrs.personality.determination;
+    let factor1 = Q32::ONE + K_21_HOLD_FORM_PROF * professionalism;
+    let factor2 = Q32::ONE + K_11_COVER_DET * determination;
     raw * factor1 * factor2
 }
 
@@ -450,6 +555,185 @@ mod tests {
             "higher PT should yield lower effective pressure: lo={:?} hi={:?}",
             eff_lo,
             eff_hi
+        );
+    }
+
+    // P1-5 new bias helpers
+    #[test]
+    fn shoot_bias_risk_appetite_increases_utility() {
+        let mut attrs_hi = PlayerAttributes::mid_range_baseline();
+        attrs_hi.personality.risk_appetite = Q32::ONE;
+        attrs_hi.mental.flair = Q32::ZERO;
+        attrs_hi.mental.composure = Q32::ZERO;
+        let mut attrs_lo = PlayerAttributes::mid_range_baseline();
+        attrs_lo.personality.risk_appetite = Q32::ZERO;
+        attrs_lo.mental.flair = Q32::ZERO;
+        attrs_lo.mental.composure = Q32::ZERO;
+        let raw = Q32::from_raw(1i64 << 30);
+        let hi = apply_shoot_bias(raw, &attrs_hi, DefenderPressure(Q32::ZERO));
+        let lo = apply_shoot_bias(raw, &attrs_lo, DefenderPressure(Q32::ZERO));
+        assert!(hi > lo, "higher risk_appetite should increase shoot bias");
+    }
+
+    #[test]
+    fn cross_bias_increases_with_work_rate_and_flair() {
+        let mut attrs_hi = PlayerAttributes::mid_range_baseline();
+        attrs_hi.personality.work_rate = Q32::ONE;
+        attrs_hi.mental.flair = Q32::ONE;
+        let mut attrs_lo = PlayerAttributes::mid_range_baseline();
+        attrs_lo.personality.work_rate = Q32::ZERO;
+        attrs_lo.mental.flair = Q32::ZERO;
+        let raw = Q32::from_raw(1i64 << 30);
+        assert!(
+            apply_cross_bias(raw, &attrs_hi) > apply_cross_bias(raw, &attrs_lo),
+            "cross_bias should increase with work_rate + flair"
+        );
+    }
+
+    #[test]
+    fn cross_bias_does_not_read_risk_appetite() {
+        // risk_appetite must not affect cross_bias (was safe_pass proxy before P1-5).
+        let mut attrs_risky = PlayerAttributes::mid_range_baseline();
+        attrs_risky.personality.risk_appetite = Q32::ONE;
+        attrs_risky.personality.work_rate = Q32::ZERO;
+        attrs_risky.mental.flair = Q32::ZERO;
+        let mut attrs_safe = PlayerAttributes::mid_range_baseline();
+        attrs_safe.personality.risk_appetite = Q32::ZERO;
+        attrs_safe.personality.work_rate = Q32::ZERO;
+        attrs_safe.mental.flair = Q32::ZERO;
+        let raw = Q32::from_raw(1i64 << 30);
+        assert_eq!(
+            apply_cross_bias(raw, &attrs_risky),
+            apply_cross_bias(raw, &attrs_safe),
+            "risk_appetite must not affect cross_bias (P1-5 spec fix)"
+        );
+    }
+
+    #[test]
+    fn lay_off_bias_increases_with_selflessness() {
+        let mut attrs_hi = PlayerAttributes::mid_range_baseline();
+        attrs_hi.personality.selflessness = Q32::ONE;
+        let mut attrs_lo = PlayerAttributes::mid_range_baseline();
+        attrs_lo.personality.selflessness = Q32::ZERO;
+        let raw = Q32::from_raw(1i64 << 30);
+        assert!(
+            apply_lay_off_bias(raw, &attrs_hi) > apply_lay_off_bias(raw, &attrs_lo),
+            "lay_off_bias should increase with selflessness"
+        );
+    }
+
+    #[test]
+    fn lay_off_bias_does_not_read_risk_appetite() {
+        // risk_appetite must not affect lay_off_bias (was safe_pass proxy before P1-5).
+        let mut attrs_risky = PlayerAttributes::mid_range_baseline();
+        attrs_risky.personality.risk_appetite = Q32::ONE;
+        attrs_risky.personality.selflessness = Q32::ZERO;
+        let mut attrs_safe = PlayerAttributes::mid_range_baseline();
+        attrs_safe.personality.risk_appetite = Q32::ZERO;
+        attrs_safe.personality.selflessness = Q32::ZERO;
+        let raw = Q32::from_raw(1i64 << 30);
+        assert_eq!(
+            apply_lay_off_bias(raw, &attrs_risky),
+            apply_lay_off_bias(raw, &attrs_safe),
+            "risk_appetite must not affect lay_off_bias (P1-5 spec fix)"
+        );
+    }
+
+    #[test]
+    fn mark_bias_increases_with_determination() {
+        let mut attrs_hi = PlayerAttributes::mid_range_baseline();
+        attrs_hi.personality.determination = Q32::ONE;
+        let mut attrs_lo = PlayerAttributes::mid_range_baseline();
+        attrs_lo.personality.determination = Q32::ZERO;
+        let raw = Q32::from_raw(1i64 << 30);
+        assert!(
+            apply_mark_bias(raw, &attrs_hi) > apply_mark_bias(raw, &attrs_lo),
+            "mark_bias should increase with determination"
+        );
+    }
+
+    #[test]
+    fn mark_bias_does_not_read_work_rate() {
+        // work_rate must not affect mark_bias (was cover_bias proxy before P1-5).
+        let mut attrs_wr_hi = PlayerAttributes::mid_range_baseline();
+        attrs_wr_hi.personality.work_rate = Q32::ONE;
+        attrs_wr_hi.personality.determination = Q32::ZERO;
+        let mut attrs_wr_lo = PlayerAttributes::mid_range_baseline();
+        attrs_wr_lo.personality.work_rate = Q32::ZERO;
+        attrs_wr_lo.personality.determination = Q32::ZERO;
+        let raw = Q32::from_raw(1i64 << 30);
+        assert_eq!(
+            apply_mark_bias(raw, &attrs_wr_hi),
+            apply_mark_bias(raw, &attrs_wr_lo),
+            "work_rate must not affect mark_bias (P1-5 spec fix)"
+        );
+    }
+
+    #[test]
+    fn run_off_ball_bias_increases_with_work_rate_and_risk() {
+        let mut attrs_hi = PlayerAttributes::mid_range_baseline();
+        attrs_hi.personality.work_rate = Q32::ONE;
+        attrs_hi.personality.risk_appetite = Q32::ONE;
+        let mut attrs_lo = PlayerAttributes::mid_range_baseline();
+        attrs_lo.personality.work_rate = Q32::ZERO;
+        attrs_lo.personality.risk_appetite = Q32::ZERO;
+        let raw = Q32::from_raw(1i64 << 30);
+        assert!(
+            apply_run_off_ball_bias(raw, &attrs_hi) > apply_run_off_ball_bias(raw, &attrs_lo),
+            "run_off_ball_bias should increase with work_rate + risk_appetite"
+        );
+    }
+
+    #[test]
+    fn run_off_ball_bias_does_not_read_aggression() {
+        // aggression must not affect run_off_ball_bias (was press_bias proxy before P1-5).
+        let mut attrs_agg = PlayerAttributes::mid_range_baseline();
+        attrs_agg.personality.aggression = Q32::ONE;
+        attrs_agg.personality.work_rate = Q32::ZERO;
+        attrs_agg.personality.risk_appetite = Q32::ZERO;
+        let mut attrs_calm = PlayerAttributes::mid_range_baseline();
+        attrs_calm.personality.aggression = Q32::ZERO;
+        attrs_calm.personality.work_rate = Q32::ZERO;
+        attrs_calm.personality.risk_appetite = Q32::ZERO;
+        let raw = Q32::from_raw(1i64 << 30);
+        assert_eq!(
+            apply_run_off_ball_bias(raw, &attrs_agg),
+            apply_run_off_ball_bias(raw, &attrs_calm),
+            "aggression must not affect run_off_ball_bias (P1-5 spec fix)"
+        );
+    }
+
+    #[test]
+    fn hold_formation_bias_increases_with_professionalism_and_determination() {
+        let mut attrs_hi = PlayerAttributes::mid_range_baseline();
+        attrs_hi.personality.professionalism = Q32::ONE;
+        attrs_hi.personality.determination = Q32::ONE;
+        let mut attrs_lo = PlayerAttributes::mid_range_baseline();
+        attrs_lo.personality.professionalism = Q32::ZERO;
+        attrs_lo.personality.determination = Q32::ZERO;
+        let raw = Q32::from_raw(1i64 << 30);
+        assert!(
+            apply_hold_formation_bias(raw, &attrs_hi) > apply_hold_formation_bias(raw, &attrs_lo),
+            "hold_formation_bias should increase with professionalism + determination"
+        );
+    }
+
+    #[test]
+    fn hold_formation_bias_does_not_read_work_rate() {
+        // work_rate must not affect hold_formation_bias (was cover_bias proxy before P1-5).
+        let mut attrs_wr_hi = PlayerAttributes::mid_range_baseline();
+        attrs_wr_hi.personality.work_rate = Q32::ONE;
+        attrs_wr_hi.personality.professionalism = Q32::ZERO;
+        attrs_wr_hi.personality.determination = Q32::ZERO;
+        let mut attrs_wr_lo = PlayerAttributes::mid_range_baseline();
+        attrs_wr_lo.personality.work_rate = Q32::ZERO;
+        attrs_wr_lo.personality.professionalism = Q32::ZERO;
+        attrs_wr_lo.personality.determination = Q32::ZERO;
+        let raw = Q32::from_raw(1i64 << 30);
+        assert_eq!(
+            apply_hold_formation_bias(raw, &attrs_wr_hi),
+            apply_hold_formation_bias(raw, &attrs_wr_lo),
+            "work_rate must not affect hold_formation_bias (P1-5 spec fix)"
         );
     }
 

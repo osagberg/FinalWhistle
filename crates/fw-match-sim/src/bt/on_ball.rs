@@ -33,8 +33,8 @@
 use fw_core::Q32;
 
 use crate::bt::personality_bias::{
-    IsProgressive, apply_dribble_bias, apply_hold_bias, apply_long_pass_bias, apply_safe_pass_bias,
-    apply_shoot_bias, read_defender_pressure,
+    IsProgressive, apply_cross_bias, apply_dribble_bias, apply_hold_bias, apply_lay_off_bias,
+    apply_long_pass_bias, apply_safe_pass_bias, apply_shoot_bias, read_defender_pressure,
 };
 use crate::player::PlayerState;
 use crate::role_states::PlayerIntent;
@@ -52,17 +52,19 @@ use crate::subtree_library::formation_position;
 /// Attributes read by `utility_shoot` — for binding-correctness tests.
 ///
 /// Primary (spec): `technical.finishing`, `mental.composure`, `mental.decisions`
-/// Secondary (spec): `mental.vision`, `physical.balance`
+/// Secondary (spec): `technical.long_shots` (range capability modifier), `mental.vision`, `physical.balance`
 /// Bias via helper: `mental.flair` (FlairBias), `mental.composure` (Composure),
-///   `personality.pressure_tolerance` (PT divisor)
+///   `personality.risk_appetite` (RiskAppetite), `personality.pressure_tolerance` (PT divisor)
 pub const SHOOT_ATTRS: &[&str] = &[
     "technical.finishing",
+    "technical.long_shots",
     "mental.composure",
     "mental.decisions",
     "mental.vision",
     "physical.balance",
     // bias path (via apply_shoot_bias + read_defender_pressure):
     "mental.flair",
+    "personality.risk_appetite",
     "personality.pressure_tolerance",
 ];
 
@@ -105,16 +107,15 @@ pub const PASS_LONG_ATTRS: &[&str] = &[
 /// Primary (spec): `technical.crossing`, `mental.vision`, `physical.pace`
 /// Secondary (spec): `technical.first_touch`, `mental.anticipation`
 /// Bias via helper: `personality.work_rate` (WorkRate), `mental.flair` (FlairBias)
-///   — uses safe-pass bias as proxy: `personality.risk_appetite`, `personality.selflessness`
 pub const CROSS_ATTRS: &[&str] = &[
     "technical.crossing",
     "mental.vision",
     "physical.pace",
     "technical.first_touch",
     "mental.anticipation",
-    // bias path (safe-pass proxy):
-    "personality.risk_appetite",
-    "personality.selflessness",
+    // bias path (via apply_cross_bias):
+    "personality.work_rate",
+    "mental.flair",
 ];
 
 /// Attributes read by `utility_dribble` — for binding-correctness tests.
@@ -152,17 +153,15 @@ pub const HOLD_BALL_ATTRS: &[&str] = &[
 ///
 /// Primary (spec): `technical.first_touch`, `technical.passing`, `mental.vision`
 /// Secondary (spec): `mental.teamwork`, `mental.composure`
-/// Bias via helper: `personality.selflessness` (Selflessness); uses safe-pass bias
-///   also reading `personality.risk_appetite`
+/// Bias via helper: `personality.selflessness` (Selflessness ONLY per spec)
 pub const LAY_OFF_ATTRS: &[&str] = &[
     "technical.first_touch",
     "technical.passing",
     "mental.vision",
     "mental.teamwork",
     "mental.composure",
-    // bias path:
+    // bias path (via apply_lay_off_bias — selflessness only):
     "personality.selflessness",
-    "personality.risk_appetite",
 ];
 
 // ---------------------------------------------------------------------------
@@ -172,20 +171,28 @@ pub const LAY_OFF_ATTRS: &[&str] = &[
 /// Utility for attempting a shot.
 ///
 /// Attribute binding (spec): finishing × composure × decisions (primary);
-/// vision + balance as secondary modifiers; flair + composure + PT via bias.
+/// long_shots + vision + balance as secondary modifiers; flair + composure + risk_appetite + PT via bias.
+///
+/// Note: long_shots is a spec-listed attribute but implemented as a secondary additive
+/// modifier `(1 + 0.30×long_shots)` to keep the primary product magnitude consistent
+/// with other 3-primary sites. This matches the pattern used by pass_long, which also
+/// lists long_shots in the spec table but applies it as a secondary modifier.
 pub fn utility_shoot(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
-    // Primary product: the three core shooting attributes.
+    // Primary product: three core shooting attributes.
     let raw = a.technical.finishing * a.mental.composure * a.mental.decisions;
 
-    // Secondary: vision improves the shot (angle quality proxy).
-    // balance improves off-balance situations (penalty; high balance = reduced penalty).
-    // Both applied as mild additive multipliers: (1 + 0.2×vision) × (1 + 0.1×balance).
+    // Secondary: long_shots as range capability (higher = can shoot from distance).
+    // vision improves the shot (angle quality proxy).
+    // balance improves off-balance situations.
+    // Applied as mild additive multipliers.
+    let w_ls = Q32::from_raw(1_288_490_188_i64); // ≈ 0.30
     let w_vision = Q32::from_raw(858_993_459_i64); // ≈ 0.20
     let w_balance = Q32::from_raw(429_496_729_i64); // ≈ 0.10
-    let secondary =
-        (Q32::ONE + w_vision * a.mental.vision) * (Q32::ONE + w_balance * a.physical.balance);
+    let secondary = (Q32::ONE + w_ls * a.technical.long_shots)
+        * (Q32::ONE + w_vision * a.mental.vision)
+        * (Q32::ONE + w_balance * a.physical.balance);
     let raw = raw * secondary;
 
     // Effective defender pressure = PT-attenuated proxy (complement of composure).
@@ -277,8 +284,7 @@ pub fn utility_pass_long(player: &PlayerState, roster_slot: u8) -> (PlayerIntent
 /// Utility for a cross into the box.
 ///
 /// Attribute binding (spec): crossing × vision × pace (primary);
-/// first_touch + anticipation as secondary; work_rate + flair via bias
-/// (uses safe-pass bias as proxy for cross's cooperative nature).
+/// first_touch + anticipation as secondary; work_rate + flair via bias.
 pub fn utility_cross(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
@@ -292,9 +298,8 @@ pub fn utility_cross(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q3
         (Q32::ONE + w_ft * a.technical.first_touch) * (Q32::ONE + w_ant * a.mental.anticipation);
     let raw = raw * secondary;
 
-    // Safe-pass bias is the closest available proxy (cross is a cooperative
-    // set-play action, similar in personality profile to pass-short).
-    let biased = apply_safe_pass_bias(raw, a);
+    // Cross bias: WorkRate + FlairBias per spec (P1-5 fix — was safe_pass proxy).
+    let biased = apply_cross_bias(raw, a);
 
     let (target_x, target_y) = if (roster_slot as usize) < 11 {
         (Q32::from_int(40), Q32::ZERO)
@@ -382,8 +387,8 @@ pub fn utility_lay_off(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, 
         (Q32::ONE + w_tw * a.mental.teamwork) * (Q32::ONE + w_comp * a.mental.composure);
     let raw = raw * secondary;
 
-    // Lay-off is a safe cooperative action → safe-pass bias.
-    let biased = apply_safe_pass_bias(raw, a);
+    // Lay-off bias: Selflessness ONLY per spec (P1-5 fix — was safe_pass proxy which also read risk_appetite).
+    let biased = apply_lay_off_bias(raw, a);
 
     let (fx, fy) = formation_position(roster_slot);
     let target_x = fx;
@@ -509,6 +514,38 @@ mod tests {
     }
 
     #[test]
+    fn shoot_long_shots_is_spec_secondary() {
+        // technical.long_shots is a spec-listed attribute applied as a secondary
+        // modifier (P1-5 fix) — it must affect shoot utility even though it is
+        // not in the 3-factor primary product.
+        let mut p_hi = mid_player(6);
+        let mut p_lo = mid_player(6);
+        p_hi.attributes.technical.long_shots = Q32::ONE;
+        p_lo.attributes.technical.long_shots = Q32::ZERO;
+        let (_, hi) = utility_shoot(&p_hi, 6);
+        let (_, lo) = utility_shoot(&p_lo, 6);
+        assert!(
+            hi > lo,
+            "technical.long_shots (spec attribute — secondary modifier) must affect shoot utility (P1-5)"
+        );
+    }
+
+    #[test]
+    fn shoot_risk_appetite_via_bias_changes_utility() {
+        // personality.risk_appetite is now in the shoot bias (P1-5 fix).
+        let mut p_hi = mid_player(6);
+        let mut p_lo = mid_player(6);
+        p_hi.attributes.personality.risk_appetite = Q32::ONE;
+        p_lo.attributes.personality.risk_appetite = Q32::ZERO;
+        let (_, hi) = utility_shoot(&p_hi, 6);
+        let (_, lo) = utility_shoot(&p_lo, 6);
+        assert!(
+            hi > lo,
+            "personality.risk_appetite (spec bias) must affect shoot utility (P1-5)"
+        );
+    }
+
+    #[test]
     fn pass_short_non_spec_attr_has_no_effect() {
         // `mental.off_the_ball` not in pass_short binding.
         let mut p_a = mid_player(6);
@@ -576,6 +613,36 @@ mod tests {
         let (_, u_a) = utility_cross(&p_a, 6);
         let (_, u_b) = utility_cross(&p_b, 6);
         assert_eq!(u_a, u_b, "mental.decisions must not affect cross utility");
+    }
+
+    #[test]
+    fn cross_risk_appetite_not_in_binding() {
+        // risk_appetite must NOT affect cross utility (P1-5 fix: was safe_pass proxy).
+        let mut p_a = mid_player(6);
+        let mut p_b = mid_player(6);
+        p_a.attributes.personality.risk_appetite = Q32::ZERO;
+        p_b.attributes.personality.risk_appetite = Q32::ONE;
+        let (_, u_a) = utility_cross(&p_a, 6);
+        let (_, u_b) = utility_cross(&p_b, 6);
+        assert_eq!(
+            u_a, u_b,
+            "risk_appetite must not affect cross utility (P1-5 spec fix)"
+        );
+    }
+
+    #[test]
+    fn cross_work_rate_via_bias_changes_utility() {
+        // personality.work_rate IS in the cross binding via apply_cross_bias (P1-5 fix).
+        let mut p_hi = mid_player(6);
+        let mut p_lo = mid_player(6);
+        p_hi.attributes.personality.work_rate = Q32::ONE;
+        p_lo.attributes.personality.work_rate = Q32::ZERO;
+        let (_, hi) = utility_cross(&p_hi, 6);
+        let (_, lo) = utility_cross(&p_lo, 6);
+        assert!(
+            hi > lo,
+            "personality.work_rate (spec bias) must affect cross utility (P1-5)"
+        );
     }
 
     #[test]
@@ -663,6 +730,21 @@ mod tests {
         let (_, u_a) = utility_lay_off(&p_a, 6);
         let (_, u_b) = utility_lay_off(&p_b, 6);
         assert_eq!(u_a, u_b, "mental.decisions must not affect lay_off utility");
+    }
+
+    #[test]
+    fn lay_off_risk_appetite_not_in_binding() {
+        // risk_appetite must NOT affect lay_off utility (P1-5 fix: was safe_pass proxy).
+        let mut p_a = mid_player(6);
+        let mut p_b = mid_player(6);
+        p_a.attributes.personality.risk_appetite = Q32::ZERO;
+        p_b.attributes.personality.risk_appetite = Q32::ONE;
+        let (_, u_a) = utility_lay_off(&p_a, 6);
+        let (_, u_b) = utility_lay_off(&p_b, 6);
+        assert_eq!(
+            u_a, u_b,
+            "risk_appetite must not affect lay_off utility (P1-5 spec fix — selflessness only)"
+        );
     }
 
     #[test]
