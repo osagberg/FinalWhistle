@@ -31,7 +31,106 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-(none — T1-2b-iv closed; **T1-2b sub-phase fully complete.** `/next` picks T1-4 MatchEvent emission. User recommended a mid-phase Codex audit on the T1-2b accumulated diff before continuing.)
+- **id:** T1-2b-fix
+- **title:** T1-2b post-audit fix pass (Codex Tier-2 audit findings 2026-05-15 — 8 P1s + 6 P2s)
+- **started:** 2026-05-15
+- **task class:** sim-rust + architecture-cross-crate (substrate fixes touching fw-core + fw-match-sim; gameplay-programmer)
+- **required subagent:** `gameplay-programmer`
+- **TDD mandate:** YES + **explicit anti-vacuousness discipline**. Each test must FAIL when its invariant is violated. "Passes when bad thing didn't happen" is the failure mode being addressed; do NOT recreate it.
+- **Canonical-hash rebaseline:** AUTHORIZED — multiple rebaselines expected within this row (SeedLayer move + signature_candidates encoding + cross-category stacking each force schema bumps). Final rebaseline lands at the end of the row; intermediate bumps may compose into one final hash if no commits land between them.
+- **Codex re-audit at end:** mandatory before this row commits. The fix pass passes only when Codex returns APPROVE on the same audit prompt re-run against the new HEAD.
+- **Over-7-chunk acknowledgment:** This row genuinely needs 8-10 chunks (the audit produced 8 P1s + 6 P2s; user approved Option A "one consolidated row"). Going over the /next 7-chunk ceiling deliberately rather than splitting; coherent fix-pass batch > artificial split that adds a second canonical-hash rebaseline boundary that doesn't add review value.
+
+### Audit reference
+`/Users/vibelogic/dev/football/docs/audits/codex-tier2-t1-2b-mid-phase-2026-05-15.md` (to be created from the Codex output you pasted; can also reference the verdict directly).
+
+### Acceptance criteria (verbatim from MASTER_PLAN T1-2b-fix row)
+1. All 8 Codex P1s addressed (P1-1 through P1-8 below).
+2. ≥5 of 6 Codex P2s addressed (P2-9 through P2-14 below; lowest-leverage ones may defer if scope balloons).
+3. Canonical hash REBASELINED at least once.
+4. Test-vacuousness pattern measurably closed — each AC test FAILS when seeded with invariant-violating state. Add a `vacuousness_check` test per AC that constructs a known-broken state + asserts the AC test would fail.
+5. Re-run Codex Tier-2 audit on the fix-pass diff returns APPROVE.
+
+### Codex findings to address
+
+**P1-1: ADR-0009 SeedLayer + seed_fn move to fw-core.** `SeedLayer` enum + `seed_fn` function currently live in `fw-match-sim::decision_cadence`. ADR-0009 specifies they live in `fw-core::seed`. Discriminants must be 0x10/0x11/0x12/0x13/0x14/0x15/0x16/0x17 (not 0..7). Tick parameter must be `u32` (not `i64`). Buffer layout must be `[match_seed u64][tick u32][layer u8][site u32]` = 17 bytes per ADR-0009 line 70 (NOT the current `(tick as u64 ^ site)` XOR shape, which can collide distinct (tick, site) pairs). All callsites updated. Add vector tests + collision tests. This rebaselines the canonical hash.
+
+**P1-2: signature_candidates canonical encoding.** `PlayerState.signature_candidates: Vec<SignatureCandidate>` currently has `#[serde(default)]` but is NOT in the canonical encoder. It drives future signature dispatch — two MatchStates can hash identically and later diverge. Either encode it canonically (preferred — matches the existing per-player encoding pattern) OR move it out of MatchState into an immutable content/template fingerprint. Encode it. Each player emits: `candidate_count u16` + per-candidate `(signature_id_byte_len u16 + signature_id_bytes + affinity i64 raw)`. Rebaselines.
+
+**P1-3: Outfield routing through BT runner.** ADR-0006 specifies FSM-of-BTs for outfield. `dispatch.rs` documents routing through `bt::tick_tree` + `SubtreeLibrary` but calls `select_outfield_intent` directly. Refactor so the dispatch path actually invokes `bt::tick_tree` on the role-state's subtree. The current `select_outfield_intent` logic becomes the Leaf action handler invoked by the BT runner. Subtree structure stays roughly the same; the dispatch indirection changes.
+
+**P1-4: GK FSM consumes attribute bindings.** `tick_goalkeeper` currently receives only `(GoalkeeperState, slot, ball, rng)`. It must receive `&PlayerState` so each per-GK-state function can read the documented attributes per `bt-attribute-binding.md` §"Goalkeeper-specific decision sites" (5 sites: Shot stopping: reflexes / handling / one_on_ones / mental.positioning / composure; Cross collection: aerial_reach / command_of_area / handling / physical.jumping_reach; Sweeper rush: one_on_ones / command_of_area / physical.pace / mental.decisions; Distribution short: kicking / technical.passing / mental.vision / composure; Distribution long: kicking / mental.vision / mental.decisions). Per-state function bodies use the attributes to bias the PlayerIntent's parameters.
+
+**P1-5: BT attribute-binding drift on 6 sites.** Per Codex: Cross is specified as `WorkRate + FlairBias` but uses safe-pass bias (`RiskAppetite + Selflessness`); LayOff pulls RiskAppetite but spec says only Selflessness; Shoot omits documented `technical.long_shots` and `RiskAppetite`; MarkPlayer adds WorkRate where spec says only Determination; RunOffBall uses Aggression + WorkRate where spec says WorkRate + RiskAppetite; HoldFormation omits Professionalism. Add per-site bias helpers in personality_bias.rs (apply_cross_bias, apply_layoff_bias, apply_shoot_bias_with_risk, apply_mark_bias, apply_run_off_ball_bias, apply_hold_formation_bias) reading the documented attributes exactly. Update `*_ATTRS` consts to match spec.
+
+**P1-6: Signature softmax event-class-fit.** ADR-0011 §"Dispatch + softmax" requires softmax over `affinity × event-class-fit`. Current dispatcher uses only affinity. Refactor `TriggerFn` signature: `fn(&MatchState, PlayerSlot) -> Q32` returning 0 for not-eligible OR a positive fit-score for eligible. Multiply by affinity in softmax input. Add tests with non-1.0 fit scores so the multiplication can't be skipped.
+
+**P1-7: Cross-category signature stacking.** ADR-0011 allows simultaneous cross-category signatures. Current `signature_firing: [Option<SignatureFiring>; 22]` is one-active-total per player. Change to `signature_firing: [[Option<SignatureFiring>; 4]; 22]` indexed by `BiasCategory` discriminant (Attacking=0 / Defensive=1 / BuildUp=2 / SetPiece=3). Same-category exclusion enforced at the per-category slot level; cross-category concurrent allowed. Rebaselines.
+
+**P1-8: AC-2/3/4/5 test re-rewrite.** The iv fix-pass attempt at closing test vacuousness STILL left vacuous patterns per Codex:
+- AC-2 passes if signature never fires (no firing → no cooldown to refire-against).
+- AC-3 asserts "≤1" on `Option<SignatureFiring>` which can never fail.
+- AC-4 proves canonical bytes differ because the SETUP differs (Some vs None on signature_firing), not because bias multiplication affected utility.
+- AC-5 allows zero `SignatureFirstFired` events.
+
+Each AC test must:
+(a) prove the dispatch-path firing actually happened (assert non-zero count of firings observed)
+(b) THEN assert the invariant on the post-firing state
+(c) Add a `vacuousness_check` companion test per AC: construct a known-broken state where the AC's positive condition is NOT met + run the test logic + verify it FAILS (or skip in CI but assert in cargo test --workspace).
+
+The AC tests must fail when seeded with invariant-violating state. Test the test.
+
+**P2-9: Reactive predicates spec-drifted before being wired.** Reshape `reactive.rs` predicates to match the 4 documented reactive sites per `bt-attribute-binding.md` §"Reactive interrupt predicates" (Ball reached defensive third: positioning + bravery + anticipation + Determination; Shot incoming (GK only): reflexes + positioning + handling + Composure; Marker arrived: composure + balance + anticipation + PressureTolerance; Through-ball intercept: anticipation + positioning + pace + Aggression). They're not wired yet so this is preventive.
+
+**P2-12: Determinism audit per-rule exemptions.** Current `EXEMPT_FILES` for math.rs + q32.rs is file-level — skips EVERY rule (HashMap, clocks, RNG, async, etc.) in those files. Tighten to per-rule exemptions: math.rs gets f64-arithmetic exemption ONLY; q32.rs gets f64-arithmetic exemption for `from_f64_clamped` ONLY (line-scoped if possible). Other rules still scan.
+
+**P2-13: ADR-0012 trigger label fix + wire-format diagram extension.** `canonical_hash.rs` and `0xdeadbeefdeadbeef.ron` rebaseline-history notes label behavior-only rebaselines as ADR-0012 trigger #1 when they should be #3 (per ADR-0012 line 21: #1=schema bump, #3=intended sim behavior change). Relabel. Plus: the top-level wire-format diagram in `canonical.rs` still ends at `[ ball ]` despite VERSION 5 writing signature sections after ball. Extend the diagram.
+
+**P2-14: pitch_control unwrap.** `pitch_control.rs:142` uses `.unwrap()` after an empty-list guard. T1 exit gate says no `unwrap()` in fw-match-sim non-test code. Replace with `let Some(...) = ... else { return ... }` shape or extract a helper that preserves the invariant.
+
+### Codex P2 deferrals (acceptable to skip if scope balloons)
+- **P2-10: Signature RON triggers still NoOpStub** — fix when real SignatureTrigger variants land (T2-4 catalogue work). Skip in T1-2b-fix.
+- **P2-11: Signature event stub points at wrong owner** — T1-4 owns MatchEvent enum; reconcile MemoryEvent::SignatureFirstFired during T1-4 not here. Skip; flag in commit body.
+
+### Files in scope (BIG — Codex audit spans the whole T1-2b sub-phase)
+- `crates/fw-core/src/seed.rs` (NEW — `SeedLayer` enum + `seed_fn` function per ADR-0009; P1-1)
+- `crates/fw-core/src/lib.rs` (mod declaration + re-exports)
+- `crates/fw-match-sim/src/decision_cadence.rs` (MODIFIED — remove SeedLayer + seed_fn; update callsites to use fw-core re-exports; P1-1)
+- `crates/fw-match-sim/src/canonical.rs` (MODIFIED — encode signature_candidates per player + cross-category signature_firing layout; VERSION 5 → 6; wire-format diagram extension; P1-2, P1-7, P2-13)
+- `crates/fw-match-sim/src/lib.rs` (MODIFIED — signature_firing type change; PlayerState wiring; tick_match doc-comment update)
+- `crates/fw-match-sim/src/player.rs` (MODIFIED — signature_candidates encoding hook; P1-2)
+- `crates/fw-match-sim/src/dispatch.rs` (MODIFIED — outfield BT routing via tick_tree; GK FSM gets &PlayerState; signature_firing cross-category indexing; P1-3, P1-4, P1-7)
+- `crates/fw-match-sim/src/bt/mod.rs` (MODIFIED — tick_tree integration with select_outfield_intent at Leaf nodes; P1-3)
+- `crates/fw-match-sim/src/subtree_library.rs` (MODIFIED — BT tree structure honors role-state branching at Selector/Sequence; P1-3)
+- `crates/fw-match-sim/src/goalkeeper_fsm.rs` (MODIFIED — per-state functions read PlayerAttributes per spec; P1-4)
+- `crates/fw-match-sim/src/bt/on_ball.rs` (MODIFIED — Cross / LayOff / Shoot attribute bindings; P1-5)
+- `crates/fw-match-sim/src/bt/off_ball.rs` (MODIFIED — MarkPlayer / RunOffBall / HoldFormation bindings; P1-5)
+- `crates/fw-match-sim/src/bt/personality_bias.rs` (MODIFIED — new per-site bias helpers; P1-5)
+- `crates/fw-match-sim/src/bt/reactive.rs` (MODIFIED — predicates reshaped to spec; P2-9)
+- `crates/fw-match-sim/src/signature/dispatcher.rs` (MODIFIED — softmax over affinity × event-class-fit; trigger signature change; P1-6)
+- `crates/fw-match-sim/src/signature/triggers.rs` (MODIFIED — trigger fn signatures return Q32 fit score; P1-6)
+- `crates/fw-match-sim/src/utility/pitch_control.rs` (MODIFIED — remove unwrap; P2-14)
+- `crates/fw-match-sim/tests/signature_dispatcher_proptest.rs` (MODIFIED — AC-2/3/4/5 rewritten + vacuousness_check companion tests; P1-8)
+- `scripts/determinism-audit.py` (MODIFIED — per-rule exemptions; P2-12)
+- `crates/fw-replay/tests/canonical_hash.rs` (MODIFIED — PINNED_60_TICK rebaselined + history note + trigger labels corrected; P2-13)
+- `crates/fw-replay/fixtures/0xdeadbeefdeadbeef.ron` (MODIFIED — expected_hash rebaselined + trigger labels corrected; P2-13)
+
+### Plan (8 super-chunks; TDD per chunk; canonical hash rebaselines compose to ONE final at the end)
+
+- [ ] Chunk 1: ADR-0009 SeedLayer + seed_fn move to fw-core. Add `crates/fw-core/src/seed.rs`. Discriminants per ADR-0009 (0x10..0x17). Buffer layout `[match_seed u64][tick u32][layer u8][site u32]`. Tick parameter u32 not i64. Vector + collision tests. Update all callsites in fw-match-sim. Hash REBASELINES.
+- [ ] Chunk 2: signature_candidates canonical encoding. Encoder emits per-player `candidate_count u16` + per-candidate `(id_len u16 + id_bytes + affinity i64)`. Wire-format diagram extension. Hash REBASELINES (composes with Chunk 1's).
+- [ ] Chunk 3: Cross-category signature stacking. `signature_firing: [[Option<SignatureFiring>; 4]; 22]` indexed by BiasCategory. Same-category exclusion at per-category slot; cross-category concurrent. Update dispatch.rs to index correctly. Hash REBASELINES (composes).
+- [ ] Chunk 4: Outfield BT routing + GK attribute bindings. `dispatch.rs` outfield path → `bt::tick_tree` invocation; `select_outfield_intent` becomes the Leaf-action callback. GK `tick_goalkeeper` signature change to `(&PlayerState, &BallState, &mut Rng) → PlayerIntent`; per-GK-state functions read documented attributes.
+- [ ] Chunk 5: BT attribute-binding drift fixes + reactive predicate spec-alignment. 6 sites + 4 reactive predicates fixed per `bt-attribute-binding.md`. New per-site bias helpers in personality_bias.rs.
+- [ ] Chunk 6: Signature softmax event-class-fit. TriggerFn signature: `fn(&MatchState, PlayerSlot) -> Q32`. Dispatcher softmax inputs become `affinity × fit_score`. Tests use non-1.0 fit scores to prove multiplication isn't skipped.
+- [ ] Chunk 7: AC-2/3/4/5 re-rewrite + vacuousness_check companions. Each AC: (a) prove dispatch-path firing, (b) assert invariant on post-firing state, (c) `vacuousness_check_acN` companion test constructs invariant-violating state + verifies the AC test would fail under it.
+- [ ] Chunk 8: P2 cleanup (determinism-audit per-rule exemptions, ADR-0012 trigger labels, wire-format diagram, pitch_control unwrap removal) + final rebaseline lock. Hash baseline lands here; commit body tracks the composed `1db6020c… → 18f1776c… → <NEW>` history with each chunk's contribution.
+
+### After agent returns
+- Independent verify (hash agreement, scripts/fw verify, vacuousness_check tests).
+- Re-run Codex Tier-2 audit prompt against the new HEAD (same prompt template; "this is the fix pass — verify findings closed").
+- If Codex APPROVES: sync ledgers + commit + queue T1-4.
+- If Codex REVISES/BLOCKS again: iterate. The third audit-loop bug = recidivism we need to break.
 
 <details>
 <summary>T1-2b-iv task spec (closed 2026-05-15)</summary>

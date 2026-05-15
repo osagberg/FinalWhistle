@@ -68,12 +68,16 @@
 //!     [ id_bytes* ]                                (SignatureId UTF-8 bytes)
 //!     [ cooldown_end i64 LE ]                      (Tick::to_raw() as i64)
 //! [ signature_firing ]                             (T1-2b-fix: 22 × 4 categories per player)
-//!   [ outer_count u8 ]                             (always 22 = roster size)
-//!   [ per player: inner_count u8 ]                 (always 4 = BiasCategory count)
-//!   [ per category: is_some u8 ]                   (0 = None, 1 = Some)
-//!   [ per Some: ]
-//!     [ id_len u16 LE ]
-//!     [ id_bytes* ]
+//!   (fixed-size 22 players × 4 BiasCategory lanes — NO count prefixes; the
+//!    array is statically sized at compile time and the encoder iterates
+//!    the fixed dimensions directly. Codex Tier-2 re-audit P2 corrected the
+//!    prior diagram which falsely claimed outer/inner counts were emitted.)
+//!   [ per player slot 0..22 ]
+//!     [ per BiasCategory lane 0..4 ]
+//!       [ is_some u8 ]                             (0 = None, 1 = Some)
+//!       [ per Some: ]
+//!         [ id_len u16 LE ]
+//!         [ id_bytes* ]
 //!     [ start_tick i64 LE ]
 //!     [ duration_ticks u32 LE ]
 //! [ signature_first_fired_seen ]                   (T1-2b-iv: BTreeSet<(slot,id)>)

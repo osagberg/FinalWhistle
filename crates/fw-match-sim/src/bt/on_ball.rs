@@ -51,8 +51,16 @@ use crate::subtree_library::formation_position;
 
 /// Attributes read by `utility_shoot` — for binding-correctness tests.
 ///
-/// Primary (spec): `technical.finishing`, `mental.composure`, `mental.decisions`
-/// Secondary (spec): `technical.long_shots` (range capability modifier), `mental.vision`, `physical.balance`
+/// **Codex Tier-2 re-audit P2 fix**: `technical.long_shots` is PRIMARY in
+/// the spec (§"Shoot") — prior doc-comment + impl treated it as secondary.
+/// Spec primary list: `technical.finishing`, `technical.long_shots` (long-
+/// distance shots), `mental.composure`, `mental.decisions`. Spec secondary
+/// list: `mental.vision` (angle assessment), `physical.balance` (off-balance
+/// penalty). The implementation below now multiplies `long_shots` into the
+/// primary product, matching the spec.
+///
+/// Primary (spec): finishing × long_shots × composure × decisions
+/// Secondary (spec): vision, balance
 /// Bias via helper: `mental.flair` (FlairBias), `mental.composure` (Composure),
 ///   `personality.risk_appetite` (RiskAppetite), `personality.pressure_tolerance` (PT divisor)
 pub const SHOOT_ATTRS: &[&str] = &[
@@ -170,29 +178,29 @@ pub const LAY_OFF_ATTRS: &[&str] = &[
 
 /// Utility for attempting a shot.
 ///
-/// Attribute binding (spec): finishing × composure × decisions (primary);
-/// long_shots + vision + balance as secondary modifiers; flair + composure + risk_appetite + PT via bias.
+/// Attribute binding (spec, post-Codex-P2-fix):
+/// - Primary: finishing × long_shots × composure × decisions
+/// - Secondary: vision (angle quality), balance (off-balance penalty)
+/// - Bias via helper: flair + composure + risk_appetite + PT
 ///
-/// Note: long_shots is a spec-listed attribute but implemented as a secondary additive
-/// modifier `(1 + 0.30×long_shots)` to keep the primary product magnitude consistent
-/// with other 3-primary sites. This matches the pattern used by pass_long, which also
-/// lists long_shots in the spec table but applies it as a secondary modifier.
+/// Prior implementation treated `long_shots` as a secondary `(1 + 0.30×x)`
+/// additive modifier; spec §"Shoot" lists it as primary. Reclassified to
+/// the primary product (multiplicative). Drifts the canonical hash because
+/// the per-player utility values change — accepted within the T1-2b-fix
+/// row per ADR-0012 trigger #3.
 pub fn utility_shoot(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
-    // Primary product: three core shooting attributes.
-    let raw = a.technical.finishing * a.mental.composure * a.mental.decisions;
+    // Primary product: four core shooting attributes per spec §"Shoot".
+    let raw =
+        a.technical.finishing * a.technical.long_shots * a.mental.composure * a.mental.decisions;
 
-    // Secondary: long_shots as range capability (higher = can shoot from distance).
-    // vision improves the shot (angle quality proxy).
-    // balance improves off-balance situations.
-    // Applied as mild additive multipliers.
-    let w_ls = Q32::from_raw(1_288_490_188_i64); // ≈ 0.30
+    // Secondary: vision (angle assessment) + balance (off-balance situations).
+    // Applied as mild additive multipliers; spec lists these as secondary.
     let w_vision = Q32::from_raw(858_993_459_i64); // ≈ 0.20
     let w_balance = Q32::from_raw(429_496_729_i64); // ≈ 0.10
-    let secondary = (Q32::ONE + w_ls * a.technical.long_shots)
-        * (Q32::ONE + w_vision * a.mental.vision)
-        * (Q32::ONE + w_balance * a.physical.balance);
+    let secondary =
+        (Q32::ONE + w_vision * a.mental.vision) * (Q32::ONE + w_balance * a.physical.balance);
     let raw = raw * secondary;
 
     // Effective defender pressure = PT-attenuated proxy (complement of composure).

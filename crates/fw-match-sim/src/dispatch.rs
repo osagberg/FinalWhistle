@@ -50,7 +50,7 @@ use std::collections::BTreeMap;
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
-use fw_content::{CooldownPolicy, SignatureDefinition, StackingPolicy};
+use fw_content::{CooldownPolicy, SignatureDefinition, SimBiasSnapshot, StackingPolicy};
 use fw_core::{Q32, Tick};
 
 use crate::MatchState;
@@ -58,6 +58,7 @@ use crate::bt::{BtContext, LeafKind, Node, Tree, tick_tree};
 use crate::decision_cadence::{SeedLayer, seed_fn, should_decide};
 use crate::goalkeeper_fsm::tick_goalkeeper;
 use crate::role_states::{PlayerIntent, PlayerRoleState};
+use crate::signature;
 use crate::signature::ledger::MemoryEvent;
 use crate::signature::{
     DEFAULT_FIRING_DURATION_TICKS, SignatureFiring, build_trigger_table, evaluate_signatures,
@@ -262,16 +263,20 @@ pub fn dispatch_tick(
                 // `select_outfield_intent` (utility-scored softmax).
                 // The BtContext carries what the leaf needs to call the select fn.
                 let player = &state.players[slot_idx];
-                // Resolve active signature bias: first active lane in category order.
-                // Cross-category concurrent firings allowed (ADR-0011); take the first.
-                let active_bias = state.signature_firing[slot_idx]
-                    .iter()
-                    .flatten()
-                    .find_map(|f| {
-                        sig_definitions
-                            .get(f.id.as_str())
-                            .map(|def| &def.bias_snapshot)
-                    });
+                // Resolve active signature bias: COMPOSITE-FOLD across all
+                // active per-category lanes (Codex Tier-2 re-audit P1 closure).
+                // ADR-0011 §"Stacking policy" allows cross-category concurrent
+                // signatures BECAUSE their bias surfaces don't overlap; the
+                // composite multiplies each *_mul field across all lanes
+                // (Q32::ONE when no firings). Local Option holds the owned
+                // SimBiasSnapshot so the &-borrow in BtContext stays valid
+                // through the tick_tree call.
+                let active_bias_owned: Option<SimBiasSnapshot> =
+                    signature::dispatcher::combine_active_biases(
+                        &state.signature_firing[slot_idx],
+                        sig_definitions,
+                    );
+                let active_bias: Option<&SimBiasSnapshot> = active_bias_owned.as_ref();
                 // Build a minimal tree: single OutfieldSelect leaf. The leaf resolves
                 // role state → candidate list → softmax pick inside tick_tree.
                 // Content-pack RON trees replace this stub at T2-3.

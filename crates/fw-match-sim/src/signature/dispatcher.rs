@@ -33,7 +33,8 @@
 use std::collections::BTreeMap;
 
 use fw_content::{
-    BiasCategory, SignatureCandidate, SignatureDefinition, SignatureId, StackingPolicy,
+    BiasCategory, SignatureCandidate, SignatureDefinition, SignatureId, SimBiasSnapshot,
+    StackingPolicy,
 };
 use fw_core::Q32;
 use rand_chacha::ChaCha8Rng;
@@ -176,6 +177,62 @@ fn stacking_category(policy: &StackingPolicy) -> BiasCategory {
     match *policy {
         StackingPolicy::Exclusive { category } => category,
     }
+}
+
+/// Combine all active per-category signature firings into a single composite
+/// `SimBiasSnapshot` by multiplying each `*_mul` field across the active lanes.
+///
+/// **Codex Tier-2 re-audit (2026-05-15) — new P1 closure**: cross-category
+/// stacking storage is `[Option<SignatureFiring>; 4]` per player, but
+/// dispatch was previously taking only the FIRST active lane via
+/// `find_map` short-circuit. That meant a player with two active signatures
+/// (one Attacking, one BuildUp) saw only the Attacking bias applied, never
+/// the BuildUp bias. ADR-0011 §"Stacking policy" explicitly allows
+/// cross-category concurrent firings — they're allowed BECAUSE the bias
+/// surfaces are non-overlapping (each affects a different
+/// `BiasConsideration` lane). This composite-fold realises that promise.
+///
+/// Returns `None` if no firings are active OR no firings resolve to a known
+/// signature_definition (defensive — content-pack drift). Returns
+/// `Some(SimBiasSnapshot)` with each field multiplied across all active
+/// lanes. Initial value is `Q32::ONE` per field (no-op multiplier).
+///
+/// **Determinism**: iteration order is the canonical `[Attacking, Defensive,
+/// BuildUp, SetPiece]` BiasCategory discriminant order. Q32 multiplication
+/// is commutative + associative within Q32 precision; order matters only
+/// for overflow detection, which is bounded since each `*_mul` field is
+/// well-scoped (typically [0.5, 2.0]) and we never multiply more than 4 of
+/// them together.
+#[must_use]
+pub fn combine_active_biases(
+    active_lanes: &[Option<SignatureFiring>; 4],
+    sig_definitions: &BTreeMap<String, SignatureDefinition>,
+) -> Option<SimBiasSnapshot> {
+    let mut any_active = false;
+    let mut composite = SimBiasSnapshot {
+        shoot_mul: Q32::ONE,
+        pass_mul: Q32::ONE,
+        dribble_mul: Q32::ONE,
+        press_mul: Q32::ONE,
+        cover_mul: Q32::ONE,
+    };
+    for lane in active_lanes.iter().flatten() {
+        let Some(def) = sig_definitions.get(lane.id().as_str()) else {
+            // Content-pack drift: a firing references an unknown signature.
+            // Skip silently — the trigger-binding table would have rejected
+            // this at evaluate_signatures-time; the lane being Some without
+            // a definition is a transient state we tolerate.
+            continue;
+        };
+        let snap = &def.bias_snapshot;
+        composite.shoot_mul *= snap.shoot_mul;
+        composite.pass_mul *= snap.pass_mul;
+        composite.dribble_mul *= snap.dribble_mul;
+        composite.press_mul *= snap.press_mul;
+        composite.cover_mul *= snap.cover_mul;
+        any_active = true;
+    }
+    if any_active { Some(composite) } else { None }
 }
 
 // ---------------------------------------------------------------------------
@@ -570,5 +627,178 @@ mod tests {
             (None, None) => {}
             _ => panic!("one run returned Some, the other None — determinism violated"),
         }
+    }
+
+    // ---- combine_active_biases (Codex Tier-2 re-audit P1 closure) ----
+
+    /// Helper: SignatureDefinition with a custom bias snapshot.
+    fn def_with_bias(
+        id: &str,
+        category: BiasCategory,
+        snap: SimBiasSnapshot,
+    ) -> SignatureDefinition {
+        let mut d = no_op_def();
+        d.id = SignatureId::try_new(id).unwrap();
+        d.bias_snapshot = snap;
+        d.stacking = StackingPolicy::Exclusive { category };
+        d
+    }
+
+    /// Build a Q32 from integer + tenths-fraction (e.g. q32(1, 5) = 1.5).
+    /// Q32 lacks a public f64-constructor; this gives test-friendly values
+    /// without touching pub(crate) `from_f64_clamped`.
+    fn q32(int: i32, tenths: i32) -> Q32 {
+        Q32::from_int(int) + Q32::from_int(tenths) / Q32::from_int(10)
+    }
+
+    fn snap(
+        shoot: (i32, i32),
+        pass: (i32, i32),
+        dribble: (i32, i32),
+        press: (i32, i32),
+        cover: (i32, i32),
+    ) -> SimBiasSnapshot {
+        SimBiasSnapshot {
+            shoot_mul: q32(shoot.0, shoot.1),
+            pass_mul: q32(pass.0, pass.1),
+            dribble_mul: q32(dribble.0, dribble.1),
+            press_mul: q32(press.0, press.1),
+            cover_mul: q32(cover.0, cover.1),
+        }
+    }
+
+    #[test]
+    fn combine_active_biases_empty_returns_none() {
+        let definitions = BTreeMap::new();
+        let lanes: [Option<SignatureFiring>; 4] = [None, None, None, None];
+        assert!(combine_active_biases(&lanes, &definitions).is_none());
+    }
+
+    #[test]
+    fn combine_active_biases_single_lane_returns_that_snapshot() {
+        let id = "fwh.core:signature.attacking-test";
+        let attacking_snap = snap((1, 5), (1, 0), (1, 2), (1, 0), (1, 0));
+        let mut definitions = BTreeMap::new();
+        definitions.insert(
+            id.to_string(),
+            def_with_bias(id, BiasCategory::Attacking, attacking_snap),
+        );
+
+        let mut lanes: [Option<SignatureFiring>; 4] = [None, None, None, None];
+        lanes[BiasCategory::Attacking as usize] = Some(SignatureFiring::new(
+            SignatureId::try_new(id).unwrap(),
+            Tick::ZERO,
+            60,
+        ));
+
+        let composite = combine_active_biases(&lanes, &definitions).expect("one active lane");
+        assert_eq!(composite.shoot_mul, attacking_snap.shoot_mul);
+        assert_eq!(composite.dribble_mul, attacking_snap.dribble_mul);
+        assert_eq!(composite.pass_mul, Q32::ONE);
+    }
+
+    /// **The load-bearing test for the Codex P1 closure**: two active lanes
+    /// must compose multiplicatively. Before this fix, dispatch's `find_map`
+    /// took only the first active lane, so a player with both an Attacking
+    /// signature (shoot_mul=1.5) AND a BuildUp signature (pass_mul=1.4)
+    /// applied ONLY the Attacking bias — pass_mul stayed at 1.0 instead of
+    /// 1.4. This test fails on the find_map impl + passes on the fold impl.
+    #[test]
+    fn combine_active_biases_two_lanes_compose_multiplicatively() {
+        let attacking_id = "fwh.core:signature.attacking-test";
+        let buildup_id = "fwh.core:signature.buildup-test";
+
+        let attacking_snap = snap((1, 5), (1, 0), (1, 2), (1, 0), (1, 0)); // boosts shoot+dribble
+        let buildup_snap = snap((1, 0), (1, 4), (1, 0), (1, 0), (1, 0)); // boosts pass
+
+        let mut definitions = BTreeMap::new();
+        definitions.insert(
+            attacking_id.to_string(),
+            def_with_bias(attacking_id, BiasCategory::Attacking, attacking_snap),
+        );
+        definitions.insert(
+            buildup_id.to_string(),
+            def_with_bias(buildup_id, BiasCategory::BuildUp, buildup_snap),
+        );
+
+        let mut lanes: [Option<SignatureFiring>; 4] = [None, None, None, None];
+        lanes[BiasCategory::Attacking as usize] = Some(SignatureFiring::new(
+            SignatureId::try_new(attacking_id).unwrap(),
+            Tick::ZERO,
+            60,
+        ));
+        lanes[BiasCategory::BuildUp as usize] = Some(SignatureFiring::new(
+            SignatureId::try_new(buildup_id).unwrap(),
+            Tick::ZERO,
+            60,
+        ));
+
+        let composite = combine_active_biases(&lanes, &definitions).expect("two active lanes");
+
+        // Both biases must compose. shoot_mul came from Attacking; pass_mul
+        // came from BuildUp. Neither would appear if find_map short-circuited
+        // to a single lane.
+        assert_eq!(
+            composite.shoot_mul, attacking_snap.shoot_mul,
+            "Attacking shoot_mul must compose into composite"
+        );
+        assert_eq!(
+            composite.pass_mul, buildup_snap.pass_mul,
+            "BuildUp pass_mul must compose into composite — the find_map bug would leave this at Q32::ONE"
+        );
+        // Other fields = Q32::ONE × Q32::ONE = Q32::ONE.
+        assert_eq!(composite.press_mul, Q32::ONE);
+        assert_eq!(composite.cover_mul, Q32::ONE);
+        // dribble_mul came from Attacking (1.2) × BuildUp (1.0) = 1.2.
+        assert_eq!(composite.dribble_mul, attacking_snap.dribble_mul);
+    }
+
+    /// Vacuousness-check companion for the two-lane composition test: prove
+    /// the prior `find_map` impl FAILS this test. We can't actually run the
+    /// old impl here, but we can construct a simulated "first-lane-only"
+    /// composite and assert it differs from the new fold composite. If the
+    /// new fold ever silently regresses to first-lane-only, this test FAILS.
+    #[test]
+    fn combine_active_biases_fold_strictly_dominates_find_map_behavior() {
+        let attacking_id = "fwh.core:signature.attacking-test";
+        let buildup_id = "fwh.core:signature.buildup-test";
+
+        let attacking_snap = snap((1, 5), (1, 0), (1, 0), (1, 0), (1, 0));
+        let buildup_snap = snap((1, 0), (1, 4), (1, 0), (1, 0), (1, 0));
+
+        let mut definitions = BTreeMap::new();
+        definitions.insert(
+            attacking_id.to_string(),
+            def_with_bias(attacking_id, BiasCategory::Attacking, attacking_snap),
+        );
+        definitions.insert(
+            buildup_id.to_string(),
+            def_with_bias(buildup_id, BiasCategory::BuildUp, buildup_snap),
+        );
+
+        let mut lanes: [Option<SignatureFiring>; 4] = [None, None, None, None];
+        lanes[BiasCategory::Attacking as usize] = Some(SignatureFiring::new(
+            SignatureId::try_new(attacking_id).unwrap(),
+            Tick::ZERO,
+            60,
+        ));
+        lanes[BiasCategory::BuildUp as usize] = Some(SignatureFiring::new(
+            SignatureId::try_new(buildup_id).unwrap(),
+            Tick::ZERO,
+            60,
+        ));
+
+        let composite = combine_active_biases(&lanes, &definitions).unwrap();
+
+        // The first lane (find_map would have returned this directly).
+        let first_lane_only = attacking_snap;
+
+        // Composite differs from first_lane_only at the pass_mul field —
+        // that's exactly what the find_map regression would lose. If this
+        // assert fails, the impl regressed to find_map-equivalent behavior.
+        assert_ne!(
+            composite.pass_mul, first_lane_only.pass_mul,
+            "composite must include the BuildUp lane's pass_mul; find_map-equivalent regression detected"
+        );
     }
 }

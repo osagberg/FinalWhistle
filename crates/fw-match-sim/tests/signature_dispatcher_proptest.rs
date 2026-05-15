@@ -264,109 +264,104 @@ fn ac1c_first_time_diagonal_switch_fires_via_dispatch_when_predicate_satisfied()
 
 // ---------------------------------------------------------------------------
 // AC-2: Cooldown blocks re-firing within the cooldown window
+//
+// **Codex Tier-2 re-audit round 3 (P1-8 non-vacuous rewrite)**: the prior
+// AC-2 had `let Some(fired_at) = fired_tick else { return Ok(()); };` —
+// it returned vacuously when LRS never fired in the run. That made the
+// test useless for the dominant case where the cadence didn't align. The
+// rewrite GUARANTEES firing by aligning decision_slots[8] = 1 + advancing
+// to tick=1 + setting attrs above threshold, then ASSERTS fired_at.is_some()
+// up-front. No early return.
 // ---------------------------------------------------------------------------
 
-// MEMORY criterion 2: after a signature fires, the cooldown entry in
-// `signature_cooldowns[(slot, id)]` records the expiry tick. No re-firing
-// while `tick < cooldown_end`.
-//
-// Strategy: run until the LRS fires, record the cooldown_end, then run
-// ticks within the cooldown window and assert the signature does NOT fire
-// again (first_fired_seen will have it, and signature_firing decays; a
-// re-fire would be caught by a second entry in first_fired_seen which can't
-// grow beyond 1 for the same (slot, id) pair — the seen-set guards it).
-//
-// Additionally asserts cooldown_end > fired_at tick when a firing has occurred.
-proptest! {
-    #[test]
-    fn ac2_cooldown_blocks_refiring_within_window(seed_val in arb_seed()) {
-        let lrs_id = "fwh.core:signature.long-range-strike";
-        let id = SignatureId::try_new(lrs_id).unwrap();
+#[test]
+fn ac2_cooldown_blocks_refiring_within_window() {
+    let lrs_id = "fwh.core:signature.long-range-strike";
+    let id = SignatureId::try_new(lrs_id).unwrap();
 
-        let seed = Seed::from_u64(seed_val);
-        let mut state = MatchState::initial(seed);
-        set_attrs_above_threshold(&mut state, 8);
-        state.players[8].signature_candidates_mut().push(
-            SignatureCandidate::try_new(id.clone(), Q32::ONE).unwrap(),
-        );
+    let seed = Seed::from_u64(42);
+    let mut state = MatchState::initial(seed);
+    set_attrs_above_threshold(&mut state, 8);
+    state.players[8]
+        .signature_candidates_mut()
+        .push(SignatureCandidate::try_new(id.clone(), Q32::ONE).unwrap());
 
-        let mut defs = BTreeMap::new();
-        defs.insert(
-            lrs_id.to_string(),
-            make_def(lrs_id, BiasCategory::Attacking, amplify_shoot_bias()),
-        );
+    // GUARANTEE firing: align decision_slots[8] = 1, then advance to tick=1
+    // so should_decide(roster_slot=9, ...) returns true at the first
+    // dispatch tick. (roster_slot is 1-indexed, so slot_idx 8 = roster_slot 9.)
+    state.decision_slots[8] = 1;
+    state.tick = Tick::ZERO.successor();
 
-        // Phase 1: run until the signature fires (up to 200 ticks).
-        let mut fired_tick: Option<i64> = None;
-        for _ in 0..200 {
-            state = dispatch::dispatch_tick(state, &defs);
-            let key = (8u8, id.clone());
-            if state.signature_cooldowns.contains_key(&key) && fired_tick.is_none() {
-                fired_tick = Some(state.tick.to_raw());
-            }
-            state.tick = state.tick.successor();
-        }
+    let mut defs = BTreeMap::new();
+    defs.insert(
+        lrs_id.to_string(),
+        make_def(lrs_id, BiasCategory::Attacking, amplify_shoot_bias()),
+    );
 
-        // If the signature never fired in 200 ticks, the test passes vacuously
-        // for this seed — that's valid (the cadence may not have aligned).
-        let Some(fired_at) = fired_tick else { return Ok(()); };
+    // Phase 1: first dispatch MUST fire the signature.
+    state = dispatch::dispatch_tick(state, &defs);
+    let key = (8u8, id.clone());
+    assert!(
+        state.signature_cooldowns.contains_key(&key),
+        "AC-2 setup invariant violated: long_range_strike did not fire on the \
+         guaranteed-firing tick. Attrs above threshold + decision_slots[8]=1 + \
+         tick=1 should fire on the first dispatch_tick. \
+         Check that ForwardState's role-state + the dispatch path are wired."
+    );
+    let fired_at = state.tick;
+    let cooldown_end = state.signature_cooldowns[&key];
+    assert!(
+        cooldown_end > fired_at,
+        "cooldown_end {:?} must be after fired_at {:?}",
+        cooldown_end.to_raw(),
+        fired_at.to_raw()
+    );
 
-        // The cooldown entry must record a tick > the tick at which it fired.
-        let key = (8u8, id.clone());
-        if let Some(&cooldown_end) = state.signature_cooldowns.get(&key) {
-            prop_assert!(
-                cooldown_end > Tick::from_raw(fired_at),
-                "cooldown_end {:?} must be after fired_at {:?}",
-                cooldown_end.to_raw(), fired_at
-            );
-        }
+    // After firing, signature_first_fired_seen must contain exactly 1 entry
+    // for (slot=8, lrs). This is the AC-5 invariant; we re-check it here so
+    // AC-2 can assert against it during the cooldown phase.
+    let initial_seen_count = state
+        .signature_first_fired_seen
+        .iter()
+        .filter(|(slot, sig)| *slot == 8u8 && sig == &id)
+        .count();
+    assert_eq!(
+        initial_seen_count, 1,
+        "after firing, first_fired_seen must have exactly 1 entry for (8, lrs)"
+    );
 
-        // Phase 2: run ticks within the cooldown window. The signature MUST
-        // NOT produce a second first_fired_seen entry (the seen-set is the
-        // authoritative guard for first-fire-once semantics).
-        let first_fired_count_before = state.signature_first_fired_seen
+    // Phase 2: run 500 more ticks (well within the 600-tick cooldown).
+    // The first_fired_seen entry MUST remain at exactly 1 — no re-emission.
+    state.tick = state.tick.successor();
+    for _ in 0..500 {
+        state = dispatch::dispatch_tick(state, &defs);
+        let count = state
+            .signature_first_fired_seen
             .iter()
             .filter(|(slot, sig)| *slot == 8u8 && sig == &id)
             .count();
-        prop_assert_eq!(
-            first_fired_count_before,
-            1,
-            "after firing, first_fired_seen must have exactly 1 entry for (8, lrs)"
+        assert_eq!(
+            count, 1,
+            "first_fired_seen count must remain 1 across cooldown — signature \
+             cannot re-emit SignatureFirstFired within the cooldown window"
         );
-
-        // Run ~200 more ticks. The cooldown window is 600 ticks; first_fired_seen
-        // must remain at 1 for (slot=8, lrs).
-        for _ in 0..200 {
-            state = dispatch::dispatch_tick(state, &defs);
-            let count = state.signature_first_fired_seen
-                .iter()
-                .filter(|(slot, sig)| *slot == 8u8 && sig == &id)
-                .count();
-            prop_assert_eq!(
-                count,
-                1,
-                "first_fired_seen count must remain 1 — signature cannot emit \
-                 SignatureFirstFired more than once per match"
-            );
-            state.tick = state.tick.successor();
-        }
+        state.tick = state.tick.successor();
     }
 }
 
 // ---------------------------------------------------------------------------
-// AC-3: Stacking — same-category signature cannot fire while one is active
+// AC-3: Stacking — same-category signature cannot co-fire on the same tick
+//
+// **Codex Tier-2 re-audit round 3 (P1-8 non-vacuous rewrite)**: the prior
+// AC-3 asserted `firing_count_slot5_buildup <= 1` where
+// `firing_count = is_some() as usize`. Since `is_some()` returns 0 or 1,
+// the assertion was structurally always-true regardless of stacking semantics.
+// Codex called this "impossible structural condition." The rewrite forces
+// BOTH same-category signatures to be simultaneously eligible at the same
+// tick, then asserts EXACTLY ONE fires (count via first_fired_seen, which
+// CAN reach 2 if stacking is broken).
 // ---------------------------------------------------------------------------
 
-/// MEMORY criterion 3: deterministic softmax dispatch + stacking exclusion.
-/// When two signatures share the same `BiasCategory` and one is in flight,
-/// the second cannot fire.
-///
-/// This test uses `dispatch_tick` without direct state mutation for the firing
-/// itself: it constructs a state where `sig_a` is already in flight (via a
-/// forced `dispatch_tick` that sets it up), then adds `sig_b` to the same slot
-/// and verifies that after another dispatch, only one signature is in flight
-/// (either sig_a persists, or the window expired and a fresh one fires — but
-/// NOT two different ones in the same category simultaneously).
 #[test]
 fn ac3_same_category_stacking_allows_at_most_one_signature_per_slot() {
     let sig_a_id = "fwh.core:signature.long-range-strike";
@@ -375,7 +370,9 @@ fn ac3_same_category_stacking_allows_at_most_one_signature_per_slot() {
     let id_a = SignatureId::try_new(sig_a_id).unwrap();
     let id_b = SignatureId::try_new(sig_b_id).unwrap();
 
-    // Both BuildUp category for this test (same stacking bucket).
+    // Both BuildUp category in THIS test fixture so they compete for the
+    // same stacking lane. (Production signature definitions may put them
+    // in different categories; we override here.)
     let mut defs = BTreeMap::new();
     defs.insert(
         sig_a_id.to_string(),
@@ -395,149 +392,182 @@ fn ac3_same_category_stacking_allows_at_most_one_signature_per_slot() {
         SignatureCandidate::try_new(id_b.clone(), Q32::ONE).unwrap(),
     ];
 
-    // Run 150 ticks via dispatch. At any tick where a signature fires, verify
-    // at most one is in the same slot.
-    for _ in 0..150 {
-        state = dispatch::dispatch_tick(state, &defs);
+    // GUARANTEE firing on first tick: align decision_slots[5] = 1, advance to tick=1.
+    state.decision_slots[5] = 1;
+    state.tick = Tick::ZERO.successor();
 
-        // The `signature_first_fired_seen` set contains at most 2 entries
-        // for slot 5 — but they cannot BOTH be in the same category lane simultaneously.
-        // Both sig_a and sig_b are BuildUp category (index 2) in this test.
-        // Per ADR-0011 P1-7: `signature_firing[5][BuildUp_idx]` holds at most one value.
-        let buildup_idx = BiasCategory::BuildUp as usize;
-        let firing_count_slot5_buildup = state.signature_firing[5][buildup_idx].is_some() as usize;
-        assert!(
-            firing_count_slot5_buildup <= 1,
-            "slot 5 BuildUp lane must have at most one signature firing at any tick; \
-             stacking invariant violated"
-        );
+    // One dispatch tick. Both signatures are eligible (predicates satisfied,
+    // BuildUp lane empty, no cooldown). Stacking semantics: exactly one of
+    // them fires + writes to signature_firing[5][BuildUp]. The other's trigger
+    // either gets blocked at the dispatcher (preferred) or loses softmax to
+    // the first (also acceptable). Either way: AT MOST one entry in
+    // first_fired_seen for slot 5 after this single tick.
+    state = dispatch::dispatch_tick(state, &defs);
 
-        // Stacking check: if sig_a is in the BuildUp lane, sig_b must NOT
-        // also be in the same lane at the same tick.
-        // The real test: if sig_a fired, verify the first_fired_seen has
-        // only ONE of the two IDs active in the BuildUp lane at any tick.
-
-        state.tick = state.tick.successor();
-    }
-
-    // After 150 ticks: each of the two signatures may have fired (at different
-    // ticks, respecting the 600-tick cooldown). But they cannot have fired at
-    // the SAME tick (stacking). Verify: the seen-set has at most 2 entries
-    // for slot 5, and both are expected IDs.
-    let slot5_seen: Vec<_> = state
+    // Count first_fired_seen entries for slot 5 across BOTH candidate IDs.
+    let slot5_first_fired: Vec<_> = state
         .signature_first_fired_seen
         .iter()
         .filter(|(slot, _)| *slot == 5u8)
         .collect();
+
+    // **Load-bearing positive assertion**: at least one must have fired
+    // (proves the test isn't vacuous). The dispatch path must have selected
+    // one of the two via softmax + recorded it in first_fired_seen.
     assert!(
-        slot5_seen.len() <= 2,
-        "slot 5 can have at most 2 first-fired entries (one per signature); got {}",
-        slot5_seen.len()
+        !slot5_first_fired.is_empty(),
+        "AC-3 setup invariant violated: with both same-category sigs eligible \
+         + decision_slots[5]=1 + tick=1, dispatch must fire ONE of the two. \
+         Neither fired — check trigger predicates + softmax tie-breaking."
     );
-    for (_, sig_id) in &slot5_seen {
-        assert!(
-            sig_id == &id_a || sig_id == &id_b,
-            "unexpected signature ID in first_fired_seen: {:?}",
-            sig_id.as_str()
-        );
-    }
+
+    // **Stacking assertion**: EXACTLY one (count == 1, not ≤ 1).
+    assert_eq!(
+        slot5_first_fired.len(),
+        1,
+        "slot 5 BuildUp lane stacking violated: expected exactly 1 signature \
+         to fire on the same tick when both eligible; got {} (signatures: {:?})",
+        slot5_first_fired.len(),
+        slot5_first_fired
+            .iter()
+            .map(|(_, id)| id.as_str())
+            .collect::<Vec<_>>()
+    );
+
+    // Confirm the fired one is in the BuildUp lane of signature_firing.
+    let buildup_idx = BiasCategory::BuildUp as usize;
+    assert!(
+        state.signature_firing[5][buildup_idx].is_some(),
+        "signature_firing[5][BuildUp] must have a Some entry after firing"
+    );
 }
 
 // ---------------------------------------------------------------------------
 // AC-4: Active signature bias changes the selected intent (vel update)
 // ---------------------------------------------------------------------------
 
-/// MEMORY criterion 4: the bias snapshot from an active signature changes the
-/// utility scoring, which is visible as a difference in canonical output between
-/// a state with an active signature and a state without one.
-///
-/// Strategy:
-/// - Construct two states from the same seed.
-/// - Set slot 8 to `InPossession` so the on-ball utility set fires.
-/// - In `state_with`: set `signature_firing[8]` to a strongly-biased firing
-///   with shoot_mul = 5.0 and all other muls suppressed to 0.1.
-///   This forces the shoot intent to dominate the softmax decisively.
-/// - In `state_without`: no signature firing, so all muls = 1.0 (baseline).
-/// - Force slot 8 to decide (decision_slots[8] = 1, tick = 1).
-/// - Assert that the canonical-encoded output differs.
-///
-/// The canonical encoder includes all 22 players' vel_x/vel_y, so even if
-/// a probability-based softmax produces the same winner (unlikely with
-/// shoot_mul=5.0 vs 1.0), the `signature_firing` array itself differs,
-/// guaranteeing canonical-output divergence.
+// ---------------------------------------------------------------------------
+// AC-4: Active signature bias changes the SELECTED INTENT (vel update)
+//
+// **Codex Tier-2 re-audit round 3 (P1-8 non-vacuous rewrite)**: prior AC-4
+// compared `encode_canonical()` between state_with (signature_firing=Some)
+// and state_without (signature_firing=None). The encodings ALWAYS differed
+// because the Some/None field divergence ITSELF was encoded — regardless of
+// whether the bias actually multiplied into utility. Codex called this
+// "proves bytes differ because setup state differs, not because bias changed
+// utility."
+//
+// The rewrite: BOTH states have the SAME signature_firing[8][Attacking] =
+// Some(...) so the canonical setup is byte-identical EXCEPT for the bias
+// snapshot in the SignatureDefinition map. Then compare players[8].vel_x +
+// vel_y after dispatch — the selected intent's vel translation is the
+// BIAS-driven behavioral output. If the bias is truly multiplied into
+// utility, the softmax tilts toward different action classes (shoot vs
+// pass) and vel differs.
+// ---------------------------------------------------------------------------
+
 #[test]
-fn ac4_active_signature_bias_changes_canonical_output() {
+fn ac4_active_signature_bias_changes_selected_intent() {
+    use fw_match_sim::signature::dispatcher::combine_active_biases;
+    use fw_match_sim::subtree_library::select_outfield_intent;
     use fw_match_sim::{ForwardState, PlayerRoleState};
+    use rand_chacha::ChaCha8Rng;
+    use rand_chacha::rand_core::SeedableRng;
 
     let lrs_id = "fwh.core:signature.long-range-strike";
     let id = SignatureId::try_new(lrs_id).unwrap();
 
-    // Strong bias: shoot_mul=5.0 (raw: 5 * 2^32 = 21_474_836_480); all
-    // other muls suppressed to 0.1 (raw: 0.1 * 2^32 ≈ 429_496_730).
-    let strong_bias = SimBiasSnapshot {
+    // STRONG-shoot bias: shoot_mul=5.0; all others suppressed to 0.1.
+    let strong_shoot_bias = SimBiasSnapshot {
         shoot_mul: Q32::from_raw(21_474_836_480_i64), // 5.0
         pass_mul: Q32::from_raw(429_496_730_i64),     // ≈0.1
-        dribble_mul: Q32::from_raw(429_496_730_i64),  // ≈0.1
-        press_mul: Q32::from_raw(429_496_730_i64),    // ≈0.1
-        cover_mul: Q32::from_raw(429_496_730_i64),    // ≈0.1
+        dribble_mul: Q32::from_raw(429_496_730_i64),
+        press_mul: Q32::from_raw(429_496_730_i64),
+        cover_mul: Q32::from_raw(429_496_730_i64),
+    };
+    let strong_pass_bias = SimBiasSnapshot {
+        shoot_mul: Q32::from_raw(429_496_730_i64),
+        pass_mul: Q32::from_raw(21_474_836_480_i64),
+        dribble_mul: Q32::from_raw(429_496_730_i64),
+        press_mul: Q32::from_raw(429_496_730_i64),
+        cover_mul: Q32::from_raw(429_496_730_i64),
     };
 
-    let seed = Seed::from_u64(12345);
-    let mut state_with = MatchState::initial(seed);
-    let mut state_without = MatchState::initial(seed);
-
-    // Set slot 8 to InPossession so the on-ball utility set fires.
-    state_with.players[8].role_state = PlayerRoleState::Forward(ForwardState::InPossession);
-    state_without.players[8].role_state = PlayerRoleState::Forward(ForwardState::InPossession);
-
-    // Register the candidate on state_with.
-    state_with.players[8]
-        .signature_candidates_mut()
-        .push(SignatureCandidate::try_new(id.clone(), Q32::ONE).unwrap());
-
-    // Ensure slot 8 decides at tick 1:
-    // should_decide fires when tick % 15 == decision_slots[slot_idx].
-    // tick=1, 1 % 15 = 1, so decision_slots[8] = 1.
-    state_with.decision_slots[8] = 1;
-    state_without.decision_slots[8] = 1;
-
-    // Advance both states to tick 1 so is_active works.
-    state_with.tick = Tick::ZERO.successor();
-    state_without.tick = Tick::ZERO.successor();
-
-    // Force an active firing window in state_with.
-    // long-range-strike is Attacking category (index 0 per BiasCategory::Attacking = 0).
+    // Build state with active signature firing. Both bias maps see the same
+    // state; the only difference is the SignatureDefinition's bias_snapshot.
+    let mut state = MatchState::initial(Seed::from_u64(12345));
+    state.players[8].role_state = PlayerRoleState::Forward(ForwardState::InPossession);
     let attacking_idx = BiasCategory::Attacking as usize;
-    state_with.signature_firing[8][attacking_idx] = Some(signature::SignatureFiring::new(
+    state.signature_firing[8][attacking_idx] = Some(signature::SignatureFiring::new(
         id.clone(),
-        state_with.tick,
-        1000, // long window — stays active across the one dispatch call
+        Tick::ZERO,
+        1000,
     ));
 
-    // Provide the biased def for state_with.
-    let mut defs_with = BTreeMap::new();
-    defs_with.insert(
+    let mut defs_shoot = BTreeMap::new();
+    defs_shoot.insert(
         lrs_id.to_string(),
-        make_def(lrs_id, BiasCategory::Attacking, strong_bias),
+        make_def(lrs_id, BiasCategory::Attacking, strong_shoot_bias),
+    );
+    let mut defs_pass = BTreeMap::new();
+    defs_pass.insert(
+        lrs_id.to_string(),
+        make_def(lrs_id, BiasCategory::Attacking, strong_pass_bias),
     );
 
-    // state_without uses an empty defs map (no bias).
-    let defs_without: BTreeMap<String, SignatureDefinition> = BTreeMap::new();
+    // Compose biases (this is the dispatch logic's combine path).
+    let composite_shoot = combine_active_biases(&state.signature_firing[8], &defs_shoot);
+    let composite_pass = combine_active_biases(&state.signature_firing[8], &defs_pass);
+    assert!(composite_shoot.is_some(), "shoot bias must compose");
+    assert!(composite_pass.is_some(), "pass bias must compose");
 
-    // Run one dispatch tick on each.
-    let out_with = dispatch::dispatch_tick(state_with, &defs_with);
-    let out_without = dispatch::dispatch_tick(state_without, &defs_without);
-
-    // The canonical outputs MUST differ because:
-    //   1. out_with has signature_firing[8][Attacking=0] = Some(...) encoded in canonical state.
-    //   2. out_without has signature_firing[8][0] = None.
-    // Even if both players select the same intent (unlikely with shoot_mul=5.0),
-    // the signature_firing 2D array divergence guarantees different canonical bytes.
+    // **Pre-condition check**: the two composites differ (different bias
+    // snapshots in the defs maps). If they were equal, the test would be
+    // vacuous (no actual bias-driven divergence possible).
     assert_ne!(
-        out_with.encode_canonical(),
-        out_without.encode_canonical(),
-        "canonical output must differ when a signature is in flight: \
-         signature_firing[8][Attacking] is Some in state_with and None in state_without"
+        composite_shoot.as_ref().unwrap().shoot_mul,
+        composite_pass.as_ref().unwrap().shoot_mul,
+        "shoot_mul must differ between the two biases (pre-condition)"
+    );
+
+    // Run select_outfield_intent twice — once per bias — with identical
+    // input state + identical RNG seed. The ONLY difference is the
+    // active_bias parameter. If the bias is actually consumed by the
+    // softmax (P0-3 + composite-fold fix), the SELECTED INTENT VARIANT
+    // must differ.
+    let mut rng_shoot = ChaCha8Rng::seed_from_u64(0);
+    let mut rng_pass = ChaCha8Rng::seed_from_u64(0);
+    let intent_shoot = select_outfield_intent(
+        state.players[8].role_state,
+        &state.players[8],
+        9, // roster_slot is 1-indexed (slot_idx 8 = roster 9)
+        &mut rng_shoot,
+        composite_shoot.as_ref(),
+    );
+    let intent_pass = select_outfield_intent(
+        state.players[8].role_state,
+        &state.players[8],
+        9,
+        &mut rng_pass,
+        composite_pass.as_ref(),
+    );
+
+    // **Behavioral assertion**: compare the PlayerIntent enum DISCRIMINANT.
+    // If the bias is consumed, strong shoot_mul drives the softmax toward
+    // AttemptShot; strong pass_mul drives it toward
+    // AttemptPassShort/PassLong/LayOff. The variant must differ.
+    //
+    // (Comparing vel after apply_intent doesn't work because apply_intent
+    // clamps every variant's vel to MAX_PLAYER_SPEED — different intents
+    // can collapse to the same clamped vel. Comparing the intent variant
+    // directly is the cleaner behavioral observable for "bias changed the
+    // softmax outcome.")
+    assert_ne!(
+        std::mem::discriminant(&intent_shoot),
+        std::mem::discriminant(&intent_pass),
+        "active signature bias must change the selected intent variant. \
+         shoot-biased picked {intent_shoot:?}; pass-biased picked {intent_pass:?}. \
+         Same variant = softmax not actually consuming the bias snapshot."
     );
 }
 
@@ -545,212 +575,52 @@ fn ac4_active_signature_bias_changes_canonical_output() {
 // AC-5: SignatureFirstFired emitted exactly once per (player, signature) pair
 // ---------------------------------------------------------------------------
 
-// MEMORY criterion 5: `MemoryEvent::SignatureFirstFired` is emitted exactly
-// once per (player_slot, signature_id) pair per match.
-//
-// Strategy: run 150 ticks, draining `signature_memory_events` each tick into
-// a per-tick collection. Count all `SignatureFirstFired` events for slot 8
-// and the LRS signature across all ticks. Must be 0 or 1 (never >1).
-//
-// The `signature_memory_events` field is cleared at the top of `dispatch_tick`
-// (P0-2 fix), so we drain it each tick before it resets.
-proptest! {
-    #[test]
-    fn ac5_signature_first_fired_emitted_exactly_once_per_player_per_sig(seed_val in arb_seed()) {
-        use fw_match_sim::signature::SignatureMemoryEvent;
-
-        let lrs_id = "fwh.core:signature.long-range-strike";
-        let id = SignatureId::try_new(lrs_id).unwrap();
-
-        let seed = Seed::from_u64(seed_val);
-        let mut state = MatchState::initial(seed);
-        set_attrs_above_threshold(&mut state, 8);
-        state.players[8].signature_candidates_mut().push(
-            SignatureCandidate::try_new(id.clone(), Q32::ONE).unwrap(),
-        );
-
-        let mut defs = BTreeMap::new();
-        defs.insert(
-            lrs_id.to_string(),
-            make_def(lrs_id, BiasCategory::Attacking, amplify_shoot_bias()),
-        );
-
-        // Accumulate all memory events from 150 ticks.
-        // The P0-2 fix clears `signature_memory_events` at the TOP of
-        // dispatch_tick, so we drain after each call before the next tick
-        // would erase them. Events emitted at tick T are in the Vec returned
-        // from dispatch_tick for tick T; the next call for tick T+1 clears it.
-        let mut all_events: Vec<SignatureMemoryEvent> = Vec::new();
-        for _ in 0..150 {
-            state = dispatch::dispatch_tick(state, &defs);
-            // Drain before advancing tick (next dispatch_tick call will clear).
-            all_events.extend_from_slice(&state.signature_memory_events);
-            state.tick = state.tick.successor();
-        }
-
-        // Count SignatureFirstFired events for slot 8 / LRS.
-        let first_fired_count = all_events
-            .iter()
-            .filter(|e| matches!(
-                e,
-                SignatureMemoryEvent::SignatureFirstFired {
-                    player_slot: 8,
-                    signature_id,
-                    ..
-                } if signature_id == &id
-            ))
-            .count();
-
-        // Must be 0 (signature never fired in 150 ticks — valid) or 1 (fired
-        // exactly once). Never > 1.
-        prop_assert!(
-            first_fired_count <= 1,
-            "SignatureFirstFired for (slot=8, lrs) appeared {} times across 150 ticks; \
-             must be at most 1 (exactly-once semantics)",
-            first_fired_count
-        );
-
-        // Cross-check: if the seen-set has the entry, exactly one event was
-        // emitted (and vice versa).
-        let in_seen = state.signature_first_fired_seen.contains(&(8u8, id.clone()));
-        if in_seen {
-            prop_assert_eq!(
-                first_fired_count,
-                1,
-                "signature_first_fired_seen has the entry but no SignatureFirstFired event \
-                 was collected across 150 ticks — lifecycle bug"
-            );
-        } else {
-            prop_assert_eq!(
-                first_fired_count,
-                0,
-                "SignatureFirstFired event collected but not in signature_first_fired_seen — \
-                 seen-set was not updated"
-            );
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
-// Vacuousness checks — AC-2/3/4/5
+// AC-5: SignatureFirstFired emitted EXACTLY once per (player, signature) pair
 //
-// Each vacuousness_check_acN test constructs a state where the corresponding
-// AC's invariant is VIOLATED and asserts that the violation is detectable.
-// This proves the AC tests are non-vacuous: they WOULD fail if the invariant
-// were broken.
+// **Codex Tier-2 re-audit round 3 (P1-8 non-vacuous rewrite)**: the prior
+// AC-5 asserted `first_fired_count <= 1` — vacuously satisfied by count=0
+// (the dominant case if the signature never fired in 150 ticks). Codex
+// pinned: "AC-5 allows zero events." The rewrite GUARANTEES firing (same
+// pattern as AC-1 + AC-2) then asserts count == 1 (not ≤ 1).
 // ---------------------------------------------------------------------------
 
-/// AC-2 vacuousness check: verify the cooldown check would detect a cooldown
-/// violation if we bypassed it. Construct a state where a signature COULD fire
-/// while a cooldown is still active, then directly verify the cooldown_end
-/// is correctly greater than the fired_at tick (so the AC-2 assertion
-/// `cooldown_end > fired_at` would catch the violation).
-///
-/// The "broken" scenario: set cooldown_end = tick - 1 (already expired before
-/// it should). Assert that `cooldown_end <= tick` is detectable.
 #[test]
-fn vacuousness_check_ac2_cooldown_detection_is_not_vacuous() {
-    let lrs_id = "fwh.core:signature.long-range-strike";
-    let id = SignatureId::try_new(lrs_id).unwrap();
-
-    let mut state = MatchState::initial(Seed::from_u64(7));
-    state.tick = Tick::from_raw(100);
-
-    // Simulate a "broken" cooldown entry: cooldown_end is BEFORE current tick.
-    // This is the invariant-violating state AC-2 would catch.
-    let broken_cooldown_end = Tick::from_raw(50); // expired at tick 50; current = 100
-    state
-        .signature_cooldowns
-        .insert((8u8, id.clone()), broken_cooldown_end);
-
-    // The AC-2 assertion would be:
-    //   cooldown_end > Tick::from_raw(fired_at)
-    // If we set fired_at = 60 (after cooldown set, before expiry), the invariant holds.
-    // If we set fired_at = 100 (same as current tick) and cooldown_end = 50 < 100,
-    // the invariant FAILS — proving the test would catch the violation.
-    let fired_at = 100i64;
-    let cooldown_end = state.signature_cooldowns.get(&(8u8, id)).unwrap();
-    assert!(
-        *cooldown_end <= Tick::from_raw(fired_at),
-        "vacuousness check: broken cooldown_end ({:?}) must be <= fired_at ({}), \
-         proving AC-2 would catch it",
-        cooldown_end.to_raw(),
-        fired_at
-    );
-}
-
-/// AC-3 vacuousness check: verify the stacking check would detect two signatures
-/// in the same category lane. Construct a state where two different signatures
-/// are both "in flight" in the same BiasCategory lane — the invariant AC-3
-/// checks (exactly one per lane) would fail.
-///
-/// Since the 2D array is `[[Option<SignatureFiring>; 4]; 22]`, the only way
-/// to observe two in the same lane would be if the encoding allowed it. Instead,
-/// we verify the check itself: if `signature_firing[5][BuildUp]` had two entries,
-/// the AC-3 assertion `firing_count_slot5_buildup <= 1` would fail.
-#[test]
-fn vacuousness_check_ac3_stacking_check_is_not_vacuous() {
-    // Simulate the invariant being violated: two counts in the same category.
-    // The AC-3 check is: `firing_count_slot5_buildup <= 1`.
-    // We verify this would fail for count=2.
-    let firing_count_slot5_buildup: usize = 2; // broken state: two in the same lane
-    // The AC-3 assertion would be:
-    //   assert!(firing_count_slot5_buildup <= 1, ...)
-    // With count=2, that assertion fails. Prove it:
-    assert!(
-        firing_count_slot5_buildup > 1,
-        "vacuousness check: count=2 must violate the <= 1 stacking invariant"
-    );
-}
-
-/// AC-4 vacuousness check: verify that two identical canonical outputs WOULD
-/// be detected as NOT different (i.e., `assert_ne!` would fail).
-/// This proves AC-4's `assert_ne!` is non-vacuous: if both states had the
-/// same signature_firing, the outputs would be equal.
-#[test]
-fn vacuousness_check_ac4_bias_difference_is_not_vacuous() {
-    use fw_match_sim::MatchState;
-
-    // Two identical states must have identical canonical output.
-    let state_a = MatchState::initial(Seed::from_u64(12345));
-    let state_b = MatchState::initial(Seed::from_u64(12345));
-
-    let out_a = state_a.encode_canonical();
-    let out_b = state_b.encode_canonical();
-
-    // They must be equal (proving assert_ne! WOULD fail in the vacuous case).
-    assert_eq!(
-        out_a, out_b,
-        "vacuousness check: two identical states must have identical canonical output; \
-         if AC-4 compared equal states, assert_ne! would fail — proving the test is non-vacuous"
-    );
-}
-
-/// AC-5 vacuousness check: verify that a count of 2 `SignatureFirstFired` events
-/// for the same (slot, id) pair would be detected as a violation.
-/// The AC-5 assertion is `first_fired_count <= 1`. Count=2 must fail.
-#[test]
-fn vacuousness_check_ac5_first_fired_once_is_not_vacuous() {
+fn ac5_signature_first_fired_emitted_exactly_once_per_player_per_sig() {
     use fw_match_sim::signature::SignatureMemoryEvent;
 
     let lrs_id = "fwh.core:signature.long-range-strike";
     let id = SignatureId::try_new(lrs_id).unwrap();
 
-    // Construct a broken event list: two SignatureFirstFired events for the same pair.
-    let broken_events: Vec<SignatureMemoryEvent> = vec![
-        SignatureMemoryEvent::SignatureFirstFired {
-            player_slot: 8,
-            signature_id: id.clone(),
-            tick: Tick::from_raw(10),
-        },
-        SignatureMemoryEvent::SignatureFirstFired {
-            player_slot: 8,
-            signature_id: id.clone(),
-            tick: Tick::from_raw(620), // re-fire after cooldown expired — broken!
-        },
-    ];
+    let seed = Seed::from_u64(42);
+    let mut state = MatchState::initial(seed);
+    set_attrs_above_threshold(&mut state, 8);
+    state.players[8]
+        .signature_candidates_mut()
+        .push(SignatureCandidate::try_new(id.clone(), Q32::ONE).unwrap());
 
-    let first_fired_count = broken_events
+    // GUARANTEE firing on first dispatch tick.
+    state.decision_slots[8] = 1;
+    state.tick = Tick::ZERO.successor();
+
+    let mut defs = BTreeMap::new();
+    defs.insert(
+        lrs_id.to_string(),
+        make_def(lrs_id, BiasCategory::Attacking, amplify_shoot_bias()),
+    );
+
+    // Accumulate all memory events from 150 ticks. P0-2 fix clears
+    // signature_memory_events at the TOP of every dispatch_tick, so drain
+    // after each call.
+    let mut all_events: Vec<SignatureMemoryEvent> = Vec::new();
+    for _ in 0..150 {
+        state = dispatch::dispatch_tick(state, &defs);
+        all_events.extend_from_slice(&state.signature_memory_events);
+        state.tick = state.tick.successor();
+    }
+
+    // Count SignatureFirstFired events for slot 8 / LRS.
+    let first_fired_count = all_events
         .iter()
         .filter(|e| {
             matches!(
@@ -764,13 +634,45 @@ fn vacuousness_check_ac5_first_fired_once_is_not_vacuous() {
         })
         .count();
 
-    // The AC-5 assertion `first_fired_count <= 1` would fail with count=2.
+    // **Load-bearing assertion**: EXACTLY 1, not ≤ 1. The prior "<=" was
+    // vacuous on count=0. With guaranteed-firing setup, count MUST be 1.
+    assert_eq!(
+        first_fired_count, 1,
+        "SignatureFirstFired for (slot=8, lrs) must be emitted exactly once \
+         across 150 guaranteed-firing ticks. Got {first_fired_count}. \
+         0 = setup-failed-to-fire (test is wrong). >1 = exactly-once-semantics \
+         violated (production bug)."
+    );
+
+    // Cross-check: seen-set MUST contain the entry (firing-emission invariant).
     assert!(
-        first_fired_count > 1,
-        "vacuousness check: broken event list must have count > 1, \
-         proving AC-5's `<= 1` assertion is non-vacuous"
+        state
+            .signature_first_fired_seen
+            .contains(&(8u8, id.clone())),
+        "first_fired_seen must contain (8, lrs) since exactly 1 \
+         SignatureFirstFired was emitted"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Removed: vacuousness_check_acN companion tests (Codex Tier-2 re-audit
+// round 3). They tested FAKE in-memory bad data (vec! literals of broken
+// events; broken cooldown values via direct .insert()), not the real
+// dispatch path. Codex's verdict: "test fake local bad data, not the real
+// dispatch path." The companions added complexity without proving the AC
+// tests would catch dispatch-path bugs.
+//
+// Instead, AC-2/3/4/5 are now non-vacuous BY CONSTRUCTION via the
+// assert-positive-firing-then-assert-invariant pattern: each test
+// guarantees a dispatch firing (decision_slots[8]=1 + tick=1 + attrs above
+// threshold), asserts the firing happened (positive assertion that fails
+// if dispatch is broken), then asserts the invariant on the post-firing
+// state (count == N, not ≤ N). If the dispatch path or the invariant is
+// broken, the AC test fails directly — no meta-test needed.
+// ---------------------------------------------------------------------------
+
+// (vacuousness_check companion tests removed; the assert-positive-then-
+//  invariant pattern in AC-2/3/4/5 above is non-vacuous by construction.)
 
 // ---------------------------------------------------------------------------
 // AC-6: Determinism — same seed + definitions → identical canonical output
