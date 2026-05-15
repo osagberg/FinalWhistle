@@ -1,0 +1,39 @@
+// T1-2b-iv: LongRangeStrike signature definition.
+// id: fwh.core:signature.long-range-strike
+//
+// A midfielder or forward stays composed under pressure to unleash a shot from
+// distance. The technique is there; the moment arrives when space opens beyond
+// the defensive line.
+//
+// Bias: strongly amplifies Shoot (commit to the effort), moderately amplifies
+// Dribble (get the yard of space), suppresses Pass and Cover (not looking for
+// the safe option).
+//
+// Q32 serde form: (bits: <i64>) where i64 = round(decimal * 2^32).
+// Q32::ONE = (bits: 4294967296); Q32::ZERO = (bits: 0).
+// 2.0 = 8589934592; 1.2 = 5153960755; 0.4 = 1717986918; 0.3 = 1288490189.
+//
+// Trigger: LongRangeStrike predicate in fw-match-sim/signature/triggers.rs.
+//
+// Schema version 1.
+SignatureDefinition(
+    schema_version: 1,
+    id: SignatureId("fwh.core:signature.long-range-strike"),
+    display_name: "Long Range Strike",
+    role_family: AttackingMidfielder,
+    trigger: NoOpStub,
+    bias_snapshot: (
+        shoot_mul:   (bits: 8589934592),   // 2.0 — strongly amplify: commit to the shot
+        pass_mul:    (bits: 1288490189),   // 0.3 — suppress: not looking for the safe ball
+        dribble_mul: (bits: 5153960755),   // 1.2 — mild amplify: create the yard of space
+        press_mul:   (bits: 1288490189),   // 0.3 — suppress: not pressing, shooting
+        cover_mul:   (bits: 1717986918),   // 0.4 — suppress: forward shape, not defensive
+    ),
+    presentation: (
+        commentary_line_bank_id: "fwh.core:commentary.long-range-strike",
+        camera_framing_hint: "wide_pull_back_shot",
+        schema_version: 1,
+    ),
+    cooldown: EveryTicks(900),
+    stacking: Exclusive(category: BuildUp),
+)

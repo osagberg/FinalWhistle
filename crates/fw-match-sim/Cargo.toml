@@ -15,6 +15,7 @@ float_arithmetic = "deny"
 
 [dependencies]
 fw-core     = { workspace = true }
+fw-content  = { workspace = true }   # T1-2b-iv: SignatureId + SignatureDefinition + SimBiasSnapshot
 fixed       = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }   # MatchFrameDto JSON (DTO module + dump_frames bin)
@@ -31,3 +32,4 @@ clap        = { version = "4", features = ["derive"] }
 [dev-dependencies]
 insta    = { workspace = true }
 proptest = { workspace = true }
+ron      = { workspace = true }   # T1-2b-iv: load signature RON fixtures in tests

@@ -1,0 +1,41 @@
+// T1-2b-iv: BodyShieldPressure signature definition.
+// id: fwh.core:signature.body-shield-pressure
+//
+// A defender or holding midfielder uses physical strength and aggression to pin
+// an opponent off the ball, shielding it from the press. Reading the play well
+// and staying strong in the contest.
+//
+// Bias: amplifies Press and Cover (defensive dominance), suppresses Shoot/Dribble
+// (not the moment to step forward).
+//
+// Q32 serde form: (bits: <i64>) where i64 = round(decimal * 2^32).
+// Q32::ONE = (bits: 4294967296); Q32::ZERO = (bits: 0).
+// 0.5 = 2147483648; 1.5 = 6442450944; 0.3 = 1288490189.
+//
+// Trigger: BodyShieldPressure predicate in fw-match-sim/signature/triggers.rs
+//   (bound at build_trigger_table by ID string; RON trigger field is reserved
+//    for parameters — `NoOpStub` is the only variant until T2-4 adds parameterised
+//    variants to fw-content::SignatureTrigger).
+//
+// Schema version 1.
+SignatureDefinition(
+    schema_version: 1,
+    id: SignatureId("fwh.core:signature.body-shield-pressure"),
+    display_name: "Body Shield Pressure",
+    role_family: CentreBack,
+    trigger: NoOpStub,
+    bias_snapshot: (
+        shoot_mul:   (bits: 1288490189),   // 0.3 — suppress: not the moment to shoot
+        pass_mul:    (bits: 2147483648),   // 0.5 — neutral: normal pass option
+        dribble_mul: (bits: 1288490189),   // 0.3 — suppress: don't break out of shape
+        press_mul:   (bits: 6442450944),   // 1.5 — amplify: commit to the press
+        cover_mul:   (bits: 6442450944),   // 1.5 — amplify: hold defensive shape
+    ),
+    presentation: (
+        commentary_line_bank_id: "fwh.core:commentary.body-shield-pressure",
+        camera_framing_hint: "tight_on_ball_duel",
+        schema_version: 1,
+    ),
+    cooldown: EveryTicks(600),
+    stacking: Exclusive(category: Defensive),
+)

@@ -96,6 +96,7 @@
 //! pinned hash will drift; re-baseline per
 //! `docs/specs/determinism-gate.md` §9.
 
+use crate::signature::SignatureFiring;
 use crate::tactic_fsm::{SetPieceKind, TacticState, TeamTacticState};
 use crate::{BallState, MatchState, PlayerState};
 
@@ -108,7 +109,11 @@ const MAGIC: &[u8; 4] = b"FWMS";
 //        local_decision_counter (u32 LE); +6 bytes per player × 22 = +132
 //   4 — T1-2b-iii-b: PlayerState gained attributes (55 × i64 LE);
 //        +440 bytes per player × 22 = +9680 bytes per match-state
-const VERSION: u16 = 4;
+//   5 — T1-2b-iv: MatchState gained signature_cooldowns (BTreeMap len + entries),
+//        signature_firing (22 × Option<SignatureFiring>),
+//        signature_first_fired_seen (BTreeSet len + entries).
+//        Wire-format: new sections appended AFTER ball (at end of encode_match_state).
+const VERSION: u16 = 5;
 
 /// Streaming canonical encoder. Append bytes as values are emitted; call
 /// `finish()` to get the buffer for hashing.
@@ -188,6 +193,51 @@ impl CanonicalEncoder {
         }
 
         self.encode_ball(&state.ball);
+
+        // T1-2b-iv: signature_cooldowns — BTreeMap length + entries in sorted order.
+        // Layout: [count u32 LE] [slot u8, id_len u16 LE, id_bytes*, cooldown_tick i64 LE] × count
+        // BTreeMap iteration is sorted by (PlayerSlot, SignatureId) key — deterministic.
+        assert!(
+            state.signature_cooldowns.len() <= u32::MAX as usize,
+            "signature_cooldowns overflowed u32 count field"
+        );
+        self.write_u32(state.signature_cooldowns.len() as u32);
+        for ((slot, sig_id), cooldown_tick) in &state.signature_cooldowns {
+            self.write_u8(*slot);
+            let id_bytes = sig_id.as_str().as_bytes();
+            assert!(
+                id_bytes.len() <= u16::MAX as usize,
+                "signature ID exceeds u16 length field"
+            );
+            self.write_u16(id_bytes.len() as u16);
+            self.buf.extend_from_slice(id_bytes);
+            self.write_i64(cooldown_tick.to_raw());
+        }
+
+        // T1-2b-iv: signature_firing — 22 Option<SignatureFiring> in slot order.
+        // Layout: 22 × [present u8 (0=None, 1=Some)] [if Some: id_len u16, id_bytes*, start_tick i64, duration u32]
+        for maybe_firing in &state.signature_firing {
+            self.encode_signature_firing(maybe_firing.as_ref());
+        }
+
+        // T1-2b-iv: signature_first_fired_seen — BTreeSet length + entries in sorted order.
+        // Layout: [count u32 LE] [slot u8, id_len u16 LE, id_bytes*] × count
+        // BTreeSet iteration is sorted by (PlayerSlot, SignatureId) — deterministic.
+        assert!(
+            state.signature_first_fired_seen.len() <= u32::MAX as usize,
+            "signature_first_fired_seen overflowed u32 count field"
+        );
+        self.write_u32(state.signature_first_fired_seen.len() as u32);
+        for (slot, sig_id) in &state.signature_first_fired_seen {
+            self.write_u8(*slot);
+            let id_bytes = sig_id.as_str().as_bytes();
+            assert!(
+                id_bytes.len() <= u16::MAX as usize,
+                "signature ID exceeds u16"
+            );
+            self.write_u16(id_bytes.len() as u16);
+            self.buf.extend_from_slice(id_bytes);
+        }
     }
 
     fn encode_player(&mut self, p: &PlayerState) {
@@ -329,6 +379,29 @@ impl CanonicalEncoder {
         self.write_i64(b.spin_z.to_bits());
     }
 
+    /// Encode one `Option<SignatureFiring>`.
+    ///
+    /// Layout:
+    /// - `None` → `[0u8]` (1 byte).
+    /// - `Some(f)` → `[1u8] [id_len u16 LE] [id_bytes*] [start_tick i64 LE] [duration_ticks u32 LE]`.
+    fn encode_signature_firing(&mut self, firing: Option<&SignatureFiring>) {
+        match firing {
+            None => self.write_u8(0),
+            Some(f) => {
+                self.write_u8(1);
+                let id_bytes = f.id.as_str().as_bytes();
+                assert!(
+                    id_bytes.len() <= u16::MAX as usize,
+                    "signature ID exceeds u16"
+                );
+                self.write_u16(id_bytes.len() as u16);
+                self.buf.extend_from_slice(id_bytes);
+                self.write_i64(f.start_tick.to_raw());
+                self.write_u32(f.duration_ticks);
+            }
+        }
+    }
+
     /// Consume the encoder and return the buffer.
     pub fn finish(self) -> Vec<u8> {
         self.buf
@@ -416,11 +489,11 @@ mod tests {
     }
 
     #[test]
-    fn version_is_4_after_t1_2b_iii_b_schema_bump() {
+    fn version_is_5_after_t1_2b_iv_schema_bump() {
         assert_eq!(
-            VERSION, 4,
-            "VERSION should be 4 after T1-2b-iii-b canonical schema bump \
-             (PlayerState gained attributes: 55 x i64 LE)"
+            VERSION, 5,
+            "VERSION should be 5 after T1-2b-iv canonical schema bump \
+             (MatchState gained signature_cooldowns + signature_firing + signature_first_fired_seen)"
         );
     }
 
@@ -531,6 +604,78 @@ mod tests {
             probe_a.finish(),
             probe_b.finish(),
             "different SetPieceKind variants must produce different encodings"
+        );
+    }
+
+    /// T1-2b-iv: signature_cooldowns block is present in encoding.
+    #[test]
+    fn encoding_reflects_signature_cooldowns() {
+        use fw_content::SignatureId;
+        let mut s = MatchState::initial(Seed::from_u64(1));
+        let a = s.encode_canonical();
+        let sig_id = SignatureId::try_new("fwh.core:signature.no-op-stub").unwrap();
+        s.signature_cooldowns
+            .insert((0u8, sig_id), Tick::from_raw(600));
+        let b = s.encode_canonical();
+        assert_ne!(a, b, "adding a cooldown entry should change encoding");
+    }
+
+    /// T1-2b-iv: signature_firing block is present in encoding.
+    #[test]
+    fn encoding_reflects_signature_firing() {
+        use crate::signature::SignatureFiring;
+        use fw_content::SignatureId;
+        let mut s = MatchState::initial(Seed::from_u64(1));
+        let a = s.encode_canonical();
+        s.signature_firing[3] = Some(SignatureFiring::new(
+            SignatureId::try_new("fwh.core:signature.no-op-stub").unwrap(),
+            Tick::from_raw(50),
+            60,
+        ));
+        let b = s.encode_canonical();
+        assert_ne!(
+            a, b,
+            "setting a signature_firing entry should change encoding"
+        );
+    }
+
+    /// T1-2b-iv: signature_first_fired_seen block is present in encoding.
+    #[test]
+    fn encoding_reflects_signature_first_fired_seen() {
+        use fw_content::SignatureId;
+        let mut s = MatchState::initial(Seed::from_u64(1));
+        let a = s.encode_canonical();
+        let sig_id = SignatureId::try_new("fwh.core:signature.no-op-stub").unwrap();
+        s.signature_first_fired_seen.insert((5u8, sig_id));
+        let b = s.encode_canonical();
+        assert_ne!(
+            a, b,
+            "inserting into signature_first_fired_seen should change encoding"
+        );
+    }
+
+    /// P0-2: `signature_memory_events` is transient — must not affect canonical encoding.
+    /// Two states that differ ONLY in this field must produce identical encoded bytes.
+    #[test]
+    fn signature_memory_events_not_in_canonical_encoding() {
+        use crate::signature::ledger::MemoryEvent;
+        use fw_content::SignatureId;
+        use fw_core::Tick;
+
+        let state_a = MatchState::initial(Seed::from_u64(1));
+        let mut state_b = state_a.clone();
+        // Inject a dummy event into state_b only.
+        state_b
+            .signature_memory_events
+            .push(MemoryEvent::SignatureFirstFired {
+                player_slot: 5,
+                signature_id: SignatureId::try_new("fwh.core:signature.no-op-stub").unwrap(),
+                tick: Tick::from_raw(42),
+            });
+        assert_eq!(
+            state_a.encode_canonical(),
+            state_b.encode_canonical(),
+            "signature_memory_events is transient; must not affect canonical encoding"
         );
     }
 

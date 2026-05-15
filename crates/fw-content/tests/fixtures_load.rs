@@ -226,9 +226,11 @@ fn no_op_stub_loads_via_content_store() {
 /// seed. PlayerTemplate is template data only; `MatchState::initial` uses
 /// hardcoded positions + `mid_range_baseline()`, never loaded templates.
 ///
-/// Hash must remain at 1db6020c7ac3181fac9f73b2e30423708d9fdd55a846e38c8e81c8c7ab59c798
-/// per T1-3 acceptance criterion #2. If this test fails, that's a scope-leak
-/// signal — fw-match-sim is accidentally consuming PlayerTemplate data.
+/// Hash rebaselined at T1-2b-iv to 18f1776c2f77939d32849dc72e05909caf78b93bf6ce50a1222b28f9c6a5d048
+/// (canonical encoder VERSION 4→5; signature state fields added to MatchState).
+/// Prior T1-3 hash: 1db6020c7ac3181fac9f73b2e30423708d9fdd55a846e38c8e81c8c7ab59c798
+/// If this test fails without an authorized rebaseline, it is a scope-leak
+/// signal — check encoder VERSION and canonical schema additions.
 #[test]
 fn signature_load_does_not_drift_canonical_hash() {
     use fw_core::Seed;
@@ -236,12 +238,15 @@ fn signature_load_does_not_drift_canonical_hash() {
 
     const SMOKE_SEED: u64 = 0xdeadbeefdeadbeef;
     const SMOKE_TICKS: u32 = 60;
-    // Pinned at T1-2b-iii-d. Must remain unchanged through T1-3.
+    // Rebaselined at T1-2b-iv: canonical encoder VERSION bumped 4 → 5;
+    // three new sections added (signature_cooldowns, signature_firing,
+    // signature_first_fired_seen). Hash intentionally changes.
+    // Prior T1-2b-iii-d / T1-3 hash: 1db6020c7ac3181fac9f73b2e30423708d9fdd55a846e38c8e81c8c7ab59c798
     // Represented as raw bytes so we can compare without a hex crate.
     const EXPECTED: [u8; 32] = [
-        0x1d, 0xb6, 0x02, 0x0c, 0x7a, 0xc3, 0x18, 0x1f, 0xac, 0x9f, 0x73, 0xb2, 0xe3, 0x04, 0x23,
-        0x70, 0x8d, 0x9f, 0xdd, 0x55, 0xa8, 0x46, 0xe3, 0x8c, 0x8e, 0x81, 0xc8, 0xc7, 0xab, 0x59,
-        0xc7, 0x98,
+        0x18, 0xf1, 0x77, 0x6c, 0x2f, 0x77, 0x93, 0x9d, 0x32, 0x84, 0x9d, 0xc7, 0x2e, 0x05, 0x90,
+        0x9c, 0xaf, 0x78, 0xb9, 0x3b, 0xf6, 0xce, 0x50, 0xa1, 0x22, 0x2b, 0x28, 0xf9, 0xc6, 0xa5,
+        0xd0, 0x48,
     ];
 
     // Load the content store (exercises the new signature loader).
@@ -263,10 +268,10 @@ fn signature_load_does_not_drift_canonical_hash() {
 
     assert_eq!(
         actual, EXPECTED,
-        "\nCanonical-state hash drifted after T1-3 signature additions.\n\
-         This means fw-match-sim is accidentally consuming PlayerTemplate data\n\
-         or the signature schema was wired into MatchState prematurely.\n\
-         Expected: 1db6020c7ac3181fac9f73b2e30423708d9fdd55a846e38c8e81c8c7ab59c798\n\
+        "\nCanonical-state hash drifted unexpectedly.\n\
+         T1-2b-iv rebaselined to 18f1776c2f77939d32849dc72e05909caf78b93bf6ce50a1222b28f9c6a5d048\n\
+         (VERSION 4→5; signature_cooldowns + signature_firing + signature_first_fired_seen added).\n\
+         If this drifts again, it must be an authorized rebaseline — check encoder VERSION bump.\n\
          Actual:   {:02x?}",
         actual
     );

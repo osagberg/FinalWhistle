@@ -45,15 +45,22 @@
 //! set-piece switchover) are stubbed to return `None`. They will be wired
 //! in -iii-b / T1-4 once `MatchEvent` exists.
 
+use std::collections::BTreeMap;
+
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
-use fw_core::Q32;
+use fw_content::{CooldownPolicy, SignatureDefinition};
+use fw_core::{Q32, Tick};
 
 use crate::MatchState;
 use crate::decision_cadence::{SeedLayer, seed_fn, should_decide};
 use crate::goalkeeper_fsm::tick_goalkeeper;
 use crate::role_states::{PlayerIntent, PlayerRoleState};
+use crate::signature::ledger::MemoryEvent;
+use crate::signature::{
+    DEFAULT_FIRING_DURATION_TICKS, SignatureFiring, build_trigger_table, evaluate_signatures,
+};
 use crate::subtree_library::select_outfield_intent;
 
 // ---------------------------------------------------------------------------
@@ -80,9 +87,33 @@ const MAX_PLAYER_SPEED: Q32 = Q32::from_raw(5_i64 << 32); // 5.0 in Q32.32
 /// Roster slots 0..22 are iterated in fixed order. For each slot where
 /// `should_decide` fires, the role-appropriate runner executes and the
 /// returned `PlayerIntent` is applied.
-pub fn dispatch_tick(mut state: MatchState) -> MatchState {
-    // SubtreeLibrary is still used by subtree_library::select_outfield_intent;
-    // we no longer need it directly in dispatch_tick (utility scorer handles lookup).
+///
+/// `sig_definitions` — map from `SignatureId.as_str()` to `SignatureDefinition`,
+/// used by the signature dispatcher. Pass `&BTreeMap::new()` when no content
+/// store is available (no signatures will fire without definitions).
+pub fn dispatch_tick(
+    mut state: MatchState,
+    sig_definitions: &BTreeMap<String, SignatureDefinition>,
+) -> MatchState {
+    // P0-2: clear the transient event scratch-buffer at the start of each tick.
+    // `signature_memory_events` is a per-tick accumulator: callers drain it
+    // after each dispatch_tick call. Clearing here ensures events from tick N
+    // do not bleed into tick N+1 when the caller forgets to drain.
+    state.signature_memory_events.clear();
+
+    // Build the trigger table once per tick (cheap: it's a BTreeMap of fn ptrs).
+    let trigger_table = build_trigger_table();
+
+    // Advance firing windows: clear expired signature_firing entries.
+    // Must run before the per-slot decision loop so the stacking check sees
+    // up-to-date firing state.
+    for slot_idx in 0..22usize {
+        if let Some(firing) = &state.signature_firing[slot_idx]
+            && !firing.is_active(state.tick)
+        {
+            state.signature_firing[slot_idx] = None;
+        }
+    }
 
     for slot_idx in 0..22usize {
         // roster_slot is 1-indexed per decision_cadence::should_decide contract.
@@ -103,6 +134,57 @@ pub fn dispatch_tick(mut state: MatchState) -> MatchState {
             apply_intent(&mut state, slot_idx, preempt_intent);
             state.players[slot_idx].bump_decision_counter();
             continue;
+        }
+
+        // T1-2b-iv: evaluate signature triggers for this player.
+        // Runs before role dispatch so the picked signature (if any) is in
+        // `signature_firing[slot_idx]` when utility scoring reads the bias.
+        let slot = slot_idx as u8;
+        {
+            // Clone candidates to avoid aliasing with &mut state below.
+            let candidates = state.players[slot_idx].signature_candidates.clone();
+            let active_firing = state.signature_firing[slot_idx].as_ref().cloned();
+            if let Some((sig_id, sig_def)) = evaluate_signatures(
+                &state,
+                slot,
+                &candidates,
+                sig_definitions,
+                &trigger_table,
+                active_firing.as_ref(),
+            ) {
+                // Determine cooldown end tick from the definition's CooldownPolicy.
+                let cooldown_end_tick = match sig_def.cooldown {
+                    CooldownPolicy::EveryTicks(n) => Tick::from_raw(state.tick.to_raw() + n as i64),
+                    CooldownPolicy::PerMatchCount(_) => {
+                        // For PerMatchCount, use the 600-tick default as the
+                        // intra-match spacing; the count limit enforced at T2-4.
+                        Tick::from_raw(state.tick.to_raw() + 600)
+                    }
+                };
+                // Set cooldown.
+                state
+                    .signature_cooldowns
+                    .insert((slot, sig_id.clone()), cooldown_end_tick);
+                // Set firing window (replaces any prior firing in this category
+                // only if stacking allows — checked in evaluate_signatures above).
+                state.signature_firing[slot_idx] = Some(SignatureFiring {
+                    id: sig_id.clone(),
+                    start_tick: state.tick,
+                    duration_ticks: DEFAULT_FIRING_DURATION_TICKS,
+                });
+                // Emit SignatureFirstFired if first time this match.
+                let first_fired_key = (slot, sig_id.clone());
+                if !state.signature_first_fired_seen.contains(&first_fired_key) {
+                    state.signature_first_fired_seen.insert(first_fired_key);
+                    state
+                        .signature_memory_events
+                        .push(MemoryEvent::SignatureFirstFired {
+                            player_slot: slot,
+                            signature_id: sig_id,
+                            tick: state.tick,
+                        });
+                }
+            }
         }
 
         // Build ADR-0009 RNG for this decision.
@@ -145,8 +227,20 @@ pub fn dispatch_tick(mut state: MatchState) -> MatchState {
                 // `select_outfield_intent` reads player attributes and role state to
                 // assemble a candidate list, then samples via ChaCha8Rng.
                 let player = &state.players[slot_idx];
-                let outfield_intent =
-                    select_outfield_intent(next_role_state, player, formation_slot, &mut rng);
+                // Resolve active signature bias: look up the currently-firing
+                // signature's SimBiasSnapshot from sig_definitions. Returns None
+                // when no signature is active or the definition is not loaded.
+                let active_bias = state.signature_firing[slot_idx]
+                    .as_ref()
+                    .and_then(|f| sig_definitions.get(f.id.as_str()))
+                    .map(|def| &def.bias_snapshot);
+                let outfield_intent = select_outfield_intent(
+                    next_role_state,
+                    player,
+                    formation_slot,
+                    &mut rng,
+                    active_bias,
+                );
                 // Role state unchanged in iii-c (transitions stay identity).
                 outfield_intent
             }
@@ -336,8 +430,9 @@ mod tests {
         let s1 = MatchState::initial(seed);
         let s2 = MatchState::initial(seed);
 
-        let r1 = dispatch_tick(s1);
-        let r2 = dispatch_tick(s2);
+        let empty_defs = BTreeMap::new();
+        let r1 = dispatch_tick(s1, &empty_defs);
+        let r2 = dispatch_tick(s2, &empty_defs);
 
         assert_eq!(
             r1.encode_canonical(),

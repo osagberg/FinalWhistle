@@ -21,6 +21,7 @@
 //! about; subsequent phases extend it with `#[serde(default)]` fields where
 //! backward compatibility is needed.
 
+use fw_content::SignatureCandidate;
 use fw_core::{PlayerAttributes, Q32};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -95,6 +96,19 @@ pub struct PlayerState {
     /// Visibility: `pub(crate)` — external code uses the `attributes()` accessor.
     #[serde(default = "PlayerAttributes::mid_range_baseline")]
     pub(crate) attributes: PlayerAttributes,
+
+    // ---- T1-2b-iv addition ----
+    /// Per-player signature candidates — loaded from `PlayerTemplate` at match
+    /// init. NOT encoded in canonical state (content-derived, not match state).
+    /// Empty by default; populated by the match-setup path or test fixtures.
+    ///
+    /// `pub(crate)` — external callers use `signature_candidates()` (read) and
+    /// `signature_candidates_mut()` (write; used by match-setup + tests).
+    ///
+    /// The dispatcher evaluates trigger predicates for each candidate each
+    /// decision tick.
+    #[serde(default)]
+    pub(crate) signature_candidates: Vec<SignatureCandidate>,
 }
 
 impl PlayerState {
@@ -114,6 +128,7 @@ impl PlayerState {
             role_state: PlayerRoleState::initial(role),
             local_decision_counter: 0,
             attributes: PlayerAttributes::mid_range_baseline(),
+            signature_candidates: Vec::new(),
         }
     }
 
@@ -147,6 +162,31 @@ impl PlayerState {
     #[must_use]
     pub fn attributes(&self) -> &PlayerAttributes {
         &self.attributes
+    }
+
+    /// Mutable access to the player's attribute record.
+    ///
+    /// Used by match-setup code (which populates attributes from
+    /// `PlayerTemplate`) and test fixtures. The BT utility scorers
+    /// in the same crate access `self.attributes` directly.
+    pub fn attributes_mut(&mut self) -> &mut PlayerAttributes {
+        &mut self.attributes
+    }
+
+    /// Read-only view of the player's signature candidates.
+    /// External code (IPC DTOs, tests) uses this accessor.
+    #[must_use]
+    pub fn signature_candidates(&self) -> &[SignatureCandidate] {
+        &self.signature_candidates
+    }
+
+    /// Mutable access to the signature candidates list.
+    ///
+    /// Used by match-setup code (which populates candidates from
+    /// `PlayerTemplate`) and test fixtures. The dispatch path reads
+    /// candidates via the read accessor or clones them internally.
+    pub fn signature_candidates_mut(&mut self) -> &mut Vec<SignatureCandidate> {
+        &mut self.signature_candidates
     }
 
     /// Increment the decision counter (crate-internal; only `dispatch.rs`

@@ -131,6 +131,13 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   `tick_match`) adjusts player positions after velocity integration, so canonical
 ///   state (which encodes pos_x/pos_y) changes. No schema bump; only position values
 ///   change. Separation is purely deterministic (Q32 arithmetic, no RNG).
+/// - 2026-05-15 (T1-2b-iv signature dispatcher) — **re-baselined to `18f1776c…a5d048`**
+///   per ADR-0012 trigger #1 (canonical schema bump): `MatchState` gained three new
+///   canonical fields: `signature_cooldowns: BTreeMap<(PlayerSlot, SignatureId), Tick>`,
+///   `signature_firing: [Option<SignatureFiring>; 22]`,
+///   `signature_first_fired_seen: BTreeSet<(PlayerSlot, SignatureId)>`.
+///   Canonical encoder VERSION bumped 4 → 5; three new encoding sections appended
+///   after ball. Authorized by the T1-2b-iv task-spec in MEMORY.md.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -139,7 +146,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("1db6020c7ac3181fac9f73b2e30423708d9fdd55a846e38c8e81c8c7ab59c798");
+    hex!("18f1776c2f77939d32849dc72e05909caf78b93bf6ce50a1222b28f9c6a5d048");
 
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.

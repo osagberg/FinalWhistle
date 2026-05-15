@@ -39,14 +39,17 @@ pub mod goalkeeper_fsm;
 pub mod player;
 pub mod role_states;
 pub mod separation;
+pub mod signature;
 pub mod subtree_library;
 pub mod tactic_fsm;
 pub mod utility;
 
+use fw_content::SignatureId;
 #[cfg(test)]
 use fw_core::Q32;
 use fw_core::{Seed, Tick};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub use ball::BallState;
 pub use ball_physics::{BallPhysicsCoefficients, dt_per_tick, phase1_seeds};
@@ -159,6 +162,53 @@ pub struct MatchState {
     /// Team-tactic FSM state. Index 0 = home team, index 1 = away team.
     /// Both teams start in `MidBlock @ Tick::ZERO`.
     pub team_tactic_states: [TeamTacticState; 2],
+
+    // ---- T1-2b-iv additions (signature dispatcher; ADR-0011; canonical schema bump) ----
+    //
+    // Three new canonical fields. VERSION bumped 4 → 5.
+    // `signature_cooldowns` is BTreeMap (not HashMap) per Sim/RULES.md §2.
+    // `signature_firing` is a fixed array (mirrors interrupt_cooldown_until pattern).
+    // `signature_first_fired_seen` tracks first-fire per (slot, signature) pair.
+    /// Per-player+per-signature cooldown state: the tick at which the cooldown
+    /// expires (i.e. the earliest tick the signature may re-fire).
+    ///
+    /// Keyed by `(PlayerSlot, SignatureId)` using `BTreeMap` for deterministic
+    /// ordered iteration (Sim/RULES.md §2). Updated by `dispatch_tick` when a
+    /// signature fires; expiry = `current_tick + cooldown_ticks`.
+    ///
+    /// Empty at match init (no cooldowns active).
+    pub signature_cooldowns: BTreeMap<(PlayerSlot, SignatureId), Tick>,
+
+    /// Per-player active signature firing window (if any).
+    ///
+    /// Indexed by slot (0..22). `None` = no signature in flight for that player.
+    /// `Some(SignatureFiring { id, start_tick, duration_ticks })` = signature active.
+    ///
+    /// The bias snapshot for the active signature is applied to the player's
+    /// utility scoring each decision tick while `is_active(current_tick)`.
+    ///
+    /// Cleared by `dispatch_tick` when the firing window expires.
+    pub signature_firing: [Option<signature::SignatureFiring>; 22],
+
+    /// Tracks which `(PlayerSlot, SignatureId)` pairs have fired for the first
+    /// time this match. Used to gate `MemoryEvent::SignatureFirstFired` emission —
+    /// the event fires ONCE per player+signature pair per match.
+    ///
+    /// `BTreeSet` for deterministic canonical encoding.
+    pub signature_first_fired_seen: BTreeSet<(PlayerSlot, SignatureId)>,
+
+    /// Transient per-tick signature memory events accumulated during `dispatch_tick`.
+    ///
+    /// **Transient scratch buffer** — cleared at the TOP of every `dispatch_tick`
+    /// call. Callers that want to collect events across ticks must drain this Vec
+    /// between calls. Excluded from serde (not canonical state) and from the
+    /// canonical encoder (events are ephemeral, not part of the pinned hash).
+    ///
+    /// T3-1 wires these to the real `fw-memory` ledger. Until then, this Vec
+    /// collects `SignatureFirstFired` events for testing + replay output.
+    /// Events are appended in slot order (dispatch iterates 0..22 in fixed order).
+    #[serde(skip)]
+    pub signature_memory_events: Vec<signature::SignatureMemoryEvent>,
 }
 
 impl MatchState {
@@ -215,6 +265,16 @@ impl MatchState {
             interrupt_cooldown_until: [Tick::ZERO; 22],
             // T1-2b-ii: both teams start in neutral MidBlock.
             team_tactic_states: [TeamTacticState::initial(); 2],
+            // T1-2b-iv: signature state — all empty at match init.
+            signature_cooldowns: BTreeMap::new(),
+            // Fixed-array init: Rust doesn't impl Default for arrays with non-Copy
+            // Option<T> when T doesn't impl Default unless we spell it out.
+            signature_firing: [
+                None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+                None, None, None, None, None, None, None, None,
+            ],
+            signature_first_fired_seen: BTreeSet::new(),
+            signature_memory_events: Vec::new(),
         }
     }
 
@@ -268,7 +328,10 @@ pub fn tick_match(mut state: MatchState) -> MatchState {
     }
 
     // T1-2b-iii-a: per-player decision dispatch.
-    state = dispatch::dispatch_tick(state);
+    // T1-2b-iv: pass an empty definitions map (no signatures fire in
+    // the basic smoke path without signature candidates set on players).
+    // The real match-setup path populates definitions from ContentStore at T2-4.
+    state = dispatch::dispatch_tick(state, &BTreeMap::new());
 
     // Step 5: integrate player velocity into position.
     // Every player's position advances by vel * dt each tick, using the same

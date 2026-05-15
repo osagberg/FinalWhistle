@@ -1,4 +1,4 @@
-// Phase-0/T1-2b-iii-c smoke fixture for the determinism gate.
+// Phase-0/T1-2b-iv smoke fixture for the determinism gate.
 //
 // Loaded by `tests/canonical_hash.rs::smoke_seed_corpus_fixture_matches_pinned_constant`.
 // The `expected_hash` field is `"blake3:" + lowercase-hex(blake3-digest)`.
@@ -62,6 +62,16 @@
 //                               tick_match, after position integration. Adjusts
 //                               pos_x/pos_y for overlapping pairs → canonical
 //                               state changes. No schema bump; no new fields.
+//   2026-05-15 (T1-2b-iv)      — `18f1776c…a5d048` per ADR-0012 trigger #1
+//                               (canonical schema bump, authorized by T1-2b-iv
+//                               task-spec in MEMORY.md). MatchState gained three
+//                               new canonical fields: signature_cooldowns
+//                               BTreeMap<(PlayerSlot,SignatureId),Tick>,
+//                               signature_firing [Option<SignatureFiring>;22],
+//                               signature_first_fired_seen BTreeSet. Canonical
+//                               encoder VERSION bumped 4→5. Signature dispatcher
+//                               wired into dispatch_tick with 3 trigger predicates
+//                               + bias application in select_outfield_intent.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -73,10 +83,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:1db6020c7ac3181fac9f73b2e30423708d9fdd55a846e38c8e81c8c7ab59c798",
+    expected_hash: "blake3:18f1776c2f77939d32849dc72e05909caf78b93bf6ce50a1222b28f9c6a5d048",
     metadata: (
-        description: "T1-2b-iii-d PlayerSeparation smoke fixture. Positional-correction pass added as step 6 in tick_match.",
-        generated_at: "2026-05-14",
-        notes: "Re-pinned at T1-2b-iii-d (behavioral change per ADR-0012 #1). Player-separation pass (separation.rs) resolves inter-player overlaps (min 0.4 m) using Q32 cordic sqrt + half-overlap push. Single iteration per tick; no convergence loop. Velocity untouched. 231 pairs iterated in lex order (slot_i < slot_j). 5 unit tests + 6 proptest invariants added in separation_proptest.rs.",
+        description: "T1-2b-iv signature dispatcher smoke fixture. Canonical encoder VERSION 4→5; signature_cooldowns + signature_firing + signature_first_fired_seen added to MatchState.",
+        generated_at: "2026-05-15",
+        notes: "Re-pinned at T1-2b-iv (canonical schema bump per ADR-0012 #1). Three new canonical MatchState fields: signature_cooldowns BTreeMap, signature_firing [Option<SignatureFiring>;22], signature_first_fired_seen BTreeSet. Three new encoding sections appended after ball. Signature dispatcher wired into dispatch_tick. Trigger predicates: body-shield-pressure, long-range-strike, first-time-diagonal-switch. Bias applied in select_outfield_intent. 3 RON fixtures + 6 proptest ACs.",
     ),
 )

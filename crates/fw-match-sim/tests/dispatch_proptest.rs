@@ -7,6 +7,7 @@
 use fw_core::Seed;
 use fw_match_sim::{MatchState, dispatch, tick_match};
 use proptest::prelude::*;
+use std::collections::BTreeMap;
 
 fn arb_seed() -> impl Strategy<Value = u64> {
     any::<u64>()
@@ -25,8 +26,9 @@ proptest! {
         let s1 = MatchState::initial(seed);
         let s2 = MatchState::initial(seed);
 
-        let r1 = dispatch::dispatch_tick(s1);
-        let r2 = dispatch::dispatch_tick(s2);
+        let empty_defs = BTreeMap::new();
+        let r1 = dispatch::dispatch_tick(s1, &empty_defs);
+        let r2 = dispatch::dispatch_tick(s2, &empty_defs);
 
         prop_assert_eq!(
             r1.encode_canonical(),

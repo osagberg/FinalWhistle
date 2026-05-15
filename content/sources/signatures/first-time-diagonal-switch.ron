@@ -1,0 +1,39 @@
+// T1-2b-iv: FirstTimeDiagonalSwitch signature definition.
+// id: fwh.core:signature.first-time-diagonal-switch
+//
+// A midfielder with vision reads the pitch and, with a single touch, switches
+// play diagonally across the field, stretching the opposition shape. The pass
+// is hit first time — no control touch.
+//
+// Bias: strongly amplifies Pass (commit to the switch), moderately amplifies
+// Dribble (earn the angle), suppresses Press and Cover (not tracking back),
+// neutral on Shoot.
+//
+// Q32 serde form: (bits: <i64>) where i64 = round(decimal * 2^32).
+// Q32::ONE = (bits: 4294967296); Q32::ZERO = (bits: 0).
+// 2.0 = 8589934592; 1.5 = 6442450944; 1.1 = 4724464025; 0.4 = 1717986918; 0.6 = 2576980378.
+//
+// Trigger: FirstTimeDiagonalSwitch predicate in fw-match-sim/signature/triggers.rs.
+//
+// Schema version 1.
+SignatureDefinition(
+    schema_version: 1,
+    id: SignatureId("fwh.core:signature.first-time-diagonal-switch"),
+    display_name: "First Time Diagonal Switch",
+    role_family: CentralMidfielder,
+    trigger: NoOpStub,
+    bias_snapshot: (
+        shoot_mul:   (bits: 4724464025),   // 1.1 — mildly amplify: can still shoot if blocked
+        pass_mul:    (bits: 8589934592),   // 2.0 — strongly amplify: commit to the switch
+        dribble_mul: (bits: 6442450944),   // 1.5 — amplify: get the angle first
+        press_mul:   (bits: 1717986918),   // 0.4 — suppress: not in a pressing moment
+        cover_mul:   (bits: 2576980378),   // 0.6 — suppress: playing forward, not back
+    ),
+    presentation: (
+        commentary_line_bank_id: "fwh.core:commentary.first-time-diagonal-switch",
+        camera_framing_hint: "wide_tracking_switch",
+        schema_version: 1,
+    ),
+    cooldown: EveryTicks(450),
+    stacking: Exclusive(category: BuildUp),
+)

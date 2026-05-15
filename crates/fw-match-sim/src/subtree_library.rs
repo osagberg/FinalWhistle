@@ -55,6 +55,7 @@
 
 use std::collections::BTreeMap;
 
+use fw_content::SimBiasSnapshot;
 use fw_core::Q32;
 use rand_chacha::ChaCha8Rng;
 
@@ -71,6 +72,7 @@ use crate::player::PlayerState;
 use crate::role_states::{
     DefenderState, ForwardState, MidfielderState, PlayerIntent, PlayerRoleState, Role,
 };
+use crate::signature::bias_apply::{BiasConsideration, apply_signature_bias};
 use crate::utility::softmax::{DEFAULT_TEMPERATURE, pick_top_n_softmax};
 
 // ---------------------------------------------------------------------------
@@ -150,12 +152,20 @@ pub fn formation_position(slot: u8) -> (Q32, Q32) {
 ///   → formation-hold set (track_back + hold_formation + mark_player).
 ///
 /// All other states fall back to `HoldFormation`.
+///
+/// ## Signature bias composition
+///
+/// When `active_bias` is `Some(snapshot)`, the function applies the snapshot's
+/// per-consideration multiplier to each candidate utility AFTER the personality
+/// bias layer. Order: `raw × personality_bias × signature_bias`. The `active_bias`
+/// is the `SimBiasSnapshot` from the player's currently-active `SignatureFiring`.
 #[must_use]
 pub fn select_outfield_intent(
     role_state: PlayerRoleState,
     player: &PlayerState,
     roster_slot: u8,
     rng: &mut ChaCha8Rng,
+    active_bias: Option<&SimBiasSnapshot>,
 ) -> PlayerIntent {
     let candidates: Vec<(PlayerIntent, Q32)> = match role_state {
         PlayerRoleState::Goalkeeper(_) => {
@@ -225,6 +235,23 @@ pub fn select_outfield_intent(
                 utility_mark_player(player, roster_slot),
             ]
         }
+    };
+
+    // Apply signature bias if a signature is in flight.
+    // Each intent variant maps to a BiasConsideration; the multiplier is
+    // applied after personality bias (which is already in the score from
+    // the utility functions above).
+    let candidates: Vec<(PlayerIntent, Q32)> = if let Some(snap) = active_bias {
+        candidates
+            .into_iter()
+            .map(|(intent, score)| {
+                let consideration = intent_to_bias_consideration(&intent);
+                let biased = apply_signature_bias(score, snap, consideration);
+                (intent, biased)
+            })
+            .collect()
+    } else {
+        candidates
     };
 
     // Sample via softmax. All branches above push ≥1 candidate, so this must
@@ -335,6 +362,51 @@ impl SubtreeLibrary {
             return None;
         }
         self.trees.get(&(role, state_tag))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Intent → BiasConsideration mapping
+// ---------------------------------------------------------------------------
+
+/// Map a `PlayerIntent` to the `BiasConsideration` that governs its utility
+/// scaling when a signature bias is active.
+///
+/// Every `PlayerIntent` variant is enumerated explicitly — no wildcard `_`.
+/// This forces a compile error when a new `PlayerIntent` variant is added
+/// without a deliberate bias assignment, preventing silent misrouting.
+///
+/// Groupings:
+/// - `AttemptShot` → Shoot
+/// - pass/cross/lay-off variants → Pass
+/// - `Dribble` / `HoldBall` → Dribble
+/// - `Press` / `TrackBack` → Press
+/// - defensive / positional movement → Cover
+/// - `Idle` → Neutral (no multiplier; see `BiasConsideration::Neutral` doc)
+/// - GK variants → their nearest semantic bucket
+fn intent_to_bias_consideration(intent: &PlayerIntent) -> BiasConsideration {
+    match intent {
+        PlayerIntent::AttemptShot { .. } => BiasConsideration::Shoot,
+        PlayerIntent::AttemptPassShort { .. }
+        | PlayerIntent::AttemptPassLong { .. }
+        | PlayerIntent::Cross { .. }
+        | PlayerIntent::LayOff { .. } => BiasConsideration::Pass,
+        PlayerIntent::Dribble { .. } | PlayerIntent::HoldBall { .. } => BiasConsideration::Dribble,
+        PlayerIntent::Press { .. } | PlayerIntent::TrackBack { .. } => BiasConsideration::Press,
+        PlayerIntent::RunOffBall { .. }
+        | PlayerIntent::MarkPlayer { .. }
+        | PlayerIntent::HoldFormation { .. }
+        | PlayerIntent::MoveToPosition { .. } => BiasConsideration::Cover,
+        // Idle carries no directional intent — multiplying it into a bias bucket
+        // would silently change Cover utility scores for players standing still.
+        PlayerIntent::Idle => BiasConsideration::Neutral,
+        // GK variants: group by semantic role.
+        PlayerIntent::GkShotStop { .. }
+        | PlayerIntent::GkCollectCross { .. }
+        | PlayerIntent::GkSweeperRush { .. } => BiasConsideration::Cover,
+        PlayerIntent::GkDistributeShort { .. } | PlayerIntent::GkDistributeLong { .. } => {
+            BiasConsideration::Pass
+        } // NO wildcard — future intents force a compile error.
     }
 }
 
