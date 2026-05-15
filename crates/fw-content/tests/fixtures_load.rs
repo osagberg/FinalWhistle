@@ -238,15 +238,15 @@ fn signature_load_does_not_drift_canonical_hash() {
 
     const SMOKE_SEED: u64 = 0xdeadbeefdeadbeef;
     const SMOKE_TICKS: u32 = 60;
-    // Rebaselined at T1-2b-iv: canonical encoder VERSION bumped 4 → 5;
-    // three new sections added (signature_cooldowns, signature_firing,
-    // signature_first_fired_seen). Hash intentionally changes.
+    // Rebaselined at T1-2b-fix: canonical encoder VERSION bumped 5 → 6;
+    // P1-2 schema bump: per-player signature_candidates added to canonical encoding.
+    // Prior T1-2b-iv hash: 18f1776c2f77939d32849dc72e05909caf78b93bf6ce50a1222b28f9c6a5d048
     // Prior T1-2b-iii-d / T1-3 hash: 1db6020c7ac3181fac9f73b2e30423708d9fdd55a846e38c8e81c8c7ab59c798
     // Represented as raw bytes so we can compare without a hex crate.
     const EXPECTED: [u8; 32] = [
-        0x18, 0xf1, 0x77, 0x6c, 0x2f, 0x77, 0x93, 0x9d, 0x32, 0x84, 0x9d, 0xc7, 0x2e, 0x05, 0x90,
-        0x9c, 0xaf, 0x78, 0xb9, 0x3b, 0xf6, 0xce, 0x50, 0xa1, 0x22, 0x2b, 0x28, 0xf9, 0xc6, 0xa5,
-        0xd0, 0x48,
+        0xdb, 0xe4, 0xf4, 0x9b, 0xdb, 0x8b, 0x86, 0x6d, 0x47, 0xc9, 0xe4, 0x6a, 0x16, 0xe2, 0x24,
+        0x16, 0xdf, 0xdd, 0xbc, 0xb6, 0xed, 0xd9, 0x35, 0x51, 0x39, 0x11, 0x41, 0x33, 0xa2, 0x50,
+        0x85, 0xf2,
     ];
 
     // Load the content store (exercises the new signature loader).
@@ -269,8 +269,8 @@ fn signature_load_does_not_drift_canonical_hash() {
     assert_eq!(
         actual, EXPECTED,
         "\nCanonical-state hash drifted unexpectedly.\n\
-         T1-2b-iv rebaselined to 18f1776c2f77939d32849dc72e05909caf78b93bf6ce50a1222b28f9c6a5d048\n\
-         (VERSION 4→5; signature_cooldowns + signature_firing + signature_first_fired_seen added).\n\
+         T1-2b-fix rebaselined to dbe4f49bdb8b866d47c9e46a16e22416dfddbcb6edd9355139114133a25085f2\n\
+         (VERSION 5→6; P1-2 signature_candidates per-player encoding added).\n\
          If this drifts again, it must be an authorized rebaseline — check encoder VERSION bump.\n\
          Actual:   {:02x?}",
         actual

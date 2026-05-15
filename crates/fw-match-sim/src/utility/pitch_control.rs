@@ -138,12 +138,25 @@ pub fn pitch_control(
         Q32::ZERO
     };
 
-    // Fastest-arriving player.
-    let (fastest_id, fastest_tau) = all_taus
+    // Fastest-arriving player. all_taus is non-empty (early-return above guards the
+    // empty case), so min_by_key always returns Some. Use let-else to surface the
+    // invariant explicitly rather than unwrap (P2-14: no unwrap in non-test sim code).
+    let Some((fastest_id, fastest_tau)) = all_taus
         .iter()
         .min_by_key(|(_, tau, _)| *tau)
         .map(|&(id, tau, _)| (id, tau))
-        .unwrap(); // safe: all_taus is non-empty
+    else {
+        // Unreachable: all_taus non-empty is an invariant established above.
+        // If we somehow reach here, fall back to the no-player outcome rather
+        // than panicking — the empty-slices early-return is the correct path.
+        return PitchControlOutcome {
+            attacker_control: Q32::ZERO,
+            defender_control: Q32::ZERO,
+            neutral_control: Q32::ONE,
+            fastest_arrival: None,
+            fastest_arrival_tau: None,
+        };
+    };
 
     PitchControlOutcome {
         attacker_control,

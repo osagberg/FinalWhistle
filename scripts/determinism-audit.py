@@ -134,8 +134,43 @@ def strip_cfg_test_blocks(source: str) -> str:
     return "\n".join(out)
 
 
-def audit_file(path: Path, crate_dir: str) -> list[tuple[int, str, str]]:
-    """Return list of (line_number, rule_name, line_snippet) violations."""
+FLOAT_RULE_NAME = "Sim/RULES.md §1 — f32/f64 type (denied by clippy::float_arithmetic but type can still appear)"
+
+# Per-rule file exemptions (P2-12 fix: tighten from file-level to rule-level).
+# Maps relative Path → set of rule names to skip for that file.
+# A file here is NOT fully skipped — only the listed rules are suppressed.
+# Use the full rule name strings from RULES above.
+PER_RULE_EXEMPT: dict[Path, set[str]] = {
+    # T1-2b-iii-b: math.rs builds the 257-entry sigmoid + exp LUTs at startup
+    # using f64 — IEEE-754 deterministic, result quantised to Q32 before any
+    # canonical path uses it. The per-tick lut_eval path is pure Q32.
+    # Exempt from the f64 rule ONLY; HashMap/HashSet/clock/RNG/async rules
+    # still scan.
+    Path("crates/fw-core/src/math.rs"): {FLOAT_RULE_NAME},
+    # q32.rs contains one f64-bearing function: from_f64_clamped (pub(crate),
+    # called ONLY from math.rs's LazyLock bake closure). Per-tick paths are
+    # pure Q32. Exempt from the f64 rule ONLY.
+    Path("crates/fw-core/src/q32.rs"): {FLOAT_RULE_NAME},
+}
+
+# Fully-exempt files: ALL rules are suppressed. Reserved for renderer-side
+# projection modules that are not canonical-state code and carry their own
+# documented float-boundary contract.
+FULLY_EXEMPT_FILES: set[Path] = {
+    # T1-2a (per ADR-0007 + ADR-0008): MatchFrameDto is the renderer-side
+    # per-tick projection consumed by the dev-tier 2D tactical board AND by
+    # the dump_frames binary. The Q32 → f64 cast is the only float arithmetic;
+    # nothing reads it back into the sim. Has #![allow(clippy::float_arithmetic)]
+    # at the module head.
+    Path("crates/fw-match-sim/src/dto.rs"),
+}
+
+
+def audit_file(path: Path, crate_dir: str, per_rule_exempt: set[str]) -> list[tuple[int, str, str]]:
+    """Return list of (line_number, rule_name, line_snippet) violations.
+
+    `per_rule_exempt` is the set of rule names to skip for this specific file.
+    """
     try:
         text = path.read_text(encoding="utf-8")
     except (UnicodeDecodeError, OSError):
@@ -147,6 +182,8 @@ def audit_file(path: Path, crate_dir: str) -> list[tuple[int, str, str]]:
     violations: list[tuple[int, str, str]] = []
     for rule_name, pattern, applies_to in RULES:
         if applies_to is not None and crate_dir not in applies_to:
+            continue
+        if rule_name in per_rule_exempt:
             continue
         for line_no, line in enumerate(stripped.split("\n"), 1):
             if pattern.search(line):
@@ -166,35 +203,14 @@ def main() -> int:
             # Skip target/ build artifacts.
             if "target" in rs_file.parts:
                 continue
-            # File-level exemptions for documented Q32 → f64 viewer-side
-            # projection modules. These are NOT canonical-state code —
-            # they project canonical state out to JSON for the renderer.
-            # Each exemption MUST have an `#![allow(clippy::float_arithmetic)]`
-            # at the module head + a `Float boundary` comment block
-            # explaining the one-way contract.
             rel = rs_file.relative_to(REPO_ROOT)
-            EXEMPT_FILES = {
-                # T1-2a (per ADR-0007 + ADR-0008): MatchFrameDto is the
-                # renderer-side per-tick projection consumed by the
-                # dev-tier 2D tactical board AND by the dump_frames
-                # binary. The Q32 → f64 cast is the only float
-                # arithmetic; nothing reads it back into the sim.
-                Path("crates/fw-match-sim/src/dto.rs"),
-                # T1-2b-iii-b (per ADR-0012): math.rs builds the 257-entry
-                # sigmoid + exp LUTs at startup using f64 — IEEE-754
-                # deterministic, result quantised to Q32 before any canonical
-                # path uses it. The per-tick lut_eval path is pure Q32.
-                Path("crates/fw-core/src/math.rs"),
-                # q32.rs contains one f64-bearing function: from_f64_clamped,
-                # which is pub(crate) and called ONLY from math.rs's LazyLock
-                # bake closure. The per-tick paths in q32.rs are pure Q32.
-                # Exempted as the f64 surface is narrowed to crate-internal
-                # bake-time use only (T1-2b-iii-b self-review P1-6).
-                Path("crates/fw-core/src/q32.rs"),
-            }
-            if rel in EXEMPT_FILES:
+            # Full-file exemptions: renderer-side projection modules with their
+            # own float-boundary contract. Skip ALL rules.
+            if rel in FULLY_EXEMPT_FILES:
                 continue
-            for line_no, rule, snippet in audit_file(rs_file, crate):
+            # Per-rule exemptions: suppress only the listed rules for this file.
+            per_rule_exempt = PER_RULE_EXEMPT.get(rel, set())
+            for line_no, rule, snippet in audit_file(rs_file, crate, per_rule_exempt):
                 violations.append((rs_file.relative_to(REPO_ROOT), line_no, rule, snippet))
 
     if not violations:

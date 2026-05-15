@@ -26,6 +26,7 @@
 use rand_chacha::ChaCha8Rng;
 
 use crate::ball::BallState;
+use crate::player::PlayerState;
 use crate::role_states::{GoalkeeperState, PlayerIntent};
 use fw_core::Q32;
 
@@ -56,16 +57,27 @@ const DISTRIBUTION_THRESHOLD: Q32 = Q32::from_raw(3_i64 << 32); // 3.0
 /// Returns `(new_state, intent)`. `evaluate_transitions` uses spatial
 /// inputs from `ball` to select the appropriate mode.
 ///
-/// `roster_slot` is 0-indexed (slot 0 = home GK, slot 11 = away GK).
+/// ## Parameters
+/// - `current_state` — the GK's current FSM state.
+/// - `player` — the GK's canonical `PlayerState`. Per ADR-0006 P1-4,
+///   the GK FSM accepts the full player record so per-state functions can
+///   read attributes (e.g. reflexes for ShotStopping, command_of_area for
+///   InBoxPositioning). In the skeleton tier the per-state stubs don't yet
+///   use `player`; attribute reads land at T1-2b-iii-b alongside the
+///   utility binding spec.
+/// - `roster_slot` — 0-indexed (slot 0 = home GK, slot 11 = away GK).
+/// - `ball` — the canonical `BallState` for spatial transition predicates.
+/// - `_rng` — seeded RNG for probabilistic draws (unused in skeleton tier).
 #[must_use]
 pub fn tick_goalkeeper(
     current_state: GoalkeeperState,
+    player: &PlayerState,
     roster_slot: u8,
     ball: &BallState,
     _rng: &mut ChaCha8Rng,
 ) -> (GoalkeeperState, PlayerIntent) {
     let next_state = evaluate_transitions(current_state, roster_slot, ball);
-    let intent = dispatch_state(next_state, roster_slot);
+    let intent = dispatch_state(next_state, roster_slot, player);
     (next_state, intent)
 }
 
@@ -135,16 +147,25 @@ fn evaluate_transitions(
 }
 
 /// Dispatch to the per-state intent function.
-pub(crate) fn dispatch_state(state: GoalkeeperState, roster_slot: u8) -> PlayerIntent {
+///
+/// `player` is passed through so per-state functions can read GK attributes
+/// (reflexes, handling, etc.) per `docs/specs/bt-attribute-binding.md §GK`.
+/// In the skeleton tier each state uses `_player` (unused) — attribute reads
+/// land at T1-2b-iii-b.
+pub(crate) fn dispatch_state(
+    state: GoalkeeperState,
+    roster_slot: u8,
+    player: &PlayerState,
+) -> PlayerIntent {
     match state {
-        GoalkeeperState::InBoxPositioning => gk_in_box_positioning(roster_slot),
-        GoalkeeperState::SweeperKeeperRush => gk_sweeper_rush(roster_slot),
-        GoalkeeperState::ShotStopping => gk_shot_stopping(roster_slot),
-        GoalkeeperState::DistributingFromHand => gk_distributing_from_hand(roster_slot),
-        GoalkeeperState::DistributingFromFeet => gk_distributing_from_feet(roster_slot),
-        GoalkeeperState::PenaltyStance => gk_penalty_stance(roster_slot),
-        GoalkeeperState::SetPieceWall => gk_set_piece_wall(roster_slot),
-        GoalkeeperState::Recovering => gk_recovering(roster_slot),
+        GoalkeeperState::InBoxPositioning => gk_in_box_positioning(roster_slot, player),
+        GoalkeeperState::SweeperKeeperRush => gk_sweeper_rush(roster_slot, player),
+        GoalkeeperState::ShotStopping => gk_shot_stopping(roster_slot, player),
+        GoalkeeperState::DistributingFromHand => gk_distributing_from_hand(roster_slot, player),
+        GoalkeeperState::DistributingFromFeet => gk_distributing_from_feet(roster_slot, player),
+        GoalkeeperState::PenaltyStance => gk_penalty_stance(roster_slot, player),
+        GoalkeeperState::SetPieceWall => gk_set_piece_wall(roster_slot, player),
+        GoalkeeperState::Recovering => gk_recovering(roster_slot, player),
     }
 }
 
@@ -158,12 +179,15 @@ fn gk_goal_line_position(roster_slot: u8) -> (Q32, Q32) {
     formation_position(roster_slot)
 }
 
-fn gk_in_box_positioning(roster_slot: u8) -> PlayerIntent {
+fn gk_in_box_positioning(roster_slot: u8, _player: &PlayerState) -> PlayerIntent {
+    // bt-attribute-binding.md §GK InBoxPositioning: primary = positioning + composure.
+    // Attribute reads land at T1-2b-iii-b; skeleton tier moves to formation.
     let (target_x, target_y) = gk_goal_line_position(roster_slot);
     PlayerIntent::MoveToPosition { target_x, target_y }
 }
 
-fn gk_sweeper_rush(roster_slot: u8) -> PlayerIntent {
+fn gk_sweeper_rush(roster_slot: u8, _player: &PlayerState) -> PlayerIntent {
+    // bt-attribute-binding.md §GK SweeperKeeperRush: primary = one_on_ones + pace + decisions.
     let (gx, gy) = gk_goal_line_position(roster_slot);
     let target_x = if (roster_slot as usize) < 11 {
         gx + Q32::from_int(5) // home GK rushes toward +x
@@ -176,36 +200,42 @@ fn gk_sweeper_rush(roster_slot: u8) -> PlayerIntent {
     }
 }
 
-fn gk_shot_stopping(roster_slot: u8) -> PlayerIntent {
+fn gk_shot_stopping(roster_slot: u8, _player: &PlayerState) -> PlayerIntent {
+    // bt-attribute-binding.md §GK ShotStopping: primary = reflexes + handling + positioning.
     let (target_x, target_y) = gk_goal_line_position(roster_slot);
     PlayerIntent::GkShotStop { target_x, target_y }
 }
 
-fn gk_distributing_from_hand(roster_slot: u8) -> PlayerIntent {
+fn gk_distributing_from_hand(roster_slot: u8, _player: &PlayerState) -> PlayerIntent {
+    // bt-attribute-binding.md §GK DistributingFromHand: primary = kicking + passing.
     let dist_slot: u8 = if (roster_slot as usize) < 11 { 1 } else { 12 };
     use crate::subtree_library::formation_position;
     let (target_x, target_y) = formation_position(dist_slot);
     PlayerIntent::GkDistributeShort { target_x, target_y }
 }
 
-fn gk_distributing_from_feet(roster_slot: u8) -> PlayerIntent {
+fn gk_distributing_from_feet(roster_slot: u8, _player: &PlayerState) -> PlayerIntent {
+    // bt-attribute-binding.md §GK DistributingFromFeet: primary = passing + technique.
     let dist_slot: u8 = if (roster_slot as usize) < 11 { 6 } else { 17 };
     use crate::subtree_library::formation_position;
     let (target_x, target_y) = formation_position(dist_slot);
     PlayerIntent::GkDistributeLong { target_x, target_y }
 }
 
-fn gk_penalty_stance(roster_slot: u8) -> PlayerIntent {
+fn gk_penalty_stance(roster_slot: u8, _player: &PlayerState) -> PlayerIntent {
+    // bt-attribute-binding.md §GK PenaltyStance: primary = reflexes + positioning.
     let (target_x, target_y) = gk_goal_line_position(roster_slot);
     PlayerIntent::MoveToPosition { target_x, target_y }
 }
 
-fn gk_set_piece_wall(roster_slot: u8) -> PlayerIntent {
+fn gk_set_piece_wall(roster_slot: u8, _player: &PlayerState) -> PlayerIntent {
+    // bt-attribute-binding.md §GK SetPieceWall: primary = positioning + jumping.
     let (target_x, target_y) = gk_goal_line_position(roster_slot);
     PlayerIntent::MoveToPosition { target_x, target_y }
 }
 
-fn gk_recovering(roster_slot: u8) -> PlayerIntent {
+fn gk_recovering(roster_slot: u8, _player: &PlayerState) -> PlayerIntent {
+    // bt-attribute-binding.md §GK Recovering: primary = pace + stamina.
     let (target_x, target_y) = gk_goal_line_position(roster_slot);
     PlayerIntent::MoveToPosition { target_x, target_y }
 }
@@ -314,11 +344,21 @@ mod tests {
 
     // --- tick_goalkeeper wiring ---
 
+    fn dummy_player() -> PlayerState {
+        PlayerState::at(0u8, Q32::ZERO, Q32::ZERO)
+    }
+
     #[test]
     fn tick_goalkeeper_shot_stopping_scenario_reaches_shot_stopping_state() {
         let ball = ball_at(-33, -5);
-        let (state, intent) =
-            tick_goalkeeper(GoalkeeperState::InBoxPositioning, 0, &ball, &mut mk_rng());
+        let player = dummy_player();
+        let (state, intent) = tick_goalkeeper(
+            GoalkeeperState::InBoxPositioning,
+            &player,
+            0,
+            &ball,
+            &mut mk_rng(),
+        );
         assert_eq!(state, GoalkeeperState::ShotStopping);
         assert!(
             matches!(intent, PlayerIntent::GkShotStop { .. }),
@@ -330,8 +370,14 @@ mod tests {
     #[test]
     fn tick_goalkeeper_sweeper_scenario_reaches_sweeper_state() {
         let ball = ball_at(-15, -3);
-        let (state, intent) =
-            tick_goalkeeper(GoalkeeperState::InBoxPositioning, 0, &ball, &mut mk_rng());
+        let player = dummy_player();
+        let (state, intent) = tick_goalkeeper(
+            GoalkeeperState::InBoxPositioning,
+            &player,
+            0,
+            &ball,
+            &mut mk_rng(),
+        );
         assert_eq!(state, GoalkeeperState::SweeperKeeperRush);
         assert!(matches!(intent, PlayerIntent::GkSweeperRush { .. }));
     }
@@ -341,8 +387,14 @@ mod tests {
     #[test]
     fn home_gk_slot0_in_box_positioning_returns_goal_line_position() {
         let ball = ball_at(20, 3); // attacking half → InBoxPositioning
-        let (_, intent) =
-            tick_goalkeeper(GoalkeeperState::InBoxPositioning, 0, &ball, &mut mk_rng());
+        let player = dummy_player();
+        let (_, intent) = tick_goalkeeper(
+            GoalkeeperState::InBoxPositioning,
+            &player,
+            0,
+            &ball,
+            &mut mk_rng(),
+        );
         match intent {
             PlayerIntent::MoveToPosition { target_x, target_y } => {
                 assert_eq!(target_x, Q32::from_int(-45), "home GK should target x=−45");
@@ -358,8 +410,14 @@ mod tests {
     #[test]
     fn away_gk_slot11_in_box_positioning_returns_goal_line_position() {
         let ball = ball_at(-20, -3); // attacking half for away → InBoxPositioning
-        let (_, intent) =
-            tick_goalkeeper(GoalkeeperState::InBoxPositioning, 11, &ball, &mut mk_rng());
+        let player = dummy_player();
+        let (_, intent) = tick_goalkeeper(
+            GoalkeeperState::InBoxPositioning,
+            &player,
+            11,
+            &ball,
+            &mut mk_rng(),
+        );
         match intent {
             PlayerIntent::MoveToPosition { target_x, target_y } => {
                 assert_eq!(target_x, Q32::from_int(45), "away GK should target x=+45");
@@ -376,6 +434,7 @@ mod tests {
 
     #[test]
     fn every_gk_state_produces_non_idle_intent() {
+        let player = dummy_player();
         let all_states = [
             GoalkeeperState::InBoxPositioning,
             GoalkeeperState::SweeperKeeperRush,
@@ -387,7 +446,7 @@ mod tests {
             GoalkeeperState::Recovering,
         ];
         for state in all_states {
-            let intent = dispatch_state(state, 0);
+            let intent = dispatch_state(state, 0, &player);
             assert!(
                 !matches!(intent, PlayerIntent::Idle),
                 "GK state {:?} produced Idle; expected a positional intent",
@@ -400,7 +459,8 @@ mod tests {
 
     #[test]
     fn dispatch_state_sweeper_rush_returns_gk_sweeper_rush_intent() {
-        let intent = dispatch_state(GoalkeeperState::SweeperKeeperRush, 0);
+        let player = dummy_player();
+        let intent = dispatch_state(GoalkeeperState::SweeperKeeperRush, 0, &player);
         assert!(
             matches!(intent, PlayerIntent::GkSweeperRush { .. }),
             "dispatch_state(SweeperKeeperRush) should produce GkSweeperRush intent; got {:?}",
@@ -410,7 +470,8 @@ mod tests {
 
     #[test]
     fn dispatch_state_shot_stopping_returns_gk_shot_stop_intent() {
-        let intent = dispatch_state(GoalkeeperState::ShotStopping, 0);
+        let player = dummy_player();
+        let intent = dispatch_state(GoalkeeperState::ShotStopping, 0, &player);
         assert!(
             matches!(intent, PlayerIntent::GkShotStop { .. }),
             "dispatch_state(ShotStopping) should produce GkShotStop intent; got {:?}",
@@ -420,7 +481,8 @@ mod tests {
 
     #[test]
     fn dispatch_state_distributing_from_hand_returns_gk_distribute_short() {
-        let intent = dispatch_state(GoalkeeperState::DistributingFromHand, 0);
+        let player = dummy_player();
+        let intent = dispatch_state(GoalkeeperState::DistributingFromHand, 0, &player);
         assert!(
             matches!(intent, PlayerIntent::GkDistributeShort { .. }),
             "dispatch_state(DistributingFromHand) should produce GkDistributeShort; got {:?}",
@@ -430,7 +492,8 @@ mod tests {
 
     #[test]
     fn dispatch_state_distributing_from_feet_returns_gk_distribute_long() {
-        let intent = dispatch_state(GoalkeeperState::DistributingFromFeet, 0);
+        let player = dummy_player();
+        let intent = dispatch_state(GoalkeeperState::DistributingFromFeet, 0, &player);
         assert!(
             matches!(intent, PlayerIntent::GkDistributeLong { .. }),
             "dispatch_state(DistributingFromFeet) should produce GkDistributeLong; got {:?}",
@@ -443,8 +506,21 @@ mod tests {
     #[test]
     fn gk_tick_is_deterministic() {
         let ball = ball_at(-33, -5); // ShotStopping scenario
-        let (s1, i1) = tick_goalkeeper(GoalkeeperState::InBoxPositioning, 0, &ball, &mut mk_rng());
-        let (s2, i2) = tick_goalkeeper(GoalkeeperState::InBoxPositioning, 0, &ball, &mut mk_rng());
+        let player = dummy_player();
+        let (s1, i1) = tick_goalkeeper(
+            GoalkeeperState::InBoxPositioning,
+            &player,
+            0,
+            &ball,
+            &mut mk_rng(),
+        );
+        let (s2, i2) = tick_goalkeeper(
+            GoalkeeperState::InBoxPositioning,
+            &player,
+            0,
+            &ball,
+            &mut mk_rng(),
+        );
         assert_eq!(s1, s2);
         assert_eq!(i1, i2);
     }

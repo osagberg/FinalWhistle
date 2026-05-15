@@ -50,10 +50,11 @@ use std::collections::BTreeMap;
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
-use fw_content::{CooldownPolicy, SignatureDefinition};
+use fw_content::{CooldownPolicy, SignatureDefinition, StackingPolicy};
 use fw_core::{Q32, Tick};
 
 use crate::MatchState;
+use crate::bt::{BtContext, LeafKind, Node, Tree, tick_tree};
 use crate::decision_cadence::{SeedLayer, seed_fn, should_decide};
 use crate::goalkeeper_fsm::tick_goalkeeper;
 use crate::role_states::{PlayerIntent, PlayerRoleState};
@@ -73,6 +74,18 @@ use crate::subtree_library::select_outfield_intent;
 /// 5 m/s ≈ slow jog. Enough for skeleton movement toward formation.
 /// In Q32.32 format: 5 × 2^32 = 5 << 32 = 21_474_836_480 as i64.
 const MAX_PLAYER_SPEED: Q32 = Q32::from_raw(5_i64 << 32); // 5.0 in Q32.32
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Extract the `BiasCategory` as a usize index (0..4) from a `StackingPolicy`.
+/// Used to index into `signature_firing[slot][cat_idx]`.
+fn stacking_category_idx(policy: &StackingPolicy) -> usize {
+    match *policy {
+        StackingPolicy::Exclusive { category } => category as usize,
+    }
+}
 
 // ---------------------------------------------------------------------------
 // dispatch_tick
@@ -104,14 +117,16 @@ pub fn dispatch_tick(
     // Build the trigger table once per tick (cheap: it's a BTreeMap of fn ptrs).
     let trigger_table = build_trigger_table();
 
-    // Advance firing windows: clear expired signature_firing entries.
+    // Advance firing windows: clear expired signature_firing entries per (slot, category) lane.
     // Must run before the per-slot decision loop so the stacking check sees
     // up-to-date firing state.
     for slot_idx in 0..22usize {
-        if let Some(firing) = &state.signature_firing[slot_idx]
-            && !firing.is_active(state.tick)
-        {
-            state.signature_firing[slot_idx] = None;
+        for cat_idx in 0..4usize {
+            if let Some(firing) = &state.signature_firing[slot_idx][cat_idx]
+                && !firing.is_active(state.tick)
+            {
+                state.signature_firing[slot_idx][cat_idx] = None;
+            }
         }
     }
 
@@ -143,14 +158,22 @@ pub fn dispatch_tick(
         {
             // Clone candidates to avoid aliasing with &mut state below.
             let candidates = state.players[slot_idx].signature_candidates.clone();
-            let active_firing = state.signature_firing[slot_idx].as_ref().cloned();
+            // active_firings: per-category snapshot for stacking check.
+            // Clone all 4 lanes so we can pass them to evaluate_signatures
+            // while state is borrowed mutably below.
+            let active_firings: [Option<SignatureFiring>; 4] = [
+                state.signature_firing[slot_idx][0].clone(),
+                state.signature_firing[slot_idx][1].clone(),
+                state.signature_firing[slot_idx][2].clone(),
+                state.signature_firing[slot_idx][3].clone(),
+            ];
             if let Some((sig_id, sig_def)) = evaluate_signatures(
                 &state,
                 slot,
                 &candidates,
                 sig_definitions,
                 &trigger_table,
-                active_firing.as_ref(),
+                &active_firings,
             ) {
                 // Determine cooldown end tick from the definition's CooldownPolicy.
                 let cooldown_end_tick = match sig_def.cooldown {
@@ -165,9 +188,10 @@ pub fn dispatch_tick(
                 state
                     .signature_cooldowns
                     .insert((slot, sig_id.clone()), cooldown_end_tick);
-                // Set firing window (replaces any prior firing in this category
-                // only if stacking allows — checked in evaluate_signatures above).
-                state.signature_firing[slot_idx] = Some(SignatureFiring {
+                // Determine the category of the firing signature from its definition.
+                let cat_idx = stacking_category_idx(&sig_def.stacking);
+                // Set firing window in the correct category lane.
+                state.signature_firing[slot_idx][cat_idx] = Some(SignatureFiring {
                     id: sig_id.clone(),
                     start_tick: state.tick,
                     duration_ticks: DEFAULT_FIRING_DURATION_TICKS,
@@ -188,16 +212,25 @@ pub fn dispatch_tick(
         }
 
         // Build ADR-0009 RNG for this decision.
-        // site = (player_slot << 16) | local_decision_counter
+        // site = (player_slot << 16) | local_decision_counter — truncated to u32.
+        // Per ADR-0009: site is u32; the top 16 bits carry the slot (0..22 fits
+        // in 5 bits), the low 16 bits carry the decision counter (u32 with
+        // headroom per PlayerState docs). The counter is bounded to u16 range
+        // for the site encoding; overflow into the slot bits would produce
+        // collisions but is practically impossible in a 90-minute match.
         let counter = state.players[slot_idx].decision_counter();
-        let site = ((slot_idx as u64) << 16) | (counter as u64);
+        let site = ((slot_idx as u32) << 16) | (counter & 0xFFFF);
+        // Tick is u32 per ADR-0009 (fw-core::seed::seed_fn takes tick: u32).
+        // Tick::to_raw() returns i64; tick is monotonically non-negative so
+        // the cast to u32 is safe for ~1 billion ticks (~194 days at 60 Hz).
+        let tick_u32 = state.tick.to_raw() as u32;
         // UtilityTieBreak is the correct layer for softmax sampling over
         // utility-scored candidates (ADR-0009 §SeedLayer discriminants).
         // SeedLayer::Decision is reserved for binary decision draws
         // (e.g. GK shot-stopping direction) which are not yet wired.
         let rng_seed = seed_fn(
             state.seed.to_u64(),
-            state.tick.to_raw(),
+            tick_u32,
             SeedLayer::UtilityTieBreak,
             site,
         );
@@ -214,8 +247,9 @@ pub fn dispatch_tick(
 
         let intent = match next_role_state {
             PlayerRoleState::Goalkeeper(gk_state) => {
+                let player = &state.players[slot_idx];
                 let (new_gk_state, gk_intent) =
-                    tick_goalkeeper(gk_state, formation_slot, &state.ball, &mut rng);
+                    tick_goalkeeper(gk_state, player, formation_slot, &state.ball, &mut rng);
                 // Write back the new GK state.
                 state.players[slot_idx].role_state = PlayerRoleState::Goalkeeper(new_gk_state);
                 gk_intent
@@ -223,25 +257,33 @@ pub fn dispatch_tick(
             PlayerRoleState::Defender(_)
             | PlayerRoleState::Midfielder(_)
             | PlayerRoleState::Forward(_) => {
-                // Utility-scored softmax selection.
-                // `select_outfield_intent` reads player attributes and role state to
-                // assemble a candidate list, then samples via ChaCha8Rng.
+                // ADR-0006 P1-3: outfield roles use FSM-of-BTs. Route through
+                // `bt::tick_tree` where the `OutfieldSelect` leaf invokes
+                // `select_outfield_intent` (utility-scored softmax).
+                // The BtContext carries what the leaf needs to call the select fn.
                 let player = &state.players[slot_idx];
-                // Resolve active signature bias: look up the currently-firing
-                // signature's SimBiasSnapshot from sig_definitions. Returns None
-                // when no signature is active or the definition is not loaded.
+                // Resolve active signature bias: first active lane in category order.
+                // Cross-category concurrent firings allowed (ADR-0011); take the first.
                 let active_bias = state.signature_firing[slot_idx]
-                    .as_ref()
-                    .and_then(|f| sig_definitions.get(f.id.as_str()))
-                    .map(|def| &def.bias_snapshot);
-                let outfield_intent = select_outfield_intent(
-                    next_role_state,
-                    player,
-                    formation_slot,
-                    &mut rng,
+                    .iter()
+                    .flatten()
+                    .find_map(|f| {
+                        sig_definitions
+                            .get(f.id.as_str())
+                            .map(|def| &def.bias_snapshot)
+                    });
+                // Build a minimal tree: single OutfieldSelect leaf. The leaf resolves
+                // role state → candidate list → softmax pick inside tick_tree.
+                // Content-pack RON trees replace this stub at T2-3.
+                let outfield_tree = Tree::new(Node::Leaf(LeafKind::OutfieldSelect));
+                let ctx = BtContext {
+                    roster_slot: formation_slot,
+                    outfield_role_state: Some(next_role_state),
+                    player: Some(player),
                     active_bias,
-                );
-                // Role state unchanged in iii-c (transitions stay identity).
+                    select_fn: Some(select_outfield_intent),
+                };
+                let (_, outfield_intent) = tick_tree(&outfield_tree, &ctx, &mut rng);
                 outfield_intent
             }
         };

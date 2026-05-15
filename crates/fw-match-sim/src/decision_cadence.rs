@@ -27,84 +27,17 @@
 //! happens at T1-2b-iii when the BT runner exists to dispatch to. This module
 //! provides the predicate + slot assignment for canonical-state correctness.
 
+// SeedLayer and seed_fn live in fw-core::seed (ADR-0009 canonical
+// implementation with the correct 17-byte buffer layout and 0x10..0x40
+// discriminant values). Re-exported from this module so existing callers
+// that import from decision_cadence continue to compile unchanged.
 use fw_core::{Seed, Tick};
+pub use fw_core::{SeedLayer, seed_fn};
 // `rand_core` traits via `rand_chacha`'s re-export — avoids a direct `rand`
 // dep (Codex P1 from self-review triple: rand was redundant with rand_chacha,
 // which already re-exports the RngCore + SeedableRng traits we need).
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
-
-// ---------------------------------------------------------------------------
-// SeedLayer — per ADR-0009
-// ---------------------------------------------------------------------------
-
-/// The 8 non-overlapping seed discriminants from ADR-0009. Each selects a
-/// distinct BLAKE3 lane in the match-seed derivation so random draws in
-/// different layers never share RNG state.
-///
-/// Variant order is stable for canonical encoding; DO NOT reorder without
-/// a canonical-hash rebaseline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum SeedLayer {
-    Decision = 0,
-    UtilityTieBreak = 1,
-    ReactiveInterrupt = 2,
-    BallPhysics = 3,
-    SignatureTrigger = 4,
-    MemoryEvent = 5,
-    ScoutObservation = 6,
-    ContentBake = 7,
-}
-
-/// Derive a deterministic `u64` seed for a single RNG draw site. Uses BLAKE3
-/// over a 17-byte fixed-order buffer per ADR-0009.
-///
-/// Parameters:
-/// - `match_seed` — the raw match seed u64.
-/// - `tick` — the integration tick at draw time. Use `0` for match-init
-///   draws (e.g. the stagger-shuffle).
-/// - `layer` — the `SeedLayer` discriminant (non-overlapping u8 namespace).
-/// - `site` — per-layer disambiguator. `0` is reserved for the
-///   stagger-shuffle draw (this module); per-player decision
-///   draws use `(player_id << 16) | local_decision_counter`.
-///
-/// Output is bit-exact on every platform (ChaCha8Rng + BLAKE3 are both
-/// platform-portable; `to_le_bytes` is specified by Rust).
-#[must_use]
-pub fn seed_fn(match_seed: u64, tick: i64, layer: SeedLayer, site: u64) -> u64 {
-    // Codex P1 from self-review: i64 -> u64 reinterpretation wraps for
-    // negative ticks, silently collapsing the negative-tick namespace into
-    // the high half of u64. ADR-0009 says tick is monotonic non-negative;
-    // we surface the violation here rather than letting the wrap proceed.
-    debug_assert!(
-        tick >= 0,
-        "seed_fn called with negative tick {tick}; ADR-0009 requires tick >= 0"
-    );
-    // 17-byte buffer (ADR-0009 canonical layout):
-    //   [0..8]  = match_seed LE
-    //   [8..16] = site LE (tick << 8 | layer combined into the site slot
-    //             via xor to keep the buffer small; full derivation below)
-    //   [16]    = layer discriminant u8
-    //
-    // Full layout (ADR-0009 §"seed_fn buffer layout"):
-    //   bytes 0..8  = match_seed.to_le_bytes()
-    //   bytes 8..16 = (tick as u64 ^ site).to_le_bytes()
-    //   byte  16    = layer as u8
-    //
-    // The tick and site XOR is deliberate: tick disambiguates per-tick draws,
-    // site disambiguates per-entity draws, and XOR keeps the buffer at 17
-    // bytes while still separating draws with non-overlapping (tick,site)
-    // pairs (the tick namespace and site namespace are non-overlapping by
-    // construction: tick advances monotonically, site is entity-scoped).
-    let mut buf = [0u8; 17];
-    buf[0..8].copy_from_slice(&match_seed.to_le_bytes());
-    buf[8..16].copy_from_slice(&(tick as u64 ^ site).to_le_bytes());
-    buf[16] = layer as u8;
-    let hash = blake3::hash(&buf);
-    let bytes = hash.as_bytes();
-    u64::from_le_bytes(bytes[0..8].try_into().expect("blake3 hash >= 8 bytes"))
-}
 
 // ---------------------------------------------------------------------------
 // SLOT_TEMPLATE — balanced multiset

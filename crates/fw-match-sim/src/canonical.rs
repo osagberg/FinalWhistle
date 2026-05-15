@@ -41,6 +41,12 @@
 //!   [ role u8 ]                                    (T1-2b-iii-a: Role canonical tag)
 //!   [ role_state u8 ]                              (T1-2b-iii-a: per-role state tag)
 //!   [ local_decision_counter u32 LE ]              (T1-2b-iii-a: monotonic per-player counter)
+//!   [ attributes: 55 × i64 LE ]                   (T1-2b-iii-b: PlayerAttributes in struct order)
+//!   [ candidate_count u16 LE ]                    (T1-2b-fix P1-2: number of signature candidates)
+//!   [ candidates × candidate_count ]              (T1-2b-fix P1-2: per-candidate encoding)
+//!     [ id_len u16 LE ]                           (SignatureId UTF-8 byte length)
+//!     [ id_bytes* ]                               (SignatureId UTF-8 bytes)
+//!     [ affinity i64 LE ]                         (Q32 raw bits of SignatureCandidate::affinity)
 //! [ decision_slots ]                               (T1-2b-ii: 22 raw u8 bytes)
 //!   [ slot_0 u8 .. slot_21 u8 ]                   (22 bytes)
 //! [ interrupt_cooldown_until ]                     (T1-2b-ii: 22 × i64 LE = 176 bytes)
@@ -54,6 +60,28 @@
 //!   [ pos_x i64, pos_y i64, pos_z i64 ]           (24 bytes)
 //!   [ vel_x i64, vel_y i64, vel_z i64 ]           (24 bytes)
 //!   [ spin_x i64, spin_y i64, spin_z i64 ]        (24 bytes; new at T1-2b-i)
+//! [ signature_cooldowns ]                          (T1-2b-iv: BTreeMap<(slot,id),Tick>)
+//!   [ entry_count u32 LE ]                         (number of active cooldown entries)
+//!   [ entries × entry_count ]
+//!     [ slot u8 ]                                  (PlayerSlot)
+//!     [ id_len u16 LE ]                            (SignatureId UTF-8 byte length)
+//!     [ id_bytes* ]                                (SignatureId UTF-8 bytes)
+//!     [ cooldown_end i64 LE ]                      (Tick::to_raw() as i64)
+//! [ signature_firing ]                             (T1-2b-fix: 22 × 4 categories per player)
+//!   [ outer_count u8 ]                             (always 22 = roster size)
+//!   [ per player: inner_count u8 ]                 (always 4 = BiasCategory count)
+//!   [ per category: is_some u8 ]                   (0 = None, 1 = Some)
+//!   [ per Some: ]
+//!     [ id_len u16 LE ]
+//!     [ id_bytes* ]
+//!     [ start_tick i64 LE ]
+//!     [ duration_ticks u32 LE ]
+//! [ signature_first_fired_seen ]                   (T1-2b-iv: BTreeSet<(slot,id)>)
+//!   [ entry_count u32 LE ]
+//!   [ entries × entry_count ]
+//!     [ slot u8 ]
+//!     [ id_len u16 LE ]
+//!     [ id_bytes* ]
 //! ```
 //!
 //! **Field order rationale (T1-2b-iii-a):** the new per-player fields
@@ -113,7 +141,12 @@ const MAGIC: &[u8; 4] = b"FWMS";
 //        signature_firing (22 × Option<SignatureFiring>),
 //        signature_first_fired_seen (BTreeSet len + entries).
 //        Wire-format: new sections appended AFTER ball (at end of encode_match_state).
-const VERSION: u16 = 5;
+//   6 — T1-2b-fix P1-2: PlayerState encode now includes per-player
+//        signature_candidates: [candidate_count u16 LE] [per candidate:
+//        id_len u16 LE + id_bytes + affinity i64 LE (raw Q32 bits)] appended
+//        AFTER the 55 attribute fields. Canonical hash REBASELINED (ADR-0012
+//        trigger #1 — schema bump).
+const VERSION: u16 = 6;
 
 /// Streaming canonical encoder. Append bytes as values are emitted; call
 /// `finish()` to get the buffer for hashing.
@@ -214,10 +247,14 @@ impl CanonicalEncoder {
             self.write_i64(cooldown_tick.to_raw());
         }
 
-        // T1-2b-iv: signature_firing — 22 Option<SignatureFiring> in slot order.
-        // Layout: 22 × [present u8 (0=None, 1=Some)] [if Some: id_len u16, id_bytes*, start_tick i64, duration u32]
-        for maybe_firing in &state.signature_firing {
-            self.encode_signature_firing(maybe_firing.as_ref());
+        // T1-2b-fix P1-7: signature_firing — 22 × 4 Option<SignatureFiring> in
+        // (slot, category) order. Outer loop: slots 0..22. Inner loop: categories
+        // 0..4 (Attacking, Defensive, BuildUp, SetPiece by BiasCategory discriminant).
+        // Layout: 88 × [present u8 (0=None, 1=Some)] [if Some: id_len u16, id_bytes*, start_tick i64, duration u32]
+        for slot_row in &state.signature_firing {
+            for maybe_firing in slot_row {
+                self.encode_signature_firing(maybe_firing.as_ref());
+            }
         }
 
         // T1-2b-iv: signature_first_fired_seen — BTreeSet length + entries in sorted order.
@@ -334,6 +371,29 @@ impl CanonicalEncoder {
         self.write_i64(a.durability.injury_proneness.to_bits());
         self.write_i64(a.durability.recovery_rate.to_bits());
         self.write_i64(a.durability.dirtiness.to_bits());
+
+        // T1-2b-fix P1-2: per-player signature candidates.
+        // Layout: [candidate_count u16 LE] [per-candidate: id_len u16 + id_bytes + affinity i64]
+        // Vec iteration order is insertion order — stable. The candidates Vec is
+        // populated at match-setup time (ordered by content-pack load order);
+        // this encoding is stable across calls for the same state.
+        // signature_candidates is `pub(crate)` — accessed via the field directly
+        // because encode_player lives in the same crate.
+        assert!(
+            p.signature_candidates.len() <= u16::MAX as usize,
+            "signature_candidates overflowed u16 count field"
+        );
+        self.write_u16(p.signature_candidates.len() as u16);
+        for candidate in &p.signature_candidates {
+            let id_bytes = candidate.signature_id.as_str().as_bytes();
+            assert!(
+                id_bytes.len() <= u16::MAX as usize,
+                "signature ID exceeds u16 length field"
+            );
+            self.write_u16(id_bytes.len() as u16);
+            self.buf.extend_from_slice(id_bytes);
+            self.write_i64(candidate.affinity.to_bits());
+        }
     }
 
     /// Encode one `TeamTacticState`.
@@ -489,11 +549,11 @@ mod tests {
     }
 
     #[test]
-    fn version_is_5_after_t1_2b_iv_schema_bump() {
+    fn version_is_6_after_p1_2_schema_bump() {
         assert_eq!(
-            VERSION, 5,
-            "VERSION should be 5 after T1-2b-iv canonical schema bump \
-             (MatchState gained signature_cooldowns + signature_firing + signature_first_fired_seen)"
+            VERSION, 6,
+            "VERSION should be 6 after T1-2b-fix P1-2 canonical schema bump \
+             (PlayerState encode now includes per-player signature_candidates)"
         );
     }
 
@@ -620,14 +680,16 @@ mod tests {
         assert_ne!(a, b, "adding a cooldown entry should change encoding");
     }
 
-    /// T1-2b-iv: signature_firing block is present in encoding.
+    /// T1-2b-fix P1-7: signature_firing block is present in encoding (2D array).
     #[test]
     fn encoding_reflects_signature_firing() {
         use crate::signature::SignatureFiring;
-        use fw_content::SignatureId;
+        use fw_content::{BiasCategory, SignatureId};
         let mut s = MatchState::initial(Seed::from_u64(1));
         let a = s.encode_canonical();
-        s.signature_firing[3] = Some(SignatureFiring::new(
+        // Set slot 3, Attacking category lane (index 0)
+        let cat_idx = BiasCategory::Attacking as usize;
+        s.signature_firing[3][cat_idx] = Some(SignatureFiring::new(
             SignatureId::try_new("fwh.core:signature.no-op-stub").unwrap(),
             Tick::from_raw(50),
             60,
@@ -676,6 +738,62 @@ mod tests {
             state_a.encode_canonical(),
             state_b.encode_canonical(),
             "signature_memory_events is transient; must not affect canonical encoding"
+        );
+    }
+
+    /// T1-2b-fix P1-2: signature_candidates encoding is present and affects hash.
+    #[test]
+    fn encoding_reflects_player_signature_candidates() {
+        use fw_content::{SignatureCandidate, SignatureId};
+        use fw_core::Q32;
+        let mut s = MatchState::initial(Seed::from_u64(1));
+        let a = s.encode_canonical();
+        // Add a candidate to player 0
+        let cand = SignatureCandidate {
+            signature_id: SignatureId::try_new("fwh.core:signature.long-range-strike").unwrap(),
+            affinity: Q32::from_raw(1 << 31), // 0.5 in Q32.32
+        };
+        s.players[0].signature_candidates.push(cand);
+        let b = s.encode_canonical();
+        assert_ne!(
+            a, b,
+            "adding a signature candidate to a player should change the canonical encoding"
+        );
+    }
+
+    /// Vacuousness guard: verify encoding_reflects_player_signature_candidates
+    /// would fail if candidates were NOT encoded. Two states with different
+    /// candidate counts must produce different encodings.
+    #[test]
+    fn vacuousness_check_signature_candidates_encoding() {
+        use fw_content::{SignatureCandidate, SignatureId};
+        use fw_core::Q32;
+        let s_zero = MatchState::initial(Seed::from_u64(1));
+        let mut s_one = MatchState::initial(Seed::from_u64(1));
+        let cand = SignatureCandidate {
+            signature_id: SignatureId::try_new("fwh.core:signature.long-range-strike").unwrap(),
+            affinity: Q32::from_raw(1 << 31),
+        };
+        s_one.players[0].signature_candidates.push(cand);
+        // They must differ (the encoding test above). If they were the same,
+        // the encoding_reflects_player_signature_candidates test would pass vacuously.
+        let enc_zero = s_zero.encode_canonical();
+        let enc_one = s_one.encode_canonical();
+        assert_ne!(
+            enc_zero, enc_one,
+            "vacuousness guard: states with different candidate counts must produce different encodings"
+        );
+        // Also verify the zero-candidate case encodes a u16 length of 0
+        // (2 bytes of 0x00 0x00 appended per player after attributes).
+        // This ensures the encoder didn't accidentally elide the count field.
+        // We can't easily probe exact byte offsets without recomputing the layout,
+        // but the length difference of the two encodings must be:
+        // id_len(2) + id_bytes(len) + affinity(8) = variable, plus count field change (0->1 costs 0 bytes
+        // for the count field itself which stays 2 bytes, but gains id_len+bytes+affinity).
+        // The one-candidate encoding must be LONGER than zero.
+        assert!(
+            enc_one.len() > enc_zero.len(),
+            "encoding with 1 candidate should be longer than with 0 candidates"
         );
     }
 

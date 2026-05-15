@@ -179,16 +179,23 @@ pub struct MatchState {
     /// Empty at match init (no cooldowns active).
     pub signature_cooldowns: BTreeMap<(PlayerSlot, SignatureId), Tick>,
 
-    /// Per-player active signature firing window (if any).
+    /// Per-player, per-category active signature firing windows.
     ///
-    /// Indexed by slot (0..22). `None` = no signature in flight for that player.
-    /// `Some(SignatureFiring { id, start_tick, duration_ticks })` = signature active.
+    /// Outer index: slot (0..22). Inner index: `BiasCategory as usize` (0..4).
+    ///   `signature_firing[slot][BiasCategory::Attacking as usize]`
+    ///   `signature_firing[slot][BiasCategory::Defensive as usize]`
+    ///   `signature_firing[slot][BiasCategory::BuildUp as usize]`
+    ///   `signature_firing[slot][BiasCategory::SetPiece as usize]`
     ///
-    /// The bias snapshot for the active signature is applied to the player's
-    /// utility scoring each decision tick while `is_active(current_tick)`.
+    /// `None` = no signature in flight for that (player, category) pair.
+    /// `Some(SignatureFiring { ... })` = signature active in that category lane.
     ///
-    /// Cleared by `dispatch_tick` when the firing window expires.
-    pub signature_firing: [Option<signature::SignatureFiring>; 22],
+    /// Per ADR-0011 §"Stacking policy": same-category concurrent firings are
+    /// forbidden; cross-category concurrent firings are allowed. The 2D array
+    /// makes both invariants structurally enforced: each lane is independent.
+    ///
+    /// Cleared per lane by `dispatch_tick` when the firing window expires.
+    pub signature_firing: [[Option<signature::SignatureFiring>; 4]; 22],
 
     /// Tracks which `(PlayerSlot, SignatureId)` pairs have fired for the first
     /// time this match. Used to gate `MemoryEvent::SignatureFirstFired` emission —
@@ -267,12 +274,13 @@ impl MatchState {
             team_tactic_states: [TeamTacticState::initial(); 2],
             // T1-2b-iv: signature state — all empty at match init.
             signature_cooldowns: BTreeMap::new(),
-            // Fixed-array init: Rust doesn't impl Default for arrays with non-Copy
-            // Option<T> when T doesn't impl Default unless we spell it out.
-            signature_firing: [
-                None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-                None, None, None, None, None, None, None, None,
-            ],
+            // Fixed 2D-array init: [[Option<SignatureFiring>; 4]; 22] — all None.
+            // Each slot has 4 category lanes (Attacking/Defensive/BuildUp/SetPiece).
+            // Rust requires spelling out non-Copy arrays when Default isn't derived.
+            signature_firing: {
+                const EMPTY_ROW: [Option<signature::SignatureFiring>; 4] = [None, None, None, None];
+                [EMPTY_ROW; 22]
+            },
             signature_first_fired_seen: BTreeSet::new(),
             signature_memory_events: Vec::new(),
         }

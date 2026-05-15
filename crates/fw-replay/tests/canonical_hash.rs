@@ -102,9 +102,9 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   `exp_q32` 257-entry LUTs. Authorized by the T1-2b-iii-b task-spec in
 ///   MEMORY.md.
 /// - 2026-05-13 (T1-2b-iii-c) — **re-baselined to `c392bac5…14c7f7d2`** per
-///   ADR-0012 trigger #1 (behavioral change): outfield dispatch now uses
-///   utility-scored softmax selection (`select_outfield_intent`) instead of
-///   the stub `MoveToFormationPosition` leaf. Player velocities per tick
+///   ADR-0012 trigger #3 (sim behavior change with documented intent): outfield
+///   dispatch now uses utility-scored softmax selection (`select_outfield_intent`)
+///   instead of the stub `MoveToFormationPosition` leaf. Player velocities per tick
 ///   differ → canonical state changes. No schema change (no new fields);
 ///   the change is purely in the velocity values written per player per tick.
 ///   `bt/personality_bias.rs` (k₁..k₁₄ + 7 bias helpers + PT divisor),
@@ -113,7 +113,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   variants, `PlayerIntent` expansion (17 new variants). Authorized by the
 ///   T1-2b-iii-c task-spec in MEMORY.md.
 /// - 2026-05-13 (T1-2b-iii-c P0+P1 fix pass) — **re-baselined to `235f6c5e…181288d`**
-///   per ADR-0012 trigger #1 (behavioral change, authorized by T1-2b-iii-c fix-pass
+///   per ADR-0012 trigger #3 (sim behavior change, authorized by T1-2b-iii-c fix-pass
 ///   spec). Fixes applied:
 ///   P0-1: all 12 utility sites corrected to read EXACTLY the attrs from
 ///   bt-attribute-binding.md (was reading ~10 non-spec attrs). Binding-correctness
@@ -126,7 +126,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   in select_outfield_intent. P1-4: SeedLayer::UtilityTieBreak for softmax RNG.
 ///   P2-2: DefenderPressure + IsProgressive newtypes for arg-safety.
 /// - 2026-05-14 (T1-2b-iii-d PlayerSeparation) — **re-baselined to `1db6020c…59c798`**
-///   per ADR-0012 trigger #1 (behavioral change, authorized by T1-2b-iii-d task-spec
+///   per ADR-0012 trigger #3 (sim behavior change, authorized by T1-2b-iii-d task-spec
 ///   in MEMORY.md). The player-separation positional-correction pass (step 6 in
 ///   `tick_match`) adjusts player positions after velocity integration, so canonical
 ///   state (which encodes pos_x/pos_y) changes. No schema bump; only position values
@@ -138,6 +138,16 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   `signature_first_fired_seen: BTreeSet<(PlayerSlot, SignatureId)>`.
 ///   Canonical encoder VERSION bumped 4 → 5; three new encoding sections appended
 ///   after ball. Authorized by the T1-2b-iv task-spec in MEMORY.md.
+/// - 2026-05-15 (T1-2b-fix post-Codex-audit) — **re-baselined to `dbe4f49b…85f2`**
+///   per ADR-0012 trigger #1 (canonical schema bump): P1-2 fix: per-player
+///   `signature_candidates` now encoded in canonical state (len + per-entry id_len
+///   + id_bytes + affinity i64). Canonical encoder VERSION bumped 5 → 6.
+///   - `signature_firing` changed from `[Option<SignatureFiring>; 22]`
+///     to `[[Option<SignatureFiring>; 4]; 22]` (stacking categories per lane).
+///   - `SeedLayer` + `seed_fn` moved to `fw-core::seed` per ADR-0009.
+///   - `TriggerFn` signature changed `→ bool` to `→ Q32` (fit-score) per P1-6.
+///   - `tick_goalkeeper` gained `player: &PlayerState` param per P1-3/P1-4.
+///   - Authorized by the T1-2b-fix task-spec in MEMORY.md.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -146,7 +156,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("18f1776c2f77939d32849dc72e05909caf78b93bf6ce50a1222b28f9c6a5d048");
+    hex!("dbe4f49bdb8b866d47c9e46a16e22416dfddbcb6edd9355139114133a25085f2");
 
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.

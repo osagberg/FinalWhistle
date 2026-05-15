@@ -47,7 +47,7 @@ pub use player_attributes::{
 // External callers always work with `Q32`; the type alias stays
 // crate-private.
 pub use q32::Q32;
-pub use seed::Seed;
+pub use seed::{Seed, SeedLayer, seed_fn};
 pub use tick::Tick;
 
 // -------------------------------------------------------------------------

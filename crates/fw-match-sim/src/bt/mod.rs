@@ -31,7 +31,10 @@ pub mod on_ball;
 pub mod personality_bias;
 pub mod reactive;
 
-use crate::role_states::PlayerIntent;
+use fw_content::SimBiasSnapshot;
+
+use crate::player::PlayerState;
+use crate::role_states::{PlayerIntent, PlayerRoleState};
 use rand_chacha::ChaCha8Rng;
 
 // ---------------------------------------------------------------------------
@@ -101,7 +104,7 @@ pub enum DecoratorKind {
     AlwaysFail,
 }
 
-/// Terminal action kinds. Skeleton tier has only one real kind.
+/// Terminal action kinds. Skeleton tier has two real kinds.
 /// -iii-b will extend this with all 21 BT sites from bt-attribute-binding.md.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LeafKind {
@@ -111,6 +114,13 @@ pub enum LeafKind {
     MoveToFormationPosition,
     /// Explicit idle — stay in place with zero velocity.
     Idle,
+    /// Invoke the outfield utility-scored softmax selection.
+    /// Reads `BtContext::role_state`, `BtContext::player_ptr`, and
+    /// `BtContext::active_bias_ptr` to assemble the candidate list.
+    /// The result replaces `current_intent`. Per ADR-0006: outfield
+    /// roles use FSM-of-BTs; the utility-select leaf is the BT leaf
+    /// that drives the softmax at on-ball and off-ball sites.
+    OutfieldSelect,
 }
 
 /// Predicate kinds for `Condition` nodes. Skeleton tier has a single
@@ -126,11 +136,44 @@ pub enum ConditionKind {
 // BtContext — the read-only world view the BT runner receives
 // ---------------------------------------------------------------------------
 
+/// Function pointer type for the utility-select outfield intent chooser.
+///
+/// Stored in `BtContext::select_fn` as a function pointer to avoid circular
+/// imports between `bt` and `subtree_library`. Mirrors
+/// `subtree_library::select_outfield_intent`'s signature.
+pub type SelectFn = fn(
+    PlayerRoleState,
+    &PlayerState,
+    u8,
+    &mut ChaCha8Rng,
+    Option<&SimBiasSnapshot>,
+) -> PlayerIntent;
+
 /// Read-only context the BT runner uses to evaluate nodes.
-/// Intentionally minimal for -iii-a; -iii-b will extend.
-pub struct BtContext {
+///
+/// Carries the roster slot (always present) plus optional outfield-specific
+/// data used by the `OutfieldSelect` leaf. The latter is `None` for BT
+/// tests that don't exercise the utility-select path.
+pub struct BtContext<'a> {
     /// The roster slot being evaluated (0-indexed, 0..22).
     pub roster_slot: u8,
+
+    /// For `OutfieldSelect` leaf: the current role state to select candidates for.
+    /// `None` when not dispatching an outfield player via the utility path.
+    pub outfield_role_state: Option<PlayerRoleState>,
+
+    /// For `OutfieldSelect` leaf: read-only reference to the player's canonical state.
+    /// `None` when not dispatching an outfield player.
+    pub player: Option<&'a PlayerState>,
+
+    /// For `OutfieldSelect` leaf: the active signature bias (if any).
+    /// `None` when no signature is in flight for this player, or when not on the outfield path.
+    pub active_bias: Option<&'a SimBiasSnapshot>,
+
+    /// For `OutfieldSelect` leaf: the function that does the actual utility selection.
+    /// Stored as a function pointer to avoid circular imports between `bt` and `subtree_library`.
+    /// Signature mirrors `subtree_library::select_outfield_intent`.
+    pub select_fn: Option<SelectFn>,
 }
 
 // ---------------------------------------------------------------------------
@@ -168,9 +211,9 @@ impl Tree {
 /// - `Leaf`: executes the [`LeafKind`]; may consume an RNG draw.
 /// - `Condition`: evaluates the predicate; no RNG, no side effects.
 #[must_use]
-pub fn tick(
+pub fn tick<'a>(
     node: &Node,
-    ctx: &BtContext,
+    ctx: &BtContext<'a>,
     rng: &mut ChaCha8Rng,
     current_intent: &mut PlayerIntent,
 ) -> NodeStatus {
@@ -227,10 +270,10 @@ pub fn tick(
 }
 
 /// Execute one leaf node. Updates `current_intent` on success.
-fn tick_leaf(
+fn tick_leaf<'a>(
     kind: LeafKind,
-    ctx: &BtContext,
-    _rng: &mut ChaCha8Rng,
+    ctx: &BtContext<'a>,
+    rng: &mut ChaCha8Rng,
     current_intent: &mut PlayerIntent,
 ) -> NodeStatus {
     match kind {
@@ -241,6 +284,27 @@ fn tick_leaf(
         }
         LeafKind::Idle => {
             *current_intent = PlayerIntent::Idle;
+            NodeStatus::Success
+        }
+        LeafKind::OutfieldSelect => {
+            // Per ADR-0006: outfield roles use FSM-of-BTs; this leaf is the
+            // BT boundary where utility scoring fires. The context must provide
+            // all three: role_state, player, and select_fn. Missing any of them
+            // is a programmer error (not a content error) — panic loudly.
+            let role_state = ctx.outfield_role_state.expect(
+                "OutfieldSelect leaf requires BtContext::outfield_role_state — \
+                 set it when building the BtContext for outfield dispatch",
+            );
+            let player = ctx.player.expect(
+                "OutfieldSelect leaf requires BtContext::player — \
+                 set it when building the BtContext for outfield dispatch",
+            );
+            let select_fn = ctx.select_fn.expect(
+                "OutfieldSelect leaf requires BtContext::select_fn — \
+                 set it when building the BtContext for outfield dispatch",
+            );
+            let intent = select_fn(role_state, player, ctx.roster_slot, rng, ctx.active_bias);
+            *current_intent = intent;
             NodeStatus::Success
         }
     }
@@ -255,7 +319,11 @@ fn tick_condition(kind: ConditionKind) -> NodeStatus {
 
 /// Convenience: run a full [`Tree`] from the root.
 #[must_use]
-pub fn tick_tree(tree: &Tree, ctx: &BtContext, rng: &mut ChaCha8Rng) -> (NodeStatus, PlayerIntent) {
+pub fn tick_tree<'a>(
+    tree: &Tree,
+    ctx: &BtContext<'a>,
+    rng: &mut ChaCha8Rng,
+) -> (NodeStatus, PlayerIntent) {
     let mut intent = PlayerIntent::Idle;
     let status = tick(&tree.root, ctx, rng, &mut intent);
     (status, intent)
@@ -274,8 +342,14 @@ mod tests {
         ChaCha8Rng::seed_from_u64(0)
     }
 
-    fn ctx(roster_slot: u8) -> BtContext {
-        BtContext { roster_slot }
+    fn ctx(roster_slot: u8) -> BtContext<'static> {
+        BtContext {
+            roster_slot,
+            outfield_role_state: None,
+            player: None,
+            active_bias: None,
+            select_fn: None,
+        }
     }
 
     // --- Single-node cases ---

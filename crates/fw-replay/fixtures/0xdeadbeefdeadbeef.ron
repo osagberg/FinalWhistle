@@ -33,7 +33,7 @@
 //                               xT 16x12 grid, Spearman pitch-control,
 //                               product-form pressing, top-N softmax.
 //                               PlayerAttributes::mid_range_baseline() added.)
-//   2026-05-13 (T1-2b-iii-c) — `c392bac5…14c7f7d2` per ADR-0012 trigger #1
+//   2026-05-13 (T1-2b-iii-c) — `c392bac5…14c7f7d2` per ADR-0012 trigger #3
 //                               (behavioral change: outfield dispatch now uses
 //                               utility-scored softmax via select_outfield_intent
 //                               instead of stub MoveToFormationPosition leaf.
@@ -45,7 +45,7 @@
 //                               4 predicates (not wired). PlayerIntent expanded
 //                               with 17 new variants. GK FSM uses GK-specific
 //                               intent variants for relevant states.)
-//   2026-05-13 (T1-2b-iii-c P0+P1) — `235f6c5e…181288d` per ADR-0012 trigger #1
+//   2026-05-13 (T1-2b-iii-c P0+P1) — `235f6c5e…181288d` per ADR-0012 trigger #3
 //                               (behavioral change, authorized by fix-pass spec).
 //                               P0-1: all 12 utility sites corrected to spec attrs
 //                               from bt-attribute-binding.md. P0-2: GK FSM now uses
@@ -55,7 +55,7 @@
 //                               uses bare operators. P0-4: xt_delta returns negative
 //                               for backpasses. P1-4: SeedLayer::UtilityTieBreak
 //                               for softmax RNG (was Decision).
-//   2026-05-14 (T1-2b-iii-d)   — `1db6020c…59c798` per ADR-0012 trigger #1
+//   2026-05-14 (T1-2b-iii-d)   — `1db6020c…59c798` per ADR-0012 trigger #3
 //                               (behavioral change, authorized by T1-2b-iii-d
 //                               task-spec in MEMORY.md). Player-separation
 //                               positional-correction pass added as step 6 in
@@ -72,6 +72,20 @@
 //                               encoder VERSION bumped 4→5. Signature dispatcher
 //                               wired into dispatch_tick with 3 trigger predicates
 //                               + bias application in select_outfield_intent.
+//   2026-05-15 (T1-2b-fix)     — `dbe4f49b…85f2` per ADR-0012 trigger #1
+//                               (Codex audit P1 fix-pass, authorized by T1-2b-fix
+//                               spec). Canonical encoder VERSION bumped 5→6.
+//                               P1-2: per-player signature_candidates added to
+//                               canonical encoding. signature_firing changed from
+//                               flat [Option<SignatureFiring>;22] to 2D
+//                               [[Option<SignatureFiring>;4];22] indexed by
+//                               BiasCategory. P1-3/P1-4: SeedLayer + seed_fn
+//                               moved to fw-core::seed; tick_goalkeeper now
+//                               accepts player: &PlayerState. P1-6: TriggerFn
+//                               changed from -> bool to -> Q32 fit-score;
+//                               dispatcher weights affinity × fit_score.
+//                               P1-8: anti-vacuousness companion tests added
+//                               for all 5 proptest ACs.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -83,10 +97,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:18f1776c2f77939d32849dc72e05909caf78b93bf6ce50a1222b28f9c6a5d048",
+    expected_hash: "blake3:dbe4f49bdb8b866d47c9e46a16e22416dfddbcb6edd9355139114133a25085f2",
     metadata: (
-        description: "T1-2b-iv signature dispatcher smoke fixture. Canonical encoder VERSION 4→5; signature_cooldowns + signature_firing + signature_first_fired_seen added to MatchState.",
+        description: "T1-2b-fix Codex audit P1 fix-pass smoke fixture. Canonical encoder VERSION 5→6; P1-2 per-player signature_candidates added; TriggerFn -> Q32 fit-score; tick_goalkeeper player param.",
         generated_at: "2026-05-15",
-        notes: "Re-pinned at T1-2b-iv (canonical schema bump per ADR-0012 #1). Three new canonical MatchState fields: signature_cooldowns BTreeMap, signature_firing [Option<SignatureFiring>;22], signature_first_fired_seen BTreeSet. Three new encoding sections appended after ball. Signature dispatcher wired into dispatch_tick. Trigger predicates: body-shield-pressure, long-range-strike, first-time-diagonal-switch. Bias applied in select_outfield_intent. 3 RON fixtures + 6 proptest ACs.",
+        notes: "Re-pinned at T1-2b-fix (Codex audit P1 fix-pass per ADR-0012 #1). VERSION 5→6. P1-2: per-player signature_candidates vec encoded per player. signature_firing reshaped to 2D [[Option<SignatureFiring>;4];22]. P1-3/P1-4: SeedLayer/seed_fn moved to fw-core::seed; tick_goalkeeper accepts player param. P1-6: TriggerFn -> Q32; dispatcher multiplies affinity x fit_score for softmax. P1-8: 4 anti-vacuousness companion tests added.",
     ),
 )

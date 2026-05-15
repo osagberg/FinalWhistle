@@ -192,14 +192,14 @@ proptest! {
     #[test]
     fn seed_fn_is_stable(
         match_seed in arb_seed(),
-        tick in 0i64..1000,
+        tick in 0u32..1000,
         site in any::<u32>()
     ) {
         let a = fw_match_sim::decision_cadence::seed_fn(
-            match_seed, tick, SeedLayer::Decision, site as u64
+            match_seed, tick, SeedLayer::Decision, site
         );
         let b = fw_match_sim::decision_cadence::seed_fn(
-            match_seed, tick, SeedLayer::Decision, site as u64
+            match_seed, tick, SeedLayer::Decision, site
         );
         prop_assert_eq!(a, b);
     }

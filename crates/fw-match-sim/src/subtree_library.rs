@@ -521,7 +521,13 @@ mod tests {
                 // Use slot 0 (home GK) for context — the position won't be used
                 // by a non-GK tree in the real dispatch, but is valid for the
                 // skeleton-tier test.
-                let ctx = BtContext { roster_slot: 1 }; // a home DEF slot
+                let ctx = BtContext {
+                    roster_slot: 1, // a home DEF slot
+                    outfield_role_state: None,
+                    player: None,
+                    active_bias: None,
+                    select_fn: None,
+                };
                 let (status, _intent) = tick_tree(tree, &ctx, &mut mk_rng());
                 assert_eq!(
                     status,
