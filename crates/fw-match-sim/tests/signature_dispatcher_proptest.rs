@@ -265,13 +265,25 @@ fn ac1c_first_time_diagonal_switch_fires_via_dispatch_when_predicate_satisfied()
 // ---------------------------------------------------------------------------
 // AC-2: Cooldown blocks re-firing within the cooldown window
 //
-// **Codex Tier-2 re-audit round 3 (P1-8 non-vacuous rewrite)**: the prior
-// AC-2 had `let Some(fired_at) = fired_tick else { return Ok(()); };` —
-// it returned vacuously when LRS never fired in the run. That made the
-// test useless for the dominant case where the cadence didn't align. The
-// rewrite GUARANTEES firing by aligning decision_slots[8] = 1 + advancing
-// to tick=1 + setting attrs above threshold, then ASSERTS fired_at.is_some()
-// up-front. No early return.
+// **Codex Tier-2 re-audit round 4 (P1-8 final fix)**: round-3 attempted a
+// non-vacuous rewrite by counting `signature_first_fired_seen` entries for
+// (slot=8, lrs) across the cooldown window. But `signature_first_fired_seen`
+// is a `BTreeSet<(PlayerSlot, SignatureId)>` — keys are structurally unique,
+// so the count CAN NEVER exceed 1 regardless of dispatch behavior. A bad
+// implementation that re-fires every tick inside the cooldown window would
+// still pass that assertion (the second insert is a no-op set membership).
+// Codex called this "wrong observable for cooldown enforcement."
+//
+// Round-4 observes the actual mutation a re-fire would cause:
+//   - `signature_cooldowns[&key]` would be OVERWRITTEN to a later tick
+//     (re-fire at tick T sets cooldown_end = T + 600). A correct impl that
+//     blocks the re-fire leaves the original cooldown_end intact.
+//   - `signature_firing[slot][cat]`, when Some, would carry a LATER start_tick
+//     than the first firing. A correct impl either leaves the slot None
+//     (after the 60-tick active window expires) or carries start_tick == 1.
+//
+// Both observables fail loudly on a re-fire bug; the prior set-membership
+// observable did not.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -309,44 +321,80 @@ fn ac2_cooldown_blocks_refiring_within_window() {
          Check that ForwardState's role-state + the dispatch path are wired."
     );
     let fired_at = state.tick;
-    let cooldown_end = state.signature_cooldowns[&key];
+    // EveryTicks(600) cooldown → cooldown_end = fired_at + 600.
+    let cooldown_end_first = state.signature_cooldowns[&key];
     assert!(
-        cooldown_end > fired_at,
+        cooldown_end_first > fired_at,
         "cooldown_end {:?} must be after fired_at {:?}",
-        cooldown_end.to_raw(),
+        cooldown_end_first.to_raw(),
         fired_at.to_raw()
     );
 
-    // After firing, signature_first_fired_seen must contain exactly 1 entry
-    // for (slot=8, lrs). This is the AC-5 invariant; we re-check it here so
-    // AC-2 can assert against it during the cooldown phase.
-    let initial_seen_count = state
-        .signature_first_fired_seen
-        .iter()
-        .filter(|(slot, sig)| *slot == 8u8 && sig == &id)
-        .count();
+    // Capture the start_tick of the first firing. LRS is Attacking (cat_idx=0).
+    let cat_idx = BiasCategory::Attacking as usize;
+    let first_firing = state.signature_firing[8][cat_idx]
+        .as_ref()
+        .expect("first fire must populate signature_firing[8][Attacking]");
+    let first_start_tick = first_firing.start_tick();
     assert_eq!(
-        initial_seen_count, 1,
-        "after firing, first_fired_seen must have exactly 1 entry for (8, lrs)"
+        first_start_tick, fired_at,
+        "first firing's start_tick must equal the tick it fired on"
     );
 
-    // Phase 2: run 500 more ticks (well within the 600-tick cooldown).
-    // The first_fired_seen entry MUST remain at exactly 1 — no re-emission.
+    // Phase 2: run 500 more ticks (well within the 600-tick cooldown window).
+    // Decision-cadence aligned re-fire opportunities land every 15 ticks
+    // (tick % 15 == 1): tick=16, 31, 46, ..., 496 — ~33 attempts. A bad
+    // implementation that ignores cooldown would re-fire at one of these.
+    // OBSERVABLES that catch the re-fire bug:
+    //   1. signature_cooldowns[&key] gets OVERWRITTEN to (re_fire_tick + 600).
+    //   2. signature_firing[8][Attacking], if Some, carries a LATER start_tick.
     state.tick = state.tick.successor();
     for _ in 0..500 {
         state = dispatch::dispatch_tick(state, &defs);
-        let count = state
-            .signature_first_fired_seen
-            .iter()
-            .filter(|(slot, sig)| *slot == 8u8 && sig == &id)
-            .count();
+
+        // Observable 1: cooldown_end MUST be unchanged. If the dispatcher
+        // re-fired the signature, this value would be (re_fire_tick + 600),
+        // strictly greater than the originally captured value.
+        let current_cooldown_end = state.signature_cooldowns[&key];
         assert_eq!(
-            count, 1,
-            "first_fired_seen count must remain 1 across cooldown — signature \
-             cannot re-emit SignatureFirstFired within the cooldown window"
+            current_cooldown_end,
+            cooldown_end_first,
+            "cooldown_end was overwritten at tick {:?} (cooldown_end {:?} -> {:?}); \
+             this means the signature re-fired inside its cooldown window. \
+             The dispatcher must skip candidates whose cooldown has not expired \
+             (signature/dispatcher.rs §'Cooldown check').",
+            state.tick.to_raw(),
+            cooldown_end_first.to_raw(),
+            current_cooldown_end.to_raw()
         );
+
+        // Observable 2: if the firing slot is Some, its start_tick MUST equal
+        // first_start_tick. A re-fire would mint a NEW SignatureFiring with
+        // a later start_tick. After tick > first_start_tick + 60 the firing
+        // window auto-clears to None (dispatch.rs §"Advance firing windows"),
+        // and from then until cooldown_end it must stay None.
+        if let Some(firing) = state.signature_firing[8][cat_idx].as_ref() {
+            assert_eq!(
+                firing.start_tick(),
+                first_start_tick,
+                "signature_firing[8][Attacking] carries start_tick {:?} at tick {:?}, \
+                 but expected start_tick {:?} (the first firing). A different \
+                 start_tick proves a re-fire happened inside the cooldown window.",
+                firing.start_tick().to_raw(),
+                state.tick.to_raw(),
+                first_start_tick.to_raw()
+            );
+        }
+
         state.tick = state.tick.successor();
     }
+
+    // Belt-and-suspenders: final state still shows the original cooldown end.
+    assert_eq!(
+        state.signature_cooldowns[&key], cooldown_end_first,
+        "after 500 cooldown-window ticks, cooldown_end must remain pinned \
+         at the originally-set value"
+    );
 }
 
 // ---------------------------------------------------------------------------
