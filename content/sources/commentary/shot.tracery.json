@@ -1,0 +1,24 @@
+{
+  "shot_verb": [
+    "gets a shot away",
+    "pulls the trigger",
+    "has a go",
+    "tries their luck"
+  ],
+  "not_a_goal": [
+    "Keeper gets down to it.",
+    "Over the bar.",
+    "Flies wide.",
+    "Keeper holds.",
+    "Just past the post.",
+    "Blocked.",
+    "Nothing comes of it."
+  ],
+  "origin": [
+    "#shooterSlot# #shot_verb#. #not_a_goal#",
+    "#shooterSlot# shoots. #not_a_goal#",
+    "Effort from #shooterSlot#. #not_a_goal#",
+    "#shooterSlot# lets fly. #not_a_goal#",
+    "#shooterSlot# tries the shot. #not_a_goal#"
+  ]
+}

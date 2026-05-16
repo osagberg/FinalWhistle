@@ -1,0 +1,16 @@
+{
+  "move_verb": [
+    "plays it on",
+    "gets it away",
+    "finds the pass",
+    "moves it on",
+    "rolls it"
+  ],
+  "origin": [
+    "#fromSlot# #move_verb# to #toSlot#.",
+    "#fromSlot# plays the #passKind# pass to #toSlot#.",
+    "Ball from #fromSlot# to #toSlot#.",
+    "#fromSlot# finds #toSlot# with a #passKind#.",
+    "#fromSlot# to #toSlot#. Kept in play."
+  ]
+}

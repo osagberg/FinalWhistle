@@ -1,0 +1,21 @@
+{
+  "finish": [
+    "turns and finishes",
+    "finds the corner",
+    "drives it low across the keeper",
+    "places it into the side netting",
+    "tucks it away"
+  ],
+  "finish_distance": [
+    "rifles it in from distance",
+    "lets fly from outside the box",
+    "hits it first time from the edge"
+  ],
+  "origin": [
+    "#scorerSlot# #finish#. #homeScore#-#awayScore#.",
+    "#scorerSlot# #finish_distance#. #homeScore#-#awayScore#.",
+    "Goal. #scorerSlot# with the finish — #homeScore#-#awayScore#.",
+    "#scorerSlot# pulls the trigger and it's in. #homeScore#-#awayScore#.",
+    "It's there. #scorerSlot# puts it away. #homeScore#-#awayScore#."
+  ]
+}

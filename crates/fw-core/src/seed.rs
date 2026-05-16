@@ -93,6 +93,8 @@ impl fmt::Display for Seed {
 ///   ReactiveInterrupt = 0x12  (reactive trigger predicate draws)
 ///   BallPhysics       = 0x13  (ball drag, bounce, contact integration)
 ///   SignatureTrigger  = 0x14  (signature-move trigger predicate draws)
+///   Commentary        = 0x18  (in-match commentary variant-pick draws; ADR-0009
+///                              amendment 2026-05-16 — 9th discriminant)
 ///   MemoryEvent       = 0x20  (memory-event salience rolls)
 ///   ScoutObservation  = 0x30  (scout observation noise)
 ///   ContentBake       = 0x40  (bake-time content generation)
@@ -104,6 +106,18 @@ pub enum SeedLayer {
     ReactiveInterrupt = 0x12,
     BallPhysics = 0x13,
     SignatureTrigger = 0x14,
+    /// In-match commentary variant-pick draws. Site formula:
+    /// `((player_slot as u32) << 16) | event_class_discriminant`.
+    /// KickOff / FullTime (no natural player slot) use sentinel
+    /// `player_slot = 0xFF` (PlayerSlot is a u8 type alias; the sentinel
+    /// is the u8 max value, distinct from any real slot in 0..=21).
+    /// In the site u32 this becomes `0x00FF_0000`. ADR-0009 amendment
+    /// 2026-05-16. (Sentinel width corrected post Codex Tier-2 silent-
+    /// failure P1 + type-design P1 + code-reviewer P1 on T1-4b — prior
+    /// `0xFFFF` doc claim disagreed with the `0xFF` impl in
+    /// `fw-content::commentary::SLOT_SENTINEL`; the impl is correct
+    /// since PlayerSlot=u8 can't hold 0xFFFF.)
+    Commentary = 0x18,
     MemoryEvent = 0x20,
     ScoutObservation = 0x30,
     ContentBake = 0x40,
@@ -184,14 +198,16 @@ mod tests {
 
     #[test]
     fn seed_fn_different_layers_produce_different_seeds() {
-        // All 8 discriminants must be non-colliding with each other
-        // at the same (match_seed, tick, site).
+        // All 9 discriminants (including Commentary, ADR-0009 amendment
+        // 2026-05-16) must be non-colliding with each other at the same
+        // (match_seed, tick, site).
         let layers = [
             SeedLayer::Decision,
             SeedLayer::UtilityTieBreak,
             SeedLayer::ReactiveInterrupt,
             SeedLayer::BallPhysics,
             SeedLayer::SignatureTrigger,
+            SeedLayer::Commentary,
             SeedLayer::MemoryEvent,
             SeedLayer::ScoutObservation,
             SeedLayer::ContentBake,
@@ -230,6 +246,13 @@ mod tests {
     }
 
     /// ADR-0009 discriminant values are fixed — verify they haven't drifted.
+    ///
+    /// Codex Tier-2 code-reviewer P4 + type-design P1 on T1-4b 2026-05-16:
+    /// `Commentary` added to the canonical-discriminant pin. Prior layout
+    /// covered 8 layers; the dedicated `seed_layer_commentary_discriminant_is_0x18`
+    /// test pinned Commentary separately but THIS summary test omitted it,
+    /// so a future re-pin of one wouldn't naturally cover the other. All 9
+    /// discriminants now pinned in one test.
     #[test]
     fn seed_layer_discriminants_are_adr0009_canonical() {
         assert_eq!(SeedLayer::Decision as u8, 0x10);
@@ -237,9 +260,55 @@ mod tests {
         assert_eq!(SeedLayer::ReactiveInterrupt as u8, 0x12);
         assert_eq!(SeedLayer::BallPhysics as u8, 0x13);
         assert_eq!(SeedLayer::SignatureTrigger as u8, 0x14);
+        assert_eq!(SeedLayer::Commentary as u8, 0x18);
         assert_eq!(SeedLayer::MemoryEvent as u8, 0x20);
         assert_eq!(SeedLayer::ScoutObservation as u8, 0x30);
         assert_eq!(SeedLayer::ContentBake as u8, 0x40);
+    }
+
+    // ---- Chunk 1 (T1-4b): SeedLayer::Commentary vector tests ----
+
+    /// ADR-0009 amendment 2026-05-16: Commentary discriminant is exactly
+    /// 0x18 — the next free slot after the 0x10..0x14 run.
+    #[test]
+    fn seed_layer_commentary_discriminant_is_0x18() {
+        assert_eq!(SeedLayer::Commentary as u8, 0x18);
+    }
+
+    /// seed_fn is stable across two identical calls with the Commentary layer.
+    #[test]
+    fn seed_fn_commentary_layer_is_deterministic() {
+        let a = seed_fn(0xCAFE_BABE, 7, SeedLayer::Commentary, 0);
+        let b = seed_fn(0xCAFE_BABE, 7, SeedLayer::Commentary, 0);
+        assert_eq!(
+            a, b,
+            "seed_fn(Commentary) must be deterministic for identical inputs"
+        );
+    }
+
+    /// Commentary must not collide with any of the 8 existing discriminants
+    /// at the same (match_seed, tick, site).
+    #[test]
+    fn seed_fn_commentary_does_not_collide_with_existing_layers() {
+        let existing = [
+            SeedLayer::Decision,
+            SeedLayer::UtilityTieBreak,
+            SeedLayer::ReactiveInterrupt,
+            SeedLayer::BallPhysics,
+            SeedLayer::SignatureTrigger,
+            SeedLayer::MemoryEvent,
+            SeedLayer::ScoutObservation,
+            SeedLayer::ContentBake,
+        ];
+        let commentary_seed = seed_fn(42, 0, SeedLayer::Commentary, 0);
+        for &layer in &existing {
+            let other = seed_fn(42, 0, layer, 0);
+            assert_ne!(
+                commentary_seed, other,
+                "SeedLayer::Commentary collided with {:?} (discriminant 0x{:02x})",
+                layer, layer as u8,
+            );
+        }
     }
 
     /// Vacuousness guard: verify the collision test would FAIL if two layers

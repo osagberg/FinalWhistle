@@ -9,6 +9,7 @@
 //! migration only — no in-place mutation of disk content.
 
 pub mod archetype;
+pub mod commentary;
 pub mod event;
 pub mod player;
 pub mod role_affinity;
@@ -17,6 +18,10 @@ pub mod signature;
 pub mod team;
 
 pub use archetype::BehaviorArchetype;
+pub use commentary::{
+    CommentaryBankBuildError, CommentaryGrammarBank, CommentaryRenderError, MatchEventDiscriminant,
+    render_event,
+};
 pub use event::{MatchEvent, PassKind, is_shot_on_target};
 pub use player::{PLAYER_TEMPLATE_SCHEMA_VERSION, PlayerTemplate};
 pub use role_affinity::{

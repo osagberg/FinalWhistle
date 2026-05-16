@@ -17,12 +17,12 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 
-/// Walk `dir` and return every `*.ron` file path, sorted alphabetically.
-///
-/// **Sorting is load-bearing for determinism** (`.claude/rules/Sim/RULES.md`
-/// §2). `fs::read_dir` iteration order is filesystem-dependent; sorting
-/// guarantees the same load order on every platform + every run.
-fn walk_ron_files(dir: &Path) -> Result<Vec<PathBuf>, ContentLoadError> {
+use crate::commentary::{CommentaryGrammarBank, MatchEventDiscriminant};
+
+/// Walk `dir` and return every file with the given extension, sorted
+/// alphabetically. Sorting is load-bearing for determinism — `fs::read_dir`
+/// iteration order is filesystem-dependent.
+fn walk_files_with_ext(dir: &Path, ext: &str) -> Result<Vec<PathBuf>, ContentLoadError> {
     let mut entries: Vec<PathBuf> = Vec::new();
     let read = fs::read_dir(dir).map_err(|source| ContentLoadError::Io {
         path: dir.to_path_buf(),
@@ -34,12 +34,112 @@ fn walk_ron_files(dir: &Path) -> Result<Vec<PathBuf>, ContentLoadError> {
             source,
         })?;
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("ron") {
+        // Match files whose name ends with `.tracery.json` or the requested ext.
+        // path.extension() only returns the final extension component (after the
+        // last '.'), so `foo.tracery.json` gives extension "json" — not enough.
+        // Use file_name() string matching instead.
+        if let Some(name) = path.file_name().and_then(|n| n.to_str())
+            && name.ends_with(ext)
+        {
             entries.push(path);
         }
     }
     entries.sort();
     Ok(entries)
+}
+
+/// Walk `dir` and return every `*.ron` file path, sorted alphabetically.
+///
+/// **Sorting is load-bearing for determinism** (`.claude/rules/Sim/RULES.md`
+/// §2). `fs::read_dir` iteration order is filesystem-dependent; sorting
+/// guarantees the same load order on every platform + every run.
+fn walk_ron_files(dir: &Path) -> Result<Vec<PathBuf>, ContentLoadError> {
+    walk_files_with_ext(dir, ".ron")
+}
+
+/// Load the commentary grammar bank from `commentary_dir`.
+///
+/// Each `*.tracery.json` file in the directory is parsed as a
+/// `BTreeMap<String, Vec<String>>` (Tracery's native JSON format) and mapped
+/// to a `MatchEventDiscriminant` by filename stem:
+///
+///   `kickoff`                → `KickOff`
+///   `full_time`              → `FullTime`
+///   `goal`                   → `Goal`
+///   `shot`                   → `Shot`
+///   `pass`                   → `Pass`
+///   `signature_first_fired`  → `SignatureFirstFired`
+///
+/// Returns `ContentLoadError::MissingCommentaryGrammar` for any missing class
+/// (fail-loud; all 6 are required).
+fn load_commentary_grammars(
+    commentary_dir: &Path,
+) -> Result<CommentaryGrammarBank, ContentLoadError> {
+    if !commentary_dir.is_dir() {
+        // Return the first missing discriminant so the error is actionable.
+        return Err(ContentLoadError::MissingCommentaryGrammar {
+            event_class: MatchEventDiscriminant::KickOff,
+        });
+    }
+
+    let mut raw: BTreeMap<MatchEventDiscriminant, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+
+    for path in walk_files_with_ext(commentary_dir, ".tracery.json")? {
+        let stem = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.trim_end_matches(".tracery.json"))
+            .unwrap_or("");
+
+        let disc = match stem {
+            "kickoff" => MatchEventDiscriminant::KickOff,
+            "full_time" => MatchEventDiscriminant::FullTime,
+            "goal" => MatchEventDiscriminant::Goal,
+            "shot" => MatchEventDiscriminant::Shot,
+            "pass" => MatchEventDiscriminant::Pass,
+            "signature_first_fired" => MatchEventDiscriminant::SignatureFirstFired,
+            other => {
+                // Unknown filename — log and skip. This is not a hard error;
+                // narrative-director may add helper-grammar files in the future.
+                // The missing-discriminant check below catches the load gap.
+                let _ = other;
+                continue;
+            }
+        };
+
+        let raw_json = fs::read_to_string(&path).map_err(|source| ContentLoadError::Io {
+            path: path.clone(),
+            source,
+        })?;
+
+        let rules: BTreeMap<String, Vec<String>> =
+            serde_json::from_str(&raw_json).map_err(|e| ContentLoadError::TraceryParse {
+                path: path.clone(),
+                source: tracery::Error::from(e),
+            })?;
+
+        raw.insert(disc, rules);
+    }
+
+    // Fail-loud: verify all 6 discriminants loaded.
+    for disc in MatchEventDiscriminant::all() {
+        if !raw.contains_key(&disc) {
+            return Err(ContentLoadError::MissingCommentaryGrammar { event_class: disc });
+        }
+    }
+
+    // All discriminants are present (checked above); try_from_map now ALSO
+    // validates that each grammar has a non-empty `origin` rule with ≥1
+    // non-empty variant (Codex Tier-2 type-design P1 on T1-4b 2026-05-16
+    // tightened CommentaryGrammarBank::try_from_map to reject malformed
+    // grammars at construction time, not silently empty at render time).
+    // All build-error variants map to the same fail-loud ContentLoadError
+    // for now; T1-12 content-validation hardening can distinguish them.
+    CommentaryGrammarBank::try_from_map(raw).map_err(|e| {
+        ContentLoadError::MissingCommentaryGrammar {
+            event_class: e.discriminant(),
+        }
+    })
 }
 
 /// Parse a single `*.ron` file into a typed `T`. Errors surface with the
@@ -219,7 +319,7 @@ pub fn derive_seed(career_seed: u64, entity_id: u64, kind: ContentKind) -> u64 {
 ///
 /// BTreeMap keyed by stable culture/archetype IDs — never HashMap (would
 /// inject iteration non-determinism into any sampler that scans the table).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ContentStore {
     pub corpus_version: u32,
     pub cultures: BTreeMap<String, Culture>,
@@ -230,8 +330,54 @@ pub struct ContentStore {
     /// look-up at T1-2b-iv dispatch time. Loaded from
     /// `content/sources/signatures/*.ron`. BTreeMap for deterministic iteration.
     pub signature_definitions: BTreeMap<String, crate::SignatureDefinition>,
+    /// In-match commentary grammar bank. One grammar per `MatchEventDiscriminant`.
+    /// Loaded from `content/sources/commentary/*.tracery.json`.
+    /// Missing any of the 6 required files is a hard load error
+    /// (`ContentLoadError::MissingCommentaryGrammar`).
+    pub commentary_grammars: crate::commentary::CommentaryGrammarBank,
     // TODO(T2-3): bios, scout phrases, headlines, manager quotes, fan
-    // reactions, commentary — wired in as each baker subcommand lands.
+    // reactions — wired in as each baker subcommand lands.
+}
+
+impl Default for ContentStore {
+    fn default() -> Self {
+        // Build a bank with non-empty placeholder grammars for all 6
+        // discriminants. Used in tests that construct a ContentStore without
+        // going through load_sources.
+        //
+        // Post Codex Tier-2 type-design P1 on T1-4b 2026-05-16:
+        // CommentaryGrammarBank::try_from_map now rejects empty-variant
+        // origin rules (the construction-time guard that was missing
+        // pre-fix-pass). The placeholder MUST be non-empty so this Default
+        // impl still passes — switched from `vec![""]` to
+        // `vec!["(default placeholder)".into()]`. The "(default placeholder)"
+        // text surfaces in test output if anyone forgets to load real
+        // grammars + helps debugging.
+        use crate::commentary::{CommentaryGrammarBank, MatchEventDiscriminant};
+        let mut map = std::collections::BTreeMap::new();
+        for disc in MatchEventDiscriminant::all() {
+            let mut rules: std::collections::BTreeMap<String, Vec<String>> =
+                std::collections::BTreeMap::new();
+            rules.insert(
+                "origin".into(),
+                vec![format!("(default placeholder for {disc:?})")],
+            );
+            map.insert(disc, rules);
+        }
+        // try_from_map is infallible here — all 6 discriminants present with
+        // non-empty origin variants, satisfying the tightened invariant.
+        let commentary_grammars = CommentaryGrammarBank::try_from_map(map)
+            .expect("default ContentStore: all discriminants present with non-empty origin");
+        Self {
+            corpus_version: 0,
+            cultures: BTreeMap::new(),
+            tactical_archetypes: BTreeMap::new(),
+            player_templates: BTreeMap::new(),
+            role_affinity_tables: BTreeMap::new(),
+            signature_definitions: BTreeMap::new(),
+            commentary_grammars,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -252,6 +398,23 @@ pub enum ContentLoadError {
     MissingDir(PathBuf),
     #[error("corpus_version mismatch: shipped={shipped} on-disk={found}")]
     VersionMismatch { shipped: u32, found: u32 },
+    /// A required commentary grammar file is absent from
+    /// `content/sources/commentary/`. Fail-loud: every event class must have
+    /// a grammar; missing one means commentary is silently broken.
+    #[error(
+        "missing commentary grammar for event class {event_class:?}; \
+         expected file in content/sources/commentary/"
+    )]
+    MissingCommentaryGrammar {
+        event_class: crate::commentary::MatchEventDiscriminant,
+    },
+    /// A `.tracery.json` file failed to parse.
+    #[error("Tracery parse error in {path}: {source}")]
+    TraceryParse {
+        path: PathBuf,
+        #[source]
+        source: tracery::Error,
+    },
 }
 
 impl ContentStore {
@@ -342,6 +505,18 @@ impl ContentStore {
                     .insert(parsed.id.as_str().to_owned(), parsed);
             }
         }
+
+        // Commentary grammars (T1-4b). Required — missing the directory is a
+        // hard load error (fail-loud per T1-12 content-validation hardening).
+        // Filename → MatchEventDiscriminant mapping:
+        //   kickoff.tracery.json            → KickOff
+        //   full_time.tracery.json          → FullTime
+        //   goal.tracery.json               → Goal
+        //   shot.tracery.json               → Shot
+        //   pass.tracery.json               → Pass
+        //   signature_first_fired.tracery.json → SignatureFirstFired
+        let commentary_dir = sources_dir.join("commentary");
+        store.commentary_grammars = load_commentary_grammars(&commentary_dir)?;
 
         Ok(store)
     }

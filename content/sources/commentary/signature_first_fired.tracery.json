@@ -1,0 +1,16 @@
+{
+  "emergence_phrase": [
+    "falls into a familiar pattern",
+    "produces something they're known for",
+    "shows what they're about",
+    "does what they do",
+    "finds their natural game"
+  ],
+  "origin": [
+    "#playerSlot# #emergence_phrase#.",
+    "There it is from #playerSlot# — that's their game.",
+    "#playerSlot# with something different. That's becoming a pattern.",
+    "#playerSlot# with a moment that catches the eye. Worth watching.",
+    "#playerSlot# — settling into something now."
+  ]
+}
