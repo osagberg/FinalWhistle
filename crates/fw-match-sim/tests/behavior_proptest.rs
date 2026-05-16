@@ -305,35 +305,93 @@ proptest! {
         // after the first FWD decision shoots. 300 ticks provides enough
         // runway for possession to be re-established via the pickup mechanic.
         //
-        // The initial state is prepended to the snapshot list so the
-        // anti-vacuousness assertion (≥1 in-possession tick) is always
-        // satisfiable: tick-0 always has possession=Some(9) (kick-off).
+        // T1-18 redesign (Codex Tier-2 pre-/done audit): the prior T1-15
+        // version had two defects:
+        //   (a) GK-carry ticks were SKIPPED entirely (`continue`), which
+        //       masked the exact "10 outfielders chase the loose ball + GK
+        //       picks it up + outfield Y-spread collapses to a point" pathology
+        //       that this invariant was supposed to catch.
+        //   (b) the anti-vacuousness counter `observed_in_possession_ticks > 0`
+        //       was trivially satisfied by the prepended tick-0 (which always
+        //       has possession=Some(9), an outfield carrier at initial 4-3-3
+        //       formation positions). If every other in-possession tick had a
+        //       GK carrier (the broken-build-up scenario), the loop body would
+        //       skip every one of them + the counter would still pass — the
+        //       test would PASS while missing exactly what it should catch.
+        //
+        // T1-18 fix splits the invariant into two football-shaped sub-bands:
+        //   - OUTFIELD-carry: tight band [25, 70] m (per the original ADR-0007
+        //     §Layer 3 framing — normal build-up should hold formation width).
+        //   - GK-carry: loose band [5, 80] m (restart-phase tolerance — outfield
+        //     may compress or spread during distribution-prep, but absolute
+        //     collapse to a point [width < 5 m] OR explosion past pitch+margin
+        //     [width > 80 m] still signals a real pathology).
+        //
+        // Anti-vacuousness counter restored to track OUTFIELD-carry ticks only.
+        // Threshold raised from `> 0` (which tick-0's possession=Some(9)
+        // outfield carrier trivially satisfied) to `>= 2` (literal Codex Tier-2
+        // pre-/done ask: "Don't let tick 0 satisfy the meaningful-observation
+        // check"). Tick 0 contributes 1 to the counter when its possession
+        // lands on an outfielder; threshold ≥ 2 forces at least one OTHER
+        // outfield-carry tick beyond the initial state, proving the sim is
+        // not stuck at tick 0 forever.
+        //
+        // 2 is the literal minimum that satisfies Codex's wording. Higher
+        // thresholds (3+) are editorial tuning that catches more pathological
+        // possession-stuck-on-GK seeds but discards real-sim characteristic
+        // (loose-ball state dominates ~85-95% of ticks per dump_frames analysis
+        // on 6 sampled seeds at T1-18 implementation time — distribution was
+        // [62, 41, 6, 28, 21, 27] outfield-carry ticks across 301 sampled,
+        // with proptest finding 3-tick + 6-tick shrunk failures at thresholds
+        // 5 and 10 respectively). The 3-tick and 6-tick outlier seeds DO
+        // represent a real sim characteristic (possession sticks to GK after
+        // shots clear) that lower-bound-2 accommodates without false-positive.
+        // If T2-1 changes possession durability substantially, revisit.
+        //
+        // The band assertion itself (lines 358-385) is the primary regression
+        // gate; the anti-vacuousness counter is a secondary safety net for
+        // the corner case where the band loop body never executes.
+        //
+        // T2-1 follow-up note (T1-18 self-review silent-failure MEDIUM #3):
+        // the split-band design catches per-frame collapse OR explosion well,
+        // but masks one regression class — a GK↔outfield possession oscillation
+        // every tick (e.g. broken pickup heuristic). Each individual frame
+        // satisfies its own sub-band; the aggregate "formation never resolves"
+        // pathology spans both branches and goes uncaught. T2-1's GK-FSM
+        // distribution-sequence work owes a cross-band invariant: e.g.,
+        // "within any 60-tick sliding window, the carrier must be outfield
+        // for ≥ N consecutive ticks" — catches the oscillation pattern this
+        // T1-18 split can't see directly.
         let seed = Seed::from_u64(seed_u64);
         let initial = MatchState::initial(seed);
         let mut snapshots = vec![initial];
         snapshots.extend(run_match_snapshots(seed_u64, 300));
-        let mut observed_in_possession_ticks: u32 = 0;
+        let mut observed_outfield_carry_ticks: u32 = 0;
+
+        // T1-18 sub-band thresholds (Q32 constants).
+        //
+        // gk_hi raised from initial 80m to 100m per T1-18 self-review
+        // silent-failure HIGH: player position integration in lib.rs:786-791
+        // is UNCLAMPED. At MAX_PLAYER_SPEED = 8 m/s × 300 ticks / 60 Hz = 40 s
+        // wall-clock, a player can theoretically drift 40m past formation in
+        // any direction; two players drifting opposite directions could yield
+        // legitimate width ~140m. The 256-case proptest sweep at T1-18 impl
+        // time empirically stays under 80m (never observed), but the upper
+        // bound is widened to 100m as defensive margin against the unclamped-
+        // position physics. If future per-tick player-position clamping lands
+        // (T2 territory), the upper can tighten back to 80m.
+        let outfield_lo = Q32::from_int(25);
+        let outfield_hi = Q32::from_int(70);
+        let gk_lo = Q32::from_int(5);
+        let gk_hi = Q32::from_int(100);
 
         for (tick_idx, state) in snapshots.iter().enumerate() {
             let carrier_slot = match state.possession() {
                 Some(slot) => slot,
                 None => continue,
             };
-            observed_in_possession_ticks += 1;
 
-            // T1-15: skip Y-width check when the carrier is a GK (slot 0 or 11).
-            //
-            // After a shot travels 40-50 m (new low-friction physics), all outfield
-            // players chase the loose ball via preempt_check. When the home/away GK
-            // then picks it up near the goal line, the outfield players may be
-            // clustered near the ball's last position, collapsing Y-spread to < 25 m.
-            // This is a valid T1 transient (a restart — GK distributes next tick).
-            // The [25, 70] band is a build-up-phase invariant; it does not apply
-            // to GK restarts. Tighten to require GK restart width in T2-1 when the
-            // GK-FSM is wired with a proper distribution sequence.
-            if carrier_slot == 0 || carrier_slot == 11 {
-                continue;
-            }
+            let is_gk_carry = carrier_slot == 0 || carrier_slot == 11;
 
             // Determine which team's outfield slots to measure.
             // Slot < 11 → home team; outfield = slots 1..11 (exclude GK = slot 0).
@@ -368,24 +426,59 @@ proptest! {
             // field semantics, but guard anyway with abs-diff pattern).
             let width = if y_max >= y_min { y_max - y_min } else { y_min - y_max };
 
-            let lo = Q32::from_int(25);
-            let hi = Q32::from_int(70);
-
-            prop_assert!(
-                width >= lo && width <= hi,
-                "tick {tick_idx}: team-in-possession outfield Y-width = {width:?} m \
-                 (carrier slot {carrier_slot}), expected [{lo:?}, {hi:?}] m. \
-                 Seed: {seed_u64:#018x}"
-            );
+            if is_gk_carry {
+                // GK-carry sub-invariant: relaxed [5, 80] m band.
+                // Football-shape: outfielders may legitimately compress (short
+                // distribution) or spread (long ball preparation) during a GK
+                // restart, but width = 0 (all 10 at one Y position) is a
+                // collapse pathology + width > 80 m exceeds the 68 m pitch +
+                // 12 m boundary tolerance.
+                prop_assert!(
+                    width >= gk_lo && width <= gk_hi,
+                    "tick {tick_idx}: GK-carry outfield Y-width = {width:?} m \
+                     (carrier slot {carrier_slot}), expected GK-carry band \
+                     [{gk_lo:?}, {gk_hi:?}] m. This catches the exact \
+                     formation-collapse pathology the T1-15 skip-GK exception \
+                     was hiding (10 outfielders chasing the loose ball + \
+                     piling up near the GK's pickup point). Seed: {seed_u64:#018x}"
+                );
+            } else {
+                // OUTFIELD-carry sub-invariant: tight [25, 70] m band.
+                // Per ADR-0007 §Layer 3 framing — normal build-up holds
+                // formation width within this regression-guard envelope.
+                prop_assert!(
+                    width >= outfield_lo && width <= outfield_hi,
+                    "tick {tick_idx}: outfield-carry outfield Y-width = {width:?} m \
+                     (carrier slot {carrier_slot}), expected outfield-carry band \
+                     [{outfield_lo:?}, {outfield_hi:?}] m. Seed: {seed_u64:#018x}"
+                );
+                observed_outfield_carry_ticks += 1;
+            }
         }
 
-        // Anti-vacuousness: at least one in-possession tick must be observed
-        // (GK or outfield). This fires because we prepend the initial state
-        // (tick 0) which always has possession=Some(9).
+        // Anti-vacuousness (T1-18 redesign): require ≥ 2 outfield-carry ticks
+        // (see rationale block above at lines 333-352; literal Codex floor).
+        //
+        // Per Codex Tier-2 pre-/done audit: "Don't let tick 0 satisfy the
+        // meaningful-observation check." The prior `> 0` threshold was
+        // trivially satisfied by tick-0 (kick-off has possession=Some(9), an
+        // outfield carrier at initial formation) — meaning if a regression
+        // kept possession on the GK for all 300 subsequent ticks, the test
+        // would still PASS via the one free tick-0 observation while failing
+        // to assert the band on any meaningful outfield play.
+        //
+        // 2-tick threshold per Codex's literal "don't let tick 0 satisfy"
+        // ask. The band assertion above is the primary gate; this is a
+        // secondary safety net catching only the all-pathological case.
         prop_assert!(
-            observed_in_possession_ticks > 0,
-            "no in-possession tick observed — possession system may be broken. \
-             Seed: {seed_u64:#018x}"
+            observed_outfield_carry_ticks >= 2,
+            "only {observed_outfield_carry_ticks} outfield-carry in-possession \
+             ticks observed across {total_ticks} sampled ticks (threshold: 2 \
+             per Codex Tier-2 pre-/done audit \"don't let tick 0 satisfy the \
+             meaningful-observation check\") — possession may be permanently \
+             stuck on GK (tick-0 free pass alone insufficient). Seed: \
+             {seed_u64:#018x}",
+            total_ticks = snapshots.len(),
         );
     }
 }
