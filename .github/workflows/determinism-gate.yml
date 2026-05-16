@@ -78,7 +78,13 @@ jobs:
           import re, sys
           path = 'crates/fw-replay/tests/canonical_hash.rs'
           try:
-              src = open(path).read()
+              # Explicit UTF-8 — Python on Windows defaults to cp1252, which
+              # chokes on non-ASCII bytes that legitimately live in the
+              # canonical_hash.rs comments (rebaseline-history ellipses,
+              # arrows, ≥, ×, etc.). Without `encoding='utf-8'` this script
+              # passes on macOS/Linux + fails on windows-latest with
+              # `UnicodeDecodeError: 'charmap' codec can't decode byte 0x81`.
+              src = open(path, encoding='utf-8').read()
           except FileNotFoundError:
               print('::error::expected file ' + path + ' not found')
               sys.exit(1)
