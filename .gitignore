@@ -149,3 +149,9 @@ node_modules/
 # deliberate). Remove this line when porting happens.
 # ==========================================
 .agents/
+
+# ==========================================
+# Python (added 2026-05-16 with T1-22's scripts/fw-hash-pins.py)
+# ==========================================
+__pycache__/
+*.pyc

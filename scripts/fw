@@ -53,6 +53,7 @@ COMMANDS
     banned-terms     Football-native vocabulary lint
     verify-content   FW-VAL content-pack validation
     determinism-audit  rg-based audit for HashMap / tokio / clocks in sim crates
+    hash-pins        List or atomically update the canonical-state hash pin registry
     build            cargo build --workspace
     bundle           Full Tauri bundle for current platform
     clean            Purge target/ + frontend/node_modules
@@ -155,6 +156,15 @@ EOF
         require_just
         cd "$ROOT"
         just determinism-audit
+        ;;
+
+    hash-pins)
+        # T1-22: canonical-state hash pin registry. Lists / updates the 5 pin
+        # locations atomically. Forwards args directly to the Python script
+        # (no `just` indirection — the script handles its own argparse).
+        # See docs/specs/determinism-gate.md §9.
+        cd "$ROOT"
+        python3 scripts/fw-hash-pins.py "$@"
         ;;
 
     *)

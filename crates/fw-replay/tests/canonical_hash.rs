@@ -234,6 +234,43 @@ const SMOKE_TICK_COUNT: u32 = 60;
 const PINNED_60_TICK: [u8; 32] =
     hex!("fcccb840b5868a4ed55c019c353a1d5496259073e2d88bf7abd97d9bdca7a751");
 
+/// Read `env_var` as the number of fresh runs for an intra-process determinism
+/// test, falling back to `default` when the env var is absent or unparseable.
+///
+/// T1-22 introduced this helper so audit-time stress testing can crank the
+/// rerun counts without source edits. CI runs use the defaults (100 for the
+/// smoke seed, 10 for the extended seed) to keep wall-clock cheap; a one-off
+/// audit might run `FW_DETERMINISM_SMOKE_RUNS=10000` to push 100× harder.
+///
+/// Semantics:
+/// - Env var unset OR empty → return `default`.
+/// - Env var parses as a positive `usize` → return parsed value.
+/// - Env var parses as `0` → panic (a 0-run determinism test is structurally
+///   vacuous — `BTreeSet` of 0 elements has len 0, which would fail the
+///   `len() == 1` assertion downstream with a confusing message; better to
+///   fail loudly at config time).
+/// - Env var fails to parse → panic with the bad value in the message.
+fn runs_for_test(env_var: &str, default: usize) -> usize {
+    match std::env::var(env_var) {
+        Err(_) => default,
+        Ok(raw) if raw.is_empty() => default,
+        Ok(raw) => {
+            let parsed: usize = raw.parse().unwrap_or_else(|e| {
+                panic!(
+                    "{env_var}={raw:?} is not a valid usize: {e}; \
+                     unset the env var to use the default of {default}",
+                );
+            });
+            assert!(
+                parsed >= 1,
+                "{env_var}={raw} is 0; a 0-run determinism test is vacuous. \
+                 Set to a positive integer or unset the env var.",
+            );
+            parsed
+        }
+    }
+}
+
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.
 ///
@@ -324,15 +361,19 @@ fn smoke_seed_canonical_hash_is_nonzero() {
 
 #[test]
 fn smoke_seed_runs_100_times_produce_one_hash() {
-    // 100 fresh identical runs. Single distinct hash means no hidden
-    // non-determinism (HashMap iteration / thread_rng / SystemTime /
-    // pointer-address-based ordering).
+    // N fresh identical runs (default 100; override via FW_DETERMINISM_SMOKE_RUNS).
+    // Single distinct hash means no hidden non-determinism (HashMap iteration /
+    // thread_rng / SystemTime / pointer-address-based ordering).
     //
-    // This test runs cheaply (60 ticks × 100 runs ≈ 6k tick evaluations
-    // on a tiny state) and catches the most common determinism leaks
-    // BEFORE the cross-platform CI matrix has to disagree to surface them.
+    // The 100 default runs cheaply (60 ticks × 100 runs ≈ 6k tick evaluations
+    // on a tiny state) and catches the most common determinism leaks BEFORE
+    // the cross-platform CI matrix has to disagree to surface them. T1-22
+    // parameterized the count via env var so audit-time stress testing can
+    // push higher without source edits — e.g.
+    // `FW_DETERMINISM_SMOKE_RUNS=10000 cargo test smoke_seed_runs_`.
+    let n_runs = runs_for_test("FW_DETERMINISM_SMOKE_RUNS", 100);
     let mut distinct: BTreeSet<[u8; 32]> = BTreeSet::new();
-    for _ in 0..100 {
+    for _ in 0..n_runs {
         let seed = Seed::from_u64(SMOKE_SEED);
         let mut state = MatchState::initial(seed);
         for _ in 0..SMOKE_TICK_COUNT {
@@ -345,7 +386,7 @@ fn smoke_seed_runs_100_times_produce_one_hash() {
     assert_eq!(
         distinct.len(),
         1,
-        "100 runs of the same seed produced {} distinct hashes — \
+        "{n_runs} runs of the same seed produced {} distinct hashes — \
          hidden non-determinism. Hashes: {:?}",
         distinct.len(),
         distinct.iter().map(|h| hex_string(h)).collect::<Vec<_>>(),
@@ -580,9 +621,10 @@ fn extended_seed_600_tick_canonical_hash_pinned() {
     );
 }
 
-/// Intra-process determinism — 10 fresh runs converge on a single hash.
+/// Intra-process determinism — N fresh runs converge on a single hash
+/// (default 10; override via `FW_DETERMINISM_EXTENDED_RUNS`).
 ///
-/// 10× (vs the 60-tick smoke's 100×) keeps the total cost ≈ 6k tick-
+/// 10× default (vs the 60-tick smoke's 100×) keeps the total cost ≈ 6k tick-
 /// evaluations — same budget as the 60-tick × 100-runs smoke determinism
 /// test. The extended seed runs significantly more sim code per tick
 /// (signature dispatcher, content-driven softmax, ball physics through
@@ -590,13 +632,18 @@ fn extended_seed_600_tick_canonical_hash_pinned() {
 /// enough to catch the determinism leak classes (HashMap iteration /
 /// thread_rng / SystemTime / pointer-address-based ordering) that would
 /// surface as multiple distinct hashes.
+///
+/// T1-22 parameterized the count via env var so audit-time stress testing
+/// can push higher without source edits — e.g.
+/// `FW_DETERMINISM_EXTENDED_RUNS=1000 cargo test extended_seed_runs_`.
 #[test]
 fn extended_seed_runs_10_times_produce_one_hash() {
     let content_root = workspace_content_root();
     let content = ContentStore::load_sources(&content_root).expect("content/sources should load");
 
+    let n_runs = runs_for_test("FW_DETERMINISM_EXTENDED_RUNS", 10);
     let mut distinct: BTreeSet<[u8; 32]> = BTreeSet::new();
-    for _ in 0..10 {
+    for _ in 0..n_runs {
         let seed = Seed::from_u64(EXTENDED_SEED);
         let mut state = MatchState::initial_with_content(seed, &content)
             .expect("initial_with_content should succeed");
@@ -610,7 +657,7 @@ fn extended_seed_runs_10_times_produce_one_hash() {
     assert_eq!(
         distinct.len(),
         1,
-        "10 runs of the extended seed produced {} distinct hashes — \
+        "{n_runs} runs of the extended seed produced {} distinct hashes — \
          hidden non-determinism. Hashes: {:?}",
         distinct.len(),
         distinct.iter().map(|h| hex_string(h)).collect::<Vec<_>>(),

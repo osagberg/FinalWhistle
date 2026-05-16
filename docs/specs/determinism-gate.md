@@ -337,27 +337,69 @@ asserts the agreement, so the two cannot drift independently).
 
 ---
 
-## 9. The pinned-hash table
+## 9. The pinned-hash registry (T1-22)
 
-```rust
-// crates/fw-replay/tests/canonical_hash.rs
-const PINNED_HASHES: &[(&str, u32, [u8; 32])] = &[
-    // (seed_hex, tick_count, expected_blake3)
-    ("0xdeadbeefdeadbeef", 60, hex!("0000000000000000000000000000000000000000000000000000000000000000")),
-    // additional seeds added here as the corpus grows
-];
+The canonical-state hash is pinned in MULTIPLE locations. Pre-T1-22 this
+was a "remember the N places" manual list that already drifted from 4 to 5
+during T1-15 + T1-16 rebaselines. T1-22 codified the registry as a script:
+
+```sh
+# List the current state of all pin locations:
+scripts/fw hash-pins
+
+# Atomically update all locations for a given seed:
+scripts/fw hash-pins --update <NEW_HASH> --seed <SEED>
+scripts/fw hash-pins --update <NEW_HASH> --seed <SEED> --dry-run  # preview
 ```
 
-Compile-time enforcement: the `&[(&str, u32, [u8; 32])]` is a `const`
-literal, so any drift requires editing this file — which surfaces in
-PR diff. The `hex!()` macro (from `hex-literal`) converts the hex
-string to bytes at compile time; a typo (odd length, non-hex char)
-fails to compile.
+Implementation: `scripts/fw-hash-pins.py`. The `PIN_LOCATIONS` table inside
+the script is the single source of truth for "which files pin the hash";
+adding a new pin location = adding a new entry there.
 
-When the first CI green pass produces a hash, that hash is committed
-into both the RON fixture's `expected_hash` field AND the `[u8; 32]`
-literal here. A separate test asserts the two are equal, so they
-cannot diverge.
+### Current pin locations (5 total across 2 corpus seeds)
+
+| Seed | Location | Form |
+|---|---|---|
+| `0xdeadbeefdeadbeef` (60-tick smoke) | `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK` | `hex!()` macro |
+| `0xdeadbeefdeadbeef` (60-tick smoke) | `crates/fw-replay/fixtures/0xdeadbeefdeadbeef.ron::expected_hash` | RON `"blake3:..."` |
+| `0xdeadbeefdeadbeef` (60-tick smoke) | `crates/fw-content/tests/fixtures_load.rs::EXPECTED` | raw `[u8; 32]` byte array |
+| `0xfeedbeefcafefade` (600-tick extended) | `crates/fw-replay/tests/canonical_hash.rs::PINNED_600_TICK` | `hex!()` macro |
+| `0xfeedbeefcafefade` (600-tick extended) | `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron::expected_hash` | RON `"blake3:..."` |
+
+The cross-check test `smoke_seed_corpus_fixture_matches_pinned_constant`
+(canonical_hash.rs) asserts the in-code constant + the RON fixture agree
+for the smoke seed; the analogous test exists for the extended seed.
+
+### Rebaseline procedure
+
+When an ADR-0012-authorized rebaseline is needed:
+
+1. Run `scripts/fw hash-pins` to see the current state.
+2. Determine the new hash by editing ONE pin location to a placeholder
+   (e.g. `[0u8; 32]`), running `cargo test -p fw-replay --test canonical_hash
+   <pinned_test>`, and reading the actual hash from the test failure message.
+3. Run `scripts/fw hash-pins --update <NEW_HASH> --seed <SEED>` to atomically
+   propagate the new hash to all sibling locations. (Use `--dry-run` first to
+   confirm scope.)
+4. Author a re-baseline history comment in each affected file per the existing
+   `Prior hash (T1-XX / reason): <old_hash>` convention.
+5. Run `scripts/fw verify` to confirm all tests pass against the new pin.
+6. Commit with the `canonical hash: REBASELINED (trigger: <1-4>; old: ...;
+   new: ...; reason: ...)` marker per `.claude/hooks/validate-commit.sh`.
+
+### Intra-process determinism test parameters
+
+The 100×/10× rerun-count tests (`smoke_seed_runs_100_times_produce_one_hash` +
+`extended_seed_runs_10_times_produce_one_hash`) are parameterized via env vars:
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `FW_DETERMINISM_SMOKE_RUNS` | `100` | Override the smoke-seed rerun count |
+| `FW_DETERMINISM_EXTENDED_RUNS` | `10` | Override the extended-seed rerun count |
+
+Audit-time stress testing — e.g. `FW_DETERMINISM_SMOKE_RUNS=10000` to push
+100× harder — no source edits needed. CI defaults preserve the current wall-
+clock cost.
 
 ---
 

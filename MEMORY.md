@@ -31,7 +31,94 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-(none — T1-21 closed 2026-05-16; `scripts/fw verify` exit 0; canonical hashes UNCHANGED on both pins. **Next `/next` picks T1-22 (hash-pin registry script + env-driven determinism counts — procedural cleanup) or T2-1 (full BT runner with 20-30 manager archetypes) per declared-order + skip-DEFERRED rule.**)
+(none — T1-22 closed 2026-05-16; `scripts/fw verify` exit 0; canonical hashes UNCHANGED on both pins. **All 4 post-T1-close ultimate-review follow-ups (T1-19 + T1-20 + T1-21 + T1-22) now DONE.** Next `/next` picks T2-1 (full BT runner with 20-30 manager archetypes + xG / personality coefficient calibration) — the main T2 row.)
+
+<!-- T1-22 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
+
+<!-- ORIGINAL T1-22 SPEC FOLLOWS (will be GC'd on next /next cycle):
+- **id:** T1-22
+- **title:** Hash-pin registry script + env-driven determinism rerun counts
+- **started:** 2026-05-16
+- **task class:** architecture-cross-crate (tooling script in Python + Rust test parameterization + doc update; no sim production-code change). ~250-300 LoC total: new `scripts/fw-hash-pins.py` (~150 LoC), `scripts/fw` wrapper (+10), `canonical_hash.rs` env-var parameterization (~30 LoC), `docs/specs/determinism-gate.md §9` rewrite (~30 LoC). Procedural cleanup; no canonical-state change.
+- **required subagent:** **main thread** — mechanical multi-surface work (Python script + Rust test param + doc); subagent dispatch overhead outweighs benefit for clearly-specified tooling. Cross-language coordination (Python registry script + Rust env-var reads + docs) needs main thread to keep the pin-location table consistent across surfaces.
+
+### Design references
+
+- **MASTER_PLAN T1-22 row body** — defines the 4 fixes (script, --update mode, doc update, env vars) + done criteria. Names the 5 pin locations cascaded through at T1-15 + T1-16.
+- **`crates/fw-replay/tests/canonical_hash.rs:234-235`** — `PINNED_60_TICK` (hex! literal form).
+- **`crates/fw-replay/tests/canonical_hash.rs:?`** — `PINNED_600_TICK` (hex! literal form).
+- **`crates/fw-replay/fixtures/0xdeadbeefdeadbeef.ron:164`** — RON string `expected_hash: "blake3:..."`.
+- **`crates/fw-replay/fixtures/0xfeedbeefcafefade.ron:54`** — RON string `expected_hash: "blake3:..."`.
+- **`crates/fw-content/tests/fixtures_load.rs:263-267`** — `EXPECTED` raw `[u8; 32]` byte-array. Form C is the trickiest detection target — script must handle 3 forms: RON `blake3:` string, Rust `hex!()` macro, Rust raw byte array.
+- **`crates/fw-replay/tests/canonical_hash.rs:325-353`** — `smoke_seed_runs_100_times_produce_one_hash` hardcodes the 100. Needs env-var parameterization.
+- **`crates/fw-replay/tests/canonical_hash.rs:593-618`** — `extended_seed_runs_10_times_produce_one_hash` hardcodes the 10. Needs env-var parameterization.
+- **`docs/specs/determinism-gate.md §9`** — currently documents the pinned-hash table at line 340. Needs rewrite to reference `scripts/fw hash-pins` + list 5 pin locations + document `FW_DETERMINISM_*_RUNS` env vars.
+- **`scripts/fw`** — bash front-door dispatcher. Add new `hash-pins` case.
+- **Codex Track F caveat from `docs/audits/post-t1-ultimate-review-2026-05-16.md`**: prescribed defaults are 100 for SMOKE_RUNS + 10 for EXTENDED_RUNS (matches current hardcoded values).
+
+### Acceptance criteria (falsifiable)
+
+1. **`scripts/fw hash-pins` lists 5+ pin locations consistently.** Running the command prints a table covering all 5 pin locations (the 4 in canonical_hash.rs + fixtures/*.ron + the 5th in fixtures_load.rs) with file:line + hash value + which corpus seed it pins. Output is stable enough for grep/diff scripting.
+2. **`scripts/fw hash-pins --update <new-hash> --seed <seed>` mode atomic across all locations.** Running with `--update` updates ALL pin locations for the named seed in one pass; partial-write failure mode is documented; idempotent (re-running with the same new hash is a no-op).
+3. **`docs/specs/determinism-gate.md §9` updated.** The current "memorize 4 places" prose is replaced with "run `scripts/fw hash-pins`"; the 5-location table is documented; env vars are explained.
+4. **`FW_DETERMINISM_SMOKE_RUNS` + `FW_DETERMINISM_EXTENDED_RUNS` env vars work; defaults preserve current behavior.** Tests at `canonical_hash.rs:325-353` + `:593-618` read these env vars (with defaults 100 + 10); future audit can stress-test via `FW_DETERMINISM_SMOKE_RUNS=10000 cargo test ...` without source edits.
+5. **`scripts/fw verify` clean** end-to-end including the new test parameterization.
+6. **Canonical hash UNCHANGED on both pins** (60-tick `fcccb840…a751` + 600-tick `9353bd25…947eb`) — tooling + test parameterization only; no sim behavior change.
+
+### AC-to-test matrix
+
+| AC | Test or check | Observable |
+|---|---|---|
+| 1. Lists 5+ pins | `scripts/fw hash-pins` (run from clean working tree) | stdout lists all 5 locations: PINNED_60_TICK, PINNED_600_TICK, 0xdeadbeef RON, 0xfeedbeef RON, fixtures_load EXPECTED — with the current pinned hash value at each |
+| 2. --update atomic | `scripts/fw hash-pins --update <fake-hash> --seed 0xdeadbeefdeadbeef --dry-run` (or temporarily on fixture branch); then run `git diff` | All locations matching the seed are updated to the new hash; non-matching locations untouched; idempotent on re-run |
+| 3. determinism-gate.md updated | `grep -n "scripts/fw hash-pins\|FW_DETERMINISM_SMOKE_RUNS" docs/specs/determinism-gate.md` | Both references present; §9 cites the script as the source of truth + names the 5 pin locations + env vars |
+| 4. Env vars work | `FW_DETERMINISM_SMOKE_RUNS=5 cargo test -p fw-replay --test canonical_hash smoke_seed_runs` | Test passes with 5 runs (loops shortened from 100); without env var defaults to 100; verified via debug-print of the count or by timing |
+| 5. scripts/fw verify | `scripts/fw verify` | exit 0 |
+| 6. Canonical hash UNCHANGED | `cargo test -p fw-replay --test canonical_hash smoke_seed_60_tick extended_seed_600_tick` | Both pins still pass |
+
+**Mutation-thinking pre-check** (per /next Step 6 hardening):
+- AC1 lists 5+ pins: if a future contributor moves PINNED_60_TICK to a new file, the script's hardcoded pin table breaks → list output drops a row. Discriminating against silent drift.
+- AC2 --update atomic: if --update updates 4 of 5 locations (e.g. forgetting fixtures_load EXPECTED), running `scripts/fw verify` would surface the inconsistency via the fixtures_load test failing with mismatched hash. Discriminating.
+- AC4 env vars: if the env var read defaults to 0 instead of 100 (off-by-one or wrong unwrap), `cargo test` without env var would loop 0 times + the deterministic check trivially passes with 0 distinct hashes. Test against `count >= 1` to catch this; OR document explicit min-loop semantic.
+
+### Files in scope
+
+- `scripts/fw-hash-pins.py` (NEW — Python registry script; ~150 LoC)
+- `scripts/fw` (MODIFIED — add `hash-pins` case to the dispatch; +~10 LoC)
+- `crates/fw-replay/tests/canonical_hash.rs` (MODIFIED — env-var read for the 2 rerun-count tests; helper fn `runs_for_test(env_var, default)`)
+- `docs/specs/determinism-gate.md` (MODIFIED — §9 rewrite; +~30 LoC)
+
+### Files out of scope (do NOT touch — escalate if needed)
+
+- `crates/fw-replay/fixtures/*.ron` (no hash drift; this row doesn't rebaseline)
+- `crates/fw-content/tests/fixtures_load.rs` (consume only; the registry script reads its EXPECTED; we don't change the byte array)
+- All sim crates (fw-match-sim, fw-core, fw-memory, fw-save) — unchanged
+- `docs/DESIGN_DOC.md` / `CLAUDE.md` / `docs/MASTER_PLAN.md` row bodies (T1-22 row status flip is the only allowed MASTER_PLAN mutation)
+- ADR-0012 — hash-rebaseline policy stays as is
+- `.claude/rules/**`, `.claude/skills/**`, `.claude/agents/**`
+- Frontend / Tauri paths
+
+### Intentionally NOT done in this task
+
+- **Refactoring `fixtures_load.rs::EXPECTED` to use `hex!()` macro for form consistency** — would simplify the registry script (only 2 forms to detect instead of 3). Out of scope; the registry script handles all 3 forms. Capture as P3 follow-up if anyone wants the unification.
+- **Promoting `scripts/fw-hash-pins.py` to a Rust binary or cargo subcommand** — Python is fine for pin-table tooling; no perf concern (script runs in <1s). Defer until a real need.
+- **Schema validation for the pin-location table inside the script** — the script's hardcoded table IS the source of truth; if a contributor adds a new pin location they edit this table. No validation needed today.
+- **`--check` mode** (would assert all 5 locations agree on a single hash per seed) — could be useful as a pre-commit hook, but the existing `smoke_seed_corpus_fixture_matches_pinned_constant` test already enforces RON-vs-const agreement. Defer.
+
+### Plan (4 chunks)
+
+- [ ] **Chunk 1 — Python script**: Author `scripts/fw-hash-pins.py` with: (a) hardcoded `PIN_LOCATIONS` table mapping (seed_label, file_path, line_pattern, form-detector); (b) `list_pins()` function that walks the table + prints each location's current hash; (c) `update_pins(new_hash, seed)` function with `--dry-run` mode; (d) argparse for `[list] | --update <hash> --seed <seed> [--dry-run]`.
+- [ ] **Chunk 2 — scripts/fw wrapper**: Add `hash-pins)` case to the bash dispatcher that shells out to `python3 scripts/fw-hash-pins.py "$@"`.
+- [ ] **Chunk 3 — Env var parameterization**: Add `runs_for_test(env_var: &str, default: usize) -> usize` helper in `canonical_hash.rs`; update `smoke_seed_runs_100_times_produce_one_hash` to use `runs_for_test("FW_DETERMINISM_SMOKE_RUNS", 100)`; same for `extended_seed_runs_10_times_produce_one_hash` with `("FW_DETERMINISM_EXTENDED_RUNS", 10)`. Test names stay (the count is a parameter; the test still verifies "N runs produce 1 hash").
+- [ ] **Chunk 4 — Docs + verify + sync + commit**: Rewrite `docs/specs/determinism-gate.md §9` to reference `scripts/fw hash-pins` + the 5-location table + env vars. Run `scripts/fw verify`. Self-review triple. Sync ledgers. Commit.
+
+### After implementation
+
+1. `scripts/fw verify` exit 0 — cargo fmt + clippy + workspace tests (env-var rerun counts default to 100/10; canonical hashes UNCHANGED on both pins) + frontend 56 tests + banned-terms + canonical-hash regression + content-pack validate-structural + cargo audit + cargo deny.
+2. Manual verification of `scripts/fw hash-pins` list mode.
+3. Self-review triple per Step 6 (≥100 LoC code, fail-closed on fw-replay).
+4. Sync ledgers + atomic commit per Steps 7-8.
+-->
 
 <!-- T1-15 SPEC retained below for one cycle of traceability while T1 ultimate-review follow-ups are still landing; will be GC'd on the next /next cycle. -->
 
@@ -378,6 +465,8 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 5. Commit atomically. Flag in commit body: **The "match-engine vertical complete" claim from T1-6/T1-7 is now ACTUALLY true** (was false at those commit times per Codex's audit). The canonical hash drift IS the proof T1-3.5 didn't actually work end-to-end. T1-8 + T1-9 are next + actually have behavior to test against now.
 
 ## Recently completed
+
+- 2026-05-16 — **T1-22 hash-pin registry script + env-driven determinism rerun counts.** Fourth + final post-T1-close ultimate-review follow-up. Closes Codex Track D 5th-pin finding + Codex Track F caveat + Codex workflow improvement #6. New `scripts/fw-hash-pins.py` (~330 LoC Python) provides list + atomic-update + dry-run modes over a structured `PIN_LOCATIONS` table of 5 entries spanning 3 syntactic forms (RON `expected_hash: "blake3:..."`, Rust `hex!()` macro, Rust raw `[u8; 32]` byte-array). `scripts/fw hash-pins` wires the script into the bash dispatcher; the script's update mode produces byte-identical output via a 15/15/2 byte-layout that matches `cargo fmt`'s default output (roundtrip-tested). `canonical_hash.rs` gets a new `runs_for_test(env_var, default) -> usize` helper that reads `FW_DETERMINISM_SMOKE_RUNS` (default 100) + `FW_DETERMINISM_EXTENDED_RUNS` (default 10); 2 existing tests parameterized via the helper. Helper panics on `0` (vacuous-test config) + on parse failure (typo'd env var) per Sim/RULES.md §11 release-active assert discipline. `docs/specs/determinism-gate.md §9` rewritten to reference the script + document the 5-location table + rebaseline procedure + env vars. **Self-review triple all REVISE-then-fixed-in-place**; same cross-tool convergence pattern as T1-21 reproduced again: silent-failure-hunter (P1 — `update_pin` swallowed real failures as no-ops; partial-update silent-failure mode the script was DESIGNED to prevent was structurally re-enabled by the loop) + type-design-analyzer (P2 — `update_pin` `tuple[bool, str]` collapsed no-op + error into same False; same root cause) + code-reviewer (Important — exit code 1 vs 2 mismatch with docstring for unknown seed). ALL three converged on the same fix shape: distinguish failure outcomes from no-op outcomes. Rewrote `update_pin` to return `tuple[bool, bool, str]` = `(changed, is_failure, message)` + `update_mode` accumulates failures + exits 1 if any. Fixed unknown-seed exit code 1 → 2 per docstring contract. Added regression test simulating a regex-drift scenario: temporarily renamed `EXPECTED` const → broken pattern; verified script now exits 1 with "Partial-update is exactly the silent-failure class fw-hash-pins exists to prevent" message + `✗` symbol on the failed row. **4 P3 follow-ups deferred** to commit body: `PinLocation.form: str` could be `Literal["ron", "hex_macro", "byte_array"]` for static exhaustiveness; module-level invariant check on PIN_LOCATIONS registry; `read_pin` could distinguish file-missing from pattern-mismatch in `<NOT FOUND>` output; `_replace_byte_array` is silently format-locked to one cargo-fmt layout (would benefit from optional `cargo fmt` post-write OR fixture form unification to `hex!()` macro). **Canonical hashes UNCHANGED on both pins** (tooling + test parameterization only). `scripts/fw verify` exit 0; env-var override verified (`FW_DETERMINISM_SMOKE_RUNS=5` works). **All 4 post-T1-close ultimate-review follow-ups now DONE** (T1-19 preempt_check tests; T1-20 validate-structural rename + sentinel-scope close + sig-candidate dangling-ref; T1-21 Tick panic-on-overflow + §11 debug_assert conversions; T1-22 hash-pin registry + env-driven rerun counts). Cross-tool self-review convergence pattern surfaced 2 distinct silent-failure bug classes across 2 consecutive tasks (T1-21 SAFETY-comment factual error; T1-22 update_pin silent-failure) — the playbook is reliably catching real bugs at single-task scope, not just at phase-boundary scope. **Next /next picks T2-1 (full BT runner with 20-30 manager archetypes + xG/personality coefficient calibration)** — the main T2 row.
 
 - 2026-05-16 — **T1-21 `Tick` arithmetic policy alignment + 2 §11-named `debug_assert!` → `assert!` conversions + formal `// SAFETY:` comment on `bump_decision_counter`.** Closes post-T1-close ultimate-review Surface 3 (Codex Track C P1 + Codex workflow improvement #5). Main-thread implementation (~250 LoC code across 4 files; small-scoped policy alignment). **`fw-core::tick::Tick` arithmetic**: `Add` / `Sub` / `AddAssign` / `SubAssign` operators now panic-on-overflow via `checked_*().expect()` with informative panic messages naming `Sim/RULES.md §11` + the `Tick::clamping_*` opt-in alternative. `successor()` + `from_seconds()` also panic on `i64::MAX` overflow. New `Tick::clamping_add` / `Tick::clamping_sub` named opt-in saturation methods (with `// SAFETY:`-style doc-comments). 8 new tests: 6 `#[should_panic]` covering each operator overflow / underflow case + successor + from_seconds; 1 non-panic test `tick_subtraction_into_negative_zone_does_not_panic` pinning the documented signed-offset affordance (negative-result Tick subtraction is legal per file prologue); 1 `clamping_methods_saturate_at_extremes` verifying opt-in saturation. **AC4 re-interpreted**: MASTER_PLAN row's literal `Tick::ZERO - Tick::from_raw(1)` example yields `Tick::from_raw(-1)` — well within i64 range, NOT an underflow at the arithmetic layer; the row author conflated "negative-result zone" with "i64-underflow." Implementation panics only on i64-level extremes; negative-result is preserved per the file prologue's signed-offset affordance. **`debug_assert!` → `assert!` conversions** at the 2 §11-named load-bearing sites: `ball_physics.rs:190` (malformed coeffs → canonical ball trajectory corruption in release builds — exactly the Track C P2 silent-failure named in §11); `dispatch.rs:824` (self-pass `MatchEvent::Pass` → canonical `match_events` corruption). Doc-comments updated to reflect "fires in BOTH debug + release". **`player.rs:bump_decision_counter`** gets a formal `// SAFETY:` inline comment justifying the existing `local_decision_counter.saturating_add(1)` on u32 per §11. Comment was REWRITTEN in-place after self-review caught a factually wrong claim about the field's consumers: silent-failure-hunter + type-design-analyzer + code-reviewer ALL flagged the same P1/P2 (the comment said the counter was "RNG-only" but it ALSO writes into the canonical-state hash buffer at `canonical.rs:500`; the comment said "i64::MAX-anchored seed-site" but the counter is u32 saturating at u32::MAX). Rewritten to acknowledge BOTH consumers (RNG site via 16-bit mask + canonical-hash bytes) + correctly attribute determinism semantics to the 16-bit site mask in `dispatch.rs:374`, not to saturation itself. **Self-review triple verdicts**: silent-failure-hunter ACCEPT-with-P2 → fixed in-place; type-design-analyzer ACCEPT-with-P1 → fixed in-place; code-reviewer ACCEPT-with-P2 → fixed in-place. All 3 reviewers converged on the same SAFETY-comment correction — cross-tool convergence pattern (Track-A/B convergence from ultimate-review playbook) reproducing at single-task scope. 4 P3 findings captured in commit body (clamping_* `#[doc(alias = "saturating_add")]` for discoverability; clamping_* `(i64)` vs `(Tick)` ergonomics; cross-extreme saturation test cases; successor panic-msg §11 cross-ref). **Canonical hash UNCHANGED on both pins** (production code uses raw `.to_raw()` + i64 arithmetic, not Tick operators; assert! vs debug_assert! changes only when-it-panics, not state). `scripts/fw verify` exit 0 in both debug + release. **Workflow firsts**: third real exercise of post-T1-close /next skill hardening; second time self-review caught a real P1/P2 fix (silent-failure-hunter T1-20 + cross-tool-convergence T1-21). The SAFETY-comment incident is a clean instance of the "shape of a fix" vs "substance of a fix" anti-pattern that workflow improvement #1 (AC-to-test matrix) is designed to attack — the original comment SHAPE was a SAFETY block but the SUBSTANCE misrepresented what the field does. Self-review caught it; user didn't have to. **Next /next picks T1-22 (hash-pin registry script + env-driven determinism counts — procedural cleanup) or T2-1 (full BT runner with 20-30 archetypes) per declared order + skip-DEFERRED rule.**
 
