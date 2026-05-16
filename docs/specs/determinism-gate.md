@@ -356,6 +356,21 @@ Implementation: `scripts/fw-hash-pins.py`. The `PIN_LOCATIONS` table inside
 the script is the single source of truth for "which files pin the hash";
 adding a new pin location = adding a new entry there.
 
+**Genuine atomicity guarantee (T1-24)**: `--update` runs in two phases.
+Phase 1 (preflight) reads every matching file and computes every replacement
+text in memory WITHOUT writing. If any preflight fails (pin file missing /
+regex no longer matches / unknown form), the script aborts with exit code 1
+and ZERO files modified — sibling locations that would have written are
+NOT written. Phase 2 (write) only runs when every preflight succeeded.
+This closes the partial-update silent-failure mode Codex Finding #2
+(post-followup-review 2026-05-16) caught in the T1-22 ship: the prior
+tri-state fix made failures loud but the loop still wrote-as-you-go.
+
+Atomicity is verified by `scripts/test-fw-hash-pins.py::test_partial_preflight_failure_writes_nothing`
+which deliberately breaks one pin location and asserts no sibling files
+were modified after the update attempt. Wired into `just banned-terms` +
+CI's `hash-pins atomicity test` step on all 3 OSes.
+
 ### Current pin locations (5 total across 2 corpus seeds)
 
 | Seed | Location | Form |

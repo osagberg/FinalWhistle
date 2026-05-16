@@ -4,16 +4,16 @@
 
 ## Phase
 
-**T1 CLOSED 2026-05-16 at `v0.1.0-first-match`; all 4 post-T1-close ultimate-review follow-ups + first post-Codex-followup-review row (T1-23) landed.** T2 ready to start. T1-23 closed Codex Finding #1 (Tick policy bypassed in 4 production cooldown sites) + Finding #3 (stale dispatch.rs module header) per the post-followup-review REVISE. T2-1 now inherits a Tick-typed, panic-on-overflow cooldown substrate per Codex's pre-T2-1 framing. Self-review triple all ACCEPT with 1 P2 fix in-place. Canonical hashes UNCHANGED on both pins.
+**T1 CLOSED 2026-05-16 at `v0.1.0-first-match`; all 4 post-T1-close ultimate-review follow-ups + both post-Codex-followup-review rows landed (T1-19..T1-24).** T2 ready to start. T1-24 closed Codex Finding #2 (fw-hash-pins update_mode atomicity) — the last open Codex finding. Self-review caught a recursive silent-failure-of-a-test in the atomicity regression test itself (hardcoded hash that would have silently rotted at next rebaseline) — fixed in-place via registry-driven hash lookup. Canonical hashes UNCHANGED on both pins. All Codex review findings closed; T2-1 unblocked.
 
 ## Active task
 
-(none — T1-23 closed at this commit; `scripts/fw verify` exit 0; canonical hashes UNCHANGED on both pins. Next `/next` picks T1-24 (`fw-hash-pins` genuine atomicity — Codex Finding #2; procedural; deferrable per Codex's "next hardening patch before next rebaseline" framing) OR T2-1 (full BT runner with 20-30 manager archetypes + xG/personality coefficient calibration — main T2 row). Per declared MASTER_PLAN order T1-24 is next.)
+(none — T1-24 closed at this commit; `scripts/fw verify` exit 0; canonical hashes UNCHANGED. **All post-T1-close + post-Codex-followup-review rows DONE.** Next `/next` picks **T2-1** (full BT runner with 20-30 manager archetypes + xG/personality coefficient calibration) — the main T2 row.)
 
 ## Phase pointer
 
-- **Just landed:** **T1-23** — `fw-core::Tick` gained `checked_elapsed_since(entry) -> u32` + `checked_add_ticks(n: u32) -> Tick` typed cooldown-math helpers (both panic-on-invariant-violation per Sim/RULES.md §11). 4 raw-arithmetic cooldown callsites refactored (tactic_fsm.rs PossessionLost + heartbeat_check; dispatch.rs signature cooldown_end_tick; signature/mod.rs::is_active). 2 cooldown constants `i64 → u32` for type alignment. `dispatch.rs` module header rewritten to reflect live 3-policy `preempt_check` (was stale "stubbed None" prose). 3 proptests got `prop_assume!` filters to keep the test domain on invariant-respecting inputs.
-- **Next:** **T1-24** per declared MASTER_PLAN order — refactor `fw-hash-pins.py::update_mode` to genuine atomicity (preflight-all-replacements-in-memory + abort-with-no-writes on any failure + then all writes). Closes Codex post-followup-review Finding #2. Procedural; not blocking; Codex's framing was "next hardening patch before next rebaseline." Also eligible: **T2-1** (full BT runner with 20-30 manager archetypes + xG/personality calibration — main T2 row). `/next` will pick T1-24 first per declared order. **Deferred follow-ups (status `DEFERRED` — `/next` skips)**: T1-17 (friction-test rewrite); T4-9 (Stretch 2D viewer).
+- **Just landed:** **T1-24** — `scripts/fw-hash-pins.py::update_mode` refactored to preflight-then-write for genuine atomicity. `update_pin` → `preflight_pin` returns `(changed, is_failure, msg, Optional[(Path, str)])`; Phase 1 accumulates `prepared_writes` in memory; Phase 2 writes only if zero failures. New `scripts/test-fw-hash-pins.py` (~290 LoC; 3 tests) verifies the property via SHA-256 byte-identity assertions on sibling files after a deliberately-broken-preflight scenario. Self-review caught 3 P2s all fixed in-place: cross-platform `newline=""` discipline (Windows CI line-ending hazard); registry-driven hash in no-op test (was hardcoded → would have silently rotted at next rebaseline); explicit pre-mutation existence checks + stderr/stdout substring assertions for diagnostic clarity. Wired into Justfile + ci.yml (`hash-pins atomicity test` step on all 3 OSes). `docs/specs/determinism-gate.md §9` updated.
+- **Next:** **T2-1** — full BT runner with all 20-30 manager archetypes (port YAML from `MatchSim/Content/archetypes/*.yaml`) + xG/personality coefficient re-fit per `docs/design/xg-coefficients.md` + `docs/design/personality-bias-weights.md` calibration cadence. Codex Lane I flagged "secretly huge" — may need split into T2-1a/b/c by archetype-pair if implementation reveals 20 archetypes is too broad. `gameplay-programmer` subagent rotation per CLAUDE.md §5. T2-1 now inherits a Tick-typed-panic-on-overflow cooldown substrate per T1-23 + a genuinely-atomic hash-pin registry per T1-24. **Deferred follow-ups (status `DEFERRED` — `/next` skips)**: T1-17 (friction-test rewrite, test-quality only); T4-9 (Stretch 2D viewer).
 
 ## Blockers
 
@@ -21,7 +21,7 @@ None.
 
 ## Last green verify
 
-2026-05-16 (T1-23 close): `scripts/fw verify` exit 0 (cargo fmt + clippy + cargo test --workspace --release including 6 new Tick helper tests + 3 proptest filter additions + pnpm test 56 frontend + banned-terms + canonical-hash regression on both pins UNCHANGED + content-pack validate-structural + cargo audit + cargo deny check).
+2026-05-16 (T1-24 close): `scripts/fw verify` exit 0 (cargo fmt + clippy + cargo test --workspace --release + pnpm test 56 frontend + banned-terms + canonical-hash regression on both pins UNCHANGED + new hash-pins atomicity test + content-pack validate-structural + cargo audit + cargo deny).
 
 ## Last canonical hash
 

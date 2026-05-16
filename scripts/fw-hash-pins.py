@@ -30,9 +30,11 @@ Exit codes:
         every requested location either updated or already at target hash
     1 - list mode: inconsistency detected (sibling locations disagree on
         the pinned hash for the same seed); OR update mode: at least one
-        location failed (file missing / regex did not match / unknown form).
-        A partial-update failure exits 1 so callers can detect it; the
-        script never silently succeeds on a partial-update path.
+        location failed PREFLIGHT (file missing / regex did not match /
+        unknown form). The atomicity guarantee (T1-24): on exit 1 from
+        update mode, ZERO files have been modified — sibling locations
+        that would have written are NOT written. The script genuinely
+        delivers all-or-nothing semantics, not just fail-loud.
     2 - invalid CLI arguments (bad hash format, unknown seed label, missing
         required arg)
 
@@ -139,11 +141,17 @@ PIN_LOCATIONS: tuple[PinLocation, ...] = (
 # -----------------------------------------------------------------------------
 
 def read_pin(loc: PinLocation) -> str | None:
-    """Return the 64-char hex hash currently pinned at `loc`, or None if absent."""
+    """Return the 64-char hex hash currently pinned at `loc`, or None if absent.
+
+    Uses `newline=""` per T1-24 silent-failure-hunter P2: on Windows, Python's
+    default universal-newlines translation can turn LF reads + writes into
+    CRLF, breaking byte-level round-trip equivalence. `newline=""` preserves
+    the file's on-disk byte sequence verbatim.
+    """
     abs_path = loc.absolute_path()
     if not abs_path.exists():
         return None
-    text = abs_path.read_text(encoding="utf-8")
+    text = abs_path.read_text(encoding="utf-8", newline="")
     m = loc.pattern.search(text)
     if not m:
         return None
@@ -168,39 +176,51 @@ def _byte_array_to_hex(raw_bytes_block: str) -> str:
 # Write helpers
 # -----------------------------------------------------------------------------
 
-def update_pin(
-    loc: PinLocation, new_hash: str, dry_run: bool
-) -> tuple[bool, bool, str]:
-    """Update `loc` to pin `new_hash`.
+def preflight_pin(
+    loc: PinLocation, new_hash: str
+) -> tuple[bool, bool, str, tuple[Path, str] | None]:
+    """Preflight a single pin location for an update to `new_hash`.
 
-    Returns `(changed, is_failure, status_message)`.
+    PURE FUNCTION — does NOT write to disk. Returns the prepared `(path,
+    new_text)` tuple ready for a separate write phase, or `None` if no
+    write is needed (no-op or failure).
 
-    - `changed = True, is_failure = False` — a write occurred (or would, in dry-run).
-    - `changed = False, is_failure = False` — no-op (already at target hash). Benign.
-    - `changed = False, is_failure = True` — a real failure (file missing, regex
-      drift, unknown form). Caller MUST exit non-zero so the user notices.
+    Returns `(changed, is_failure, status_message, prepared_write)`:
 
-    The tri-state return closes the silent-failure-class P1 from T1-22 self-
-    review: pre-fix, a regex-drift failure on 1 of 5 locations during a rebaseline
-    returned the SAME `False` as a no-op + the script printed "Update complete"
-    and exited 0 — exactly the partial-update silent-failure mode the script was
-    designed to prevent.
+    - `changed=True, is_failure=False, prepared_write=Some` — write needed.
+      Caller will write `new_text` to `path` only if EVERY location in the
+      batch's preflight succeeded (genuine atomicity).
+    - `changed=False, is_failure=False, prepared_write=None` — no-op
+      (already at target hash). Benign.
+    - `changed=False, is_failure=True, prepared_write=None` — real failure
+      (file missing / regex drift / unknown form). Caller must exit non-zero
+      WITHOUT writing any sibling locations.
+
+    T1-24 (post-Codex Finding #2) split the prior `update_pin` into this
+    preflight phase + a separate write phase in `update_mode` to deliver
+    genuine atomicity: if location 1 preflight would succeed but location 2
+    preflight fails, location 1's file is NEVER written. T1-22's tri-state
+    fix closed the silent-success path but the loop still wrote-as-you-go,
+    contradicting the "atomic updater" claim.
     """
     if not HASH_REGEX.match(new_hash):
-        return False, True, f"INVALID HASH FORMAT (must be 64 lowercase hex chars): {new_hash}"
+        return False, True, f"INVALID HASH FORMAT (must be 64 lowercase hex chars): {new_hash}", None
 
     abs_path = loc.absolute_path()
     if not abs_path.exists():
-        return False, True, f"FILE NOT FOUND: {loc.file}"
+        return False, True, f"FILE NOT FOUND: {loc.file}", None
 
-    text = abs_path.read_text(encoding="utf-8")
+    # `newline=""` preserves on-disk byte sequence (no LF↔CRLF translation
+    # on Windows). T1-24 silent-failure-hunter P2 — Windows CI must not
+    # introduce line-ending drift via the read/write round-trip.
+    text = abs_path.read_text(encoding="utf-8", newline="")
     m = loc.pattern.search(text)
     if not m:
-        return False, True, f"PATTERN NOT MATCHED in {loc.file} — pin location regex out of date?"
+        return False, True, f"PATTERN NOT MATCHED in {loc.file} — pin location regex out of date?", None
 
     current = read_pin(loc)
     if current == new_hash:
-        return False, False, f"already at {new_hash[:8]}… (no-op)"
+        return False, False, f"already at {new_hash[:8]}… (no-op)", None
 
     if loc.form == "byte_array":
         new_text = _replace_byte_array(text, loc.pattern, new_hash)
@@ -209,13 +229,10 @@ def update_pin(
     elif loc.form == "ron":
         new_text = _replace_ron(text, loc.pattern, new_hash)
     else:
-        return False, True, f"unknown form {loc.form!r} — registry bug"
+        return False, True, f"unknown form {loc.form!r} — registry bug", None
 
-    if dry_run:
-        return True, False, f"would update {current[:8] if current else '?'}… → {new_hash[:8]}…"
-
-    abs_path.write_text(new_text, encoding="utf-8")
-    return True, False, f"updated {current[:8] if current else '?'}… → {new_hash[:8]}…"
+    msg = f"would update {current[:8] if current else '?'}… → {new_hash[:8]}…"
+    return True, False, msg, (abs_path, new_text)
 
 
 def _replace_hex_macro(text: str, pattern: re.Pattern[str], new_hash: str) -> str:
@@ -314,6 +331,22 @@ def list_mode() -> int:
 
 
 def update_mode(new_hash: str, seed: str, dry_run: bool) -> int:
+    """Atomically update all pin locations for `seed` to `new_hash`.
+
+    GENUINE ATOMICITY (T1-24 per Codex post-followup-review Finding #2):
+    the function runs in TWO phases. Phase 1 is preflight — for each
+    matching location, read the file + compute the new text in memory
+    WITHOUT writing. If any preflight fails (FILE NOT FOUND / PATTERN
+    NOT MATCHED / unknown form), the function aborts with ZERO file
+    modifications, prints the per-location status (including which
+    siblings WOULD have written had the bad location not failed), and
+    returns exit code 1. Phase 2 (write) ONLY runs when all preflights
+    succeed.
+
+    Pre-T1-24 the loop wrote-as-you-go: location 1 wrote, then location 2
+    failed preflight → exit 1 left disk state half-rebaselined. That
+    contradicted the "atomic updater" claim Codex's Finding #2 spotted.
+    """
     if not HASH_REGEX.match(new_hash):
         print(f"ERROR: bad hash format {new_hash!r}; expected 64 lowercase hex chars", file=sys.stderr)
         return 2
@@ -330,34 +363,73 @@ def update_mode(new_hash: str, seed: str, dry_run: bool) -> int:
     print(f"({len(matching_locs)} pin location(s) match this seed)")
     print()
 
+    # -----------------------------------------------------------------
+    # PHASE 1: preflight. Read every file + compute every replacement in
+    # memory. Accumulate (location, did_change, is_failure, msg, prepared_write).
+    # NO disk writes in this phase.
+    # -----------------------------------------------------------------
+    preflight_results: list[tuple[PinLocation, bool, bool, str, tuple[Path, str] | None]] = []
+    for loc in matching_locs:
+        did_change, is_failure, msg, prepared = preflight_pin(loc, new_hash)
+        preflight_results.append((loc, did_change, is_failure, msg, prepared))
+
+    # Print the preflight status per location.
     changed = 0
     failures = 0
-    for loc in matching_locs:
-        did_change, is_failure, msg = update_pin(loc, new_hash, dry_run=dry_run)
+    prepared_writes: list[tuple[Path, str]] = []
+    for loc, did_change, is_failure, msg, prepared in preflight_results:
         if is_failure:
             symbol = "✗"
             failures += 1
         elif did_change:
             symbol = "•"
             changed += 1
+            assert prepared is not None, "did_change=True must yield a prepared write"
+            prepared_writes.append(prepared)
         else:
             symbol = "·"  # benign no-op
         print(f"  {symbol} {loc.file:<55} {msg}")
     print()
 
+    # -----------------------------------------------------------------
+    # PHASE 1 GATE: if ANY preflight failed, abort with zero writes.
+    # This is the atomicity guarantee — sibling locations that WOULD have
+    # written are NOT written when even one location fails.
+    # -----------------------------------------------------------------
     if failures:
-        verb = "would have failed" if dry_run else "FAILED"
+        verb = "would have failed" if dry_run else "FAILED preflight"
         print(
-            f"{failures} location(s) {verb} to update — registry regex likely "
-            f"drifted or pin file moved.",
+            f"{failures} location(s) {verb} — registry regex likely drifted or "
+            f"pin file moved.",
             file=sys.stderr,
         )
-        print(
-            "Investigate before re-running. Partial-update is exactly the "
-            "silent-failure class fw-hash-pins exists to prevent.",
-            file=sys.stderr,
-        )
+        if not dry_run and changed:
+            print(
+                f"ATOMICITY GUARANTEE: zero files modified. {changed} sibling "
+                f"location(s) that would have written were NOT written because "
+                f"sibling preflight(s) failed. Partial-update is exactly the "
+                f"silent-failure class fw-hash-pins exists to prevent.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "Investigate before re-running. Partial-update is exactly the "
+                "silent-failure class fw-hash-pins exists to prevent.",
+                file=sys.stderr,
+            )
         return 1
+
+    # -----------------------------------------------------------------
+    # PHASE 2: write. Only reached if all preflights succeeded.
+    #
+    # `newline=""` preserves on-disk byte sequence (no Python universal-
+    # newlines LF↔CRLF translation on Windows). T1-24 silent-failure-hunter
+    # P2 — the round-trip `read_text(newline="")` → modify → `write_text(newline="")`
+    # is byte-equivalent on every platform.
+    # -----------------------------------------------------------------
+    if not dry_run:
+        for path, new_text in prepared_writes:
+            path.write_text(new_text, encoding="utf-8", newline="")
 
     if dry_run:
         if changed:
@@ -367,7 +439,7 @@ def update_mode(new_hash: str, seed: str, dry_run: bool) -> int:
             print(f"Dry-run no-op: all {len(matching_locs)} location(s) already at {new_hash[:8]}…")
     else:
         if changed:
-            print(f"Update complete. {changed} location(s) modified.")
+            print(f"Update complete. {changed} location(s) modified atomically.")
             print()
             print("Next steps:")
             print("  1. Run `scripts/fw verify` to confirm tests pass against the new pin.")

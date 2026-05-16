@@ -122,6 +122,10 @@ banned-terms:
     # content/baked/ (post-exclusion-drop) + ignores sentinel blocks outside
     # the docs/Rust scope (post-sentinel-scope-restriction).
     python3 scripts/test-lint-banned-terms.py
+    # T1-24: regression test for `scripts/fw-hash-pins.py --update` genuine
+    # atomicity. Verifies that a partial-preflight-failure does NOT modify
+    # sibling files (the silent-failure mode T1-22 didn't fully close).
+    python3 scripts/test-fw-hash-pins.py
 
 # ----------------------------------------------------------------
 # Content-pack validation (FW-VAL)

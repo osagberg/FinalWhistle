@@ -31,7 +31,80 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-(none — T1-23 closed 2026-05-16; `scripts/fw verify` exit 0; canonical hashes UNCHANGED on both pins. **Codex post-followup-review Finding #1 (Tick policy bypass) + Finding #3 (stale dispatch.rs header) both fixed.** Next `/next` picks T1-24 (hash-pin atomicity — procedural; Codex Finding #2) or T2-1 (full BT runner with 20-30 manager archetypes) per declared-order + skip-DEFERRED rule.)
+(none — T1-24 closed 2026-05-16; `scripts/fw verify` exit 0; canonical hashes UNCHANGED on both pins. **All post-Codex-followup-review rows DONE (T1-23 + T1-24).** Next `/next` picks **T2-1** (full BT runner with 20-30 manager archetypes + xG/personality coefficient calibration) — the main T2 row.)
+
+<!-- T1-24 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
+
+<!-- ORIGINAL T1-24 SPEC FOLLOWS (will be GC'd on next /next cycle):
+- **id:** T1-24
+- **title:** `fw-hash-pins.py` `--update` mode genuine atomicity
+- **started:** 2026-05-16
+- **task class:** architecture-cross-crate (Python tooling refactor + regression test + 2 doc updates). ~80-120 LoC total: `scripts/fw-hash-pins.py::update_mode` restructured to preflight-all-then-write-all; new Python regression test in `scripts/test-lint-banned-terms.py` companion or new `scripts/test-fw-hash-pins.py`; doc updates in script docstring + `docs/specs/determinism-gate.md §9`. Tooling-only; no canonical-state change.
+- **required subagent:** **main thread** — small focused Python refactor against a fully-specified contract (preflight-then-write is a 30-line transformation; regression test is ~50 LoC; doc updates are paragraph-level). Subagent dispatch overhead outweighs benefit for clearly-scoped tooling work.
+
+### Design references
+
+- **Codex post-followup-review Finding #2** (this session, 2026-05-16): `fw-hash-pins --update` tri-state fix at T1-22 closed the silent-success bug but `update_mode` still writes-per-loop. If location 1 writes and location 2 fails preflight, you get partial rebaseline with exit 1 — contradicts the "atomic updater" claim. Codex's framing: "can be the next hardening patch before the next rebaseline" — not blocking; bites only when a real rebaseline cascade hits a stale registry entry.
+- **`scripts/fw-hash-pins.py`** — current `update_mode` (lines 295-360 area): loops over `matching_locs`, calls `update_pin` which writes IMMEDIATELY then returns `(changed, is_failure, msg)`. Refactor target: split `update_pin` into `preflight_pin` (read + compute new_text in memory; return `(changed, is_failure, msg, prepared_write: Option[Tuple[Path, str]])`) + a separate write loop that runs ONLY if zero failures in the preflight pass.
+- **`scripts/test-lint-banned-terms.py`** — existing Python test infrastructure pattern (subprocess + tempdir + assertEqual on returncode + stdout). T1-22 wired one Python test suite into Justfile + ci.yml; T1-24 follows the same shape — could either extend that file OR add a new sibling. New sibling is cleaner since the test scope differs (lint vs hash-pins).
+- **`docs/specs/determinism-gate.md §9`** — T1-22 added the rebaseline-procedure prose; T1-24 should tighten the atomicity claim to "the `--update` mode is genuinely atomic: zero files modified if any pin location's preflight fails."
+
+### Acceptance criteria (falsifiable)
+
+1. **`update_mode` preflight-then-write structure**: refactored to compute all `(path, new_text)` tuples in memory FIRST; abort with no writes on any preflight failure; only if all preflight succeed, write all files in a second loop.
+2. **Regression test** simulating multi-location failure: temporarily break one pin location's regex, invoke `scripts/fw hash-pins --update <hash> --seed <seed>` (live, not dry-run), assert ZERO files modified after exit (verify via `git diff`-style or file-content comparison vs pre-state snapshot).
+3. **`scripts/fw verify` clean** end-to-end.
+4. **Script docstring + determinism-gate.md §9 updated** to document the genuine-atomicity guarantee.
+
+### AC-to-test matrix
+
+| AC | Test or check | Observable |
+|---|---|---|
+| 1. Preflight-then-write structure | Read updated `update_mode` body | New code shape: preflight loop that fills `prepared_writes: list[(Path, str)]` + checks for failures; only on zero failures does the write loop run |
+| 2. Regression test passes | `python3 scripts/test-fw-hash-pins.py` (new file) | New `test_partial_failure_writes_nothing` passes: temporarily mutates one pin file to break regex; invokes update; asserts NO files changed (via file-content hash comparison vs pre-state) |
+| 3. scripts/fw verify | `scripts/fw verify` | exit 0 |
+| 4. Docs updated | `grep -n "genuinely atomic\|preflight-then-write\|zero files modified" scripts/fw-hash-pins.py docs/specs/determinism-gate.md` | Both files mention the atomicity guarantee |
+
+**Mutation-thinking pre-check** (per /next Step 6 hardening):
+- AC1 preflight-then-write: if I forget to actually guard the write loop with a "no failures" check, the regression test will catch it (files would still be modified despite preflight failure). Discriminating.
+- AC2 regression test: directly observable — pre-state vs post-state file content comparison. If atomicity breaks, test fails immediately. Discriminating.
+
+### Files in scope
+
+- `scripts/fw-hash-pins.py` (MODIFIED — `update_pin` → `preflight_pin` return shape; `update_mode` restructured to preflight-all-then-write-all; docstring updated)
+- `scripts/test-fw-hash-pins.py` (NEW — Python regression test for atomicity)
+- `Justfile` (MODIFIED — `banned-terms` recipe extended to also run `test-fw-hash-pins.py` after `test-lint-banned-terms.py`)
+- `.github/workflows/ci.yml` (MODIFIED — new CI step running `scripts/test-fw-hash-pins.py` on all 3 OSes)
+- `docs/specs/determinism-gate.md` (MODIFIED — §9 atomicity claim tightened)
+
+### Files out of scope (do NOT touch — escalate if needed)
+
+- `crates/fw-replay/tests/canonical_hash.rs` (T1-22 work; the env vars + helper stay)
+- `crates/fw-replay/fixtures/*.ron` (no rebaseline)
+- `crates/fw-content/tests/fixtures_load.rs` (consumed via the registry script; not modified)
+- All sim crates — unchanged
+- `docs/DESIGN_DOC.md` / `CLAUDE.md` / `docs/MASTER_PLAN.md` row bodies (T1-24 row status flip is the only allowed MASTER_PLAN mutation)
+- Frontend / Tauri / content fixture paths
+
+### Intentionally NOT done in this task
+
+- **Convert `update_pin` to return a sealed-enum status** (P2 from T1-22 type-design review) — still defer; the tri-state tuple works for now.
+- **Convert `fixtures_load.rs::EXPECTED` raw byte array → `hex!()` macro** (P2 from T1-22 silent-failure review on format-locked byte_array layout) — defer; not a Codex Finding #2 concern.
+- **Add `--check` mode** (cross-sibling consistency check; would prevent the inconsistency the script's list mode already detects) — defer.
+
+### Plan (3 chunks — small task)
+
+- [ ] **Chunk 1 — Refactor `update_mode` to preflight-then-write**: split into 2 phases. Phase 1: loop over matching_locs, call `preflight_pin(loc, new_hash)` which returns `(changed, is_failure, msg, prepared: Optional[Tuple[Path, str]])`; accumulate failures + writes. Phase 2: if failures > 0, print all per-location messages (including which would-have-written) + return 1 with ZERO file modifications; else apply all prepared writes in a second loop + return 0. Update script docstring to claim genuine atomicity.
+- [ ] **Chunk 2 — Add regression test `scripts/test-fw-hash-pins.py`**: new unittest module with `test_partial_failure_writes_nothing`. Implementation: in tempdir, copy real `crates/fw-replay/tests/canonical_hash.rs` + `0xdeadbeefdeadbeef.ron` + `fixtures_load.rs` to mirror the structure the script expects; mutate ONE file to break its pin regex; run the script via subprocess with `--update <fake-hash> --seed 0xdeadbeefdeadbeef`; assert exit code 1 + all 3 files byte-identical to pre-run snapshots. Wire into Justfile `banned-terms` recipe + ci.yml.
+- [ ] **Chunk 3 — Update determinism-gate.md §9 + verify + sync + commit**: update §9 atomicity prose; run `scripts/fw verify`; sync ledgers; atomic commit.
+
+### After implementation
+
+1. `scripts/fw verify` exit 0 — includes new Python test suite.
+2. Manual atomicity verification — run the regression scenario standalone to confirm zero-writes-on-failure.
+3. Self-review: ~80-120 LoC code; borderline ≥100 LoC threshold. Run triple if the diff lands above 100; skip if below.
+4. Sync ledgers + commit per Steps 7-8.
+-->
 
 <!-- T1-23 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
 
@@ -550,6 +623,8 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 5. Commit atomically. Flag in commit body: **The "match-engine vertical complete" claim from T1-6/T1-7 is now ACTUALLY true** (was false at those commit times per Codex's audit). The canonical hash drift IS the proof T1-3.5 didn't actually work end-to-end. T1-8 + T1-9 are next + actually have behavior to test against now.
 
 ## Recently completed
+
+- 2026-05-16 — **T1-24 `fw-hash-pins.py --update` genuine atomicity (preflight-then-write) + atomicity regression test.** Closes Codex post-followup-review Finding #2 (last open Codex finding). Main-thread implementation. **Refactor**: `update_pin` → `preflight_pin` returning `(changed, is_failure, msg, Optional[Tuple[Path, str]])`; `update_mode` split into Phase 1 (preflight all locations into `prepared_writes: list[(Path, str)]`) + Phase 2 (write all only if zero failures). The Phase 1 gate guarantees zero-writes-on-any-failure, not just fail-loud. **Regression test** `scripts/test-fw-hash-pins.py` (~290 LoC; 3 unittest tests). Critical test `test_partial_preflight_failure_writes_nothing`: snapshots SHA-256 of all 3 deadbeef-pin-files, mutates ONE (renames `const EXPECTED` to break the byte_array regex), runs script with a fake new hash, asserts exit 1 + ALL 3 files byte-identical to pre-snapshot. try/finally restores the mutated file. **Self-review triple** (silent-failure-hunter + code-reviewer; type-design skipped — refactor preserves external surface): ACCEPT with 3 P2 fixes landed in-place: (1) cross-platform `newline=""` discipline on all read_text/write_text in both script + test — Windows CI's universal-newlines translation could break SHA-256 byte-equality; (2) registry-driven `current_hash` in `test_successful_dry_run_against_real_state_does_not_write` — was hardcoded which would silently rot at next rebaseline + stop testing the no-op path it claims to test (silent-failure-class meta-bug in a test about silent-failure-class meta-bug); (3) added explicit `assertTrue(target_path.exists())` pre-mutation + asserted `"would have failed"` + `"no-op"` substring on stderr/stdout to ensure CI failures pin the right regression class. Wired `scripts/test-fw-hash-pins.py` into `just banned-terms` + new ci.yml `hash-pins atomicity test` step on all 3 OSes. Hit Python 3.14 quirk: `importlib.util.spec_from_file_location` + `@dataclass(frozen=True)` requires `sys.modules[name] = module` BEFORE `exec_module`. **Canonical hashes UNCHANGED** (tooling-only); `scripts/fw verify` exit 0. **Self-review cross-tool convergence (4th time in 5 tasks)** — silent-failure-hunter caught the registry-driven-hash silent-rot that I authored myself, exactly the silent-failure pattern T1-24's whole point was to fix. The recursive meta-irony was load-bearing: the regression test for atomicity had its own silent-failure-of-a-test that needed catching. **All Codex post-followup-review findings now CLOSED.** Next /next picks **T2-1** (full BT runner with 20-30 manager archetypes + xG/personality coefficient calibration) — the main T2 row.
 
 - 2026-05-16 — **T1-23 `fw-core::Tick` checked-arithmetic helpers + 4 cooldown-math callsite refactor + `dispatch.rs` module-header doc update.** Closes Codex post-followup-review Finding #1 (Tick policy bypassed in production cooldown math) + Finding #3 (stale dispatch.rs module header). Main-thread implementation (~280 LoC code; 5 files). **2 new typed helpers** in `fw-core::tick`: `checked_elapsed_since(entry: Tick) -> u32` (panics on `entry > self` or i64 underflow or diff > u32::MAX) + `checked_add_ticks(n: u32) -> Tick` (panics on i64 overflow). Both align with Sim/RULES.md §11 panic-on-overflow policy. 6 new tests (4 `#[should_panic]` + 2 non-panic). **4 raw cooldown callsites refactored**: `tactic_fsm.rs::apply_event` PossessionLost branch + `heartbeat_check`; `dispatch.rs` signature cooldown_end_tick; `signature/mod.rs::is_active` (also tightened raw `.to_raw() < .to_raw()` comparison to typed `Tick: Ord` operator). 2 cooldown constants `HIGH_PRESS_REENTRY_COOLDOWN_TICKS` + `HIGH_PRESS_HEARTBEAT_TIMEOUT_TICKS` changed `i64 → u32` to align with helper return type — durations are non-negative by definition. **`dispatch.rs:42` module header rewritten** to reflect live 3-policy `preempt_check` (possession gate / GK own-side chase 42m threshold / outfield nearest-2 cap) + cross-ref ADR-0006 amendment + 5 T1-19 tests. **3 proptests** (`transition_is_deterministic`, `apply_event_is_pure`, `heartbeat_check_is_pure`) gained `prop_assume!(now_tick >= current.entry_tick())` filters — the §11 panic discipline now fires on invariant-violating inputs (which the proptest previously generated freely + the saturating math silently swallowed). The 4th proptest `non_highpress_heartbeat_never_fires` got an explicit doc-comment per code-reviewer P2 explaining why NO filter is needed there (the panic branch is unreachable when the strategy excludes HighPress). **Canonical hashes UNCHANGED on both pins** — helpers wrap the same arithmetic at realistic tick range; cooldown semantics unchanged. **Self-review triple all ACCEPT** with 1 P2 fixed in-place (the unfiltered-proptest doc-comment) + several P3 deferred (`checked_*` naming convention drift from std; `.to_raw() ±` lint-mechanization at higher site count; `PRESS_TIMEOUT_TICKS` i64↔u32 inconsistency — not a bug). Type-design verdict: "asymmetric return types are load-bearing, the u32 argument ratifies a project-wide invariant, the const-type flip propagates the typed contract to comparison sites." `scripts/fw verify` exit 0. **T2-1 now inherits a Tick-typed, panic-on-overflow cooldown substrate** per Codex's pre-T2-1 framing. Next /next picks T1-24 (hash-pin atomicity — procedural; Codex Finding #2) OR T2-1 (full BT runner with 20-30 manager archetypes — main T2 row).
 
