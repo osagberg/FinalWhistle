@@ -1,0 +1,48 @@
+// Replay corpus fixture #1 — extended-seed canonical-hash pin (T1-8).
+//
+// Loaded by `tests/canonical_hash.rs::extended_seed_corpus_fixture_matches_pinned_constant`.
+// The `expected_hash` field is `"blake3:" + lowercase-hex(blake3-digest)`.
+//
+// Differs from the sibling `0xdeadbeefdeadbeef.ron` 60-tick smoke pin
+// in three ways that broaden cross-OS determinism coverage:
+//
+//   1. Tick count: 600 vs 60 — long-horizon coverage exercises ball
+//      physics through multiple KickOff cycles + signature cooldown
+//      windows that fire/expire/refire over the run.
+//   2. Init constructor: `MatchState::initial_with_content(seed, &content)`
+//      vs bare `MatchState::initial(seed)` — slot 7's
+//      `signature_candidates` is populated from the first AM
+//      `PlayerTemplate` in the loaded `ContentStore`.
+//   3. Signature definitions: `&content.signature_definitions` passed to
+//      every `tick_match` call vs the empty `&BTreeMap::new()` the smoke
+//      pin uses — so the signature dispatcher actually fires across the
+//      600 ticks instead of being a no-op.
+//
+// Re-baseline cadence: same as the smoke pin. Any canonical-state schema
+// bump (new field on MatchState / BallState / PlayerState / MatchEvent)
+// drifts this hash; re-pin alongside the existing 60-tick pin via the
+// rebase procedure at `docs/specs/determinism-gate.md` §9.
+//
+// Re-baseline history:
+//   2026-05-16 (T1-8) — initial pin `66585ca8…46 25` on the content-loaded
+//                       600-tick canonical state. First corpus row beyond
+//                       the bedrock smoke seed.
+//
+// Re-baselining requires updating this value AND
+// `crates/fw-replay/tests/canonical_hash.rs::PINNED_600_TICK`
+// in the same commit per `docs/specs/determinism-gate.md` §9.
+//
+// Fixture schema is `ReplayCorpusEntry` in `crates/fw-replay/src/lib.rs`;
+// the canonical_hash test parses a minimal subset of the same shape via
+// the test-local `ReplayCorpusEntry` struct.
+(
+    schema_version: 1,
+    seed: "0xfeedbeefcafefade",
+    tick_count: 600,
+    expected_hash: "blake3:66585ca8af67a5445f32a31f7661089c1a2a608a6dad283f22ac50efc6a34625",
+    metadata: (
+        description: "T1-8 corpus fixture #1. Content-loaded 600-tick run on the extended seed (frontend's default Match-page seed). Broadens cross-OS determinism coverage beyond the 60-tick smoke pin: longer horizon, real content, real signature definitions dispatched every tick.",
+        generated_at: "2026-05-16",
+        notes: "Initial pin. MatchState::initial_with_content + tick_match(state, &content.signature_definitions) for 600 iterations. Sibling 60-tick smoke pin (0xdeadbeefdeadbeef.ron) remains the bedrock determinism gate; this row is the second corpus entry.",
+    ),
+)

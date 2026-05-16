@@ -28,3 +28,9 @@ hex-literal = { workspace = true }
 insta       = { workspace = true }
 serde       = { workspace = true }
 ron         = { workspace = true }
+# T1-8: corpus fixture #1 (`extended_seed_600_tick_*` test trio) loads the
+# real content tree via `ContentStore::load_sources` so the 600-tick bake
+# exercises the signature dispatcher + content-driven softmax paths. Dev-dep
+# only — production fw-replay (replay-from-canonical-bytes) stays
+# content-independent.
+fw-content  = { workspace = true }

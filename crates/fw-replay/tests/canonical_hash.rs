@@ -51,6 +51,15 @@ use serde::Deserialize;
 use fw_core::{Q32, Seed, Tick};
 use fw_match_sim::{MatchState, tick_match};
 
+// T1-8: Replay corpus fixture #1 (`extended_seed_600_tick_*` tests) loads
+// the real content tree via `ContentStore::load_sources`. The 60-tick
+// smoke seed above runs `MatchState::initial(seed)` with no content; the
+// 600-tick extended seed runs `initial_with_content(seed, &content)` so
+// the bake exercises signature dispatcher + content-driven softmax paths.
+// Imported here so the surface-area witness at the bottom of the file
+// catches accidental rename / signature drift on the consumed APIs.
+use fw_content::ContentStore;
+
 // -------------------------------------------------------------------------
 // Pinned-hash table (compile-time-enforced)
 // -------------------------------------------------------------------------
@@ -214,8 +223,11 @@ const PINNED_60_TICK: [u8; 32] =
 /// Currently only the Tier-A smoke seed is pinned. Tier-D (RC gate)
 /// expands this list per `docs/specs/determinism-gate.md` §11.
 #[allow(dead_code)] // referenced by future corpus-iteration tests
-const PINNED_HASHES: &[(&str, u32, [u8; 32])] =
-    &[("0xdeadbeefdeadbeef", SMOKE_TICK_COUNT, PINNED_60_TICK)];
+const PINNED_HASHES: &[(&str, u32, [u8; 32])] = &[
+    ("0xdeadbeefdeadbeef", SMOKE_TICK_COUNT, PINNED_60_TICK),
+    // T1-8: corpus fixture #1 — content-loaded 600-tick run.
+    ("0xfeedbeefcafefade", EXTENDED_TICK_COUNT, PINNED_600_TICK),
+];
 
 // -------------------------------------------------------------------------
 // The Phase-0 acceptance test
@@ -462,6 +474,162 @@ fn smoke_seed_final_state_snapshot() {
     insta::assert_debug_snapshot!(state);
 }
 
+// =========================================================================
+// T1-8: Replay corpus fixture #1 — extended-seed 600-tick canonical hash
+// =========================================================================
+//
+// Broadens cross-OS determinism coverage from "60 ticks, bare init,
+// empty signature definitions" (the SMOKE pin above) to "600 ticks,
+// content-loaded init, real signature definitions". Catches a different
+// class of determinism leaks — softmax under the content-driven utility
+// stack, signature firings + cooldowns over a long horizon, ball physics
+// + possession state machine through many KickOff cycles.
+//
+// The frontend already uses `0xfeedbeefcafefade` as the default Match-page
+// seed example; this row consecrates it as the long-horizon canonical pin.
+//
+// Re-baseline cadence: same as PINNED_60_TICK — any canonical-schema bump
+// (new field on MatchState / BallState / PlayerState / MatchEvent) drifts
+// this hash; re-pin alongside the existing 60-tick pin via the rebase
+// procedure at `docs/specs/determinism-gate.md` §9.
+// -------------------------------------------------------------------------
+
+const EXTENDED_SEED: u64 = 0xFEED_BEEF_CAFE_FADE;
+const EXTENDED_TICK_COUNT: u32 = 600;
+const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
+
+/// Pinned BLAKE3 of the extended seed's canonical state after 600 ticks
+/// with content-loaded init (signature definitions wired, slot 7's
+/// signature_candidates populated from the AM template).
+///
+/// **Re-baseline history:**
+/// - 2026-05-16 (T1-8) — initial pin (filled by chunk 1 bake). The
+///   extended seed runs `MatchState::initial_with_content` against the
+///   committed `content/sources/` tree + passes `content.signature_definitions`
+///   to every `tick_match` call.
+///
+/// Re-baselining: update this constant AND the `expected_hash` field of
+/// `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron` in the same commit,
+/// per `docs/specs/determinism-gate.md` §9 — the same protocol that
+/// governs PINNED_60_TICK above.
+const PINNED_600_TICK: [u8; 32] =
+    hex!("66585ca8af67a5445f32a31f7661089c1a2a608a6dad283f22ac50efc6a34625");
+
+#[test]
+fn extended_seed_600_tick_canonical_hash_pinned() {
+    let content_root = workspace_content_root();
+    let content = ContentStore::load_sources(&content_root).expect(
+        "content/sources should load — fw-content/tests/fixtures_load.rs covers \
+         the same path with the same expectation",
+    );
+
+    let seed = Seed::from_u64(EXTENDED_SEED);
+    let mut state = MatchState::initial_with_content(seed, &content)
+        .expect("initial_with_content should succeed against the committed corpus");
+    for _ in 0..EXTENDED_TICK_COUNT {
+        state = tick_match(state, &content.signature_definitions);
+    }
+
+    let bytes = state.encode_canonical();
+    let hash: [u8; 32] = blake3::hash(&bytes).into();
+
+    assert_eq!(
+        hash,
+        PINNED_600_TICK,
+        "\nCanonical-state hash drift on the extended seed (T1-8 corpus fixture #1).\n\
+         Seed:        0x{EXTENDED_SEED:016x}\n\
+         Ticks:       {EXTENDED_TICK_COUNT}\n\
+         Expected:    {}\n\
+         Actual:      {}\n\
+         \n\
+         If this is a real regression, find and fix the determinism leak.\n\
+         If this is an intentional re-baseline, update both PINNED_600_TICK\n\
+         here AND the `expected_hash` field of\n\
+         crates/fw-replay/fixtures/{EXTENDED_FIXTURE_NAME} in the same commit,\n\
+         and call out the re-baseline in the commit body per\n\
+         docs/specs/determinism-gate.md §9.\n",
+        hex_string(&PINNED_600_TICK),
+        hex_string(&hash),
+    );
+}
+
+/// Intra-process determinism — 10 fresh runs converge on a single hash.
+///
+/// 10× (vs the 60-tick smoke's 100×) keeps the total cost ≈ 6k tick-
+/// evaluations — same budget as the 60-tick × 100-runs smoke determinism
+/// test. The extended seed runs significantly more sim code per tick
+/// (signature dispatcher, content-driven softmax, ball physics through
+/// possession transfers) so each tick costs more wall-clock — 10 runs is
+/// enough to catch the determinism leak classes (HashMap iteration /
+/// thread_rng / SystemTime / pointer-address-based ordering) that would
+/// surface as multiple distinct hashes.
+#[test]
+fn extended_seed_runs_10_times_produce_one_hash() {
+    let content_root = workspace_content_root();
+    let content = ContentStore::load_sources(&content_root).expect("content/sources should load");
+
+    let mut distinct: BTreeSet<[u8; 32]> = BTreeSet::new();
+    for _ in 0..10 {
+        let seed = Seed::from_u64(EXTENDED_SEED);
+        let mut state = MatchState::initial_with_content(seed, &content)
+            .expect("initial_with_content should succeed");
+        for _ in 0..EXTENDED_TICK_COUNT {
+            state = tick_match(state, &content.signature_definitions);
+        }
+        let bytes = state.encode_canonical();
+        let hash: [u8; 32] = blake3::hash(&bytes).into();
+        distinct.insert(hash);
+    }
+    assert_eq!(
+        distinct.len(),
+        1,
+        "10 runs of the extended seed produced {} distinct hashes — \
+         hidden non-determinism. Hashes: {:?}",
+        distinct.len(),
+        distinct.iter().map(|h| hex_string(h)).collect::<Vec<_>>(),
+    );
+}
+
+#[test]
+fn extended_seed_corpus_fixture_matches_pinned_constant() {
+    // Mirrors `smoke_seed_corpus_fixture_matches_pinned_constant` above —
+    // the on-disk RON + the in-code const MUST agree; updating only one
+    // is forbidden per docs/specs/determinism-gate.md §9.
+    let fixture_path = locate_fixture(EXTENDED_FIXTURE_NAME);
+    let raw = std::fs::read_to_string(&fixture_path).unwrap_or_else(|err| {
+        panic!(
+            "corpus fixture missing at {}: {err}\n\
+             T1-8 acceptance gate requires \
+             crates/fw-replay/fixtures/{EXTENDED_FIXTURE_NAME} per \
+             docs/MASTER_PLAN.md T1-8.",
+            fixture_path.display()
+        )
+    });
+    let entry: ReplayCorpusEntry =
+        ron::from_str(&raw).expect("failed to parse extended corpus fixture as RON");
+
+    assert_eq!(
+        entry.schema_version, 1,
+        "extended fixture schema_version drift — review the spec before bumping"
+    );
+    assert_eq!(entry.seed, "0xfeedbeefcafefade");
+    assert_eq!(entry.tick_count, EXTENDED_TICK_COUNT);
+
+    let fixture_hash = parse_blake3_hex(&entry.expected_hash)
+        .expect("extended fixture expected_hash field is malformed");
+    assert_eq!(
+        fixture_hash,
+        PINNED_600_TICK,
+        "Drift between RON fixture and in-code PINNED_600_TICK.\n\
+         Fixture:    {}\n\
+         In-code:    {}\n\
+         These must be updated together; updating only one is forbidden \
+         per docs/specs/determinism-gate.md §9.",
+        entry.expected_hash,
+        format_args!("blake3:{}", hex_string(&PINNED_600_TICK)),
+    );
+}
+
 // -------------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------------
@@ -472,6 +640,17 @@ fn smoke_seed_final_state_snapshot() {
 fn locate_fixture(filename: &str) -> PathBuf {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     PathBuf::from(manifest_dir).join("fixtures").join(filename)
+}
+
+/// Locate the workspace-root `content/` directory the same way
+/// `crates/fw-content/tests/fixtures_load.rs` does. `CARGO_MANIFEST_DIR`
+/// = `crates/fw-replay`; workspace root = `../..`. Used by the T1-8
+/// extended-seed tests to load the on-disk content corpus.
+fn workspace_content_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("content")
 }
 
 /// Parse a `"blake3:<64-hex-chars>"` string into a 32-byte digest.
