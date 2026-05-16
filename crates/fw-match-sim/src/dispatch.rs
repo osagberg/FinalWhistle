@@ -77,8 +77,133 @@ use fw_content::{MatchEvent, PassKind, is_shot_on_target};
 const MAX_PLAYER_SPEED: Q32 = Q32::from_raw(5_i64 << 32); // 5.0 in Q32.32
 
 // ---------------------------------------------------------------------------
+// Ball-speed constants (T1-3.5)
+// ---------------------------------------------------------------------------
+// Shot speed: base 20 m/s + up to 15 m/s bonus at peak shooter attrs.
+// Full formula: base + bonus × (strength × finishing).
+// At mid-range attrs (0.5 × 0.5 = 0.25): 20 + 15 × 0.25 = 23.75 m/s.
+// At peak attrs (1.0 × 1.0 = 1.0): 20 + 15 × 1.0 = 35 m/s.
+//
+// Pass speed: base 15 m/s + up to 10 m/s bonus at peak passer attrs.
+// Full formula: base + bonus × (passing × vision).
+// At mid-range attrs (0.5 × 0.5 = 0.25): 15 + 10 × 0.25 = 17.5 m/s.
+// At peak attrs (1.0 × 1.0 = 1.0): 15 + 10 × 1.0 = 25 m/s.
+//
+// All values in Q32.32: X m/s = X << 32 raw bits.
+
+/// Base shot speed (m/s) before attribute scaling.
+const SHOT_BASE_SPEED_MPS: Q32 = Q32::from_raw(20_i64 << 32);
+
+/// Peak shot speed bonus (m/s) at maximum `strength × finishing` product.
+/// Applied as: speed = SHOT_BASE + SHOT_PEAK_BONUS × (strength × finishing).
+const SHOT_PEAK_BONUS_MPS: Q32 = Q32::from_raw(15_i64 << 32);
+
+/// Base pass speed (m/s) before attribute scaling.
+const PASS_BASE_SPEED_MPS: Q32 = Q32::from_raw(15_i64 << 32);
+
+/// Peak pass speed bonus (m/s) at maximum `passing × vision` product.
+/// Applied as: speed = PASS_BASE + PASS_PEAK_BONUS × (passing × vision).
+const PASS_PEAK_BONUS_MPS: Q32 = Q32::from_raw(10_i64 << 32);
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Ball-speed helper functions (T1-3.5)
+// ---------------------------------------------------------------------------
+
+/// Compute the scalar ball speed (m/s) for a shot, attribute-modulated.
+///
+/// Formula: `SHOT_BASE_SPEED_MPS + SHOT_PEAK_BONUS_MPS × (strength × finishing)`
+///
+/// Both `strength` and `finishing` are Q32 values in `[0, 1]`. Their product
+/// is also in `[0, 1]` (multiplication of two sub-unit Q32 values).
+///
+/// Pure function — no RNG, no side effects. Q32 arithmetic only.
+pub(crate) fn compute_ball_speed_for_shot(shooter: &crate::player::PlayerState) -> Q32 {
+    let attr_product =
+        shooter.attributes.physical.strength * shooter.attributes.technical.finishing;
+    SHOT_BASE_SPEED_MPS + SHOT_PEAK_BONUS_MPS * attr_product
+}
+
+/// Compute the scalar ball speed (m/s) for a pass, attribute-modulated.
+///
+/// Formula: `PASS_BASE_SPEED_MPS + PASS_PEAK_BONUS_MPS × (passing × vision)`
+///
+/// Both `passing` and `vision` are Q32 values in `[0, 1]`.
+///
+/// Pure function — no RNG, no side effects. Q32 arithmetic only.
+pub(crate) fn compute_ball_speed_for_pass(passer: &crate::player::PlayerState) -> Q32 {
+    let attr_product = passer.attributes.technical.passing * passer.attributes.mental.vision;
+    PASS_BASE_SPEED_MPS + PASS_PEAK_BONUS_MPS * attr_product
+}
+
+/// Compute the ball velocity components (vel_x, vel_y) for a kick from
+/// `from_pos` toward `to_pos`, with the given scalar `speed` (m/s).
+///
+/// Uses cordic-backed `Q32::sqrt` for the normalisation — same path as
+/// `separation.rs::resolve_pair`. No `f64` division or `f64::sqrt`.
+///
+/// ## Zero-distance fallback
+///
+/// When `from_pos == to_pos` (zero distance), the ball is kicked straight
+/// along +X at the given speed. This is deterministic and avoids division by
+/// zero — the same convention as `separation.rs`'s EPSILON fallback.
+///
+/// ## Return value
+///
+/// `(vel_x, vel_y)` in Q32.32 m/s. The Z component is left unchanged by the
+/// caller (aerial trajectory is a Phase-2 concern; for now, kicks are
+/// treated as ground-level — ball.vel_z is reset to Q32::ZERO by the caller).
+///
+/// ## Zero-distance fallback (Codex 2026-05-16 audit code-reviewer Critical #2)
+///
+/// When `from == to` (zero distance — e.g. clustered players where the
+/// passer's nearest-teammate is co-located), this function returns
+/// `(Q32::ZERO, Q32::ZERO)` instead of the prior `(speed, Q32::ZERO)`
+/// "+X-at-full-speed" fallback. Rationale: the prior fallback could fire
+/// the ball along +X at 15–35 m/s with the passer near the positive goal
+/// line, producing a **phantom goal** on the next tick attributed to the
+/// passer's own team. The zero-velocity fallback means a self-pass-to-
+/// coincident-receiver produces no ball motion (the Pass MatchEvent still
+/// emits — possession transfer is symbolic — but the ball stays put,
+/// which is the safe-default semantics for the degenerate case).
+///
+/// Production-path risk for the degenerate case is low (separation runs
+/// at tick_match step 8 keeping players ≥0.4m apart; identical Q32
+/// positions across two slots would need an active-tick mid-overlap
+/// before separation fires); flagged here so a future ball-physics audit
+/// has the rationale in source.
+pub(crate) fn ball_unit_vel(
+    from_x: Q32,
+    from_y: Q32,
+    to_x: Q32,
+    to_y: Q32,
+    speed: Q32,
+) -> (Q32, Q32) {
+    let dx = to_x - from_x;
+    let dy = to_y - from_y;
+    // dist_sq in Q32 — product of two Q32 values (both in metres ≈ [-105, 105]).
+    // Squares can be up to ~11025 m², well within Q32's ±2^31 integer range.
+    let dist_sq = dx * dx + dy * dy;
+
+    if dist_sq == Q32::ZERO {
+        // Degenerate: passer is at the receiver's exact position. Return
+        // zero velocity to avoid the phantom-goal risk documented above.
+        // Speed parameter is intentionally unused on this branch.
+        let _ = speed;
+        return (Q32::ZERO, Q32::ZERO);
+    }
+
+    // cordic sqrt — Q32-backed, same as separation.rs.
+    let dist = dist_sq.sqrt();
+    // unit_x = dx / dist; unit_y = dy / dist.
+    // Q32 division: (dx / dist) × speed.
+    let vel_x = dx / dist * speed;
+    let vel_y = dy / dist * speed;
+    (vel_x, vel_y)
+}
 
 /// Extract the `BiasCategory` as a usize index (0..4) from a `StackingPolicy`.
 /// Used to index into `signature_firing[slot][cat_idx]`.
@@ -349,6 +474,23 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
     // dropped events for any future pass-like variant (ThroughBall, Backheel,
     // OneTwo, etc.). Mirrors the T1-2b-iv `intent_to_bias_consideration`
     // wildcard removal lesson (P0-3 fix-pass).
+    // T1-3.5: ball mutation + possession state update.
+    // Runs BEFORE the velocity-update match below. Mutations are:
+    //   AttemptShot: ball.vel toward target, speed from shooter attrs,
+    //                possession → None (loose), last_touched_by → shooter.
+    //   Pass-class (Short/Long/Cross/LayOff): ball.vel toward to_slot pos,
+    //                speed from passer attrs, possession → Some(to_slot),
+    //                last_touched_by → from_slot.
+    //   Dribble: possession stays with dribbler, last_touched_by → dribbler,
+    //            ball.pos snaps to player.pos (ball "at feet"), vel zeroed.
+    //   GkDistributeShort/Long: mirror pass treatment from GK slot.
+    //   All others: no ball mutation.
+    //
+    // MatchEvent emission is interleaved here so the event and the ball
+    // mutation are co-located (atomic per intent; no split between the two
+    // match arms). The possession/last_touched_by updates also happen here
+    // so downstream code in tick_match (goal detection, step 7) sees the
+    // updated state immediately after apply_intent returns.
     match &intent {
         PlayerIntent::AttemptShot { target_x, target_y } => {
             let shooter_slot = state.players[slot_idx].slot;
@@ -360,6 +502,17 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 target_y: *target_y,
                 on_target,
             });
+            // T1-3.5: ball mutation — kick toward target.
+            let speed = compute_ball_speed_for_shot(&state.players[slot_idx]);
+            let from_x = state.players[slot_idx].pos_x;
+            let from_y = state.players[slot_idx].pos_y;
+            let (bvx, bvy) = ball_unit_vel(from_x, from_y, *target_x, *target_y, speed);
+            state.ball.vel_x = bvx;
+            state.ball.vel_y = bvy;
+            state.ball.vel_z = Q32::ZERO; // ground-level shot in T1
+            // Possession: shot releases the ball.
+            state.possession = None;
+            state.last_touched_by = Some(shooter_slot);
         }
         PlayerIntent::AttemptPassShort { target_x, target_y } => {
             let from_slot = state.players[slot_idx].slot;
@@ -371,6 +524,19 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 kind: PassKind::Short,
                 completed: T1_PASS_COMPLETED,
             });
+            // T1-3.5: ball mutation — kick toward receiver's current position.
+            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+            let from_x = state.players[slot_idx].pos_x;
+            let from_y = state.players[slot_idx].pos_y;
+            let to_x = state.players[to_slot as usize].pos_x;
+            let to_y = state.players[to_slot as usize].pos_y;
+            let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
+            state.ball.vel_x = bvx;
+            state.ball.vel_y = bvy;
+            state.ball.vel_z = Q32::ZERO;
+            // T1: pass always completes; possession goes to receiver.
+            state.possession = Some(to_slot);
+            state.last_touched_by = Some(from_slot);
         }
         PlayerIntent::AttemptPassLong { target_x, target_y } => {
             let from_slot = state.players[slot_idx].slot;
@@ -382,6 +548,17 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 kind: PassKind::Long,
                 completed: T1_PASS_COMPLETED,
             });
+            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+            let from_x = state.players[slot_idx].pos_x;
+            let from_y = state.players[slot_idx].pos_y;
+            let to_x = state.players[to_slot as usize].pos_x;
+            let to_y = state.players[to_slot as usize].pos_y;
+            let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
+            state.ball.vel_x = bvx;
+            state.ball.vel_y = bvy;
+            state.ball.vel_z = Q32::ZERO;
+            state.possession = Some(to_slot);
+            state.last_touched_by = Some(from_slot);
         }
         PlayerIntent::Cross { target_x, target_y } => {
             let from_slot = state.players[slot_idx].slot;
@@ -393,6 +570,17 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 kind: PassKind::Cross,
                 completed: T1_PASS_COMPLETED,
             });
+            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+            let from_x = state.players[slot_idx].pos_x;
+            let from_y = state.players[slot_idx].pos_y;
+            let to_x = state.players[to_slot as usize].pos_x;
+            let to_y = state.players[to_slot as usize].pos_y;
+            let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
+            state.ball.vel_x = bvx;
+            state.ball.vel_y = bvy;
+            state.ball.vel_z = Q32::ZERO;
+            state.possession = Some(to_slot);
+            state.last_touched_by = Some(from_slot);
         }
         PlayerIntent::LayOff { target_x, target_y } => {
             let from_slot = state.players[slot_idx].slot;
@@ -404,12 +592,72 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 kind: PassKind::LayOff,
                 completed: T1_PASS_COMPLETED,
             });
+            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+            let from_x = state.players[slot_idx].pos_x;
+            let from_y = state.players[slot_idx].pos_y;
+            let to_x = state.players[to_slot as usize].pos_x;
+            let to_y = state.players[to_slot as usize].pos_y;
+            let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
+            state.ball.vel_x = bvx;
+            state.ball.vel_y = bvy;
+            state.ball.vel_z = Q32::ZERO;
+            state.possession = Some(to_slot);
+            state.last_touched_by = Some(from_slot);
         }
-        // Non-emitting variants — enumerated explicitly so adding a new
-        // PlayerIntent variant forces a compile error here (see preamble).
+        PlayerIntent::Dribble { .. } => {
+            // T1-3.5: Dribble — ball stays at the dribbler's feet.
+            // pos_x/pos_y updated to player position; vel zeroed (ball moves
+            // with player via position snap rather than physics integration).
+            // The player's vel_x/vel_y is still set by the velocity-update
+            // match below so the player navigates toward the dribble target.
+            let dribbler_slot = state.players[slot_idx].slot;
+            state.ball.pos_x = state.players[slot_idx].pos_x;
+            state.ball.pos_y = state.players[slot_idx].pos_y;
+            state.ball.vel_x = Q32::ZERO;
+            state.ball.vel_y = Q32::ZERO;
+            state.ball.vel_z = Q32::ZERO;
+            state.possession = Some(dribbler_slot);
+            state.last_touched_by = Some(dribbler_slot);
+        }
+        PlayerIntent::GkDistributeShort { target_x, target_y } => {
+            // Mirror pass: GK distributes to a teammate.
+            let from_slot = state.players[slot_idx].slot;
+            let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
+            // No MatchEvent for GK distribution in T1 (commentary in T1-4b).
+            // T1-3.5: ball mutation toward receiver.
+            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+            let from_x = state.players[slot_idx].pos_x;
+            let from_y = state.players[slot_idx].pos_y;
+            let to_x = state.players[to_slot as usize].pos_x;
+            let to_y = state.players[to_slot as usize].pos_y;
+            let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
+            state.ball.vel_x = bvx;
+            state.ball.vel_y = bvy;
+            state.ball.vel_z = Q32::ZERO;
+            state.possession = Some(to_slot);
+            state.last_touched_by = Some(from_slot);
+        }
+        PlayerIntent::GkDistributeLong { target_x, target_y } => {
+            // Long GK distribution — same pattern as short but uses shot-speed
+            // scaling (GKs kick hard) rather than pass-speed scaling.
+            let from_slot = state.players[slot_idx].slot;
+            let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
+            let speed = compute_ball_speed_for_shot(&state.players[slot_idx]);
+            let from_x = state.players[slot_idx].pos_x;
+            let from_y = state.players[slot_idx].pos_y;
+            let to_x = state.players[to_slot as usize].pos_x;
+            let to_y = state.players[to_slot as usize].pos_y;
+            let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
+            state.ball.vel_x = bvx;
+            state.ball.vel_y = bvy;
+            state.ball.vel_z = Q32::ZERO;
+            state.possession = Some(to_slot);
+            state.last_touched_by = Some(from_slot);
+        }
+        // Non-emitting / non-ball-touching variants — enumerated explicitly so
+        // adding a new PlayerIntent variant forces a compile error here.
         PlayerIntent::Idle
         | PlayerIntent::MoveToPosition { .. }
-        | PlayerIntent::Dribble { .. }
         | PlayerIntent::HoldBall { .. }
         | PlayerIntent::TrackBack { .. }
         | PlayerIntent::Press { .. }
@@ -418,10 +666,8 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
         | PlayerIntent::HoldFormation { .. }
         | PlayerIntent::GkShotStop { .. }
         | PlayerIntent::GkCollectCross { .. }
-        | PlayerIntent::GkSweeperRush { .. }
-        | PlayerIntent::GkDistributeShort { .. }
-        | PlayerIntent::GkDistributeLong { .. } => {
-            // No MatchEvent emitted for movement / defensive / GK intents.
+        | PlayerIntent::GkSweeperRush { .. } => {
+            // No MatchEvent emitted; no ball mutation.
             // T2+ may add events for press-trigger / interception / save —
             // wire them at this site, not via a wildcard.
         }
@@ -832,6 +1078,87 @@ mod tests {
         assert_eq!(
             actual_deciders, expected_deciders,
             "at tick {tick_raw}: expected {expected_deciders} decisions but got {actual_deciders}"
+        );
+    }
+
+    // --- T1-3.5 Chunk 3: ball-speed helper tests ---
+
+    /// Zero attributes: speed equals base (no bonus).
+    #[test]
+    fn shot_speed_at_zero_attrs_equals_base() {
+        use fw_core::PlayerAttributes;
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        // Zero all attrs on player 9 (home FWD, slot 9).
+        state.players[9].attributes = PlayerAttributes::default_zero();
+        let speed = compute_ball_speed_for_shot(&state.players[9]);
+        assert_eq!(
+            speed, SHOT_BASE_SPEED_MPS,
+            "at zero attrs, shot speed must equal SHOT_BASE_SPEED_MPS (20 m/s); got {:?}",
+            speed
+        );
+    }
+
+    /// Peak attributes: speed equals base + bonus.
+    #[test]
+    fn shot_speed_at_peak_attrs_equals_base_plus_bonus() {
+        use fw_core::PlayerAttributes;
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        // Max all attrs on player 9.
+        state.players[9].attributes = PlayerAttributes::max_baseline();
+        let speed = compute_ball_speed_for_shot(&state.players[9]);
+        let expected = SHOT_BASE_SPEED_MPS + SHOT_PEAK_BONUS_MPS; // 35 m/s
+        assert_eq!(
+            speed, expected,
+            "at max attrs (strength=1.0 × finishing=1.0 = 1.0), shot speed must equal \
+             SHOT_BASE + SHOT_PEAK = 35 m/s; got {:?}",
+            speed
+        );
+    }
+
+    /// Mid-range attributes: speed between base and base+bonus.
+    #[test]
+    fn shot_speed_at_mid_attrs_is_between_base_and_max() {
+        use fw_core::PlayerAttributes;
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        state.players[9].attributes = PlayerAttributes::mid_range_baseline();
+        let speed = compute_ball_speed_for_shot(&state.players[9]);
+        // strength ≈ 0.5, finishing ≈ 0.5 → product ≈ 0.25 → bonus ≈ 3.75 m/s → total ≈ 23.75 m/s
+        assert!(
+            speed > SHOT_BASE_SPEED_MPS,
+            "mid-range attrs must produce speed above base; got {:?}",
+            speed
+        );
+        assert!(
+            speed < SHOT_BASE_SPEED_MPS + SHOT_PEAK_BONUS_MPS,
+            "mid-range attrs must produce speed below max; got {:?}",
+            speed
+        );
+    }
+
+    /// Pass: zero attrs → base speed.
+    #[test]
+    fn pass_speed_at_zero_attrs_equals_base() {
+        use fw_core::PlayerAttributes;
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        state.players[5].attributes = PlayerAttributes::default_zero();
+        let speed = compute_ball_speed_for_pass(&state.players[5]);
+        assert_eq!(
+            speed, PASS_BASE_SPEED_MPS,
+            "at zero attrs, pass speed must equal PASS_BASE_SPEED_MPS (15 m/s)"
+        );
+    }
+
+    /// Pass: peak attrs → base + bonus.
+    #[test]
+    fn pass_speed_at_peak_attrs_equals_base_plus_bonus() {
+        use fw_core::PlayerAttributes;
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        state.players[5].attributes = PlayerAttributes::max_baseline();
+        let speed = compute_ball_speed_for_pass(&state.players[5]);
+        let expected = PASS_BASE_SPEED_MPS + PASS_PEAK_BONUS_MPS; // 25 m/s
+        assert_eq!(
+            speed, expected,
+            "at max attrs (passing=1.0 × vision=1.0), pass speed must equal 25 m/s"
         );
     }
 }

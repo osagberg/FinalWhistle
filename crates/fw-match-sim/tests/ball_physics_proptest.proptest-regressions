@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc c99a81580c4fccd309e501285eca06bffb606adee5ef85dc2a3401a3e8ad3593 # shrinks to state = BallState { pos_x: Q32(0), pos_y: Q32(0), pos_z: Q32(0), vel_x: Q32(0), vel_y: Q32(-1), vel_z: Q32(0), spin_x: Q32(0), spin_y: Q32(0), spin_z: Q32(0) }

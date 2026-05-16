@@ -238,17 +238,23 @@ fn signature_load_does_not_drift_canonical_hash() {
 
     const SMOKE_SEED: u64 = 0xdeadbeefdeadbeef;
     const SMOKE_TICKS: u32 = 60;
-    // Rebaselined at T1-4a: MatchEvent emission + match_end_tick added to canonical encoding.
-    // match_events Vec<MatchEvent> + match_end_tick Tick added to MatchState; signature_memory_events
-    // removed; canonical encoder VERSION bumped 6→7. KickOff emitted at tick 0, FullTime at tick 60.
-    // Prior T1-2b-fix P1-5/P2-9 hash: d376ba2624646f19e3061342f5854bc117ed0a35a2b99a13f51a143bc446fa93
-    // Prior T1-2b-fix hash: dbe4f49bdb8b866d47c9e46a16e22416dfddbcb6edd9355139114133a25085f2
-    // Prior T1-2b-iv hash: 18f1776c2f77939d32849dc72e05909caf78b93bf6ce50a1222b28f9c6a5d048
+    // Rebaselined at T1-3.5: ball mutation + possession state + goal detection.
+    // Changes: (1) pos_z now altitude axis (physics convention corrected from
+    // X+Z=pitch to X+Y=pitch, Z=altitude), (2) possession + last_touched_by fields
+    // added to MatchState, (3) encoder VERSION 7→8, (4) tick ordering changed
+    // (goal detection + OOB clamp run before physics).
+    // ADR-0012 trigger #1 authorized this rebaseline.
+    // Prior T1-4a hash (MatchEvent emission, VERSION 6→7):
+    //   02ab97d06e60f508f5076aa37cf371263c73d5fc104ab1448989cb5f5627e686
+    // Prior T1-2b-fix P1-5/P2-9 hash:
+    //   d376ba2624646f19e3061342f5854bc117ed0a35a2b99a13f51a143bc446fa93
+    // Prior T1-2b-iv hash:
+    //   18f1776c2f77939d32849dc72e05909caf78b93bf6ce50a1222b28f9c6a5d048
     // Represented as raw bytes so we can compare without a hex crate.
     const EXPECTED: [u8; 32] = [
-        0x02, 0xab, 0x97, 0xd0, 0x6e, 0x60, 0xf5, 0x08, 0xf5, 0x07, 0x6a, 0xa3, 0x7c, 0xf3, 0x71,
-        0x26, 0x3c, 0x73, 0xd5, 0xfc, 0x10, 0x4a, 0xb1, 0x44, 0x89, 0x89, 0xcb, 0x5f, 0x56, 0x27,
-        0xe6, 0x86,
+        0x78, 0x2f, 0xcd, 0xe6, 0x5b, 0xa8, 0xa0, 0xfc, 0x12, 0xbb, 0x90, 0xaf, 0x1b, 0x61, 0xf7,
+        0x7d, 0x8c, 0xd4, 0x03, 0x10, 0x3a, 0xb3, 0x67, 0x1b, 0x0d, 0x5d, 0x6b, 0x03, 0xe7, 0x5c,
+        0x8c, 0x0f,
     ];
 
     // Load the content store (exercises the new signature loader).
@@ -271,8 +277,10 @@ fn signature_load_does_not_drift_canonical_hash() {
     assert_eq!(
         actual, EXPECTED,
         "\nCanonical-state hash drifted unexpectedly.\n\
-         T1-4a rebaselined to 02ab97d06e60f508f5076aa37cf371263c73d5fc104ab1448989cb5f5627e686\n\
-         (MatchEvent emission: match_events Vec<MatchEvent> + match_end_tick added; encoder VERSION 6→7).\n\
+         T1-3.5 rebaselined to 782fcde65ba8a0fc12bb90af1b61f77d8cd403103ab3671b0d5d6b03e75c8c0f\n\
+         (ball mutation + possession state + goal detection; physics Z=altitude convention;\n\
+          possession/last_touched_by fields; encoder VERSION 7→8; goal+OOB before physics).\n\
+         ADR-0012 trigger #1 authorized this rebaseline.\n\
          If this drifts again, it must be an authorized rebaseline — ADR-0012 trigger #1 or #3.\n\
          Actual:   {:02x?}",
         actual

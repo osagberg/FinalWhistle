@@ -60,11 +60,11 @@ fn arb_ball_state() -> impl Strategy<Value = BallState> {
     )
         .prop_map(|(px, py, pz, vx, vy, vz, sx, sy, sz)| BallState {
             pos_x: px,
-            pos_y: py.max(Q32::ZERO), // ball above-ground only (Y ≥ 0)
-            pos_z: pz,
+            pos_y: py, // lateral pitch axis (Y) — can be negative (left side)
+            pos_z: pz.max(Q32::ZERO), // altitude axis (Z) — non-negative (above ground)
             vel_x: vx,
-            vel_y: vy,
-            vel_z: vz,
+            vel_y: vy, // lateral pitch velocity
+            vel_z: vz, // altitude velocity (gravity acts on -vel_z)
             spin_x: sx,
             spin_y: sy,
             spin_z: sz,
@@ -133,7 +133,8 @@ proptest! {
         // Sanity: after 1800 ticks the ball should be settled or
         // bounded. We don't check exact position, just that the
         // integrator didn't blow up.
-        prop_assert!(s.pos_y >= Q32::ZERO, "ball below ground after long run");
+        // T1-3.5: altitude is pos_z (non-negative); pos_y is lateral (can be any sign).
+        prop_assert!(s.pos_z >= Q32::ZERO, "ball below ground after long run (altitude pos_z < 0)");
     }
 
     /// The `is_well_formed` validator on `BallPhysicsCoefficients`

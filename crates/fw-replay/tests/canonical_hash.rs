@@ -172,6 +172,18 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   `match_end_tick: Tick`. `signature_memory_events` field REMOVED (was transient
 ///   scratch buffer; subsumed by `match_events`). Encoder VERSION bumped 6->7.
 ///   Authorized by T1-4a task-spec in MEMORY.md.
+/// - 2026-05-16 (T1-3.5 ball mutation + possession + goal detection) —
+///   **re-baselined to `782fcde6...8c0f`** per ADR-0012 trigger #1 (canonical
+///   schema bump + behavioral change): (1) ball physics coordinate convention
+///   corrected — pos_z is now the altitude axis (gravity/bounce on -vel_z);
+///   pos_y is the lateral pitch axis (no gravity); rolling friction acts on
+///   vx + vy (not vx + vz). (2) `MatchState` gained two new fields:
+///   `possession: Option<PlayerSlot>` and `last_touched_by: Option<PlayerSlot>`.
+///   (3) Encoder VERSION bumped 7→8; two new sections appended after match_events.
+///   (4) `tick_match` step ordering changed: goal detection + OOB clamp now run
+///   BEFORE ball physics (steps 2+3 before step 4).
+///   `apply_intent` now mutates ball state per Shot/Pass/Dribble/GK intents.
+///   Authorized by T1-3.5 task-spec in MEMORY.md.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -180,7 +192,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("02ab97d06e60f508f5076aa37cf371263c73d5fc104ab1448989cb5f5627e686");
+    hex!("782fcde65ba8a0fc12bb90af1b61f77d8cd403103ab3671b0d5d6b03e75c8c0f");
 
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.

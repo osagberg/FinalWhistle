@@ -10,11 +10,36 @@
 //! in this same commit; the rebaseline marker lives in the T1-2b-i commit
 //! body.
 //!
-//! Coordinate convention (matches FW v1 carry-forward from
-//! `MatchSim/Sim/BallState.cs`): X + Z form the pitch plane (X attacking
-//! axis, Z touchline-to-touchline); Y is altitude (gravity acts on -Y).
-//! Ground = `Y <= 0`; the integrator clamps position to `Y = 0` on
-//! contact. Spin is angular velocity (rad/s); Magnus = `coeff * (spin × v)`.
+//! ## Coordinate convention (Codex 2026-05-16 audit P0; corrected at T1-3.5)
+//!
+//! **X + Y form the pitch plane; Z is altitude.**
+//! - `pos_x` / `vel_x`: pitch-length (attacking) axis. Home attacks toward +X.
+//!   `GOAL_LINE_X = ±52.5m` (pitch length 105m).
+//! - `pos_y` / `vel_y`: lateral (touchline) axis. `SIDELINE_Y = ±34.0m`
+//!   (pitch width 68m).
+//! - `pos_z` / `vel_z`: altitude. Ground = `pos_z = 0`; gravity acts on `-vel_z`.
+//!   The integrator clamps `pos_z` to `0` on contact (z-axis ground bounce only).
+//!
+//! **Prior (incorrect) convention**: pre-T1-3.5 this doc-comment claimed
+//! X + Z = pitch plane / Y = altitude. That contradicted the pitch-geometry
+//! convention used everywhere else in `fw-match-sim` (SIDELINE_Y checks
+//! `|pos_y|`; goal-line checks `|pos_x|`). T1-3.5 corrected `ball_physics.rs`
+//! to gravity-on-(-Z) + rolling-friction-on-XY pitch-plane and rewrote
+//! this doc-comment to match. The single source of truth for the convention
+//! now lives here + in `ball_physics.rs`'s module doc-comment.
+//!
+//! Spin is angular velocity (rad/s); Magnus = `coeff * (spin × v)`.
+//!
+//! ## Schema history
+//!
+//! T1-2b-i (2026-05-13) extended `BallState` from the T0 6-field
+//! placeholder (position + velocity) to include `spin_{x,y,z}: Q32`.
+//! Magnus-coupled bounce in `ball_step` reads spin × velocity; without
+//! spin in canonical state, Magnus would be a future schema bump every
+//! time it's actually wired up to the BT runner (T1-2b-iii). Per ADR-0012
+//! trigger #1 (canonical schema bump) the pinned BLAKE3 hash re-baselines
+//! in this same commit; the rebaseline marker lives in the T1-2b-i commit
+//! body.
 
 use fw_core::Q32;
 use serde::{Deserialize, Serialize};

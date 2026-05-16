@@ -111,6 +111,17 @@
 //                               MatchEvent enum added to fw-content::event (6
 //                               variants: KickOff/FullTime/Goal/Shot/Pass/
 //                               SignatureFirstFired). Authorized by T1-4a spec.
+//   2026-05-16 (T1-3.5 ball mutation + possession + goal detection) —
+//                               `782fcde6...8c0f` per ADR-0012 trigger #1
+//                               (schema bump + behavioral change). Ball physics
+//                               coordinate convention corrected: pos_z is altitude
+//                               (gravity/bounce); pos_y is lateral pitch axis.
+//                               MatchState gained possession: Option<PlayerSlot>
+//                               and last_touched_by: Option<PlayerSlot>. Encoder
+//                               VERSION 7->8. tick_match step ordering changed:
+//                               goal detection + OOB clamp run before ball physics.
+//                               apply_intent now mutates ball state per Shot/Pass/
+//                               Dribble/GK intents. Authorized by T1-3.5 spec.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -122,10 +133,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:02ab97d06e60f508f5076aa37cf371263c73d5fc104ab1448989cb5f5627e686",
+    expected_hash: "blake3:782fcde65ba8a0fc12bb90af1b61f77d8cd403103ab3671b0d5d6b03e75c8c0f",
     metadata: (
-        description: "T1-4a MatchEvent emission smoke fixture. MatchState gained match_events Vec<MatchEvent> + match_end_tick Tick. signature_memory_events removed. Encoder VERSION 6->7. KickOff at tick 0, FullTime at tick 60 emitted by smoke seed.",
+        description: "T1-3.5 ball mutation + possession + goal detection smoke fixture. Ball physics corrected to pos_z=altitude; MatchState gained possession/last_touched_by; encoder VERSION 7->8.",
         generated_at: "2026-05-16",
-        notes: "Re-pinned at T1-4a (ADR-0012 trigger #1). Canonical schema bump: match_events + match_end_tick added; signature_memory_events removed. PlayerSlot moved to fw-core. MatchEvent enum in fw-content::event.",
+        notes: "Re-pinned at T1-3.5 (ADR-0012 trigger #1). Ball physics coordinate fix (pos_z=altitude), possession state, encoder VERSION 7->8, tick ordering change (goal+OOB before physics).",
     ),
 )

@@ -97,6 +97,12 @@
 //!     Shot (3):               [ shooter_slot u8 ] [ tick i64 LE ] [ target_x i64 LE ] [ target_y i64 LE ] [ on_target u8 ]
 //!     Pass (4):               [ from_slot u8 ] [ to_slot u8 ] [ tick i64 LE ] [ kind u8 ] [ completed u8 ]
 //!     SignatureFirstFired (5): [ player_slot u8 ] [ tick i64 LE ] [ id_len u16 LE ] [ id_bytes* ]
+//! [ possession ]                                   (T1-3.5: Option<PlayerSlot>)
+//!   [ present u8 ]                                 (0 = None, 1 = Some)
+//!   [ slot u8 ]                                    (only if present == 1)
+//! [ last_touched_by ]                              (T1-3.5: Option<PlayerSlot>)
+//!   [ present u8 ]                                 (0 = None, 1 = Some)
+//!   [ slot u8 ]                                    (only if present == 1)
 //! ```
 //!
 //! **Field order rationale (T1-2b-iii-a):** the new per-player fields
@@ -179,7 +185,15 @@ const MAGIC: &[u8; 4] = b"FWMS";
 //        Shot:               [ shooter_slot u8 ] [ tick i64 LE ] [ target_x i64 LE ] [ target_y i64 LE ] [ on_target u8 ]
 //        Pass:               [ from_slot u8 ] [ to_slot u8 ] [ tick i64 LE ] [ kind u8 ] [ completed u8 ]
 //        SignatureFirstFired: [ player_slot u8 ] [ tick i64 LE ] [ id_len u16 LE ] [ id_bytes* ]
-const VERSION: u16 = 7;
+//   8 — T1-3.5: MatchState gained possession: Option<PlayerSlot> +
+//        last_touched_by: Option<PlayerSlot>. Wire-format section appended
+//        AFTER match_events:
+//          [ possession_present u8 ]   (0 = None, 1 = Some)
+//          [ possession_slot u8 ]      (only if possession_present == 1)
+//          [ last_touched_present u8 ] (0 = None, 1 = Some)
+//          [ last_touched_slot u8 ]    (only if last_touched_present == 1)
+//        History note (2026-05-16 T1-3.5): re-baselined per ADR-0012 trigger #1.
+const VERSION: u16 = 8;
 
 /// Streaming canonical encoder. Append bytes as values are emitted; call
 /// `finish()` to get the buffer for hashing.
@@ -318,6 +332,14 @@ impl CanonicalEncoder {
         // Vec iteration is insertion order = chronological order (events are pushed
         // at the tick they fire; the Vec is never sorted post-construction).
         self.encode_match_events(&state.match_events);
+
+        // T1-3.5: possession — Option<PlayerSlot> (2 bytes max: presence u8 + slot u8).
+        // Appended AFTER match_events. Field order follows the append discipline;
+        // no prior sections are reordered.
+        self.encode_option_slot(state.possession);
+
+        // T1-3.5: last_touched_by — Option<PlayerSlot> (2 bytes max).
+        self.encode_option_slot(state.last_touched_by);
     }
 
     /// Encode a `Vec<MatchEvent>` into the canonical byte stream.
@@ -600,6 +622,23 @@ impl CanonicalEncoder {
         self.write_i64(b.spin_z.to_bits());
     }
 
+    /// Encode an `Option<PlayerSlot>` as a 1-byte presence tag + optional 1-byte slot.
+    ///
+    /// Wire format:
+    /// - `None`      → `[0u8]` (1 byte)
+    /// - `Some(s)`   → `[1u8, s]` (2 bytes)
+    ///
+    /// Used by the `possession` and `last_touched_by` canonical fields (T1-3.5).
+    fn encode_option_slot(&mut self, opt: Option<u8>) {
+        match opt {
+            None => self.write_u8(0),
+            Some(slot) => {
+                self.write_u8(1);
+                self.write_u8(slot);
+            }
+        }
+    }
+
     /// Encode one `Option<SignatureFiring>`.
     ///
     /// Layout:
@@ -710,11 +749,11 @@ mod tests {
     }
 
     #[test]
-    fn version_is_7_after_t1_4a_schema_bump() {
+    fn version_is_8_after_t1_3_5_schema_bump() {
         assert_eq!(
-            VERSION, 7,
-            "VERSION should be 7 after T1-4a MatchEvent emission canonical schema bump \
-             (MatchState gained match_events: Vec<MatchEvent>; signature_memory_events removed)"
+            VERSION, 8,
+            "VERSION should be 8 after T1-3.5 possession-state canonical schema bump \
+             (MatchState gained possession: Option<PlayerSlot> + last_touched_by: Option<PlayerSlot>)"
         );
     }
 
@@ -913,6 +952,52 @@ mod tests {
         assert!(
             bytes_b.len() > bytes_a.len(),
             "encoding with 1 event must be longer than with 0 events"
+        );
+    }
+
+    /// T1-3.5: possession fields are in canonical encoding.
+    ///
+    /// Two states differing ONLY in `possession` / `last_touched_by` must
+    /// produce different encoded bytes. Anti-vacuousness: we also assert the
+    /// encoding WITH Some(9) is longer than with the initial None (which can't
+    /// happen — initial is Some(9), but we manually set None to check).
+    #[test]
+    fn match_state_canonical_encodes_possession() {
+        use fw_core::Seed;
+        let state_a = MatchState::initial(Seed::from_u64(1));
+        // state_a: possession = Some(9), last_touched_by = Some(9).
+
+        let mut state_b = state_a.clone();
+        // Mutate possession to None — must produce different bytes.
+        state_b.possession = None;
+
+        let enc_a = state_a.encode_canonical();
+        let enc_b = state_b.encode_canonical();
+
+        assert_ne!(
+            enc_a, enc_b,
+            "possession is canonical; states differing in possession \
+             must produce different encoded bytes"
+        );
+
+        // Some(9) encodes as [1u8, 9u8] = 2 bytes; None encodes as [0u8] = 1 byte.
+        // state_b (None) should be 1 byte shorter per field. Two fields → 2 bytes shorter.
+        assert_eq!(
+            enc_a.len(),
+            enc_b.len() + 1, // only possession differs (last_touched_by same = Some(9))
+            "Some(x) possession encodes 1 byte longer than None possession \
+             (presence tag 1 byte + slot 1 byte vs presence tag 1 byte)"
+        );
+
+        // Also check last_touched_by.
+        let mut state_c = state_a.clone();
+        state_c.last_touched_by = None;
+        let enc_c = state_c.encode_canonical();
+        assert_ne!(enc_a, enc_c, "last_touched_by is canonical");
+        assert_eq!(
+            enc_a.len(),
+            enc_c.len() + 1,
+            "Some last_touched_by is 1 byte longer than None"
         );
     }
 

@@ -473,6 +473,164 @@ impl PlayerAttributes {
         }
     }
 
+    /// All-zero `PlayerAttributes` (every field = `Q32::ZERO`).
+    ///
+    /// Test-only utility for checking base-speed formulas: at zero attrs the
+    /// attribute-scaling bonus is zero, so `compute_ball_speed_for_shot` must
+    /// return exactly `SHOT_BASE_SPEED_MPS`. Not a realistic player state.
+    #[must_use]
+    pub fn default_zero() -> Self {
+        let z = Q32::ZERO;
+        PlayerAttributes {
+            technical: TechnicalAttributes {
+                finishing: z,
+                long_shots: z,
+                passing: z,
+                crossing: z,
+                first_touch: z,
+                technique: z,
+                dribbling: z,
+                heading: z,
+                tackling: z,
+                marking: z,
+                free_kicks: z,
+                penalty_taking: z,
+                corners: z,
+                long_throws: z,
+            },
+            mental: MentalAttributes {
+                anticipation: z,
+                composure: z,
+                decisions: z,
+                vision: z,
+                off_the_ball: z,
+                positioning: z,
+                concentration: z,
+                bravery: z,
+                teamwork: z,
+                flair: z,
+            },
+            physical: PhysicalAttributes {
+                pace: z,
+                acceleration: z,
+                stamina: z,
+                strength: z,
+                agility: z,
+                balance: z,
+                jumping_reach: z,
+                natural_fitness: z,
+            },
+            goalkeeper: GoalkeeperAttributes {
+                handling: z,
+                reflexes: z,
+                one_on_ones: z,
+                aerial_reach: z,
+                command_of_area: z,
+                kicking: z,
+            },
+            personality: PersonalityVector {
+                determination: z,
+                work_rate: z,
+                ambition: z,
+                professionalism: z,
+                loyalty: z,
+                temperament: z,
+                pressure_tolerance: z,
+                big_match_appetite: z,
+                adaptability: z,
+                aggression: z,
+                risk_appetite: z,
+                selflessness: z,
+                consistency: z,
+                versatility: z,
+            },
+            durability: DurabilityProfile {
+                injury_proneness: z,
+                recovery_rate: z,
+                dirtiness: z,
+            },
+        }
+    }
+
+    /// All-max `PlayerAttributes` (every field = `Q32::ONE`).
+    ///
+    /// Test-only utility for checking peak-speed formulas: at max attrs the
+    /// attribute-scaling bonus is fully applied, so `compute_ball_speed_for_shot`
+    /// must return `SHOT_BASE_SPEED_MPS + SHOT_PEAK_BONUS_MPS`.
+    #[must_use]
+    pub fn max_baseline() -> Self {
+        let one = Q32::ONE;
+        PlayerAttributes {
+            technical: TechnicalAttributes {
+                finishing: one,
+                long_shots: one,
+                passing: one,
+                crossing: one,
+                first_touch: one,
+                technique: one,
+                dribbling: one,
+                heading: one,
+                tackling: one,
+                marking: one,
+                free_kicks: one,
+                penalty_taking: one,
+                corners: one,
+                long_throws: one,
+            },
+            mental: MentalAttributes {
+                anticipation: one,
+                composure: one,
+                decisions: one,
+                vision: one,
+                off_the_ball: one,
+                positioning: one,
+                concentration: one,
+                bravery: one,
+                teamwork: one,
+                flair: one,
+            },
+            physical: PhysicalAttributes {
+                pace: one,
+                acceleration: one,
+                stamina: one,
+                strength: one,
+                agility: one,
+                balance: one,
+                jumping_reach: one,
+                natural_fitness: one,
+            },
+            goalkeeper: GoalkeeperAttributes {
+                handling: one,
+                reflexes: one,
+                one_on_ones: one,
+                aerial_reach: one,
+                command_of_area: one,
+                kicking: one,
+            },
+            personality: PersonalityVector {
+                determination: one,
+                work_rate: one,
+                ambition: one,
+                professionalism: one,
+                loyalty: one,
+                temperament: one,
+                pressure_tolerance: one,
+                big_match_appetite: one,
+                adaptability: one,
+                aggression: one,
+                risk_appetite: one,
+                selflessness: one,
+                consistency: one,
+                versatility: one,
+            },
+            durability: DurabilityProfile {
+                injury_proneness: one,
+                recovery_rate: one,
+                dirtiness: one,
+            },
+        }
+    }
+
     /// Verify every field is in `[Q32::ZERO, Q32::ONE]`. Returns
     /// `Vec<AttributeRangeError>` listing every violation (collect-all,
     /// not first-only — matches the `RoleAffinityTable::invalid_roles`

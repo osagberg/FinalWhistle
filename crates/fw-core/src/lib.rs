@@ -66,13 +66,102 @@ pub use tick::Tick;
 pub type PlayerSlot = u8;
 
 // -------------------------------------------------------------------------
+// Pitch geometry constants (T1-3.5)
+// -------------------------------------------------------------------------
+
+/// FIFA standard pitch length in metres (105 m).
+///
+/// Single source of truth for all pitch-geometry consumers in the sim.
+/// `fw-match-sim`'s goal-detection (step 7) and OOB-clamp (step 8) in
+/// `tick_match` derive their boundary checks from this constant — never
+/// from inline literals.
+///
+/// Q32.32 raw bits: `round(105.0 × 2^32) = 451_033_538_560`
+pub const PITCH_LENGTH_M: Q32 = Q32::from_raw(105_i64 << 32);
+
+/// FIFA standard pitch width in metres (68 m).
+///
+/// Q32.32 raw bits: `68 × 2^32 = 292_057_776_128`
+pub const PITCH_WIDTH_M: Q32 = Q32::from_raw(68_i64 << 32);
+
+/// X-coordinate of each goal line (distance from centre spot to goal line).
+///
+/// `PITCH_LENGTH_M / 2 = 52.5 m`
+///
+/// Ball detection: when `|ball.pos_x| >= GOAL_LINE_X`, the ball has crossed
+/// the goal line. Combined with `|ball.pos_y| < GOAL_HALF_WIDTH_M` to
+/// distinguish a goal from a wide-of-goal ball (OOB clamp zone).
+///
+/// **Single source of truth** (Codex 2026-05-16 audit type-design P1 +
+/// silent-failure P1 — same family as T1-4a's `GOAL_HALF_WIDTH_M` fix):
+/// derived from `PITCH_LENGTH_M` at compile time via raw-bit shift.
+/// Bumping `PITCH_LENGTH_M` automatically updates `GOAL_LINE_X`. The
+/// prior hand-computed `105_i64 << 31` literal was a single-source-of-
+/// truth violation that the unit test caught but the type system did
+/// not enforce.
+pub const GOAL_LINE_X: Q32 = Q32::from_raw(PITCH_LENGTH_M.to_bits() >> 1);
+
+/// Y-coordinate of each sideline (distance from pitch centreline to touchline).
+///
+/// `PITCH_WIDTH_M / 2 = 34.0 m`
+///
+/// Ball detection: when `|ball.pos_y| >= SIDELINE_Y`, the ball has crossed
+/// the touchline and is out of bounds.
+///
+/// **Single source of truth** (Codex 2026-05-16 audit type-design P1):
+/// derived from `PITCH_WIDTH_M` at compile time via raw-bit shift.
+pub const SIDELINE_Y: Q32 = Q32::from_raw(PITCH_WIDTH_M.to_bits() >> 1);
+
+// -------------------------------------------------------------------------
 // Smoke
 // -------------------------------------------------------------------------
 
 #[cfg(test)]
 mod smoke {
+    use super::*;
+
     #[test]
     fn smoke() {
         assert_eq!(2 + 2, 4);
+    }
+
+    // --- T1-3.5 Chunk 1: Pitch geometry constants ---
+
+    /// RED: pitch constants must have correct values derived from FIFA standard.
+    #[test]
+    fn pitch_length_is_105m() {
+        // Q32.32: 105.0 = 105 << 32 raw bits.
+        assert_eq!(PITCH_LENGTH_M, Q32::from_int(105));
+    }
+
+    #[test]
+    fn pitch_width_is_68m() {
+        assert_eq!(PITCH_WIDTH_M, Q32::from_int(68));
+    }
+
+    #[test]
+    fn goal_line_x_is_half_pitch_length() {
+        // GOAL_LINE_X == PITCH_LENGTH_M / 2 (single-source invariant).
+        // Q32 division by exact power of 2: `105 << 31` == `(105 << 32) >> 1`.
+        // Both must equal 52.5 in Q32.32.
+        let half: Q32 = PITCH_LENGTH_M / Q32::from_int(2);
+        assert_eq!(
+            GOAL_LINE_X, half,
+            "GOAL_LINE_X must derive from PITCH_LENGTH_M/2, not an independent literal"
+        );
+        // 52.5 in Q32.32: raw bits = 52 << 32 | (1 << 31) = 224_006_365_184 + 2_147_483_648
+        let expected_raw: i64 = (52_i64 << 32) + (1_i64 << 31);
+        assert_eq!(GOAL_LINE_X.to_bits(), expected_raw);
+    }
+
+    #[test]
+    fn sideline_y_is_half_pitch_width() {
+        // SIDELINE_Y == PITCH_WIDTH_M / 2 (single-source invariant).
+        let half: Q32 = PITCH_WIDTH_M / Q32::from_int(2);
+        assert_eq!(
+            SIDELINE_Y, half,
+            "SIDELINE_Y must derive from PITCH_WIDTH_M/2, not an independent literal"
+        );
+        assert_eq!(SIDELINE_Y, Q32::from_int(34));
     }
 }
