@@ -40,64 +40,19 @@ use rand_chacha::ChaCha8Rng;
 use crate::event::{MatchEvent, PassKind};
 
 // ---------------------------------------------------------------------------
-// MatchEventDiscriminant
+// MatchEventDiscriminant — re-export (moved to event module at T1-11 fix-pass)
 // ---------------------------------------------------------------------------
 
-/// Stable discriminant for each `MatchEvent` variant. Values mirror the
-/// canonical encoder table in `fw-match-sim::canonical` — do NOT reorder.
+/// Re-export of [`crate::event::MatchEventDiscriminant`].
 ///
-/// | Discriminant | Variant              |
-/// |---|---|
-/// | 0            | `KickOff`            |
-/// | 1            | `FullTime`           |
-/// | 2            | `Goal`               |
-/// | 3            | `Shot`               |
-/// | 4            | `Pass`               |
-/// | 5            | `SignatureFirstFired` |
-///
-/// `#[repr(u8)]` per Codex Tier-2 type-design P1 on T1-4b 2026-05-16: pins
-/// the discriminant layout for any future `transmute` / FFI / serde-repr
-/// need + matches the pattern already used on `PassKind` in `event.rs`.
-/// Without `#[repr(u8)]`, the `as u32` cast at `render_event` works today
-/// but is unspecified across compiler versions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u8)]
-pub enum MatchEventDiscriminant {
-    KickOff = 0,
-    FullTime = 1,
-    Goal = 2,
-    Shot = 3,
-    Pass = 4,
-    SignatureFirstFired = 5,
-}
-
-impl MatchEventDiscriminant {
-    /// Derive the discriminant from a live `MatchEvent`. Single source of
-    /// truth — avoids duplicating the mapping at each call site.
-    pub fn from_event(event: &MatchEvent) -> Self {
-        match event {
-            MatchEvent::KickOff { .. } => Self::KickOff,
-            MatchEvent::FullTime { .. } => Self::FullTime,
-            MatchEvent::Goal { .. } => Self::Goal,
-            MatchEvent::Shot { .. } => Self::Shot,
-            MatchEvent::Pass { .. } => Self::Pass,
-            MatchEvent::SignatureFirstFired { .. } => Self::SignatureFirstFired,
-        }
-    }
-
-    /// All discriminants in canonical order — used by the `ContentStore` loader
-    /// to validate that every event class has a grammar loaded.
-    pub fn all() -> [MatchEventDiscriminant; 6] {
-        [
-            Self::KickOff,
-            Self::FullTime,
-            Self::Goal,
-            Self::Shot,
-            Self::Pass,
-            Self::SignatureFirstFired,
-        ]
-    }
-}
+/// **Located in `event.rs` post Codex T1-11 type-design P1 fix-pass**: this
+/// enum was originally defined here, but `MatchEvent::discriminant()` returns
+/// it (typed enum, not raw `u8`) — and event.rs cannot import from
+/// commentary.rs (cyclic). Moved to event.rs as the canonical home; the
+/// re-export here preserves the public API for downstream consumers
+/// (`fw_content::commentary::MatchEventDiscriminant` still resolves to the
+/// same type).
+pub use crate::event::MatchEventDiscriminant;
 
 // ---------------------------------------------------------------------------
 // CommentaryGrammarBank

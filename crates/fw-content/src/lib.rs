@@ -19,10 +19,11 @@ pub mod team;
 
 pub use archetype::BehaviorArchetype;
 pub use commentary::{
-    CommentaryBankBuildError, CommentaryGrammarBank, CommentaryRenderError, MatchEventDiscriminant,
-    render_event,
+    CommentaryBankBuildError, CommentaryGrammarBank, CommentaryRenderError, render_event,
 };
-pub use event::{MatchEvent, PassKind, is_shot_on_target};
+// MatchEventDiscriminant moved to event module at T1-11 type-design P1 fix-pass
+// (was in commentary; cyclic-import once MatchEvent::discriminant() returns it).
+pub use event::{MatchEvent, MatchEventDiscriminant, PassKind, is_shot_on_target};
 pub use player::{PLAYER_TEMPLATE_SCHEMA_VERSION, PlayerTemplate};
 pub use role_affinity::{
     ROLE_AFFINITY_SCHEMA_VERSION, RoleAffinityTable, RoleId, RoleIdError, RoleWeights,

@@ -86,7 +86,7 @@ proptest! {
         let initial_slots = state.decision_slots;
 
         for _ in 0..600 {
-            state = tick_match(state);
+            state = tick_match(state, &std::collections::BTreeMap::new());
         }
 
         prop_assert_eq!(
@@ -126,7 +126,7 @@ proptest! {
                         Tick::from_raw(tick_raw + 15);
                 }
             }
-            state = tick_match(state);
+            state = tick_match(state, &std::collections::BTreeMap::new());
         }
 
         prop_assert_eq!(

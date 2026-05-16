@@ -11,7 +11,12 @@
 //! ## Usage
 //!
 //! ```sh
+//! # Minimal (no content — empty sig_definitions):
 //! cargo run --bin dump_frames -- --seed 0xdeadbeef --ticks 60 > /tmp/smoke.json
+//!
+//! # With content (real signatures wired into slot 7 AM):
+//! cargo run --bin dump_frames -- --seed 0xdeadbeef --ticks 600 \
+//!     --content content > /tmp/smoke-content.json
 //! ```
 //!
 //! Output: pretty-printed JSON array of `MatchFrameDto`. Length
@@ -22,12 +27,12 @@
 //!
 //! ## Determinism
 //!
-//! Running the binary twice with the same `--seed` + `--ticks` produces
-//! byte-identical stdout. The path through `MatchState::initial` +
-//! `tick_match` is fully deterministic (per the canonical-state
-//! contract in `docs/specs/determinism-gate.md`); the
-//! `serde_json::to_string_pretty` projection is also deterministic
-//! given the camelCase ordering pinned in `MatchFrameDto`.
+//! Running the binary twice with the same `--seed` + `--ticks` + `--content`
+//! produces byte-identical stdout. The path through
+//! `MatchState::initial[_with_content]` + `tick_match` is fully deterministic
+//! (per the canonical-state contract in `docs/specs/determinism-gate.md`); the
+//! `serde_json::to_string_pretty` projection is also deterministic given the
+//! camelCase ordering pinned in `MatchFrameDto`.
 //!
 //! ## Not a content-pack tool
 //!
@@ -36,9 +41,13 @@
 //! game. Distinct from `fw-content-baker` (which compiles LLM output
 //! into committed RON corpus files).
 
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
 use clap::Parser;
+use fw_content::ContentStore;
 use fw_core::Seed;
-use fw_match_sim::{MatchFrameDto, MatchState, tick_match};
+use fw_match_sim::{MatchFrameDto, MatchState, SignatureDefinition, tick_match};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -60,6 +69,15 @@ struct Cli {
     /// fixtures.
     #[arg(long, default_value_t = false)]
     compact: bool,
+
+    /// Path to the content root directory (e.g. `content`). When provided,
+    /// loads `ContentStore::load_sources(&path)` and uses
+    /// `MatchState::initial_with_content` so that slot-7 AM signature
+    /// candidates are wired in and real `SignatureDefinition` objects are
+    /// passed to `tick_match`. Without this flag, `MatchState::initial`
+    /// is used and `sig_definitions` is empty (no signatures fire).
+    #[arg(long)]
+    content: Option<PathBuf>,
 }
 
 fn main() -> std::process::ExitCode {
@@ -79,12 +97,25 @@ fn run(cli: &Cli) -> Result<(), String> {
         .map_err(|e| format!("invalid --seed {:?}: {e}", cli.seed))?;
     let seed = Seed::from_u64(raw);
 
-    let mut state = MatchState::initial(seed);
+    // Load content store if --content was given; otherwise use empty maps.
+    let (initial_state, sig_definitions): (MatchState, BTreeMap<String, SignatureDefinition>) =
+        if let Some(content_path) = &cli.content {
+            let store = ContentStore::load_sources(content_path)
+                .map_err(|e| format!("ContentStore::load_sources({content_path:?}): {e}"))?;
+            let state = MatchState::initial_with_content(seed, &store)
+                .map_err(|e| format!("initial_with_content: {e}"))?;
+            let sigs = store.signature_definitions.clone();
+            (state, sigs)
+        } else {
+            (MatchState::initial(seed), BTreeMap::new())
+        };
+
+    let mut state = initial_state;
     let total = (cli.ticks as usize).saturating_add(1);
     let mut frames: Vec<MatchFrameDto> = Vec::with_capacity(total);
     frames.push(MatchFrameDto::from_state(&state));
     for _ in 0..cli.ticks {
-        state = tick_match(state);
+        state = tick_match(state, &sig_definitions);
         frames.push(MatchFrameDto::from_state(&state));
     }
 

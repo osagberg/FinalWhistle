@@ -212,7 +212,7 @@ fn smoke_seed_60_tick_canonical_hash_pinned() {
     let seed = Seed::from_u64(SMOKE_SEED);
     let mut state = MatchState::initial(seed);
     for _ in 0..SMOKE_TICK_COUNT {
-        state = tick_match(state);
+        state = tick_match(state, &std::collections::BTreeMap::new());
     }
 
     let bytes = state.encode_canonical();
@@ -293,7 +293,7 @@ fn smoke_seed_runs_100_times_produce_one_hash() {
         let seed = Seed::from_u64(SMOKE_SEED);
         let mut state = MatchState::initial(seed);
         for _ in 0..SMOKE_TICK_COUNT {
-            state = tick_match(state);
+            state = tick_match(state, &std::collections::BTreeMap::new());
         }
         let bytes = state.encode_canonical();
         let hash: [u8; 32] = blake3::hash(&bytes).into();
@@ -443,7 +443,7 @@ fn smoke_seed_final_state_snapshot() {
     let seed = Seed::from_u64(SMOKE_SEED);
     let mut state = MatchState::initial(seed);
     for _ in 0..SMOKE_TICK_COUNT {
-        state = tick_match(state);
+        state = tick_match(state, &std::collections::BTreeMap::new());
     }
     insta::assert_debug_snapshot!(state);
 }

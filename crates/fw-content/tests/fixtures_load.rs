@@ -269,7 +269,7 @@ fn signature_load_does_not_drift_canonical_hash() {
     let seed = Seed::from_u64(SMOKE_SEED);
     let mut state = MatchState::initial(seed);
     for _ in 0..SMOKE_TICKS {
-        state = tick_match(state);
+        state = tick_match(state, &std::collections::BTreeMap::new());
     }
     let bytes = state.encode_canonical();
     let actual: [u8; 32] = blake3::hash(&bytes).into();

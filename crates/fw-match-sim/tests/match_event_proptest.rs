@@ -39,7 +39,7 @@ fn run_match(seed_u64: u64, tick_count: u32) -> MatchState {
     let seed = Seed::from_u64(seed_u64);
     let mut state = MatchState::initial(seed);
     for _ in 0..tick_count {
-        state = tick_match(state);
+        state = tick_match(state, &std::collections::BTreeMap::new());
     }
     state
 }

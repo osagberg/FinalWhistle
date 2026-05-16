@@ -84,7 +84,7 @@ fn ball_crossing_positive_goal_line_in_mouth_triggers_home_goal() {
     // Home team last touched → home team scores (ball in AWAY goal = +X side).
     assert_eq!(state_before.home_score, 0);
 
-    let state_after = tick_match(state_before);
+    let state_after = tick_match(state_before, &std::collections::BTreeMap::new());
 
     // (1) Goal event in match_events.
     let has_goal = state_after
@@ -139,7 +139,7 @@ fn ball_crossing_negative_goal_line_in_mouth_triggers_away_goal() {
     let state_before = state_with_ball(ball).with_last_touched_by(19);
     assert_eq!(state_before.away_score, 0);
 
-    let state_after = tick_match(state_before);
+    let state_after = tick_match(state_before, &std::collections::BTreeMap::new());
 
     let has_goal = state_after
         .match_events()
@@ -177,7 +177,7 @@ fn ball_crossing_goal_line_wide_of_posts_does_not_trigger_goal() {
         spin_z: Q32::ZERO,
     };
     let state_before = state_with_ball(ball);
-    let state_after = tick_match(state_before);
+    let state_after = tick_match(state_before, &std::collections::BTreeMap::new());
 
     // No Goal event.
     let has_goal = state_after
@@ -219,7 +219,7 @@ fn goal_transitions_both_teams_tactic_state_to_midblock() {
     state_before.team_tactic_states[1] =
         fw_match_sim::TeamTacticState::initial().transition(TacticState::HighPress, Tick::ZERO);
 
-    let state_after = tick_match(state_before);
+    let state_after = tick_match(state_before, &std::collections::BTreeMap::new());
 
     // Confirm goal fired.
     let has_goal = state_after
@@ -264,7 +264,7 @@ fn ball_past_sideline_is_clamped_and_vel_zeroed() {
     };
     let vel_z_before = ball.vel_z;
     let state_before = state_with_ball(ball);
-    let state_after = tick_match(state_before);
+    let state_after = tick_match(state_before, &std::collections::BTreeMap::new());
 
     // vel_x and vel_y must be zeroed (OOB clamp).
     assert_eq!(
@@ -316,7 +316,7 @@ fn ball_past_negative_sideline_is_clamped() {
         spin_y: Q32::ZERO,
         spin_z: Q32::ZERO,
     };
-    let state_after = tick_match(state_with_ball(ball));
+    let state_after = tick_match(state_with_ball(ball), &std::collections::BTreeMap::new());
 
     assert_eq!(state_after.ball.vel_x, Q32::ZERO);
     assert_eq!(state_after.ball.vel_y, Q32::ZERO);
@@ -343,7 +343,7 @@ fn ball_past_non_goal_goal_line_is_clamped() {
         spin_y: Q32::ZERO,
         spin_z: Q32::ZERO,
     };
-    let state_after = tick_match(state_with_ball(ball));
+    let state_after = tick_match(state_with_ball(ball), &std::collections::BTreeMap::new());
 
     // vel_x zeroed.
     assert_eq!(
@@ -381,7 +381,7 @@ fn goal_scorer_slot_matches_last_touched_by() {
     };
     let state_before = state_with_ball(ball).with_last_touched_by(10);
 
-    let state_after = tick_match(state_before);
+    let state_after = tick_match(state_before, &std::collections::BTreeMap::new());
 
     let goal_event = state_after
         .match_events()

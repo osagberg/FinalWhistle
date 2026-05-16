@@ -226,7 +226,7 @@ proptest! {
     fn inv6_tick_match_satisfies_separation_after_100_ticks(seed_val in arb_seed()) {
         let mut state = MatchState::initial(Seed::from_u64(seed_val));
         for _ in 0..100 {
-            state = tick_match(state);
+            state = tick_match(state, &std::collections::BTreeMap::new());
         }
 
         let n = state.players.len();
@@ -266,7 +266,7 @@ proptest! {
         let tol = Q32::from_raw(4096);
 
         for _tick in 0..100 {
-            state = tick_match(state);
+            state = tick_match(state, &std::collections::BTreeMap::new());
             for i in 0..n {
                 for j in (i + 1)..n {
                     let key = (i as u8, j as u8);

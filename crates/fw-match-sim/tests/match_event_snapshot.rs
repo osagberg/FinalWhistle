@@ -23,7 +23,7 @@ fn smoke_seed_60_tick_match_events_snapshot() {
     let seed = Seed::from_u64(SMOKE_SEED);
     let mut state = MatchState::initial(seed);
     for _ in 0..SMOKE_TICK_COUNT {
-        state = tick_match(state);
+        state = tick_match(state, &std::collections::BTreeMap::new());
     }
 
     // Anti-vacuousness guard: at least KickOff must be present. If this

@@ -50,7 +50,7 @@ proptest! {
         let mut prev_counters: Vec<u32> = state.players.iter().map(|p| p.decision_counter()).collect();
 
         for _ in 0..30 {
-            state = tick_match(state);
+            state = tick_match(state, &std::collections::BTreeMap::new());
             for (i, p) in state.players.iter().enumerate() {
                 prop_assert!(
                     p.decision_counter() >= prev_counters[i],
@@ -74,7 +74,7 @@ proptest! {
         let mut state = MatchState::initial(seed);
 
         for _ in 0..15 {
-            state = tick_match(state);
+            state = tick_match(state, &std::collections::BTreeMap::new());
         }
 
         // Balanced multiset guarantees every slot has at least one entry.
@@ -102,7 +102,7 @@ proptest! {
         let run_60 = || {
             let mut s = MatchState::initial(seed);
             for _ in 0..60 {
-                s = tick_match(s);
+                s = tick_match(s, &std::collections::BTreeMap::new());
             }
             s.encode_canonical()
         };

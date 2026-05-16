@@ -22,10 +22,54 @@
 //!   the command surface.
 //! - The `q32_to_f64` projection helper — also in `lib.rs`.
 
+use std::path::Path;
+
+use fw_content::ContentStore;
 use fw_core::Seed;
 use fw_match_sim::{MatchState, tick_match};
 
 use crate::{MatchFrameDto, MatchStateDto};
+
+/// Default path to the source-content directory, relative to the working directory.
+///
+/// **T1-5 follow-up (Codex T1-11 P0 fix-pass)**: this is a stop-gap.
+/// The proper fix lifts `ContentStore` into `AppState` (a Tauri-managed
+/// resource constructed once at app startup) and threads `&AppState`
+/// through every command handler — avoiding the per-command load cost
+/// plus supporting Tauri's resource resolver for bundled-app paths (T5-1
+/// Steam distribution). For T1-11 the relative path works for
+/// `pnpm tauri dev` invoked from the project root (the dev workflow we
+/// ship today); the production-app bundle path is T5-1's concern.
+const DEFAULT_CONTENT_PATH: &str = "content";
+
+/// Env-var override for the content directory path. Used by integration
+/// tests (which run from `crates/fw-tauri/` and need to point at the
+/// workspace-root `content/` directory). Production reads the default.
+const CONTENT_PATH_ENV: &str = "FW_CONTENT_PATH";
+
+/// Load `ContentStore` for the duration of one command invocation.
+///
+/// **T1-5 follow-up**: replace with `AppState`-cached lookup. Today this
+/// reloads RON files on every command call (~10ms per invocation; fine
+/// for T1's dev workflow which calls play_match / match_frames at most
+/// a few times per session).
+///
+/// Codex T1-11 P0 fix-pass: the prior code passed `&BTreeMap::new()` for
+/// `sig_definitions` and used `MatchState::initial(seed)` — making
+/// signatures structurally unreachable in the Tauri IPC path. This loader
+/// plus `initial_with_content` projection wire the real signature dispatcher
+/// into `play_match` plus `match_frames` so the dev-board scrubber plus future
+/// play-match UI see real signature firings.
+///
+/// Path resolution: `FW_CONTENT_PATH` env var if set (used by integration
+/// tests), else `DEFAULT_CONTENT_PATH` ("content"). Env reads are not on
+/// the Sim/RULES.md §3 banned list — env-driven configuration is sane
+/// here (this is the IPC boundary, not a sim crate).
+fn load_content_for_command() -> Result<ContentStore, String> {
+    let path = std::env::var(CONTENT_PATH_ENV).unwrap_or_else(|_| DEFAULT_CONTENT_PATH.to_string());
+    ContentStore::load_sources(Path::new(&path))
+        .map_err(|e| format!("ContentStore::load_sources({path:?}) failed: {e}"))
+}
 
 /// `play_match(seed_hex, tick_count)` — run a smoke match end-to-end and
 /// return the final state as a DTO.
@@ -39,9 +83,15 @@ pub async fn play_match(seed_hex: String, tick_count: u32) -> Result<MatchStateD
         .map_err(|e| format!("invalid seed_hex {seed_hex:?}: {e}"))?;
     let seed = Seed::from_u64(raw);
 
-    let mut state = MatchState::initial(seed);
+    // T1-11 fix-pass (Codex code-reviewer P0): load real ContentStore + use
+    // initial_with_content so the signature dispatcher fires in the IPC path.
+    // Prior code used MatchState::initial + &BTreeMap::new() → signatures
+    // structurally unreachable in production (only test fixtures fired them).
+    let content = load_content_for_command()?;
+    let mut state = MatchState::initial_with_content(seed, &content)
+        .map_err(|e| format!("MatchState::initial_with_content failed: {e}"))?;
     for _ in 0..tick_count {
-        state = tick_match(state);
+        state = tick_match(state, &content.signature_definitions);
     }
 
     Ok(MatchStateDto::from_state(&state))
@@ -80,14 +130,19 @@ pub async fn match_frames(seed_hex: String, tick_count: u32) -> Result<Vec<Match
         .map_err(|e| format!("invalid seed_hex {seed_hex:?}: {e}"))?;
     let seed = Seed::from_u64(raw);
 
-    let mut state = MatchState::initial(seed);
+    // T1-11 fix-pass (Codex code-reviewer P0): load real ContentStore + use
+    // initial_with_content + thread sig_definitions through tick_match so
+    // dev-board scrubber sees signature firings. Same fix as play_match.
+    let content = load_content_for_command()?;
+    let mut state = MatchState::initial_with_content(seed, &content)
+        .map_err(|e| format!("MatchState::initial_with_content failed: {e}"))?;
     // tick_count + 1 frames: index 0 is the initial state, index
     // tick_count is the state after `tick_count` advances.
     let total = (tick_count as usize).saturating_add(1);
     let mut frames = Vec::with_capacity(total);
     frames.push(MatchFrameDto::from_state(&state));
     for _ in 0..tick_count {
-        state = tick_match(state);
+        state = tick_match(state, &content.signature_definitions);
         frames.push(MatchFrameDto::from_state(&state));
     }
     Ok(frames)

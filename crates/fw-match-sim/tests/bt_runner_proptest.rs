@@ -31,7 +31,7 @@ proptest! {
         let run = || {
             let mut s = MatchState::initial(seed);
             for _ in 0..15 {
-                s = tick_match(s);
+                s = tick_match(s, &std::collections::BTreeMap::new());
             }
             s
         };
@@ -115,7 +115,7 @@ proptest! {
         let mut prev: [u32; 22] = [0; 22];
 
         for _ in 0..60 {
-            state = tick_match(state);
+            state = tick_match(state, &std::collections::BTreeMap::new());
             for (i, p) in state.players.iter().enumerate() {
                 prop_assert!(
                     p.decision_counter() >= prev[i],
@@ -157,7 +157,7 @@ proptest! {
 
         // Run 30 ticks -- every player fires at least twice.
         for _ in 0..30 {
-            state = tick_match(state);
+            state = tick_match(state, &std::collections::BTreeMap::new());
         }
 
         // At least one outfield player must have counter > 0.
@@ -190,12 +190,12 @@ proptest! {
 
         let mut s1 = MatchState::initial(seed);
         for _ in 0..30 {
-            s1 = tick_match(s1);
+            s1 = tick_match(s1, &std::collections::BTreeMap::new());
         }
 
         let mut s2 = MatchState::initial(seed);
         for _ in 0..30 {
-            s2 = tick_match(s2);
+            s2 = tick_match(s2, &std::collections::BTreeMap::new());
         }
 
         prop_assert_eq!(

@@ -375,13 +375,28 @@ impl CanonicalEncoder {
     }
 
     /// Encode a single `MatchEvent`.
+    ///
+    /// T1-11 fold-in (Codex T1-4b P2): discriminant byte now written via
+    /// `event.discriminant()` — the single source of truth in
+    /// `fw-content::event::MatchEvent::discriminant()`. Prior literal values
+    /// (0..5) are semantically identical; this removes the three-way
+    /// duplication between `MatchEvent` variants, `MatchEventDiscriminant`,
+    /// and this encoder. The cross-crate test in
+    /// `fw-content/tests/event_discriminant_test.rs` pins the alignment.
     fn encode_match_event(&mut self, event: &MatchEvent) {
+        // Write the stable discriminant byte first — this is what BLAKE3
+        // hashes and what the canonical-hash regression pins.
+        //
+        // Codex T1-11 type-design P1 fix-pass: `discriminant()` now returns
+        // the typed `MatchEventDiscriminant` enum (not raw u8). Cast at
+        // point of use via `as u8` — sound because of `#[repr(u8)]` on the
+        // enum. Byte output is identical (same hand-assigned discriminants).
+        self.write_u8(event.discriminant() as u8);
         match event {
             MatchEvent::KickOff {
                 tick,
                 is_second_half,
             } => {
-                self.write_u8(0); // discriminant
                 self.write_i64(tick.to_raw());
                 self.write_u8(if *is_second_half { 1 } else { 0 });
             }
@@ -390,7 +405,6 @@ impl CanonicalEncoder {
                 home_score,
                 away_score,
             } => {
-                self.write_u8(1);
                 self.write_i64(tick.to_raw());
                 self.write_u16(*home_score);
                 self.write_u16(*away_score);
@@ -401,7 +415,6 @@ impl CanonicalEncoder {
                 score_home_after,
                 score_away_after,
             } => {
-                self.write_u8(2);
                 self.write_u8(*scorer_slot);
                 self.write_i64(tick.to_raw());
                 self.write_u16(*score_home_after);
@@ -414,7 +427,6 @@ impl CanonicalEncoder {
                 target_y,
                 on_target,
             } => {
-                self.write_u8(3);
                 self.write_u8(*shooter_slot);
                 self.write_i64(tick.to_raw());
                 self.write_i64(target_x.to_bits());
@@ -428,7 +440,6 @@ impl CanonicalEncoder {
                 kind,
                 completed,
             } => {
-                self.write_u8(4);
                 self.write_u8(*from_slot);
                 self.write_u8(*to_slot);
                 self.write_i64(tick.to_raw());
@@ -446,7 +457,6 @@ impl CanonicalEncoder {
                 signature_id,
                 tick,
             } => {
-                self.write_u8(5);
                 self.write_u8(*player_slot);
                 self.write_i64(tick.to_raw());
                 let id_bytes = signature_id.as_str().as_bytes();

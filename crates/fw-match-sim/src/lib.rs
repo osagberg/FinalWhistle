@@ -59,6 +59,7 @@ pub use canonical::CanonicalEncoder;
 pub use decision_cadence::{SeedLayer, assign_decision_slots, seed_fn, should_decide};
 pub use dto::{BallFrameDto, MatchFrameDto, PlayerFrameDto};
 pub use fw_content::MatchEvent;
+pub use fw_content::SignatureDefinition;
 pub use player::PlayerState;
 pub use role_states::{
     DefenderState, ForwardState, GoalkeeperState, MidfielderState, PlayerIntent, PlayerRoleState,
@@ -68,6 +69,42 @@ pub use tactic_fsm::{
     ArchetypeParams, CounterIntent, PressIntensity, SetPieceKind, TacticEvent, TacticState,
     TeamTacticState,
 };
+
+// -------------------------------------------------------------------------
+// ContentInitError — failure type for initial_with_content
+// -------------------------------------------------------------------------
+
+/// Errors from [`MatchState::initial_with_content`].
+///
+/// Fail-loud per the T1-12 hardening pattern: missing templates or
+/// unresolvable content references are Err, not silent defaults.
+#[derive(Debug)]
+pub enum ContentInitError {
+    /// No player template matching the required criteria was found in the
+    /// ContentStore. `key` describes the search criterion that failed.
+    ///
+    /// Most common cause: ContentStore was constructed via
+    /// `ContentStore::default()` (empty templates) rather than
+    /// `ContentStore::load_sources(&content_root)`.
+    MissingTemplate {
+        /// The search criterion that found no match (e.g. `"preferred_role=AM"`).
+        key: String,
+    },
+}
+
+impl std::fmt::Display for ContentInitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingTemplate { key } => write!(
+                f,
+                "player template {key:?} not found in ContentStore; \
+                 did you call ContentStore::load_sources(content_root)?"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ContentInitError {}
 
 // -------------------------------------------------------------------------
 // Constants
@@ -362,6 +399,58 @@ impl MatchState {
         }
     }
 
+    /// Variant of [`MatchState::initial`] that projects `signature_candidates`
+    /// from the loaded content corpus onto match players.
+    ///
+    /// ## Slot-7 only (T1-11 scope)
+    ///
+    /// Only slot 7 (home attacking midfielder, the 3rd home midfielder in the
+    /// 4-3-3 formation: slots 5/6 = CM, slot 7 = AM) receives real signature
+    /// candidates in this constructor. Candidates are read from the first
+    /// `PlayerTemplate` with `preferred_role == "AM"` in `content.player_templates`.
+    ///
+    /// Slots 0-6 and 8-21 keep empty `signature_candidates` (Vec::new()).
+    /// T1-7 (procgen player population) will assign per-template candidates
+    /// to all 22 slots when real name/attr projection lands.
+    ///
+    /// ## Fail-loud on missing template
+    ///
+    /// If `content.player_templates` contains no template with `preferred_role
+    /// == "AM"`, this constructor returns `Err`. A missing template indicates a
+    /// content-corpus setup problem (e.g. empty ContentStore in a test that
+    /// forgot to load sources), not a recoverable runtime state.
+    ///
+    /// ## Canonical-hash note
+    ///
+    /// The returned state's canonical encoding differs from `MatchState::initial`
+    /// because slot 7's `signature_candidates` Vec is non-empty. The smoke hash
+    /// is rebaselined at T1-11 chunk 6 (ADR-0012 trigger #1).
+    pub fn initial_with_content(
+        seed: Seed,
+        content: &fw_content::ContentStore,
+    ) -> Result<MatchState, ContentInitError> {
+        // Find the first AM template by preferred_role. player_templates is keyed
+        // by qualified_id (e.g. "fwh.core:player_00042"), not by file stem, so we
+        // search by role. BTreeMap iteration is key-ordered — deterministic.
+        let template = content
+            .player_templates
+            .values()
+            .find(|t| t.preferred_role.as_str() == "AM")
+            .ok_or_else(|| ContentInitError::MissingTemplate {
+                key: "preferred_role=AM".into(),
+            })?;
+
+        // Build the baseline state, then project slot 7's candidates.
+        let mut state = MatchState::initial(seed);
+
+        // Slot 7 = home AM (3rd home midfielder in 4-3-3).
+        // Assign the template's signature_candidates directly. The candidates
+        // Vec is `pub(crate)` (accessible here since we're in the same crate).
+        state.players[7].signature_candidates = template.signature_candidates.clone();
+
+        Ok(state)
+    }
+
     /// Serialize to the canonical byte stream for hashing.
     ///
     /// Delegates to [`CanonicalEncoder`]; this is the convenience entry
@@ -470,7 +559,17 @@ impl MatchState {
 
 /// Advance the match by one tick.
 ///
-/// Nine sequential steps (T1-3.5 reorders boundary checks before physics):
+/// ## Signature change (T1-11)
+///
+/// `sig_definitions` is now a required parameter (formerly `tick_match` called
+/// `dispatch_tick` with `&BTreeMap::new()` — meaning signatures could never
+/// fire in the normal match path). Pass `&content_store.signature_definitions`
+/// to enable the real dispatcher. Pass `&BTreeMap::new()` in tests / contexts
+/// without a ContentStore for backwards-compat (no signatures will fire but
+/// the match advances normally).
+///
+/// ## Nine sequential steps (T1-3.5 reorders boundary checks before physics)
+///
 ///   1. Increment `state.tick`.
 ///   2. Goal detection (T1-3.5): checks ball position at START of tick. If
 ///      `|ball.pos_x| >= GOAL_LINE_X` AND `|ball.pos_y| < GOAL_HALF_WIDTH_M`
@@ -487,11 +586,16 @@ impl MatchState {
 ///   5. Run the 2 Hz tactic-FSM heartbeat (T1-2b-ii).
 ///   6. Dispatch per-player BT / GK-FSM decisions via `dispatch_tick`
 ///      (T1-2b-iii-a) — mutates `vel_x`/`vel_y` AND ball state (T1-3.5).
+///      **T1-11:** passes `sig_definitions` so the signature dispatcher
+///      receives real definitions when available.
 ///   7. Integrate player velocity into position (`pos += vel × dt`).
 ///   8. Player-separation positional-correction pass (T1-2b-iii-d).
 ///   9. Emit `MatchEvent::FullTime` if `state.tick >= state.match_end_tick`
 ///      AND no FullTime is already at the tail of `match_events` (T1-4a).
-pub fn tick_match(mut state: MatchState) -> MatchState {
+pub fn tick_match(
+    mut state: MatchState,
+    sig_definitions: &BTreeMap<String, fw_content::SignatureDefinition>,
+) -> MatchState {
     state.tick = state.tick.successor();
 
     // Step 2 (T1-3.5): goal detection — checks ball.pos BEFORE physics.
@@ -674,8 +778,11 @@ pub fn tick_match(mut state: MatchState) -> MatchState {
     }
 
     // Step 6 (T1-2b-iii-a): per-player decision dispatch.
-    // T1-2b-iv: empty definitions map — no signatures fire in basic smoke path.
-    state = dispatch::dispatch_tick(state, &BTreeMap::new());
+    // T1-11: pass sig_definitions through so the signature dispatcher receives
+    // real definitions when the caller has a ContentStore. Passing
+    // &BTreeMap::new() (the prior hardcoded value) is still valid for
+    // callers without content — no signatures fire in that case.
+    state = dispatch::dispatch_tick(state, sig_definitions);
 
     // Step 7: integrate player velocity into position.
     let dt = ball_physics::dt_per_tick();
@@ -731,7 +838,7 @@ mod smoke {
     #[test]
     fn tick_advances_by_one() {
         let s0 = MatchState::initial(Seed::from_u64(1));
-        let s1 = tick_match(s0);
+        let s1 = tick_match(s0, &BTreeMap::new());
         assert_eq!(s1.tick, Tick::ZERO.successor());
     }
 
@@ -762,7 +869,7 @@ mod smoke {
         let initial_pos_x = state.ball.pos_x;
         let initial_pos_z = state.ball.pos_z;
         for _ in 0..60 {
-            state = tick_match(state);
+            state = tick_match(state, &BTreeMap::new());
         }
         // After 1 second: ball has drifted along +X and fallen.
         assert!(
@@ -819,7 +926,7 @@ mod smoke {
         let mut state = MatchState::initial(Seed::from_u64(42));
         let initial_slots = state.decision_slots;
         for _ in 0..60 {
-            state = tick_match(state);
+            state = tick_match(state, &BTreeMap::new());
         }
         assert_eq!(
             state.decision_slots, initial_slots,
@@ -839,7 +946,7 @@ mod smoke {
         state.players[6].vel_x = Q32::from_int(3);
         state.players[6].vel_y = Q32::ZERO;
         for _ in 0..60 {
-            state = tick_match(state);
+            state = tick_match(state, &BTreeMap::new());
         }
         assert!(
             state.players[6].pos_x > initial_pos_x,
@@ -863,7 +970,7 @@ mod smoke {
 
         // Advance 630 ticks (>600 threshold; heartbeat fires at multiples of 30)
         for _ in 0..630 {
-            state = tick_match(state);
+            state = tick_match(state, &BTreeMap::new());
         }
 
         // The heartbeat at tick 630 (630 % 30 == 0) should have fired and

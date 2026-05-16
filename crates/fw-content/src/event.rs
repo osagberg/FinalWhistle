@@ -184,6 +184,117 @@ pub enum MatchEvent {
     },
 }
 
+impl MatchEvent {
+    /// Return the stable canonical discriminant byte for this event variant.
+    ///
+    /// This is the **single source of truth** for the discriminant byte the
+    /// canonical encoder writes to the wire format. Both
+    /// `MatchEventDiscriminant::from_event` (in `fw-content::commentary`) AND
+    /// `encode_match_event` (in `fw-match-sim::canonical`) MUST agree with
+    /// these values. The cross-crate test in
+    /// `crates/fw-content/tests/event_discriminant_test.rs` pins all 6 values
+    /// against a hardcoded table, catching any reordering regression.
+    ///
+    /// ## Discriminant table (stable; do NOT reorder `MatchEvent` variants)
+    ///
+    /// | Byte | Variant              |
+    /// |------|----------------------|
+    /// | 0    | `KickOff`            |
+    /// | 1    | `FullTime`           |
+    /// | 2    | `Goal`               |
+    /// | 3    | `Shot`               |
+    /// | 4    | `Pass`               |
+    /// | 5    | `SignatureFirstFired` |
+    ///
+    /// Changing these values is a canonical-hash-invalidating event that
+    /// requires an authorized ADR-0012 rebaseline.
+    ///
+    /// **Return type** (Codex T1-11 type-design P1 fix-pass): returns the
+    /// typed [`MatchEventDiscriminant`] enum rather than a raw `u8`. The
+    /// canonical encoder casts via `event.discriminant() as u8` at point
+    /// of use (sound because of `#[repr(u8)]`); the commentary renderer's
+    /// `MatchEventDiscriminant::from_event` becomes a trivial passthrough
+    /// (`event.discriminant()`). Prior `u8` return forced a byte→enum→byte
+    /// round-trip with `unreachable!()` panic landmine on unknown bytes;
+    /// the typed return removes both.
+    #[must_use]
+    pub fn discriminant(&self) -> MatchEventDiscriminant {
+        match self {
+            MatchEvent::KickOff { .. } => MatchEventDiscriminant::KickOff,
+            MatchEvent::FullTime { .. } => MatchEventDiscriminant::FullTime,
+            MatchEvent::Goal { .. } => MatchEventDiscriminant::Goal,
+            MatchEvent::Shot { .. } => MatchEventDiscriminant::Shot,
+            MatchEvent::Pass { .. } => MatchEventDiscriminant::Pass,
+            MatchEvent::SignatureFirstFired { .. } => MatchEventDiscriminant::SignatureFirstFired,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MatchEventDiscriminant
+// ---------------------------------------------------------------------------
+
+/// Stable discriminant for each `MatchEvent` variant. Values mirror the
+/// canonical encoder table in `fw-match-sim::canonical` — do NOT reorder.
+///
+/// | Discriminant | Variant              |
+/// |---|---|
+/// | 0            | `KickOff`            |
+/// | 1            | `FullTime`           |
+/// | 2            | `Goal`               |
+/// | 3            | `Shot`               |
+/// | 4            | `Pass`               |
+/// | 5            | `SignatureFirstFired` |
+///
+/// `#[repr(u8)]` per Codex Tier-2 type-design P1 on T1-4b: pins the
+/// discriminant layout for any future `transmute` / FFI / serde-repr
+/// need. The encoder casts `event.discriminant() as u8`.
+///
+/// **Located in `event.rs` post Codex T1-11 type-design P1 fix-pass**:
+/// the enum was originally in `commentary.rs` (a downstream consumer)
+/// but `MatchEvent::discriminant()` returns this type, so it MUST live
+/// with `MatchEvent` (cyclic-import otherwise). `commentary.rs`
+/// re-exports for backwards compat with existing consumers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum MatchEventDiscriminant {
+    KickOff = 0,
+    FullTime = 1,
+    Goal = 2,
+    Shot = 3,
+    Pass = 4,
+    SignatureFirstFired = 5,
+}
+
+impl MatchEventDiscriminant {
+    /// Derive the discriminant from a live `MatchEvent`.
+    ///
+    /// Trivial passthrough to [`MatchEvent::discriminant()`] post the
+    /// Codex T1-11 type-design P1 fix-pass — both functions share the
+    /// same source of truth via the typed enum return; no byte→enum
+    /// round-trip, no `unreachable!()` panic landmine on unknown bytes.
+    ///
+    /// The cross-crate test `fw-content/tests/event_discriminant_test.rs`
+    /// still pins this function AND the encoder's byte output against the
+    /// same hardcoded table, catching any future drift.
+    pub fn from_event(event: &MatchEvent) -> Self {
+        event.discriminant()
+    }
+
+    /// All discriminants in canonical order — used by the `ContentStore` loader
+    /// to validate that every event class has a grammar loaded.
+    pub fn all() -> [MatchEventDiscriminant; 6] {
+        [
+            Self::KickOff,
+            Self::FullTime,
+            Self::Goal,
+            Self::Shot,
+            Self::Pass,
+            Self::SignatureFirstFired,
+        ]
+    }
+}
+
 /// Half-width of the goal in pitch coordinates (m). Used to determine
 /// `on_target` for shot events.
 ///

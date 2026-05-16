@@ -879,7 +879,7 @@ mod tests {
         );
 
         for _ in 0..15 {
-            state = tick_match(state);
+            state = tick_match(state, &std::collections::BTreeMap::new());
         }
 
         // After 15 ticks (one full cadence window), every player should have
@@ -919,7 +919,7 @@ mod tests {
 
         // Run 15 ticks to cover one full cadence window.
         for _ in 0..15 {
-            state = tick_match(state);
+            state = tick_match(state, &std::collections::BTreeMap::new());
         }
 
         // GK's decision_counter should be at least 1 (they decided).
@@ -949,7 +949,7 @@ mod tests {
 
         // Run until GK decides at least once (find the first decision tick).
         for _ in 0..15 {
-            state = tick_match(state);
+            state = tick_match(state, &std::collections::BTreeMap::new());
         }
 
         // After decisions, GK should have moved toward x=-45 (velocity set to negative x).
@@ -1035,7 +1035,7 @@ mod tests {
         let mut prev_counters = [0u32; 22];
 
         for _ in 0..60 {
-            state = tick_match(state);
+            state = tick_match(state, &std::collections::BTreeMap::new());
             for (i, p) in state.players.iter().enumerate() {
                 assert!(
                     p.decision_counter() >= prev_counters[i],
@@ -1057,7 +1057,7 @@ mod tests {
         let slots = state.decision_slots;
 
         // Advance to tick 1.
-        state = tick_match(state);
+        state = tick_match(state, &std::collections::BTreeMap::new());
         let tick_raw = state.tick.to_raw();
 
         // Count how many roster slots fire at this tick.

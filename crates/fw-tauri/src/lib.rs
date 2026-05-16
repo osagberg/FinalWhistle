@@ -164,6 +164,23 @@ mod smoke {
         assert_eq!(q32_to_f64(0), 0.0);
     }
 
+    /// Point `FW_CONTENT_PATH` at the workspace-root `content/` directory
+    /// for fw-tauri integration tests (T1-11 fix-pass: commands now load
+    /// ContentStore on every invocation; CWD-relative "content" doesn't
+    /// resolve from the per-crate test working directory).
+    fn set_test_content_path() {
+        let workspace_content = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("content");
+        // SAFETY: set_var is unsafe in Rust 2024 because env mutation is
+        // not thread-safe; tests in this module are sequential per cargo's
+        // default behavior + each test re-sets the same value.
+        unsafe {
+            std::env::set_var("FW_CONTENT_PATH", workspace_content);
+        }
+    }
+
     #[test]
     fn match_frames_tick_count_zero_returns_one_frame() {
         // Codex pre-T1-2b audit P1 pin: `tick_count = 0` is a valid
@@ -173,6 +190,7 @@ mod smoke {
         // The command is `async fn` because Tauri requires it, but the
         // body has no `.await` — we can drive the Ready future to
         // completion synchronously via Tauri's bundled runtime.
+        set_test_content_path();
         let frames =
             tauri::async_runtime::block_on(crate::commands::match_frames("0x1".to_string(), 0))
                 .expect("match_frames");
@@ -182,6 +200,7 @@ mod smoke {
 
     #[test]
     fn match_frames_returns_tick_count_plus_one_frames() {
+        set_test_content_path();
         let frames = tauri::async_runtime::block_on(crate::commands::match_frames(
             "0xdeadbeef".to_string(),
             5,
