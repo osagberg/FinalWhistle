@@ -11,10 +11,16 @@
  */
 
 // ---------------------------------------------------------------------------
-// Liveness check — returned by get_dummy_state
+// Liveness check — returned by get_backend_handshake
+//
+// Codex 2026-05-16 Tier-2 fix-pass: renamed from `DummyState` returned by
+// `get_dummy_state` after T1-5 consolidation accidentally repurposed
+// `get_dummy_state` to return `MatchStateDto` (sim state) while leaving
+// Home.tsx still reading `appVersion`/`message`/`backendReady`. Now the
+// command + the type names match what Home.tsx actually consumes.
 // ---------------------------------------------------------------------------
 
-export interface DummyState {
+export interface BackendHandshake {
   appVersion: string;
   message: string;
   backendReady: boolean;

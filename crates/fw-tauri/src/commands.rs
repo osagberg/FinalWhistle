@@ -22,7 +22,7 @@ use fw_core::Seed;
 use fw_match_sim::{MatchState, tick_match};
 
 use crate::{
-    AppState, IpcError, MAX_FRAMES_PER_REQUEST, MatchFrameDto, MatchResult, MatchStateDto,
+    AppState, BackendHandshakeDto, IpcError, MAX_FRAMES_PER_REQUEST, MatchFrameDto, MatchResult,
 };
 
 // ---------------------------------------------------------------------------
@@ -44,18 +44,19 @@ pub async fn play_match(
     play_match_inner(seed_hex, tick_count, &state).await
 }
 
-/// `get_dummy_state()` — return a fresh `MatchState::initial(seed=1)` as
-/// the smallest live IPC round-trip the frontend can render against. Used
-/// by the Phase-0 / T0-2 scaffold smoke test in the SolidJS side.
+/// `get_backend_handshake()` — return a `BackendHandshakeDto` proving the
+/// Rust sim is alive. Codex 2026-05-16 Tier-2 fix-pass replaces
+/// `get_dummy_state` (which after T1-5's IPC consolidation returned
+/// `MatchStateDto` — the WRONG shape for `Home.tsx`'s liveness check, which
+/// renders `appVersion` / `message` / `backendReady` fields).
 ///
-/// No AppState injection needed — this command is a pure stub. The
-/// `IpcError` return type matches the other commands per Tauri/RULES.md §4
-/// (uniform typed-error surface across the IPC boundary) even though this
-/// stub cannot fail today.
+/// No AppState injection needed. The `IpcError` return type matches the
+/// other commands per Tauri/RULES.md §4 (uniform typed-error surface) even
+/// though this handshake cannot fail today — reaching the handler means
+/// Tauri delivered the IPC, so `backend_ready = true` is hard-coded.
 #[tauri::command]
-pub async fn get_dummy_state() -> Result<MatchStateDto, IpcError> {
-    let state = MatchState::initial(Seed::from_u64(1));
-    Ok(MatchStateDto::from_state(&state))
+pub async fn get_backend_handshake() -> Result<BackendHandshakeDto, IpcError> {
+    Ok(BackendHandshakeDto::live())
 }
 
 /// `match_frames(seed_hex, tick_count)` — produce a sequence of per-tick

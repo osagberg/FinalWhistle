@@ -31,12 +31,14 @@ use serde::Serialize;
 // See `commands.rs` header for the full reference.
 pub mod commands;
 pub mod error;
+pub mod handshake;
 pub mod result;
 pub mod state;
 
-pub use commands::{get_dummy_state, match_frames, play_match};
+pub use commands::{get_backend_handshake, match_frames, play_match};
 pub use error::IpcError;
-pub use result::{MatchResult, Score};
+pub use handshake::BackendHandshakeDto;
+pub use result::{MatchEventDto, MatchResult, Score};
 pub use state::AppState;
 
 /// Maximum number of frames allowed in a single `match_frames` request.

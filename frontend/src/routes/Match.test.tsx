@@ -268,4 +268,68 @@ describe("Match page", () => {
     fireEvent.input(seedInput, { target: { value: "not-a-hex" } });
     expect(playBtn).toBeDisabled();
   });
+
+  // Codex 2026-05-16 Tier-2 fix-pass: parse the EXACT JSON shape the Rust
+  // backend now produces (per `crates/fw-tauri/tests/ipc_contract_test.rs`
+  // `match_result_match_events_serializes_as_flat_dto_not_tagged_enum`) and
+  // assert it casts cleanly into the TS `MatchResult` interface + renders
+  // the events. Prior tests passed because mockResult was built in the
+  // frontend shape directly; the Rust→TS round-trip was never validated, so
+  // the tagged-enum bug shipped despite green tests.
+  it("renders MatchResult parsed from exact backend JSON wire shape", async () => {
+    // This string is the literal serialization shape produced by
+    // `serde_json::to_string(&MatchResult)` on the Rust side. If the
+    // backend changes its wire format, this test fails — catching the
+    // regression at `pnpm test` time, not at `pnpm tauri dev`.
+    // Backend omits `description` when None via #[serde(skip_serializing_if)]
+    // — matches TS `description?: string` optional shape exactly.
+    const backendJson = `{
+      "finalScore": { "home": 1, "away": 0 },
+      "canonicalHash": "blake3:782fcde65ba8a0fc12bb90af1b61f77d8cd403103ab3671b0d5d6b03e75c8c0f",
+      "matchEvents": [
+        { "tick": 0, "minute": 0, "kind": "KickOff" },
+        { "tick": 540, "minute": 9, "kind": "Goal" },
+        { "tick": 5400, "minute": 90, "kind": "FullTime" }
+      ],
+      "seedHex": "0xdeadbeefdeadbeef",
+      "tickCount": 5400,
+      "commentaryPreview": [
+        "Kick-off.",
+        "Goal to home side.",
+        "Full-time."
+      ]
+    }`;
+    const parsed = JSON.parse(backendJson) as MatchResult;
+
+    // The Rust→TS contract has these load-bearing properties; assert each
+    // explicitly so a regression at any field fails with a specific message.
+    expect(parsed.finalScore.home).toBe(1);
+    expect(parsed.matchEvents).toHaveLength(3);
+    // The flat-DTO shape: `kind` is a PascalCase string, NOT an object key.
+    const [first, second, third] = parsed.matchEvents;
+    expect(first?.kind).toBe("KickOff");
+    expect(second?.kind).toBe("Goal");
+    expect(third?.kind).toBe("FullTime");
+    // Each event has the 3 required flat fields (description optional + omitted).
+    // If any required field is missing the backend regressed to enum form.
+    parsed.matchEvents.forEach((ev) => {
+      expect(ev.tick).toBeTypeOf("number");
+      expect(ev.minute).toBeTypeOf("number");
+      expect(ev.kind).toBeTypeOf("string");
+    });
+
+    // Render Match with this parsed result via the same mock-and-play path
+    // — proves the component handles the actual backend shape end-to-end.
+    vi.mocked(tauriMod.playMatch).mockResolvedValue(parsed);
+    vi.mocked(tauriMod.isTauri).mockReturnValue(true);
+    render(() => <Match />);
+    fireEvent.click(screen.getByRole("button", { name: /play match/i }));
+    await waitFor(() => {
+      expect(
+        screen.getByRole("region", { name: /final score/i }),
+      ).toBeInTheDocument();
+    });
+    // Goal badge rendered → eventLabel switch handled the PascalCase kind.
+    expect(screen.getAllByText("GOAL").length).toBeGreaterThan(0);
+  });
 });

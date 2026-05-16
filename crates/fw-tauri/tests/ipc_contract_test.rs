@@ -211,3 +211,152 @@ fn src_tauri_commands_file_does_not_exist() {
         commands_path.display()
     );
 }
+
+// ---------------------------------------------------------------------------
+// Codex 2026-05-16 Tier-2 fix-pass: MatchEvent wire-shape verification
+//
+// The prior `MatchResult.match_events: Vec<fw_content::MatchEvent>` shipped
+// the raw enum which serde-derives externally-tagged JSON
+// (`{ "KickOff": {...} }`) — incompatible with the frontend's flat
+// `{ tick, minute, kind, description }` interface. The T1-6 Vitest tests
+// missed this because Match.test.tsx constructed mock events in the
+// FRONTEND shape directly; the actual Rust→TS round-trip was never
+// exercised. These tests pin the wire shape EXACTLY as the frontend sees
+// it so a future regression fails at `cargo test`, not at `pnpm tauri dev`.
+// ---------------------------------------------------------------------------
+
+/// `MatchResult.match_events` MUST serialise as a flat array of
+/// `{ tick, minute, kind, description }` objects (camelCase, kind is the
+/// PascalCase variant name) — NOT as externally-tagged `{ "KickOff": {...} }`
+/// objects. This is the load-bearing wire-shape Codex flagged.
+#[test]
+fn match_result_match_events_serializes_as_flat_dto_not_tagged_enum() {
+    let state = test_app_state();
+    let result = tauri::async_runtime::block_on(fw_tauri::commands::play_match_inner(
+        "0xdeadbeefdeadbeef".to_string(),
+        60,
+        &state,
+    ))
+    .expect("play_match_inner");
+
+    let json = serde_json::to_string(&result).expect("MatchResult serializes");
+    let v: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+    let events = v["matchEvents"]
+        .as_array()
+        .expect("matchEvents must be a JSON array (camelCase)");
+    assert!(!events.is_empty(), "60-tick run must emit ≥1 MatchEvent");
+
+    for (i, ev) in events.iter().enumerate() {
+        let obj = ev.as_object().unwrap_or_else(|| {
+            panic!("event[{i}] must be a flat object, not a tagged enum form: {ev}")
+        });
+        // The flat DTO has exactly 4 keys; anything else is a regression to
+        // the old fw_content::MatchEvent serialisation shape.
+        assert!(
+            obj.contains_key("tick"),
+            "event[{i}] missing `tick`: {ev} — likely regressed to enum form"
+        );
+        assert!(
+            obj.contains_key("minute"),
+            "event[{i}] missing `minute`: {ev}"
+        );
+        assert!(
+            obj.contains_key("kind"),
+            "event[{i}] missing `kind`: {ev} — regression: enum-tag form would have variant name as outer key"
+        );
+        // `description` is optional via #[serde(skip_serializing_if)] so it
+        // may be absent — that's the correct shape matching the TS
+        // `description?: string` optional-field type. If present, it must be
+        // a string (never null), since None gets omitted not serialized.
+        if let Some(desc) = obj.get("description") {
+            assert!(
+                desc.is_string(),
+                "event[{i}] description must be a string or absent, got: {desc}"
+            );
+        }
+
+        // `tick` must be a number, `minute` must be a number, `kind` must be
+        // a PascalCase string from the closed MatchEventKind union.
+        assert!(obj["tick"].is_i64(), "event[{i}] tick must be i64: {ev}");
+        assert!(
+            obj["minute"].is_u64(),
+            "event[{i}] minute must be u64: {ev}"
+        );
+        let kind = obj["kind"]
+            .as_str()
+            .unwrap_or_else(|| panic!("event[{i}] kind must be a string: {ev}"));
+        let allowed = [
+            "KickOff",
+            "FullTime",
+            "Goal",
+            "Shot",
+            "Pass",
+            "SignatureFirstFired",
+        ];
+        assert!(
+            allowed.contains(&kind),
+            "event[{i}] kind {kind:?} not in known set {allowed:?}; \
+             regression: enum form would have variant name as outer key instead"
+        );
+    }
+}
+
+/// The first event MUST be `KickOff` at tick 0 (sim invariant) and serialise
+/// as `{ tick: 0, minute: 0, kind: "KickOff", description: null }`.
+#[test]
+fn first_match_event_is_kickoff_with_exact_wire_shape() {
+    let state = test_app_state();
+    let result = tauri::async_runtime::block_on(fw_tauri::commands::play_match_inner(
+        "0x1".to_string(),
+        0,
+        &state,
+    ))
+    .expect("play_match_inner");
+
+    let json = serde_json::to_string(&result).expect("serialize");
+    let v: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+    let events = v["matchEvents"].as_array().expect("matchEvents array");
+    assert!(!events.is_empty(), "initial state has KickOff event");
+
+    let first = &events[0];
+    assert_eq!(first["tick"], serde_json::json!(0));
+    assert_eq!(first["minute"], serde_json::json!(0));
+    assert_eq!(first["kind"], serde_json::json!("KickOff"));
+    // `description` is omitted entirely via #[serde(skip_serializing_if)]
+    // when None — matches TS `description?: string` optional shape. Asserting
+    // absence catches any regression to `description: null` form which would
+    // mismatch the optional field type in strict TS.
+    assert!(
+        first
+            .as_object()
+            .expect("event obj")
+            .get("description")
+            .is_none(),
+        "description should be omitted from JSON when None (not serialized as null)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Codex 2026-05-16 Tier-2 fix-pass: BackendHandshakeDto wire-shape
+// ---------------------------------------------------------------------------
+
+/// `BackendHandshakeDto` MUST serialise as `{ appVersion, message, backendReady }`
+/// matching the frontend's `BackendHandshake` interface. Codex flagged the
+/// prior shape mismatch where `get_dummy_state` returned `MatchStateDto`
+/// while `Home.tsx` expected the handshake shape.
+#[test]
+fn backend_handshake_dto_serializes_as_frontend_handshake_shape() {
+    let h = fw_tauri::BackendHandshakeDto::live();
+    let json = serde_json::to_string(&h).expect("serialize");
+    let v: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+    let obj = v.as_object().expect("handshake is a JSON object");
+
+    // Exact key set the frontend reads.
+    assert!(obj.contains_key("appVersion"), "appVersion missing: {json}");
+    assert!(obj.contains_key("message"), "message missing: {json}");
+    assert!(
+        obj.contains_key("backendReady"),
+        "backendReady missing: {json}"
+    );
+    assert_eq!(obj["backendReady"], serde_json::Value::Bool(true));
+}

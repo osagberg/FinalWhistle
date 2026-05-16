@@ -1,5 +1,5 @@
 import { createResource, Show, type JSX } from "solid-js";
-import { getDummyState, isTauri } from "~/lib/tauri";
+import { getBackendHandshake, isTauri } from "~/lib/tauri";
 import Loading from "~/components/Loading";
 import ErrorBoundary from "~/components/ErrorBoundary";
 
@@ -14,7 +14,7 @@ export default function Home(): JSX.Element {
         backendReady: false,
       };
     }
-    return getDummyState();
+    return getBackendHandshake();
   });
 
   return (

@@ -16,11 +16,19 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import type { DummyState, MatchResult } from "./types";
+import type { BackendHandshake, MatchResult } from "./types";
 
-/** Returns a stub backend handshake payload. Used by Home as a liveness check. */
-export async function getDummyState(): Promise<DummyState> {
-  return invoke<DummyState>("get_dummy_state");
+/**
+ * Returns the backend handshake payload — Home page's liveness check.
+ *
+ * Codex 2026-05-16 Tier-2 fix-pass: renamed from `getDummyState` (which
+ * after T1-5 consolidation called `get_dummy_state` returning a
+ * `MatchStateDto`, mismatched with Home.tsx's `appVersion/message/backendReady`
+ * read path). Now the wrapper, the Rust command, and the consumer all agree
+ * on the `{ appVersion, message, backendReady }` shape.
+ */
+export async function getBackendHandshake(): Promise<BackendHandshake> {
+  return invoke<BackendHandshake>("get_backend_handshake");
 }
 
 /**
