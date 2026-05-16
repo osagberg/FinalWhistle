@@ -146,19 +146,78 @@ impl PlayerRoleState {
 
     /// Evaluate FSM transitions for this role state.
     ///
-    /// Skeleton tier: always returns `self` unchanged. Real transition
-    /// predicates (ball position, events, tactic state) land in -iii-b.
+    /// T1-3.6: routes the ball carrier into `InPossession` and clears
+    /// `InPossession` for any player who is NOT the carrier. All other
+    /// transition predicates (spatial pressing, recovery, etc.) remain
+    /// deferred to T2+ as before.
+    ///
+    /// ## Carrier routing contract
+    ///
+    /// - If `state.possession == Some(slot)` where `slot` is this player's
+    ///   canonical slot, the player is the current carrier. They are placed
+    ///   into the `InPossession` variant for their role.
+    /// - If the player IS currently in an `InPossession` state BUT is NOT
+    ///   the carrier (possession transferred away via a pass), they are moved
+    ///   to the non-possession default for their role.
+    /// - For Goalkeepers: carrier routing is handled by the GK FSM
+    ///   (`goalkeeper_fsm::evaluate_transitions`) which uses ball-position
+    ///   predicates to select `DistributingFromHand` when the ball is near
+    ///   the goal line. We do not change GK state here.
+    /// - All other non-InPossession, non-carrier states: returned unchanged.
+    ///   (-iii-b / T2+ wires spatial pressing, recovery, etc.)
     ///
     /// Per ADR-0006 §"Concrete sketch": transition evaluation runs BEFORE
     /// the BT subtree lookup, so the BT executes on the (possibly new) state.
     #[must_use]
     pub fn evaluate_transitions(
         self,
-        _state: &crate::MatchState,
-        _slot_idx: usize,
+        state: &crate::MatchState,
+        slot_idx: usize,
     ) -> PlayerRoleState {
-        // T1-2b-iii-a: always self. -iii-b wires spatial inputs.
-        self
+        // Goalkeeper FSM owns its own transitions (ball-position predicates
+        // in goalkeeper_fsm::evaluate_transitions). Do not interfere.
+        if matches!(self, PlayerRoleState::Goalkeeper(_)) {
+            return self;
+        }
+
+        // Canonical slot for this player (u8 used by possession field).
+        let this_slot: u8 = state.players[slot_idx].slot;
+
+        // Is this player the current ball carrier?
+        let is_carrier = state.possession == Some(this_slot);
+
+        if is_carrier {
+            // Route carrier into InPossession for their role.
+            match self {
+                PlayerRoleState::Defender(_) => {
+                    PlayerRoleState::Defender(DefenderState::InPossession)
+                }
+                PlayerRoleState::Midfielder(_) => {
+                    PlayerRoleState::Midfielder(MidfielderState::InPossession)
+                }
+                PlayerRoleState::Forward(_) => PlayerRoleState::Forward(ForwardState::InPossession),
+                // Goalkeeper handled above; this branch is unreachable.
+                PlayerRoleState::Goalkeeper(_) => self,
+            }
+        } else {
+            // Not the carrier. If currently in InPossession (possession was
+            // just transferred away), move back to the role's non-possession
+            // default. All other states are left unchanged.
+            match self {
+                PlayerRoleState::Defender(DefenderState::InPossession) => {
+                    PlayerRoleState::Defender(DefenderState::Supporting)
+                }
+                PlayerRoleState::Midfielder(MidfielderState::InPossession) => {
+                    PlayerRoleState::Midfielder(MidfielderState::Supporting)
+                }
+                PlayerRoleState::Forward(ForwardState::InPossession) => {
+                    PlayerRoleState::Forward(ForwardState::RunningOffBall)
+                }
+                // All other states: unchanged (pressing, defending, etc.
+                // transition predicates deferred to T2+).
+                other => other,
+            }
+        }
     }
 }
 

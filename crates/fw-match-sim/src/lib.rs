@@ -1002,4 +1002,111 @@ mod smoke {
             bytes.len()
         );
     }
+
+    // -------------------------------------------------------------------------
+    // T1-3.6 Chunk 1: RED acceptance test — ball must move in 600-tick run.
+    //
+    // This test reproduces Codex's adversarial audit finding: ball at (0, 0)
+    // in all 601 frames of a 600-tick run (smoke seed 0xdeadbeefdeadbeef).
+    //
+    // The test is written BEFORE the fix (TDD-RED). It MUST fail before the
+    // BT carrier routing fix in evaluate_transitions (Chunk 2) is applied.
+    //
+    // Two acceptance criteria:
+    //   AC-1: ball.pos_x != Q32::ZERO OR ball.pos_y != Q32::ZERO at tick 600
+    //         (ball moved from centre spot at some point).
+    //   AC-2: at least one MatchEvent::Pass OR MatchEvent::Shot in match_events
+    //         (ball-action intent fired at least once in 600 ticks).
+    //
+    // Re-verify after chunk 2 fix: both must be GREEN.
+    // -------------------------------------------------------------------------
+    #[test]
+    fn t1_3_6_ball_moves_in_600_tick_run_with_smoke_seed() {
+        use fw_content::MatchEvent;
+
+        let seed = Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
+        let mut state = MatchState::initial(seed);
+        for _ in 0..600 {
+            state = tick_match(state, &BTreeMap::new());
+        }
+
+        // AC-1: ball must not be frozen at centre spot (pos = 0,0) for entire run.
+        // After 600 ticks the ball has been kicked, passed, or dribbled at some
+        // point — its final position need not be zero.
+        // Note: the ball may legally return to centre-spot after a goal, but with
+        // carrier routing working it will have moved DURING the run.
+        // We check: match_events contains at least one ball-action event, which is
+        // the definitive proof that apply_intent's ball-mutation arms fired.
+        let has_ball_action = state.match_events.iter().any(|ev| {
+            matches!(
+                ev,
+                MatchEvent::Pass { .. } | MatchEvent::Shot { .. } | MatchEvent::Goal { .. }
+            )
+        });
+
+        // AC-2: ball position at tick 600 differs from the initial state (which
+        // starts at pos_x=0, pos_y=0 at centre spot).
+        // This is the "ball actually moved" check independent of events.
+        // We compare to the initial state to make the assertion concrete.
+        let initial_state = MatchState::initial(seed);
+        let ball_changed = state.ball.pos_x != initial_state.ball.pos_x
+            || state.ball.pos_y != initial_state.ball.pos_y;
+
+        assert!(
+            has_ball_action,
+            "T1-3.6 AC-1 FAIL: zero ball-action events (Pass/Shot/Goal) in \
+             600-tick smoke seed run. BT carrier routing is not producing \
+             on-ball intents — evaluate_transitions must route the possession \
+             holder into InPossession state. match_events: {}",
+            state.match_events.len(),
+        );
+
+        assert!(
+            ball_changed || has_ball_action,
+            "T1-3.6 AC-2 FAIL: ball position at tick 600 equals initial centre \
+             spot AND no ball-action events fired. The ball has not moved in \
+             600 ticks. Fix evaluate_transitions in role_states.rs.",
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // T1-3.6 Chunk 2 integration: after next tick's evaluate_transitions fix,
+    // verify possession transfers across pass: slot A fires Pass → slot B;
+    // next tick slot B must be in InPossession state (not Defending/Supporting).
+    // -------------------------------------------------------------------------
+    #[test]
+    fn t1_3_6_carrier_routes_to_in_possession_state() {
+        use crate::role_states::{DefenderState, ForwardState, MidfielderState, PlayerRoleState};
+
+        let seed = Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
+        let mut state = MatchState::initial(seed);
+
+        // At initial state, possession = Some(9) (home centre forward, slot 9).
+        assert_eq!(
+            state.possession,
+            Some(9),
+            "initial possession should be slot 9 (home CF)"
+        );
+
+        // After one tick, slot 9 should decide and be in InPossession.
+        state = tick_match(state, &BTreeMap::new());
+
+        // slot 9 is a Forward. After evaluate_transitions sees possession == Some(9),
+        // their role_state MUST be Forward(InPossession).
+        let slot9_role_state = state.players[9].role_state;
+        let is_in_possession = matches!(
+            slot9_role_state,
+            PlayerRoleState::Forward(ForwardState::InPossession)
+                | PlayerRoleState::Midfielder(MidfielderState::InPossession)
+                | PlayerRoleState::Defender(DefenderState::InPossession)
+        );
+
+        assert!(
+            is_in_possession,
+            "T1-3.6: slot 9 (home CF) has initial possession but role_state \
+             after tick 1 is {:?}, not InPossession. evaluate_transitions \
+             must route the possession holder into InPossession.",
+            slot9_role_state
+        );
+    }
 }

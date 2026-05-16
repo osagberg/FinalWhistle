@@ -22,9 +22,9 @@
  * up much later.
  */
 
-import { invoke } from "@tauri-apps/api/core";
 import type { MatchFrameDTO } from "~/lib/types";
 import { MAX_FRAMES_PER_REQUEST } from "~/lib/types";
+import { isMatchFrameDTOArray, safeInvoke } from "~/lib/runtime-validators";
 
 export interface FrameSource {
   /** Return the complete frame sequence. The result may be cached by the caller. */
@@ -67,10 +67,14 @@ export class TauriFrameSource implements FrameSource {
           `Reduce tickCount or increase the cap (requires a matching Rust change).`,
       );
     }
-    return invoke<MatchFrameDTO[]>("match_frames", {
-      seedHex: this.seedHex,
-      tickCount: this.tickCount,
-    });
+    // T1-3.6: safeInvoke validates the returned array via isMatchFrameDTOArray,
+    // catching backend wire-shape drift at the IPC seam instead of the
+    // existing isMatchFrameArray fallback that fires later in HttpFrameSource.
+    return safeInvoke(
+      "match_frames",
+      { seedHex: this.seedHex, tickCount: this.tickCount },
+      isMatchFrameDTOArray,
+    );
   }
 }
 
@@ -93,115 +97,24 @@ export class HttpFrameSource implements FrameSource {
       );
     }
     const body: unknown = await res.json();
-    if (!isMatchFrameArray(body)) {
-      // Loud rejection on wrong shape per Codex pre-T1-2b audit P1.
-      // Without this guard, malformed JSON (an error object, a single
-      // frame instead of an array, a missing `players` field) would
-      // crash deep in the PixiJS update path with a confusing
-      // TypeError. Surface the bad shape at the source.
+    // T1-3.6 self-review (silent-failure-hunter P3-2 / cross-file P2):
+    // the previously-parallel `isMatchFrame` lived here AND
+    // `isMatchFrameDTO` lived in runtime-validators.ts. The two checked
+    // overlapping-but-different fields (only this one validated
+    // slot-uniqueness; only the other validated `possession`). The
+    // duplication was a maintenance trap: a future field added to one
+    // would silently miss the other. Both call sites now share
+    // `isMatchFrameDTOArray` — the canonical guard absorbed every
+    // check the older version enforced (seedHex non-empty, slot
+    // uniqueness, slot bounds 0..21).
+    if (!isMatchFrameDTOArray(body)) {
       throw new Error(
         `HttpFrameSource: ${this.url} returned JSON that is not MatchFrameDTO[]. ` +
-          `Expected an array of objects with {seedHex, tick, homeScore, awayScore, players, ball} fields.`,
+          `Expected an array of objects with {seedHex, tick, homeScore, awayScore, players, ball, possession} fields.`,
       );
     }
     return body;
   }
-}
-
-// Runtime shape check. Codex Tier-2 audit P1 (2026-05-13): the prior
-// version only checked top-level fields existed, which let
-// `{ players: [{}], ball: {} }` pass and then NaN'd out at render time.
-// The renderer reads `player.slot`, `player.posX/Y`, `ball.posX/Y/Z`
-// etc. — every field the renderer reads is now validated here, so
-// malformed fixtures fail loudly at the FrameSource boundary instead
-// of producing blank/NaN dots.
-//
-// Still NOT a full schema validator (no zod / ajv dep — adds 50KB to
-// a dev-only route). The check is tight against what the renderer
-// actually consumes; future field additions on the renderer side
-// require corresponding validator updates.
-function isMatchFrameArray(value: unknown): value is MatchFrameDTO[] {
-  if (!Array.isArray(value)) {
-    return false;
-  }
-  return value.every(isMatchFrame);
-}
-
-function isMatchFrame(frame: unknown): frame is MatchFrameDTO {
-  if (typeof frame !== "object" || frame === null) {
-    return false;
-  }
-  const f = frame as Record<string, unknown>;
-
-  // Header fields.
-  if (typeof f.tick !== "number" || !Number.isFinite(f.tick)) {
-    return false;
-  }
-  if (typeof f.seedHex !== "string" || f.seedHex.length === 0) {
-    return false;
-  }
-  if (typeof f.homeScore !== "number" || !Number.isFinite(f.homeScore)) {
-    return false;
-  }
-  if (typeof f.awayScore !== "number" || !Number.isFinite(f.awayScore)) {
-    return false;
-  }
-
-  // Players: must be exactly 22 (per canonical state — 11/side). Slots
-  // must be unique integers in 0..21. Each player's position +
-  // velocity must be finite — NaN/Infinity in coordinates would crash
-  // PixiJS sprite positioning silently.
-  if (!Array.isArray(f.players) || f.players.length !== 22) {
-    return false;
-  }
-  const seenSlots = new Set<number>();
-  for (const player of f.players) {
-    if (!isPlayerFrame(player)) {
-      return false;
-    }
-    if (seenSlots.has(player.slot)) {
-      return false;
-    }
-    seenSlots.add(player.slot);
-  }
-
-  // Ball: all 6 coordinates must be finite numbers.
-  if (!isBallFrame(f.ball)) {
-    return false;
-  }
-
-  return true;
-}
-
-function isPlayerFrame(value: unknown): value is { slot: number; posX: number; posY: number; velX: number; velY: number } {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const p = value as Record<string, unknown>;
-  if (typeof p.slot !== "number" || !Number.isInteger(p.slot) || p.slot < 0 || p.slot > 21) {
-    return false;
-  }
-  for (const field of ["posX", "posY", "velX", "velY"] as const) {
-    const v = p[field];
-    if (typeof v !== "number" || !Number.isFinite(v)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function isBallFrame(value: unknown): value is { posX: number; posY: number; posZ: number; velX: number; velY: number; velZ: number } {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const b = value as Record<string, unknown>;
-  for (const field of ["posX", "posY", "posZ", "velX", "velY", "velZ"] as const) {
-    const v = b[field];
-    if (typeof v !== "number" || !Number.isFinite(v)) {
-      return false;
-    }
-  }
-  return true;
 }
 
 // ---------------------------------------------------------------------------

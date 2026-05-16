@@ -254,6 +254,32 @@ pub fn dispatch_tick(
         }
     }
 
+    // T1-3.6: carrier routing pre-pass.
+    //
+    // Runs BEFORE the per-slot decision loop. Updates role_state for ALL 22
+    // slots based on current possession, independently of whether the slot
+    // fires a decision this tick. This ensures:
+    //   (a) The carrier's role_state is InPossession when their decision tick
+    //       arrives — select_outfield_intent routes them to on-ball candidates.
+    //   (b) A player whose possession was transferred away (via Pass/Shot in a
+    //       previous tick) exits InPossession immediately, not only at their
+    //       next decision tick.
+    //
+    // T1-3.6 self-review P1-1 (type-design-analyzer): this pre-pass delegates
+    // to `PlayerRoleState::evaluate_transitions` rather than open-coding the
+    // transition table again. There is exactly one source of truth for
+    // carrier ↔ non-carrier routing. The per-slot loop below calls the same
+    // function via `current_role_state.evaluate_transitions(...)` at the
+    // decision tick — but for non-deciding slots, this pre-pass is the only
+    // place transitions land. Idempotency holds: calling it twice in the same
+    // tick (pre-pass + per-slot loop on a deciding tick) is a no-op on the
+    // second call because the role state has already converged.
+    for slot_idx in 0..22usize {
+        let current = state.players[slot_idx].role_state;
+        let next = current.evaluate_transitions(&state, slot_idx);
+        state.players[slot_idx].role_state = next;
+    }
+
     for slot_idx in 0..22usize {
         // roster_slot is 1-indexed per decision_cadence::should_decide contract.
         // (should_decide subtracts 1 internally to derive the slot array index.)

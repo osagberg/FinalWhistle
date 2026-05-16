@@ -1,7 +1,6 @@
 ---
 source: crates/fw-match-sim/tests/match_event_snapshot.rs
-assertion_line: 54
-expression: state.match_events
+expression: state.match_events()
 ---
 [
     KickOff {
@@ -9,6 +8,60 @@ expression: state.match_events
             0,
         ),
         is_second_half: false,
+    },
+    Pass {
+        from_slot: 9,
+        to_slot: 10,
+        tick: Tick(
+            5,
+        ),
+        kind: Cross,
+        completed: true,
+    },
+    Pass {
+        from_slot: 10,
+        to_slot: 9,
+        tick: Tick(
+            11,
+        ),
+        kind: Cross,
+        completed: true,
+    },
+    Pass {
+        from_slot: 9,
+        to_slot: 10,
+        tick: Tick(
+            20,
+        ),
+        kind: Cross,
+        completed: true,
+    },
+    Pass {
+        from_slot: 10,
+        to_slot: 9,
+        tick: Tick(
+            26,
+        ),
+        kind: Long,
+        completed: true,
+    },
+    Pass {
+        from_slot: 9,
+        to_slot: 10,
+        tick: Tick(
+            35,
+        ),
+        kind: Cross,
+        completed: true,
+    },
+    Pass {
+        from_slot: 10,
+        to_slot: 9,
+        tick: Tick(
+            56,
+        ),
+        kind: Long,
+        completed: true,
     },
     FullTime {
         tick: Tick(

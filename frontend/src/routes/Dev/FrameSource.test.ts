@@ -55,6 +55,9 @@ function makeValidFrame(tick: number): MatchFrameDTO {
     awayScore: 0,
     players,
     ball: { posX: 0, posY: 0, posZ: 0, velX: 0, velY: 0, velZ: 0 },
+    // T1-3.6: MatchFrameDTO now exposes possession (Option<u8> on Rust side).
+    // Null here mirrors the loose-ball / pre-kickoff state.
+    possession: null,
   };
 }
 

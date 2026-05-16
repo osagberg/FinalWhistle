@@ -122,6 +122,16 @@
 //                               goal detection + OOB clamp run before ball physics.
 //                               apply_intent now mutates ball state per Shot/Pass/
 //                               Dribble/GK intents. Authorized by T1-3.5 spec.
+//   2026-05-16 (T1-3.6 BT carrier routing fix) — `ddccaf88...00b3` per
+//                               ADR-0012 trigger #1 (authorized behavioral change).
+//                               evaluate_transitions now routes possession holder
+//                               into InPossession (was always returning self —
+//                               ball-never-moves bug). Carrier-routing pre-pass
+//                               added to dispatch_tick for all 22 slots every
+//                               tick. Ball now moves: Pass events from tick 5.
+//                               MatchFrameDto gained possession: Option<u8>.
+//                               Prior hash was HASH OF BROKEN MATCH (no ball
+//                               motion). Authorized by T1-3.6 spec.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -133,10 +143,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:782fcde65ba8a0fc12bb90af1b61f77d8cd403103ab3671b0d5d6b03e75c8c0f",
+    expected_hash: "blake3:ddccaf88c94f328274d484ed1e14ced8638d1ccf63bb922ad64a4f28664000b3",
     metadata: (
-        description: "T1-3.5 ball mutation + possession + goal detection smoke fixture. Ball physics corrected to pos_z=altitude; MatchState gained possession/last_touched_by; encoder VERSION 7->8.",
+        description: "T1-3.6 BT carrier routing fix. evaluate_transitions now routes possession holder into InPossession. Ball moves: Pass events from tick 5. Prior hash 782fcde6...8c0f was hash of broken match (ball never moved).",
         generated_at: "2026-05-16",
-        notes: "Re-pinned at T1-3.5 (ADR-0012 trigger #1). Ball physics coordinate fix (pos_z=altitude), possession state, encoder VERSION 7->8, tick ordering change (goal+OOB before physics).",
+        notes: "Re-pinned at T1-3.6 (ADR-0012 trigger #1). Carrier routing pre-pass in dispatch_tick; evaluate_transitions consults state.possession. MatchFrameDto.possession added.",
     ),
 )

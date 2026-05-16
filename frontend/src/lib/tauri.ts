@@ -15,8 +15,12 @@
  *     and let Rust parse it back as u64).
  */
 
-import { invoke } from "@tauri-apps/api/core";
 import type { BackendHandshake, MatchResult } from "./types";
+import {
+  isBackendHandshake,
+  isMatchResult,
+  safeInvoke,
+} from "./runtime-validators";
 
 /**
  * Returns the backend handshake payload — Home page's liveness check.
@@ -26,9 +30,13 @@ import type { BackendHandshake, MatchResult } from "./types";
  * `MatchStateDto`, mismatched with Home.tsx's `appVersion/message/backendReady`
  * read path). Now the wrapper, the Rust command, and the consumer all agree
  * on the `{ appVersion, message, backendReady }` shape.
+ *
+ * T1-3.6: wrapped in `safeInvoke` for runtime shape validation per Codex's
+ * post-T1-7 adversarial-audit P1 — backend wire-shape drift now throws
+ * `IpcShapeError` at the IPC seam instead of NPEing deep in consumer code.
  */
 export async function getBackendHandshake(): Promise<BackendHandshake> {
-  return invoke<BackendHandshake>("get_backend_handshake");
+  return safeInvoke("get_backend_handshake", {}, isBackendHandshake);
 }
 
 /**
@@ -37,13 +45,15 @@ export async function getBackendHandshake(): Promise<BackendHandshake> {
  * The seed is converted to a `"0x<16-hex-chars>"` string before invoking
  * because JS BigInt cannot round-trip through serde_json (serde sees a number,
  * not a u64). The Rust side parses it back with `u64::from_str_radix`.
+ *
+ * T1-3.6: wrapped in `safeInvoke` for runtime shape validation.
  */
 export async function playMatch(
   seed: bigint,
   tickCount: number,
 ): Promise<MatchResult> {
   const seedHex = "0x" + seed.toString(16).padStart(16, "0");
-  return invoke<MatchResult>("play_match", { seedHex, tickCount });
+  return safeInvoke("play_match", { seedHex, tickCount }, isMatchResult);
 }
 
 /**

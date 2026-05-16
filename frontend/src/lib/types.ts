@@ -143,4 +143,14 @@ export interface MatchFrameDTO {
   awayScore: number;
   players: PlayerFrameDTO[];
   ball: BallFrameDTO;
+  /**
+   * Slot index (0-21) of the player currently in possession, or `null`
+   * for loose-ball / set-piece pause states.
+   *
+   * T1-3.6: added so the dev board (and future Tauri consumers) can
+   * visualize the carrier — prior frames misleadingly displayed a
+   * dead-ball game even when the sim had assigned possession.
+   * Mirrors `MatchFrameDto.possession: Option<u8>` on the Rust side.
+   */
+  possession: number | null;
 }

@@ -93,6 +93,8 @@ function validFrames(count: number): MatchFrameDTO[] {
       velY: 0,
     })),
     ball: { posX: 0, posY: 0, posZ: 0, velX: 0, velY: 0, velZ: 0 },
+    // T1-3.6: MatchFrameDTO now exposes possession (Option<u8> on Rust side).
+    possession: null,
   }));
 }
 

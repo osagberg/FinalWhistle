@@ -60,6 +60,13 @@ pub struct MatchFrameDto {
     pub away_score: u8,
     pub players: Vec<PlayerFrameDto>,
     pub ball: BallFrameDto,
+    /// Which player slot currently has possession of the ball, or `null`
+    /// when the ball is loose (after a shot or clearance). T1-3.6 addition.
+    /// Projected from `MatchState::possession()` (the canonical `Option<u8>`).
+    ///
+    /// The frontend 2D board uses this to highlight the carrier dot.
+    /// This field is `Option<u8>` — serialises as a JSON number or `null`.
+    pub possession: Option<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +120,8 @@ impl MatchFrameDto {
                 vel_y: q32_to_f64(state.ball.vel_y.to_bits()),
                 vel_z: q32_to_f64(state.ball.vel_z.to_bits()),
             },
+            // T1-3.6: project possession from canonical state (Option<PlayerSlot> = Option<u8>).
+            possession: state.possession(),
         }
     }
 }
@@ -170,5 +179,56 @@ mod tests {
         // Negative check: no snake_case leaked.
         assert!(!json.contains("\"seed_hex\""), "snake_case seed_hex leaked");
         assert!(!json.contains("\"pos_x\""), "snake_case pos_x leaked");
+    }
+
+    /// T1-3.6 Chunk 3: MatchFrameDto.possession projects from canonical state.
+    ///
+    /// Initial state has possession = Some(9). After a tick that fires a Pass
+    /// (carrier routes into InPossession and fires a ball-action), the DTO
+    /// should project a non-None possession (whichever slot received the pass).
+    #[test]
+    fn frame_dto_possession_projects_canonical_state() {
+        let s = MatchState::initial(Seed::from_u64(1));
+
+        // Initial frame: possession = Some(9).
+        let frame = MatchFrameDto::from_state(&s);
+        assert_eq!(
+            frame.possession,
+            Some(9),
+            "initial MatchFrameDto.possession should be Some(9)"
+        );
+
+        // A frame with None possession (simulate loose ball).
+        let mut s_loose = MatchState::initial(Seed::from_u64(1));
+        s_loose.possession = None;
+        let frame_loose = MatchFrameDto::from_state(&s_loose);
+        assert_eq!(
+            frame_loose.possession, None,
+            "MatchFrameDto.possession should be None when state.possession is None"
+        );
+    }
+
+    #[test]
+    fn frame_dto_possession_serializes_as_json_null_when_none() {
+        let mut s = MatchState::initial(Seed::from_u64(1));
+        s.possession = None;
+        let frame = MatchFrameDto::from_state(&s);
+        let json = serde_json::to_string(&frame).expect("encode");
+        assert!(
+            json.contains("\"possession\":null"),
+            "possession:null must appear in JSON when state.possession is None; got: {json}"
+        );
+    }
+
+    #[test]
+    fn frame_dto_possession_serializes_as_json_number_when_some() {
+        let s = MatchState::initial(Seed::from_u64(1));
+        let frame = MatchFrameDto::from_state(&s);
+        let json = serde_json::to_string(&frame).expect("encode");
+        // Initial state has possession = Some(9).
+        assert!(
+            json.contains("\"possession\":9"),
+            "possession:9 must appear in JSON at initial state; got: {json}"
+        );
     }
 }

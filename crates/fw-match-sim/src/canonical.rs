@@ -1129,6 +1129,295 @@ mod tests {
         );
     }
 
+    // -----------------------------------------------------------------------
+    // T1-3.6 Chunk 5: Canonical unique-attribute encoding test.
+    //
+    // Verifies that every `PlayerAttributes` field maps to a distinct byte
+    // position in the canonical encoder. If any two fields share the same
+    // encoder write site (e.g. due to copy-paste in `encode_player`), two
+    // PlayerAttributes that differ only in those fields would produce the
+    // same canonical hash — a silent equivalence hole.
+    //
+    // Method:
+    //   1. Build a baseline MatchState with player 0's attributes set so
+    //      ALL 55 fields have DISTINCT nonzero Q32 values
+    //      (field i = Q32::from_raw((i+1) as i64 * 1024) for i in 0..55).
+    //   2. Encode the baseline and record its BLAKE3 hash.
+    //   3. For every pair (i, j) with i < j (1485 pairs total), swap the
+    //      values at positions i and j in player 0's attribute fields,
+    //      re-encode, and assert the hash differs from the baseline.
+    //   4. Restore the pair before the next iteration.
+    //
+    // If any pair's swap produces the SAME hash, it means those two fields
+    // are encoded at the same byte position — a real encoder bug.
+    //
+    // The setter approach (explicit closures mutating the `PlayerAttributes`
+    // struct) is chosen over byte-offset swapping because it catches encoder
+    // bugs rather than just verifying bytes are distinct (a byte-swap test
+    // would always "pass" for any two distinct bytes, even if the encoder
+    // wrote the same field twice).
+    //
+    // Runtime: 1485 pairs × ~1ms encoding ≈ 1.5s on a dev machine.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn canonical_encoder_all_attribute_fields_are_uniquely_positioned() {
+        use fw_core::{PlayerAttributes, Q32};
+
+        // Build base attributes: field i = (i+1)*1024 raw bits, all distinct nonzero.
+        // We use `from_raw` so the values don't depend on Q32 normalization.
+        // (i+1)*1024 for i in 0..55 gives values 1024, 2048, ..., 56320 —
+        // all different, all in valid Q32 sub-unit range (well under 2^32).
+        fn make_attrs_with_distinct_values() -> PlayerAttributes {
+            let mut a = PlayerAttributes::default_zero();
+            let mut i: i64 = 1;
+            macro_rules! set {
+                ($field:expr) => {
+                    $field = Q32::from_raw(i * 1024);
+                    i += 1;
+                };
+            }
+            // MUST match the exact encoding order in encode_player (canonical.rs ~line 507).
+            // Technical (14)
+            set!(a.technical.finishing);
+            set!(a.technical.long_shots);
+            set!(a.technical.passing);
+            set!(a.technical.crossing);
+            set!(a.technical.first_touch);
+            set!(a.technical.technique);
+            set!(a.technical.dribbling);
+            set!(a.technical.heading);
+            set!(a.technical.tackling);
+            set!(a.technical.marking);
+            set!(a.technical.free_kicks);
+            set!(a.technical.penalty_taking);
+            set!(a.technical.corners);
+            set!(a.technical.long_throws);
+            // Mental (10)
+            set!(a.mental.anticipation);
+            set!(a.mental.composure);
+            set!(a.mental.decisions);
+            set!(a.mental.vision);
+            set!(a.mental.off_the_ball);
+            set!(a.mental.positioning);
+            set!(a.mental.concentration);
+            set!(a.mental.bravery);
+            set!(a.mental.teamwork);
+            set!(a.mental.flair);
+            // Physical (8)
+            set!(a.physical.pace);
+            set!(a.physical.acceleration);
+            set!(a.physical.stamina);
+            set!(a.physical.strength);
+            set!(a.physical.agility);
+            set!(a.physical.balance);
+            set!(a.physical.jumping_reach);
+            set!(a.physical.natural_fitness);
+            // Goalkeeper (6)
+            set!(a.goalkeeper.handling);
+            set!(a.goalkeeper.reflexes);
+            set!(a.goalkeeper.one_on_ones);
+            set!(a.goalkeeper.aerial_reach);
+            set!(a.goalkeeper.command_of_area);
+            set!(a.goalkeeper.kicking);
+            // Personality (14)
+            set!(a.personality.determination);
+            set!(a.personality.work_rate);
+            set!(a.personality.ambition);
+            set!(a.personality.professionalism);
+            set!(a.personality.loyalty);
+            set!(a.personality.temperament);
+            set!(a.personality.pressure_tolerance);
+            set!(a.personality.big_match_appetite);
+            set!(a.personality.adaptability);
+            set!(a.personality.aggression);
+            set!(a.personality.risk_appetite);
+            set!(a.personality.selflessness);
+            set!(a.personality.consistency);
+            set!(a.personality.versatility);
+            // Durability (3)
+            set!(a.durability.injury_proneness);
+            set!(a.durability.recovery_rate);
+            set!(a.durability.dirtiness);
+            debug_assert_eq!(i, 56, "expected 55 fields; counter ended at {}", i);
+            a
+        }
+
+        // Build a list of 55 (name, getter, setter) triples in encoding order.
+        // We use a Vec of Q32 values extracted from the baseline (via getter),
+        // then swap via setter pairs. This is equivalent to the field-order
+        // table in encode_player.
+        fn extract_field_values(a: &PlayerAttributes) -> Vec<Q32> {
+            vec![
+                a.technical.finishing,
+                a.technical.long_shots,
+                a.technical.passing,
+                a.technical.crossing,
+                a.technical.first_touch,
+                a.technical.technique,
+                a.technical.dribbling,
+                a.technical.heading,
+                a.technical.tackling,
+                a.technical.marking,
+                a.technical.free_kicks,
+                a.technical.penalty_taking,
+                a.technical.corners,
+                a.technical.long_throws,
+                a.mental.anticipation,
+                a.mental.composure,
+                a.mental.decisions,
+                a.mental.vision,
+                a.mental.off_the_ball,
+                a.mental.positioning,
+                a.mental.concentration,
+                a.mental.bravery,
+                a.mental.teamwork,
+                a.mental.flair,
+                a.physical.pace,
+                a.physical.acceleration,
+                a.physical.stamina,
+                a.physical.strength,
+                a.physical.agility,
+                a.physical.balance,
+                a.physical.jumping_reach,
+                a.physical.natural_fitness,
+                a.goalkeeper.handling,
+                a.goalkeeper.reflexes,
+                a.goalkeeper.one_on_ones,
+                a.goalkeeper.aerial_reach,
+                a.goalkeeper.command_of_area,
+                a.goalkeeper.kicking,
+                a.personality.determination,
+                a.personality.work_rate,
+                a.personality.ambition,
+                a.personality.professionalism,
+                a.personality.loyalty,
+                a.personality.temperament,
+                a.personality.pressure_tolerance,
+                a.personality.big_match_appetite,
+                a.personality.adaptability,
+                a.personality.aggression,
+                a.personality.risk_appetite,
+                a.personality.selflessness,
+                a.personality.consistency,
+                a.personality.versatility,
+                a.durability.injury_proneness,
+                a.durability.recovery_rate,
+                a.durability.dirtiness,
+            ]
+        }
+
+        fn set_field_values(a: &mut PlayerAttributes, vals: &[Q32]) {
+            debug_assert_eq!(vals.len(), 55);
+            a.technical.finishing = vals[0];
+            a.technical.long_shots = vals[1];
+            a.technical.passing = vals[2];
+            a.technical.crossing = vals[3];
+            a.technical.first_touch = vals[4];
+            a.technical.technique = vals[5];
+            a.technical.dribbling = vals[6];
+            a.technical.heading = vals[7];
+            a.technical.tackling = vals[8];
+            a.technical.marking = vals[9];
+            a.technical.free_kicks = vals[10];
+            a.technical.penalty_taking = vals[11];
+            a.technical.corners = vals[12];
+            a.technical.long_throws = vals[13];
+            a.mental.anticipation = vals[14];
+            a.mental.composure = vals[15];
+            a.mental.decisions = vals[16];
+            a.mental.vision = vals[17];
+            a.mental.off_the_ball = vals[18];
+            a.mental.positioning = vals[19];
+            a.mental.concentration = vals[20];
+            a.mental.bravery = vals[21];
+            a.mental.teamwork = vals[22];
+            a.mental.flair = vals[23];
+            a.physical.pace = vals[24];
+            a.physical.acceleration = vals[25];
+            a.physical.stamina = vals[26];
+            a.physical.strength = vals[27];
+            a.physical.agility = vals[28];
+            a.physical.balance = vals[29];
+            a.physical.jumping_reach = vals[30];
+            a.physical.natural_fitness = vals[31];
+            a.goalkeeper.handling = vals[32];
+            a.goalkeeper.reflexes = vals[33];
+            a.goalkeeper.one_on_ones = vals[34];
+            a.goalkeeper.aerial_reach = vals[35];
+            a.goalkeeper.command_of_area = vals[36];
+            a.goalkeeper.kicking = vals[37];
+            a.personality.determination = vals[38];
+            a.personality.work_rate = vals[39];
+            a.personality.ambition = vals[40];
+            a.personality.professionalism = vals[41];
+            a.personality.loyalty = vals[42];
+            a.personality.temperament = vals[43];
+            a.personality.pressure_tolerance = vals[44];
+            a.personality.big_match_appetite = vals[45];
+            a.personality.adaptability = vals[46];
+            a.personality.aggression = vals[47];
+            a.personality.risk_appetite = vals[48];
+            a.personality.selflessness = vals[49];
+            a.personality.consistency = vals[50];
+            a.personality.versatility = vals[51];
+            a.durability.injury_proneness = vals[52];
+            a.durability.recovery_rate = vals[53];
+            a.durability.dirtiness = vals[54];
+        }
+
+        // Build baseline state with distinct attribute values on player 0.
+        let mut baseline_state = MatchState::initial(Seed::from_u64(1));
+        baseline_state.players[0].attributes = make_attrs_with_distinct_values();
+        let baseline_bytes = baseline_state.encode_canonical();
+        let baseline_hash: [u8; 32] = blake3::hash(&baseline_bytes).into();
+
+        // Extract the 55 distinct values from the baseline.
+        let baseline_vals = extract_field_values(&baseline_state.players[0].attributes);
+        assert_eq!(baseline_vals.len(), 55);
+
+        // Verify all 55 values are distinct (sanity check on make_attrs_with_distinct_values).
+        {
+            let mut seen = std::collections::BTreeSet::new();
+            for (idx, v) in baseline_vals.iter().enumerate() {
+                assert!(
+                    seen.insert(v.to_bits()),
+                    "baseline attribute values are not all distinct at index {idx}: value {:?}",
+                    v
+                );
+            }
+        }
+
+        // For every pair (i, j) with i < j: swap values, re-hash, assert different.
+        let mut failures: Vec<(usize, usize)> = Vec::new();
+        for i in 0..55usize {
+            for j in (i + 1)..55usize {
+                let mut swapped_vals = baseline_vals.clone();
+                swapped_vals.swap(i, j);
+
+                let mut state = MatchState::initial(Seed::from_u64(1));
+                set_field_values(&mut state.players[0].attributes, &swapped_vals);
+                let bytes = state.encode_canonical();
+                let hash: [u8; 32] = blake3::hash(&bytes).into();
+
+                if hash == baseline_hash {
+                    failures.push((i, j));
+                }
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "T1-3.6 Chunk 5: canonical encoder has field-aliasing bugs. \
+             Swapping the following (i, j) attribute pairs produced the \
+             SAME canonical hash as the baseline, meaning both fields are \
+             encoded at the same byte position in encode_player:\n\
+             {:?}\n\
+             Fix: check the attribute field order in canonical.rs encode_player \
+             matches the struct declaration order exactly.",
+            failures
+        );
+    }
+
     // Test helper: a ball with nonzero spin so the encoder probe can
     // detect missing spin bytes.
     fn fw_match_sim_test_ball_with_spin() -> crate::BallState {

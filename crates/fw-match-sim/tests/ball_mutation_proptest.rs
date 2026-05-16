@@ -56,11 +56,16 @@ proptest! {
 // ---------------------------------------------------------------------------
 
 proptest! {
-    /// After applying AttemptShot from any player position to any target,
-    /// the ball must have non-zero velocity. Tests `compute_ball_speed_for_shot`
-    /// and `ball_unit_vel` indirectly via `apply_intent`.
+    /// After applying AttemptShot from any player position to any non-degenerate
+    /// target (target != player position), the ball must have non-zero velocity.
+    /// Tests `compute_ball_speed_for_shot` and `ball_unit_vel` indirectly via
+    /// `apply_intent`.
     ///
-    /// Anti-vacuousness: assert ball.vel != ZERO FIRST, then possession invariant.
+    /// The degenerate case (target == player position) is skipped via
+    /// `prop_assume!` — `ball_unit_vel` returns `(ZERO, ZERO)` by design in that
+    /// case to avoid the phantom-goal risk documented in dispatch.rs. The zero-
+    /// distance fallback is correct behaviour; this test targets the non-degenerate
+    /// path. Codex 2026-05-16 audit Critical #2 documented the intentional semantics.
     #[test]
     fn shot_intent_produces_non_zero_ball_velocity(
         seed_val in arb_seed(),
@@ -72,14 +77,17 @@ proptest! {
 
         // Force player 0 (home GK, slot 0) to have AttemptShot intent.
         // We apply the intent directly via dispatch::apply_intent.
-        // Use a non-trivial target that is definitely not at the player's
-        // current position (avoids zero-distance degenerate case).
         let target_x = Q32::from_int(target_x_int);
         let target_y = Q32::from_int(target_y_int);
 
         // Place the ball at the player's position first (required for non-degenerate test).
         state.ball.pos_x = state.players[0].pos_x;
         state.ball.pos_y = state.players[0].pos_y;
+
+        // Skip the degenerate case: target == player position → ball_unit_vel
+        // intentionally returns (ZERO, ZERO) to avoid the phantom-goal risk.
+        // The zero-distance behaviour is tested separately in dispatch unit tests.
+        prop_assume!(target_x != state.players[0].pos_x || target_y != state.players[0].pos_y);
 
         let intent = PlayerIntent::AttemptShot { target_x, target_y };
         dispatch::apply_intent(&mut state, 0, intent);
@@ -112,6 +120,20 @@ proptest! {
     /// the ball must have non-zero velocity.
     ///
     /// Anti-vacuousness: assert ball.vel != ZERO FIRST, then possession invariant.
+    ///
+    /// Degenerate-case guard (T1-3.6 self-review P1, cross-file code-reviewer):
+    /// `apply_intent` routes to `nearest_teammate_near` (Manhattan distance
+    /// scan over the passer's team) and then calls `ball_unit_vel` from the
+    /// passer's position to the chosen receiver's position. If the receiver
+    /// is co-located with the passer (zero-distance case), `ball_unit_vel`
+    /// returns `(ZERO, ZERO)` by design — the phantom-goal fallback from
+    /// dispatch.rs:178-196 — and the non-zero-velocity assertion below would
+    /// fail. The current formation table happens to give every home player a
+    /// distinct position, so this never fires on `MatchState::initial(seed)`,
+    /// but the test would silently break on a future `initial_with_content`
+    /// variant that stacks players. The `prop_assume!` mirrors the shot
+    /// test's degenerate-case guard, surfaced by computing the same nearest-
+    /// teammate result the production path would pick.
     #[test]
     fn pass_intent_produces_non_zero_ball_velocity(
         seed_val in arb_seed(),
@@ -129,6 +151,34 @@ proptest! {
         // Place the ball at the passer's position.
         state.ball.pos_x = state.players[passer_slot].pos_x;
         state.ball.pos_y = state.players[passer_slot].pos_y;
+
+        // Mirror `dispatch::nearest_teammate_near` (which is module-private):
+        // home team is slots 0..11, exclude the passer, pick the teammate with
+        // minimum Manhattan distance to the target. Production-path equivalent.
+        let passer_pos = (state.players[passer_slot].pos_x, state.players[passer_slot].pos_y);
+        let mut best_idx: Option<usize> = None;
+        let mut best_dist: i128 = i128::MAX;
+        let target_x_i128 = target_x.to_bits() as i128;
+        let target_y_i128 = target_y.to_bits() as i128;
+        for teammate_idx in 0..11usize {
+            if teammate_idx == passer_slot {
+                continue;
+            }
+            let tp = &state.players[teammate_idx];
+            let dx = (tp.pos_x.to_bits() as i128 - target_x_i128).unsigned_abs() as i128;
+            let dy = (tp.pos_y.to_bits() as i128 - target_y_i128).unsigned_abs() as i128;
+            let dist = dx + dy;
+            if dist < best_dist {
+                best_dist = dist;
+                best_idx = Some(teammate_idx);
+            }
+        }
+        let receiver_idx = best_idx.expect("home team has 10 candidate receivers");
+        let receiver_pos = (state.players[receiver_idx].pos_x, state.players[receiver_idx].pos_y);
+
+        // Skip co-located case: ball_unit_vel(passer_pos, receiver_pos) returns
+        // (ZERO, ZERO) when the two are at the same point.
+        prop_assume!(passer_pos.0 != receiver_pos.0 || passer_pos.1 != receiver_pos.1);
 
         let intent = PlayerIntent::AttemptPassShort { target_x, target_y };
         dispatch::apply_intent(&mut state, passer_slot, intent);

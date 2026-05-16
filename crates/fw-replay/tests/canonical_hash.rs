@@ -184,6 +184,20 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   BEFORE ball physics (steps 2+3 before step 4).
 ///   `apply_intent` now mutates ball state per Shot/Pass/Dribble/GK intents.
 ///   Authorized by T1-3.5 task-spec in MEMORY.md.
+/// - 2026-05-16 (T1-3.6 BT carrier routing fix) — **re-baselined to
+///   `ddccaf88...00b3`** per ADR-0012 trigger #1 (authorized behavioral change):
+///   `PlayerRoleState::evaluate_transitions` now routes the possession holder
+///   into `InPossession` state (was always returning `self` — the bug that
+///   caused ball to never move). A carrier-routing pre-pass was added to
+///   `dispatch_tick` that runs BEFORE the per-slot decision loop, updating
+///   ALL 22 players' role states based on current possession every tick.
+///   This means the carrier fires on-ball BT candidates (Pass/Shot/Dribble),
+///   producing actual ball motion. The prior hash `782fcde6...8c0f` was the
+///   hash of a BROKEN match (ball never moved); this new hash is the hash of
+///   football actually happening. `MatchFrameDto` gained `pub possession:
+///   Option<u8>` projected from `state.possession()`. Insta snapshot
+///   updated to reflect Pass events starting at tick 5.
+///   Authorized by T1-3.6 task-spec in MEMORY.md.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -192,7 +206,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("782fcde65ba8a0fc12bb90af1b61f77d8cd403103ab3671b0d5d6b03e75c8c0f");
+    hex!("ddccaf88c94f328274d484ed1e14ced8638d1ccf63bb922ad64a4f28664000b3");
 
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.
