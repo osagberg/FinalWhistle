@@ -79,6 +79,23 @@ These rules are **reject-on-sight** for `lead-programmer` review. Clippy + the c
 - No `dashmap` (hash-based concurrent map).
 - No `parking_lot` Mutex/RwLock in canonical-state paths (sync sim → no need).
 
+## §11. Invariants fail in release, not just debug (post-2026-05-16 ultimate-review hardening)
+
+Per Codex's 2026-05-16 ultimate-review verdict on T1 close: canonical and gameplay invariants MUST fail in release builds, not silently degrade. Two specific bans:
+
+- **BANNED:** `debug_assert!` / `debug_assert_eq!` / `debug_assert_ne!` for canonical-state invariants OR gameplay-truth invariants. Release builds skip `debug_assert!` macros, which means a release-build bug that violates the invariant silently corrupts state (the documented intent of the assert never fires when it matters).
+- **BANNED:** `saturating_add` / `saturating_sub` / `saturating_mul` (or any `saturating_*` arithmetic) on `Tick`, `Q32`, `PlayerSlot`, or any other sim-bearing newtype WITHOUT an explicit `// SAFETY:`-style comment justifying why saturation (vs panic-on-overflow) is the right semantic. Default discipline is checked-then-panic, matching `Q32`'s overflow behavior; saturation is opt-in via explicit `*_clamping_*` named methods.
+
+**REQUIRED for canonical/gameplay invariants:** `assert!` / `assert_eq!` / `assert_ne!` / `panic!` — these fire in both debug + release. If the cost of running the assert in release is unacceptable for a hot-path invariant, write a unit test that exercises the invariant explicitly in test builds + skip the assert in production; do NOT use `debug_assert!` as a release-build silencer for a real invariant.
+
+**Allowed:** `debug_assert!` for performance-sensitive sanity checks that are NOT load-bearing for canonical state OR gameplay correctness — e.g. internal helper-function preconditions that are guaranteed by the caller in well-formed code. Document the rationale inline with `// debug_assert OK here because:` comment.
+
+This rule was added 2026-05-16 after the ultimate-review surfaced two distinct silent-failure classes:
+1. `Tick` newtype saturates on overflow vs `Q32` panics — divergent policy that would silently fail-open on cooldown math invariant violations (Track C P1, Surface 3 in `docs/audits/post-t1-ultimate-review-2026-05-16.md`).
+2. `ball_physics.rs` has `debug_assert!` on `is_well_formed` with an inline comment that explicitly names the silent-failure risk in release builds — exactly the pattern this rule forbids (Track C P2).
+
+Cross-reference: T1-21 row in `docs/MASTER_PLAN.md` is the cleanup row that aligns existing `Tick` arithmetic to this policy + audits remaining `debug_assert!` sites in sim crates.
+
 ## Cross-references
 
 - `CLAUDE.md` §3 (determinism stack), §7 (code style), §10 (pitfalls)

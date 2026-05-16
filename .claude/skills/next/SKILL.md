@@ -91,6 +91,28 @@ Read in this order:
 - <criterion 1>
 - <criterion 2>
 
+### AC-to-test matrix (post-2026-05-16 ultimate-review hardening — Codex workflow improvement #1)
+
+Per Codex's 2026-05-16 ultimate-review verdict: the project has been good at finding bugs after the fact, but a few bug classes keep escaping because the workflow lets "shape of a fix" count as "substance of a fix." This matrix attacks the recurring vacuous-test problem by forcing every acceptance criterion to declare its observable BEFORE coding starts.
+
+For each acceptance criterion above, fill in:
+
+| Acceptance criterion | Exact test or visual check | Observable that proves it |
+|---|---|---|
+| <criterion 1 verbatim> | `<test fn name + file path>` OR `<dump_frames seed=X --ticks=N + visual check>` | `<specific assertion: "ball.pos_x > 30m in ≥1 frame"; "5-seed goal distribution mean in [2, 5]"; "MatchEvent::Shot present in events()">` |
+| <criterion 2 verbatim> | `<test or visual>` | `<observable>` |
+
+If you cannot fill in the test column for an AC, the AC is too vague — REWORD the AC to be falsifiable BEFORE proceeding to Step 3 (plan).
+
+If you cannot fill in the observable column for a test, the test will be vacuous — DESIGN the observable first (what specific Q32 value, BTreeMap state, MatchEvent variant, or file-on-disk byte would change?) and only then write the test.
+
+Worked example (from T1-15 post-hoc):
+| Smoke seed produces 2-5 goals across 600 ticks | `cargo run --bin dump_frames -- --seed 0xfeedbeefcafefade --ticks 600 \| python3 count_goals.py` | `last_frame.homeScore + last_frame.awayScore` in `[2, 5]` |
+| Ball reaches attacking third | Same dump_frames command + ball-position extraction | `max(abs(f.ball.posX) for f in frames) > 30` (attacking third begins at ±17.5m; 30m is well in) |
+| ≥1 `MatchEvent::Shot` emitted | `cargo run --bin play_match -- 0xfeedbeefcafefade 600 \| jq '.matchEvents \| map(select(.kind == "Shot")) \| length'` | Result `>= 1` |
+
+The matrix lives in MEMORY.md for the task duration; on commit it folds into the CHANGELOG entry's "Verification" section (each `Verification:` bullet should map to one matrix row).
+
 ### Files in scope
 - <glob or path>
 - <glob or path>
@@ -216,6 +238,22 @@ git diff --cached --stat | tail -1   # or summed `+lines` from --numstat for cod
 If ≥100 LoC of code, **auto-invoke all three** via the `Skill` tool:
 1. `pr-review-toolkit:silent-failure-hunter` — catches `try/catch` suppression, fallback-on-error, silent failure paths, `unwrap_or_default` swallowing real errors.
 2. `pr-review-toolkit:type-design-analyzer` — audits new types for invariant strength + encapsulation. Especially valuable for new Rust types (newtypes vs primitives, public field vs builder, sealed traits).
+
+**Mutation-thinking pre-check (post-2026-05-16 ultimate-review hardening — Codex workflow improvement #3).** Before dispatching the triple, main-thread MUST run this 30-second mental checklist on the staged diff:
+
+> For each new or modified test in the diff, ask: **"If I changed the constant, flipped the team, removed the guard, or made this always return default, would a test fail?"**
+>
+> Apply specifically to:
+> - **Constants** asserted by tests that read the named constant at assert time (e.g. `assert_eq!(vel, MAX_PLAYER_SPEED)` — if MAX_PLAYER_SPEED mutates 5→80, test still passes; this is a vacuous pattern).
+> - **Team/side discriminators** like `slot < 11` — does any test exercise `slot == 11` (boundary)?
+> - **Guard branches** like `if dist_to_goal < 30 { 4× } else { 2× }` — does any test specifically hit the boundary or each branch?
+> - **Default returns** in match arms or `unwrap_or_default()` — does any test exercise the non-default path?
+>
+> Document the mutation-pre-check inline in the commit body under `Mutation pre-check:` (one line per non-trivial test added; the line can be `mutation-checked, no vacuous patterns` if the diff has no new tests with constants/team-discriminators/guards).
+
+The pre-check is the lightweight precursor to full mutation testing (which would require `cargo-mutants` runs that take minutes). The intent is to catch the 5 RED-coverage-hole class the T1 ultimate review surfaced (MAX_PLAYER_SPEED, preempt_check GK own-side, cross-team pass discriminator, role-state transition exits, Press/Mark target team-correctness).
+
+
 3. `feature-dev:code-reviewer` — general bugs / logic / security / convention drift.
 
 Pass each agent: the task title, the relevant file paths from MEMORY's "Files in scope", and a one-line summary of intent.
@@ -363,6 +401,8 @@ The skill **STOPS** (does not commit, does not continue) and hands back to the u
 8. **Canonical state schema change** (Step 5/7) — re-baselining pinned hash is authorized in the task-spec OR escalate.
 9. **Multi-pin or behavior-change-driven canonical-hash drift** (Step 5) — see "Canonical-hash drift gate" above. Subagent must return to main thread BEFORE rebaselining; main thread independently verifies empirical envelope (e.g. T1 exit-gate Bullet 1) holds, then authorizes the pin updates.
 10. **Subagent attempted autonomous commit** (Step 8) — see "Subagent discipline" section below. The commit boundary belongs to main thread only.
+11. **Unauthorized canonical-hash drift** (Step 7) — pre-commit hook fires on drift not authorized in the task spec; pause + investigate root cause. (Distinct from #9 which is about subagent-discovered drift mid-task; #11 is the hook firing at commit time.)
+12. **Pre-commit hook block that can't be auto-fixed** (Step 7) — never `--no-verify`; fix root cause or pause. Hooks include `canonical-hash-guard.sh`, `protect-decisions.sh`, `validate-commit.sh`.
 
 ---
 
@@ -418,8 +458,6 @@ When dispatching a subagent for `/next` Step 4:
 - T1-15 incident postmortem: `MEMORY.md` "Recently completed" entry 2026-05-16 T1-15
 - Codex Tier-2 pre-/done audit + Codex Tier-3 phase-boundary verdict: `CHANGELOG.md` "Phase T1: First Match — CLOSED 2026-05-16"
 - Decision log: `docs/DECISIONS.md` 2026-05-16 entry on Subagent discipline
-9. **Unauthorized canonical-hash drift** (Step 7) — hook fires; if not authorized in task-spec, pause + investigate.
-10. **Pre-commit hook block that can't be auto-fixed** (Step 7) — never `--no-verify`; fix root cause or pause.
 
 For each, the pause message format is:
 ```

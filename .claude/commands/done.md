@@ -56,6 +56,37 @@ STATUS.md is a state pointer, NOT a diary. Replace body with:
 
 Stop hook auto-stamps the file timestamp.
 
+### 5.5 Multi-track ultimate-review at phase boundary (post-2026-05-16 hardening — Codex workflow improvement #7)
+
+Per the 2026-05-16 Codex ultimate-review verdict: at phase close (before opening the Codex Tier-3 PR), dispatch a multi-track adversarial review combining Claude + Codex. The split is load-bearing — Claude is strong on implementation-drift / test-quality / systemic-pattern detection; Codex is strong on adversarial red-team + property explosion at scale. **The two together find ~2× what either finds alone**, per the convergence patterns surfaced in the 2026-05-16 audit (`docs/audits/post-t1-ultimate-review-2026-05-16.md`).
+
+Skip ONLY if the prior phase shipped < 5 commits OR the phase deliverable is doc-only.
+
+**At T1 close, the multi-track shape was:**
+
+| Track | Owner | Lens | Output target |
+|---|---|---|---|
+| A | Claude `feature-dev:code-explorer` | Mutation-test analysis (mental mutation map; no `cargo-mutants` runs) | shared review file Track A |
+| B | Claude `pr-review-toolkit:code-reviewer` | Architectural drift (docs vs code, both directions) | shared review file Track B |
+| C | Claude `pr-review-toolkit:silent-failure-hunter` | Whole-codebase silent-failure sweep (NOT commit-diff-scoped) | shared review file Track C |
+| D | Claude `qa-lead` | Test-the-tests (vacuous patterns + redundancy + coverage holes the test names imply but don't cover + insta snapshot review) | shared review file Track D |
+| E | Codex CLI (parallel session) | Adversarial red-team (4 goals: break canonical hash silently; make content pack pass validation while semantically invalid; malicious mod overlay; find a determinism leak) | shared review file Track E |
+| F | Codex CLI (parallel session) | Property explosion (PROPTEST_CASES bump 256 → 10,000 on key invariants; intra-process determinism count bump) | shared review file Track F |
+
+**Setup:** main thread creates `docs/audits/post-<phase>-ultimate-review-<YYYY-MM-DD>.md` with section anchors for each track. Subagents dispatched with mandatory boilerplate (no commits, no file edits outside the shared review file, read-only). Codex prompt drafted as a single copy-paste block + handed to user to paste in parallel terminal.
+
+**Consolidation:** main thread reads all 6 tracks when complete, writes a consolidated verdict section to the same file with: severity-sorted findings; cross-track convergence patterns (the highest-value signal); recommended new MASTER_PLAN rows (gate-blocking vs opportunistic); ACCEPT / REVISE / REJECT for the phase close.
+
+Findings classification:
+- **Gate-blocker** (rare): fix BEFORE Step 6 PR open
+- **Pre-next-phase recommended**: add MASTER_PLAN row, land before next phase's first /next
+- **Inline cleanup**: fold into next-touching commit
+- **Doc-only follow-up**: single docs commit
+
+The phase tag (`v<X>.<Y>.<Z>-<phase-name>`) is created AFTER the ultimate-review verdict lands + any gate-blockers are addressed.
+
+This step adds ~30-60 min wall-clock + ~$15-30 in agent spend per phase close. Acceptable cost given the bug-class catches.
+
 ### 6. Open PR for Codex phase-gate review
 
 Print (DO NOT EXECUTE) the suggested commands for the user:

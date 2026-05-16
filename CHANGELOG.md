@@ -6,6 +6,13 @@ Append-only human-readable ship log. One line per shipped MASTER_PLAN task. Phas
 
 ## Phase T1: First Match — CLOSED 2026-05-16
 
+### Post-close addenda (2026-05-16)
+
+- **Ultimate review (6-track Claude+Codex) + 4 follow-up rows + 7 workflow improvements.** Codex Tier-3 ACCEPT verdict landed on `v0.1.0-first-match` 2026-05-16; user invoked an 11th audit pass using tactics the prior 10 hadn't (mutation-test analysis / arch-drift docs-vs-code / whole-codebase silent-failure sweep / test-the-tests dead-test detection / Codex adversarial red-team / Codex property explosion). 4 Claude subagents + 2 Codex tracks, shared review file `docs/audits/post-t1-ultimate-review-2026-05-16.md`. Verdict ACCEPT with 9 P1 across 4 surfaces, none phase-blocking. Strongest positive: Codex Track F (PROPTEST_CASES=10000 × 13 invariants = 130k cases) zero new failures. 4 new MASTER_PLAN rows (T1-19 preempt_check tests; T1-20 content-validation hardening; T1-21 Tick policy align; T1-22 hash-pin registry); 7 workflow improvements landed in `/next` skill (AC-to-test matrix, mutation-thinking checklist) + `/done` Step 5.5 (multi-track ultimate-review as phase-close lane) + `Sim/RULES.md` §11 (invariants fail in release, not just debug). First real test of the post-T1-15 subagent boilerplate discipline — all 4 dispatches respected the read-only/no-commit/no-out-of-scope rules; Track A's agent specifically escalated lacking Write tool, main thread appended on its behalf. Canonical hashes UNCHANGED on both pins; `scripts/fw verify` clean. /log-decision entry in DECISIONS.md.
+
+---
+
+
 Duration: 2026-05-13 16:22 → 2026-05-16 20:23 (~3 days, 4 hours wall-clock). 43 commits since T0 close at `27920de6`; 151 files changed; +135,488 / -677 LoC.
 
 ### What shipped
