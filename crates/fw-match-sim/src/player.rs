@@ -190,9 +190,44 @@ impl PlayerState {
     }
 
     /// Increment the decision counter (crate-internal; only `dispatch.rs`
-    /// should call this). Uses `saturating_add` so a marathon match can't
-    /// cause UB even though `u32` has ample headroom for 90 minutes.
+    /// should call this).
     pub(crate) fn bump_decision_counter(&mut self) {
+        // SAFETY: saturating_add on u32 is intentional here per Sim/RULES.md §11
+        // opt-in justification. `local_decision_counter` is a per-player tally
+        // of decision-tick fires; u32 caps at `u32::MAX` = 4_294_967_295. A
+        // 90-minute match fires ~9_000 decisions per player at ADR-0006's
+        // staggered 8 Hz cadence — saturation requires reusing a `PlayerState`
+        // across ~200_000 matches without re-init, which would itself be an
+        // upstream bug.
+        //
+        // The counter has TWO consumers, both deterministic at u32::MAX:
+        //
+        //   1. ADR-0009 RNG site disambiguator at `dispatch.rs:374`:
+        //        `let site = ((slot_idx as u32) << 16) | (counter & 0xFFFF);`
+        //      Only the LOW 16 bits feed the site. Site values already
+        //      recur every 65_536 decisions regardless of saturation — the
+        //      mask is the determinism contract, the saturation inherits its
+        //      semantics. After saturation, the masked value freezes at
+        //      0xFFFF for the remainder of the (impossible) match.
+        //
+        //   2. Canonical-state hash buffer at `canonical.rs:500`:
+        //        `self.write_u32(p.local_decision_counter);`
+        //      The field IS load-bearing for canonical-hash bytes.
+        //      Saturation at u32::MAX freezes the field at u32::MAX in the
+        //      hash buffer; canonical-hash regression stays deterministic
+        //      across runs + platforms (BLAKE3 of a fixed-byte input is
+        //      bit-stable), just permanently pinned for the saturated
+        //      decisions.
+        //
+        // Both consumers degrade DETERMINISTICALLY at saturation — no
+        // canonical-hash drift, no panic mid-match. Saturation is preferable
+        // to panic-on-overflow because (a) reaching u32::MAX is a 200_000-
+        // match-old upstream re-init bug that the player has no control
+        // over; (b) the counter has no GAMEPLAY-CORRECTNESS role (it's an
+        // RNG-site disambiguator + an opaque canonical-byte tally — neither
+        // role triggers a code path that depends on the counter's
+        // monotonicity past the 16-bit mask). Per §11 the saturating_* call
+        // is permitted with this SAFETY comment.
         self.local_decision_counter = self.local_decision_counter.saturating_add(1);
     }
 }

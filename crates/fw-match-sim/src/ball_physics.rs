@@ -187,7 +187,17 @@ pub fn ball_step(state: &crate::BallState, coeffs: &BallPhysicsCoefficients) -> 
     // T1-3.5 ordering reversal; OOB clamp now runs BEFORE physics) zeros
     // ball.vel_x/vel_y + clamps pos to the boundary; this integrator
     // receives an in-bounds ball.
-    debug_assert!(
+    // T1-21 per Sim/RULES.md §11: load-bearing canonical-state invariant.
+    // `coeffs.is_well_formed()` guarantees gravity is non-negative + drag /
+    // friction / bounce coefficients are in their documented ranges before
+    // they multiply into ball.vel_*. Pre-T1-21 this was a `debug_assert!`,
+    // which the §11 hardening explicitly named as the silent-failure pattern
+    // banned: a release-build call with malformed coeffs would silently
+    // corrupt the ball trajectory (e.g. negative gravity → ball flies up
+    // forever; out-of-range drag → ball accelerates instead of slows). The
+    // assert! fires loudly in BOTH debug + release, surfacing the upstream
+    // construction bug at the violation site.
+    assert!(
         coeffs.is_well_formed(),
         "ball_step called with malformed coefficients: {coeffs:?}"
     );

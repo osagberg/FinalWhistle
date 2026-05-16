@@ -4,16 +4,16 @@
 
 ## Phase
 
-**T1 CLOSED 2026-05-16 at `v0.1.0-first-match`; T1-19 + T1-20 post-T1-close follow-ups landed.** T2 ready to start. Codex Tier-3 ACCEPT + post-T1-close ultimate-review ACCEPT both in hand. T1-20 (`fw-content-baker validate→validate-structural` rename + `content/baked/` lint coverage + `signature_candidate` dangling-ref check + sentinel-block escape close) closed in this commit — second post-T1-close follow-up landed. Cross-language change (Rust + Python + RON fixtures) with mandatory self-review triple firing on fw-content; 1 silent-failure P1 caught in-place (sentinel-scope substring-match security gap re-opened by nested paths; fixed with relative-path prefix match + 3 regression tests). 10 fixture-based tests all green; canonical hashes UNCHANGED.
+**T1 CLOSED 2026-05-16 at `v0.1.0-first-match`; 3 of 4 post-T1-close follow-ups landed (T1-19 + T1-20 + T1-21).** T2 ready to start. Codex Tier-3 ACCEPT + post-T1-close ultimate-review ACCEPT both in hand. T1-21 (`fw-core::Tick` arithmetic policy alignment to Q32's panic-on-overflow + 2 §11-named `debug_assert!` → `assert!` conversions + formal `// SAFETY:` comment on `bump_decision_counter`) closed in this commit — third post-T1-close follow-up. Self-review triple cross-converged on a SAFETY-comment correction (silent-failure-hunter P2 + type-design-analyzer P1 + code-reviewer P2 all flagged the same factually-wrong claim about `local_decision_counter`'s consumers); fixed in-place. Canonical hashes UNCHANGED on both pins; release-mode + debug-mode panics verified.
 
 ## Active task
 
-(none — T1-20 closed at this commit; `scripts/fw verify` green; canonical hashes UNCHANGED on both pins. Next `/next` picks from T1-21 / T1-22 (TODO follow-ups) or T2-1 (full BT runner with 20-30 manager archetypes). Per declared order T1-21 is next.)
+(none — T1-21 closed at this commit; `scripts/fw verify` exit 0; canonical hashes UNCHANGED on both pins. Next `/next` picks T1-22 (procedural cleanup — hash-pin registry script + env-driven determinism rerun counts) or T2-1 (full BT runner with 20-30 manager archetypes + xG / personality coefficient calibration). Per declared order T1-22 is next.)
 
 ## Phase pointer
 
-- **Just landed:** **T1-20** — `fw-content-baker validate` → `validate-structural` rename (Codex workflow improvement #4 honesty-naming); `content/baked/` no longer excluded from banned-terms lint; `ContentStore::load_sources` now rejects dangling `PlayerTemplate.signature_candidates[i].signature_id` via existing `DanglingReference` variant; `ui-lint:ignore-start/end` sentinel blocks now scope-restricted to `docs/` + `crates/` + `scripts/` + project-root `.md` only (closes a security escape where attacker could hide Category-A terms inside sentinel-bracketed JSON/RON comments). 1 Rust integration test + 9 Python unittest tests. 9 files changed; canonical hashes UNCHANGED.
-- **Next:** **T1-21** per MASTER_PLAN declared order — `fw-core::Tick` arithmetic policy alignment to Q32's panic-on-overflow + `Sim/RULES.md` §11 amendment. Also eligible: **T1-22** (hash-pin registry script + env-driven determinism rerun counts — procedural cleanup) OR **T2-1** (full BT runner with 20-30 manager archetypes + xG/personality coefficient calibration — main T2 row). `/next` will pick T1-21 first per declared order (skip-DEFERRED rule walks past T1-17). **Deferred follow-ups (status `DEFERRED` — `/next` skips)**: T1-17 (friction-test rewrite, test-quality only); T4-9 (Stretch 2D viewer).
+- **Just landed:** **T1-21** — `Tick` operators (`+`, `-`, `+=`, `-=`) + `successor()` + `from_seconds()` now panic-on-overflow via `checked_*().expect()` per Sim/RULES.md §11. New `Tick::clamping_add` + `Tick::clamping_sub` opt-in saturation methods (with `// SAFETY:`-style doc-comments). 8 new Tick arithmetic tests (6 `#[should_panic]` + 1 non-panic negative-zone test + 1 clamping test). `ball_physics.rs` + `dispatch.rs` `debug_assert!` → `assert!` at the 2 §11-named load-bearing sites (canonical ball trajectory + match_events corruption surfaces). `player.rs::bump_decision_counter` gets a formal `// SAFETY:` inline comment justifying the saturating_add on u32 — REWRITTEN after self-review triple cross-converged on a factually-wrong claim about the field's consumers (counter writes BOTH into RNG site AND canonical-hash buffer; comment originally said RNG-only).
+- **Next:** **T1-22** per MASTER_PLAN declared order — `scripts/fw hash-pins` registry subcommand + `FW_DETERMINISM_SMOKE_RUNS` / `FW_DETERMINISM_EXTENDED_RUNS` env vars. Procedural cleanup; closes Codex Track F caveat + Track D 5th-pin finding + Codex workflow improvement #6. Also eligible: **T2-1** (full BT runner with 20-30 manager archetypes + xG/personality coefficient calibration — main T2 row). `/next` will pick T1-22 first per declared order (skip-DEFERRED rule walks past T1-17). **Deferred follow-ups (status `DEFERRED` — `/next` skips)**: T1-17 (friction-test rewrite, test-quality only); T4-9 (Stretch 2D viewer).
 
 ## Blockers
 
@@ -21,7 +21,7 @@ None.
 
 ## Last green verify
 
-2026-05-16 (T1-20 close): `scripts/fw verify` exit 0 (cargo fmt + clippy + cargo test --workspace --release including new dangling-signature-candidate integration test + pnpm test 56 frontend + banned-terms (new `content/baked/` coverage active + Python test suite added) + canonical-hash regression on both pins UNCHANGED + content-pack `validate-structural` + cargo audit + cargo deny check).
+2026-05-16 (T1-21 close): `scripts/fw verify` exit 0 (cargo fmt + clippy + cargo test --workspace --release including 8 new Tick arithmetic tests + pnpm test 56 frontend + banned-terms + canonical-hash regression on both pins UNCHANGED + content-pack validate-structural + cargo audit + cargo deny check). Tick panic tests verified green in BOTH debug + release builds.
 
 ## Last canonical hash
 

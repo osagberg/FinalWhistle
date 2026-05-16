@@ -7,6 +7,30 @@
 //! `Tick` is `i64` (not `u64`) so subtraction yields a signed delta without
 //! drama. Negative ticks are not valid in canonical state but are useful as
 //! signed offsets in scheduling math.
+//!
+//! ## Arithmetic policy (T1-21 — Sim/RULES.md §11 alignment)
+//!
+//! Arithmetic operators on `Tick` (`+`, `-`, `+=`, `-=`) panic on overflow /
+//! underflow via `i64::checked_add().expect()` / `checked_sub().expect()`.
+//! `Tick::successor()` and `Tick::from_seconds()` also panic on overflow.
+//!
+//! This matches `Q32`'s panic-on-overflow default (the `fixed` crate's
+//! debug-AND-release-checked arithmetic) and forbids the silent-failure
+//! pattern §11 bans: a release-build invariant violation (e.g. tactic-FSM
+//! cooldown math computing `entry_tick > now_tick`) was previously silently
+//! saturated to `i64::MIN`, which then satisfied any `tick_diff <= cooldown`
+//! check trivially, masking the underlying invariant break.
+//!
+//! Saturation is still available as an explicit opt-in via the named methods
+//! `Tick::clamping_add` and `Tick::clamping_sub`. Use these only when the
+//! caller has a documented `// SAFETY:` rationale for why saturating
+//! semantics are correct for that specific site (rare; most call sites want
+//! panic-on-overflow).
+//!
+//! Pre-T1-21 behavior used `saturating_*` by default — see git blame on this
+//! file for the prior implementation. The 2026-05-16 ultimate-review Track C
+//! P1 surfaced the divergence; `Sim/RULES.md` §11 codified the policy; T1-21
+//! aligned this implementation.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -44,17 +68,35 @@ impl Tick {
         self.0
     }
 
-    /// The next tick. Saturates at `i64::MAX` (the sim has no business
-    /// running that long; a saturating successor avoids a panic mid-match).
+    /// The next tick.
+    ///
+    /// Panics on `i64::MAX` overflow per the T1-21 panic-on-overflow policy.
+    /// The sim has no business running that long (~170 million years at 60Hz);
+    /// a panic at the boundary is the §11-aligned semantic — a release-build
+    /// reach to `i64::MAX` indicates a real bug (e.g. a stuck loop appending
+    /// successors), not a graceful end-of-match.
     #[inline]
-    pub const fn successor(self) -> Tick {
-        Tick(self.0.saturating_add(1))
+    pub fn successor(self) -> Tick {
+        Tick(self.0.checked_add(1).expect(
+            "Tick::successor overflowed i64::MAX — sim has no business \
+             running this long; a release-build reach to i64::MAX indicates \
+             a real bug (e.g. stuck loop appending successors)",
+        ))
     }
 
     /// Convert from whole seconds. `Tick::from_seconds(1) == Tick::from_raw(60)`.
+    ///
+    /// Panics on `i64::MAX` overflow per the T1-21 panic-on-overflow policy.
+    /// The argument is `i64` seconds; `seconds * 60` overflows above
+    /// `i64::MAX / 60 ≈ 1.5e17` seconds (~4.9 trillion years). Not a real
+    /// concern for sim code; the panic exists to surface programmer error
+    /// (e.g. passing an unbounded user input as `seconds`).
     #[inline]
-    pub const fn from_seconds(seconds: i64) -> Tick {
-        Tick(seconds.saturating_mul(TICKS_PER_SECOND))
+    pub fn from_seconds(seconds: i64) -> Tick {
+        Tick(seconds.checked_mul(TICKS_PER_SECOND).expect(
+            "Tick::from_seconds overflowed i64::MAX — `seconds * 60` exceeds \
+             the i64 range; check whether the input is unbounded user data",
+        ))
     }
 
     /// Convert to whole seconds (integer-truncated). The inverse of
@@ -76,6 +118,12 @@ impl Tick {
         // CAUTION: For tick counts > i32::MAX (≈ 2.1 billion ticks ≈ 400
         // days of sim), this would overflow. The sim is single-match-scoped
         // and never runs that long; the assert below documents the invariant.
+        //
+        // debug_assert OK here because: caller-guaranteed by the sim's
+        // single-match scope. A 400-day match is structurally impossible
+        // (match_end_tick is bounded at construction time); this debug-only
+        // guard is a pure development-time sanity check, NOT a load-bearing
+        // canonical-state invariant. Per Sim/RULES.md §11 "Allowed" clause.
         debug_assert!(
             self.0.abs() <= i32::MAX as i64,
             "Tick::to_q32_seconds called with tick {} that exceeds Q32 \
@@ -84,35 +132,93 @@ impl Tick {
         );
         Q32::from_int(self.0 as i32) / Q32::from_int(TICKS_PER_SECOND as i32)
     }
+
+    // ---------------------------------------------------------------------
+    // Explicit opt-in saturating arithmetic (T1-21 per Sim/RULES.md §11)
+    //
+    // These methods exist for callers that genuinely want saturating
+    // semantics — for example, a UI-side "snap to the end of the match"
+    // computation that should produce a finite tick even if the input
+    // exceeds the i64 range. Per §11, every call site of these methods
+    // owes an inline `// SAFETY:`-style comment justifying why saturation
+    // (vs panic-on-overflow) is the right semantic for that specific
+    // call. Default operator arithmetic (`+`, `-`, `+=`, `-=`) panics
+    // instead, which is the correct choice for canonical / gameplay code.
+    // ---------------------------------------------------------------------
+
+    /// Saturating addition. Result is clamped to `[i64::MIN, i64::MAX]`.
+    ///
+    /// **Opt-in only** — production canonical-state code uses `+` (which
+    /// panics on overflow per the T1-21 policy). Call this method only
+    /// when the caller has a documented `// SAFETY:` rationale for why
+    /// saturation is correct (e.g. UI clamp paths, dev-tooling math).
+    #[inline]
+    pub const fn clamping_add(self, rhs: Tick) -> Tick {
+        Tick(self.0.saturating_add(rhs.0))
+    }
+
+    /// Saturating subtraction. Result is clamped to `[i64::MIN, i64::MAX]`.
+    ///
+    /// **Opt-in only** — see `clamping_add` for the same opt-in semantics.
+    #[inline]
+    pub const fn clamping_sub(self, rhs: Tick) -> Tick {
+        Tick(self.0.saturating_sub(rhs.0))
+    }
 }
 
 impl Add for Tick {
     type Output = Tick;
+    /// Panics on `i64` overflow per the T1-21 panic-on-overflow policy.
+    /// Use `Tick::clamping_add` for opt-in saturation.
     #[inline]
     fn add(self, rhs: Tick) -> Tick {
-        Tick(self.0.saturating_add(rhs.0))
+        Tick(self.0.checked_add(rhs.0).expect(
+            "Tick + Tick overflowed i64::MAX — invariant violation; use \
+             Tick::clamping_add for opt-in saturation (Sim/RULES.md §11)",
+        ))
     }
 }
 
 impl Sub for Tick {
     type Output = Tick;
+    /// Panics on `i64` underflow per the T1-21 panic-on-overflow policy.
+    /// Use `Tick::clamping_sub` for opt-in saturation.
+    ///
+    /// The specific failure mode this catches: cooldown math computing
+    /// `now_tick - entry_tick` where `entry_tick > now_tick` (e.g. a
+    /// tactic-FSM bug that set entry_tick in the future). Previously
+    /// saturating to `i64::MIN` silently satisfied any `diff < cooldown`
+    /// check; panic-on-underflow surfaces the bug at the violation site.
     #[inline]
     fn sub(self, rhs: Tick) -> Tick {
-        Tick(self.0.saturating_sub(rhs.0))
+        Tick(self.0.checked_sub(rhs.0).expect(
+            "Tick - Tick underflowed i64::MIN — invariant violation \
+             (typically: subtracting a larger tick from a smaller one in \
+             cooldown / elapsed-time math); use Tick::clamping_sub for \
+             opt-in saturation (Sim/RULES.md §11)",
+        ))
     }
 }
 
 impl AddAssign for Tick {
+    /// Panics on overflow per the T1-21 panic-on-overflow policy.
     #[inline]
     fn add_assign(&mut self, rhs: Tick) {
-        self.0 = self.0.saturating_add(rhs.0);
+        self.0 = self.0.checked_add(rhs.0).expect(
+            "Tick += Tick overflowed i64::MAX — invariant violation; use \
+             Tick::clamping_add for opt-in saturation (Sim/RULES.md §11)",
+        );
     }
 }
 
 impl SubAssign for Tick {
+    /// Panics on underflow per the T1-21 panic-on-overflow policy.
     #[inline]
     fn sub_assign(&mut self, rhs: Tick) {
-        self.0 = self.0.saturating_sub(rhs.0);
+        self.0 = self.0.checked_sub(rhs.0).expect(
+            "Tick -= Tick underflowed i64::MIN — invariant violation; use \
+             Tick::clamping_sub for opt-in saturation (Sim/RULES.md §11)",
+        );
     }
 }
 
@@ -151,20 +257,124 @@ mod tests {
     }
 
     #[test]
-    fn arithmetic_uses_saturating_at_extremes() {
-        // saturate, don't panic
+    fn display_is_t_prefixed() {
+        assert_eq!(format!("{}", Tick::from_raw(42)), "t42");
+    }
+
+    // ---------------------------------------------------------------------
+    // T1-21: panic-on-overflow alignment to Q32's policy (Sim/RULES.md §11)
+    //
+    // The pre-T1-21 implementation used `saturating_*` arithmetic which
+    // silently capped at i64::MIN/MAX. Tactic-FSM cooldown math like
+    // `now_tick - entry_tick` where `entry_tick > now_tick` (an invariant
+    // violation) would saturate to i64::MIN, which then satisfied any
+    // `diff < cooldown` check trivially, masking the underlying bug.
+    //
+    // The post-T1-21 implementation panics on overflow / underflow. The
+    // tests below pin this — they `#[should_panic]` on the exact extremes
+    // that were silently saturating before.
+    //
+    // Saturation is still available as an explicit opt-in via the named
+    // `Tick::clamping_*` methods, tested in `clamping_methods_saturate_at_extremes`.
+    // ---------------------------------------------------------------------
+
+    /// T1-21 AC4 — re-interpreted scope: the MASTER_PLAN row's literal example
+    /// (`Tick::ZERO - Tick::from_raw(1)`) yields `Tick::from_raw(-1)`, which
+    /// is well within `i64`'s range; per the file prologue, negative ticks
+    /// are explicitly "useful as signed offsets in scheduling math" — they
+    /// are not invalid at the arithmetic layer (only in canonical-state
+    /// fields where semantic validity is asserted upstream). The genuine
+    /// underflow case `Tick::from_raw(i64::MIN) - Tick::from_raw(1)` IS an
+    /// `i64` underflow + panics per the policy; that's tested below in
+    /// `arithmetic_panics_on_subtraction_underflow`.
+    ///
+    /// This test verifies that subtracting in the negative-result zone does
+    /// NOT panic — pinning the documented signed-offset affordance against
+    /// accidental stricter-semantic regression. If a future change wants to
+    /// ban negative-result Tick subtraction (would require auditing every
+    /// `.to_raw()`-based subtraction site for signed-offset uses), this test
+    /// must flip to `#[should_panic]` + the file prologue must update.
+    #[test]
+    fn tick_subtraction_into_negative_zone_does_not_panic() {
+        let diff = Tick::ZERO - Tick::from_raw(1);
         assert_eq!(
-            Tick::from_raw(i64::MAX) + Tick::from_raw(1),
-            Tick::from_raw(i64::MAX)
-        );
-        assert_eq!(
-            Tick::from_raw(i64::MIN) - Tick::from_raw(1),
-            Tick::from_raw(i64::MIN)
+            diff.to_raw(),
+            -1,
+            "Tick::ZERO - 1 must produce Tick::from_raw(-1) per the signed-offset \
+             affordance documented at the top of this file; only true i64 \
+             over/underflow at the extremes panics per T1-21 / Sim/RULES.md §11"
         );
     }
 
+    /// Addition at i64::MAX overflows → panics.
     #[test]
-    fn display_is_t_prefixed() {
-        assert_eq!(format!("{}", Tick::from_raw(42)), "t42");
+    #[should_panic(expected = "Tick + Tick overflowed")]
+    fn arithmetic_panics_on_addition_overflow() {
+        let _overflow = Tick::from_raw(i64::MAX) + Tick::from_raw(1);
+    }
+
+    /// Subtraction crossing i64::MIN underflows → panics.
+    #[test]
+    #[should_panic(expected = "Tick - Tick underflowed")]
+    fn arithmetic_panics_on_subtraction_underflow() {
+        let _underflow = Tick::from_raw(i64::MIN) - Tick::from_raw(1);
+    }
+
+    /// AddAssign at i64::MAX overflows → panics.
+    #[test]
+    #[should_panic(expected = "Tick += Tick overflowed")]
+    fn add_assign_panics_on_overflow() {
+        let mut t = Tick::from_raw(i64::MAX);
+        t += Tick::from_raw(1);
+    }
+
+    /// SubAssign crossing i64::MIN underflows → panics.
+    #[test]
+    #[should_panic(expected = "Tick -= Tick underflowed")]
+    fn sub_assign_panics_on_underflow() {
+        let mut t = Tick::from_raw(i64::MIN);
+        t -= Tick::from_raw(1);
+    }
+
+    /// `Tick::successor()` panics at i64::MAX (no graceful saturation).
+    #[test]
+    #[should_panic(expected = "Tick::successor overflowed")]
+    fn successor_panics_at_i64_max() {
+        let _next = Tick::from_raw(i64::MAX).successor();
+    }
+
+    /// `Tick::from_seconds` panics on overflow.
+    #[test]
+    #[should_panic(expected = "Tick::from_seconds overflowed")]
+    fn from_seconds_panics_on_overflow() {
+        // i64::MAX seconds * 60 ticks/s overflows.
+        let _t = Tick::from_seconds(i64::MAX);
+    }
+
+    /// Explicit opt-in saturation via `Tick::clamping_add` / `clamping_sub`.
+    /// These do NOT panic — they saturate at i64::MAX/i64::MIN. Required
+    /// for the rare call site that wants saturating semantics with a
+    /// documented `// SAFETY:` rationale.
+    #[test]
+    fn clamping_methods_saturate_at_extremes() {
+        assert_eq!(
+            Tick::from_raw(i64::MAX).clamping_add(Tick::from_raw(1)),
+            Tick::from_raw(i64::MAX),
+            "clamping_add must saturate at i64::MAX, not panic",
+        );
+        assert_eq!(
+            Tick::from_raw(i64::MIN).clamping_sub(Tick::from_raw(1)),
+            Tick::from_raw(i64::MIN),
+            "clamping_sub must saturate at i64::MIN, not panic",
+        );
+        // Non-extreme inputs: clamping_* behave identically to + / -.
+        assert_eq!(
+            Tick::from_raw(5).clamping_add(Tick::from_raw(3)),
+            Tick::from_raw(8),
+        );
+        assert_eq!(
+            Tick::from_raw(5).clamping_sub(Tick::from_raw(3)),
+            Tick::from_raw(2),
+        );
     }
 }

@@ -779,13 +779,16 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
 /// hit the `i64::MIN.abs()` undefined-behavior path. (`i64::MIN.abs()`
 /// panics in debug and is UB in release.)
 ///
-/// **Self-pass guard (Codex Tier-2 Critical on T1-4a 2026-05-16):** the
-/// 22-slot match always has 10 teammates available (11 same-team players
-/// minus the passer), so the loop runs ≥10 iterations and `best_slot` is
-/// always overwritten. A `debug_assert_ne!` against the passer slot pins
-/// this invariant — if a future refactor breaks the team_start/team_end
-/// derivation, the assertion fires in debug builds before the bad event
-/// silently lands in `match_events`.
+/// **Self-pass guard (Codex Tier-2 Critical on T1-4a 2026-05-16; T1-21
+/// hardened to release per Sim/RULES.md §11):** the 22-slot match always has
+/// 10 teammates available (11 same-team players minus the passer), so the
+/// loop runs ≥10 iterations and `best_slot` is always overwritten. An
+/// `assert_ne!` against the passer slot pins this invariant — if a future
+/// refactor breaks the team_start/team_end derivation, the assertion fires
+/// in BOTH debug + release builds, surfacing the bug at the violation site
+/// rather than silently landing a self-pass `MatchEvent::Pass` into
+/// canonical state. Pre-T1-21 this was `debug_assert_ne!` which the §11
+/// hardening identified as exactly the silent-failure pattern banned.
 ///
 /// T1 approximation — T2 refines with passing-lane model.
 fn nearest_teammate_near(
@@ -821,7 +824,12 @@ fn nearest_teammate_near(
         }
     }
 
-    debug_assert_ne!(
+    // T1-21 per Sim/RULES.md §11: assert_ne! (release-active) replaces the
+    // prior debug_assert_ne!. See the doc-comment Self-pass-guard section above
+    // for the rationale. `best_slot != passer_slot` is a load-bearing canonical
+    // invariant — a self-pass landing in match_events is a real silent-failure
+    // class the §11 hardening exists to prevent.
+    assert_ne!(
         best_slot, passer_slot,
         "nearest_teammate_near produced a self-pass for slot_idx={passer_slot_idx} \
          (team {passer_team}, range {team_start}..{team_end}); loop did not find \
