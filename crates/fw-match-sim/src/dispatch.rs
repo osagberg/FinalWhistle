@@ -1306,4 +1306,227 @@ mod tests {
             "at max attrs (passing=1.0 × vision=1.0), pass speed must equal 25 m/s"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // T1-19: preempt_check behavioral unit tests
+    //
+    // Background: T1-15 grew preempt_check from "stubbed None" to a 3-policy
+    // implementation:
+    //   1. Possession-gate: return None if state.possession.is_some().
+    //   2. GK chase: slot 0 / 11 chase only when the ball is within 10m of
+    //      their OWN goal line (|ball.pos_x| > 42m AND ball on own side).
+    //   3. Outfield nearest-2: only fire for the 2 nearest same-team outfielders
+    //      (strict-< tiebreak on Manhattan distance).
+    //
+    // These 5 tests pin each policy + the GK-vs-FSM coexistence invariant
+    // documented in ADR-0006's 2026-05-16 amendment. See post-T1 ultimate-review
+    // Track A (docs/audits/post-t1-ultimate-review-2026-05-16.md) for the
+    // RED coverage-hole analysis that motivated this row.
+    // -----------------------------------------------------------------------
+
+    /// Policy 2 negative case: home GK does NOT chase a ball near the AWAY goal.
+    /// Mutation discriminator: flipping the `home_gk_side != is_home_gk` predicate
+    /// to `==` would make this test fail (preempt would fire, returning Some).
+    #[test]
+    fn preempt_check_home_gk_does_not_chase_away_ball() {
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        // Loose ball at +45m (away half, within 10m of the away goal line at +52.5m).
+        state.possession = None;
+        state.ball.pos_x = Q32::from_int(45);
+        state.ball.pos_y = Q32::ZERO;
+        state.ball.vel_x = Q32::ZERO;
+        state.ball.vel_y = Q32::ZERO;
+
+        let intent = preempt_check(&state, 0); // slot 0 = home GK
+        assert!(
+            intent.is_none(),
+            "home GK (slot 0) must NOT chase a loose ball near the AWAY goal \
+             (ball at x=+45m); got {intent:?}"
+        );
+    }
+
+    /// Policy 2 positive case: home GK chases a loose ball within 10m of own goal line.
+    /// Mutation discriminator: raising THRESHOLD_BITS from 42 to e.g. 100 would
+    /// cause ball at |x|=43 to early-return None.
+    #[test]
+    fn preempt_check_home_gk_chases_loose_ball_within_42m_of_own_goal() {
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        // Loose ball at -43m (home side, within 10m of home goal line at -52.5m).
+        state.possession = None;
+        state.ball.pos_x = Q32::from_int(-43);
+        state.ball.pos_y = Q32::from_int(2);
+        state.ball.vel_x = Q32::ZERO;
+        state.ball.vel_y = Q32::ZERO;
+
+        let intent = preempt_check(&state, 0);
+        match intent {
+            Some(PlayerIntent::MoveToPosition { target_x, target_y }) => {
+                assert_eq!(
+                    target_x, state.ball.pos_x,
+                    "preempt MoveToPosition target_x must equal ball.pos_x"
+                );
+                assert_eq!(
+                    target_y, state.ball.pos_y,
+                    "preempt MoveToPosition target_y must equal ball.pos_y"
+                );
+            }
+            other => panic!(
+                "home GK (slot 0) must chase ball within 10m of own goal line; \
+                 expected MoveToPosition, got {other:?}"
+            ),
+        }
+    }
+
+    /// Policy 3: exactly the 2 nearest same-team outfielders preempt-chase a
+    /// loose ball. The remaining 3 hold formation (return None).
+    /// Mutation discriminator: changing `closer_count >= 2` to `>= 5` would
+    /// make all 5 outfielders chase.
+    #[test]
+    fn preempt_check_outfield_chaser_count_caps_at_2() {
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        state.possession = None;
+        // Place loose ball at the centre spot.
+        state.ball.pos_x = Q32::ZERO;
+        state.ball.pos_y = Q32::ZERO;
+        state.ball.vel_x = Q32::ZERO;
+        state.ball.vel_y = Q32::ZERO;
+
+        // Choose 5 home outfielders (slots 1..=5) and place them at strictly
+        // distinct Manhattan distances from the ball: 1m, 2m, 3m, 4m, 5m.
+        // Strict-distinct distances mean the strict-< tiebreak yields a stable
+        // ranking with no ties; the cap policy then routes the 2 nearest.
+        for (i, slot) in [1usize, 2, 3, 4, 5].iter().enumerate() {
+            state.players[*slot].pos_x = Q32::from_int((i as i32) + 1); // 1, 2, 3, 4, 5 m
+            state.players[*slot].pos_y = Q32::ZERO;
+        }
+        // Park other home outfielders far away so they're not closer than these 5.
+        for slot in [6usize, 7, 8, 9, 10] {
+            state.players[slot].pos_x = Q32::from_int(40);
+            state.players[slot].pos_y = Q32::from_int(20);
+        }
+
+        let chasers: Vec<usize> = [1usize, 2, 3, 4, 5]
+            .iter()
+            .copied()
+            .filter(|&slot| preempt_check(&state, slot).is_some())
+            .collect();
+
+        assert_eq!(
+            chasers.len(),
+            2,
+            "exactly 2 of the 5 nearest same-team outfielders must preempt-chase; \
+             got {} chasers: {:?}",
+            chasers.len(),
+            chasers
+        );
+        // The 2 nearest by construction are slots 1 (1m) and 2 (2m).
+        assert_eq!(
+            chasers,
+            vec![1, 2],
+            "the nearest 2 outfielders should chase; got {chasers:?}"
+        );
+
+        // Determinism sub-assertion: same state → same result on a re-call.
+        let second_pass: Vec<usize> = [1usize, 2, 3, 4, 5]
+            .iter()
+            .copied()
+            .filter(|&slot| preempt_check(&state, slot).is_some())
+            .collect();
+        assert_eq!(
+            chasers, second_pass,
+            "preempt_check is a pure function over canonical state — \
+             re-calling on unchanged state must return identical chaser set"
+        );
+    }
+
+    /// Policy 1: preempt_check returns None whenever the ball is owned.
+    /// Mutation discriminator: deleting the `state.possession.is_some()`
+    /// early-return would make preempt fire under possession, returning Some.
+    #[test]
+    fn preempt_check_only_fires_on_loose_ball() {
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        // Possession held by home FWD (kickoff convention from MatchState::initial).
+        state.possession = Some(9);
+        // Place ball deep in own half (would otherwise trigger GK chase).
+        state.ball.pos_x = Q32::from_int(-44);
+        state.ball.pos_y = Q32::ZERO;
+        state.ball.vel_x = Q32::ZERO;
+        state.ball.vel_y = Q32::ZERO;
+
+        // GK slot 0: even with ball within 10m of own goal, possession blocks preempt.
+        assert!(
+            preempt_check(&state, 0).is_none(),
+            "preempt_check must return None for GK while possession is held"
+        );
+        // Outfield slot 1: same — possession blocks before nearest-2 logic runs.
+        // Place slot 1 right on the ball so it would otherwise be the closest chaser.
+        state.players[1].pos_x = state.ball.pos_x;
+        state.players[1].pos_y = state.ball.pos_y;
+        assert!(
+            preempt_check(&state, 1).is_none(),
+            "preempt_check must return None for outfielders while possession is held"
+        );
+    }
+
+    /// Coexistence invariant: when preempt fires for the GK, dispatch_tick's
+    /// `continue;` after `apply_intent` skips the GK FSM (tick_goalkeeper).
+    /// Observable: the GK's role_state does NOT transition this tick, even
+    /// when ball position + velocity would normally drive an InBoxPositioning
+    /// → ShotStopping transition inside the GK FSM.
+    /// Mutation discriminator: removing the `continue;` after the preempt
+    /// branch would let tick_goalkeeper run and transition the FSM.
+    #[test]
+    fn preempt_check_does_not_conflict_with_goalkeeper_fsm() {
+        use crate::role_states::{GoalkeeperState, PlayerRoleState};
+
+        let seed = Seed::from_u64(0x1234_5678);
+        let mut state = MatchState::initial(seed);
+
+        // Force slot 0 to fire its decision at tick 0 (decision_slots[0] = 0
+        // means tick.rem_euclid(15) == 0 → fires). MatchState::initial assigns
+        // decision_slots from the seed; we override deterministically here.
+        state.decision_slots[0] = 0;
+        state.interrupt_cooldown_until[0] = Tick::ZERO;
+        // (state.tick is already Tick::ZERO at MatchState::initial.)
+
+        // Loose ball deep in the home penalty area, moving TOWARD the home goal:
+        //   pos_x = -44m → in own half (bx < 0), in penalty area (bx < -36.5m).
+        //   vel_x = -1   → approaching_goal predicate fires inside GK FSM.
+        // Without preempt's `continue;`, tick_goalkeeper's evaluate_transitions
+        // would route InBoxPositioning → ShotStopping.
+        state.possession = None;
+        state.ball.pos_x = Q32::from_int(-44);
+        state.ball.pos_y = Q32::ZERO;
+        state.ball.vel_x = Q32::from_int(-1);
+        state.ball.vel_y = Q32::ZERO;
+
+        // Pre-condition: GK starts InBoxPositioning (the MatchState::initial default).
+        assert_eq!(
+            state.players[0].role_state,
+            PlayerRoleState::Goalkeeper(GoalkeeperState::InBoxPositioning),
+            "test pre-condition: home GK must start in InBoxPositioning"
+        );
+
+        // Sanity: preempt would fire if dispatch consulted it standalone.
+        let preempt_intent = preempt_check(&state, 0);
+        assert!(
+            matches!(preempt_intent, Some(PlayerIntent::MoveToPosition { .. })),
+            "test pre-condition: preempt_check must return MoveToPosition for this state; \
+             got {preempt_intent:?}"
+        );
+
+        // Execute one dispatch_tick. The preempt branch fires + `continue;` skips
+        // tick_goalkeeper, so the GK FSM never runs this tick.
+        let after = dispatch_tick(state, &BTreeMap::new());
+
+        assert_eq!(
+            after.players[0].role_state,
+            PlayerRoleState::Goalkeeper(GoalkeeperState::InBoxPositioning),
+            "preempt branch must skip GK FSM via `continue;`: GK role_state must \
+             remain InBoxPositioning. If this fails, tick_goalkeeper ran and \
+             transitioned to ShotStopping (or another state) — meaning preempt + \
+             GK FSM both fired this tick, violating ADR-0006's 'preempt OR role \
+             dispatch, never both' contract"
+        );
+    }
 }

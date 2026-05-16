@@ -154,6 +154,50 @@ pub fn dispatch_tick(world: &mut World, rng: &mut ChaCha8Rng) {
 
 `dispatch_tick` is what the canonical-hash regression test in `crates/fw-replay/tests/canonical_hash.rs` exercises across the macOS / Windows / Linux CI matrix.
 
+## Amendment 2026-05-16 — preempt_check 3-policy scope
+
+The original ADR (and the §"Concrete sketch" dispatcher example at line 138-152) framed pre-emption as a single conceptual hook with the only named live policy being the "single-chaser claim." Foul reaction + set-piece switchover were deferred to T1-4 / T2+.
+
+At T1-15 (commit `0a0df5c3`, 2026-05-16), `preempt_check` in `crates/fw-match-sim/src/dispatch.rs:867-948` grew from `fn preempt_check(...) -> Option<PlayerIntent> { None }` (the stub) to a 3-policy implementation. This amendment documents what shipped so T2-1's BT-runner expansion and any future contributor consults a current spec.
+
+### What shipped
+
+1. **Possession gate** (line 869-871): preempt returns `None` if `state.possession.is_some()`. All other policies only apply when the ball is loose.
+
+2. **Goalkeeper own-side chase** (line 882-905): for GK slots 0 (home) and 11 (away), preempt returns `Some(MoveToPosition { target = ball })` IFF:
+   - `|ball.pos_x| > 42m` (within 10m of own goal line at ±52.5m), AND
+   - the ball is on the GK's own side: home GK chases when `ball.pos_x < 0`; away GK chases when `ball.pos_x >= 0`.
+   - Both predicates use the Q32 raw-bits sign check (`bx_bits < 0`) for cross-OS determinism.
+   - Originally framed for the "ball stranded 2-3m short of goal line" failure mode surfaced during T1-15 empirical playtesting.
+
+3. **Outfield nearest-2 chase** (line 907-947): for outfielders, preempt returns `MoveToPosition { target = ball }` UNLESS 2+ same-team outfielders are STRICTLY closer (Manhattan distance, `<` tiebreak). Excludes the same-team GK from the counting (line 924-928). The strict-less-than tiebreak is deterministic by construction (no RNG, no clock); under exact ties, more than 2 chasers may fire — acceptable in the T1 sim because Q32 quantization makes exact ties rare, but flagged for T2-1 if archetype-driven positioning produces more co-located formations.
+
+### What is still deferred (T2+ scope)
+
+- **Foul reaction** — when a foul fires, the player who fouled should be route-locked to standing-over-the-ball until the FK/penalty resolves. Out of scope until T2-1's set-piece state machine lands.
+- **Set-piece switchover** — when possession transitions from open play to a set piece (throw-in, corner, FK), all 22 players should re-route to their set-piece positions in one tick instead of via per-slot decision cadence. Defers to T2-1.
+- **Reactive interrupts** at 60 Hz (the cross-cutting "the ball is HERE and you must react NOW" hook mentioned in ADR-0001's seven-layer stack). The current dispatcher gates preempt behind `should_decide` (cadence-aware); a true 60 Hz reactive layer would call preempt BEFORE the cadence check. Defers to T2-1 because cadence-vs-reactive is a load-bearing perf + determinism call.
+
+### Test coverage
+
+T1-19 (commit will be referenced in `docs/MASTER_PLAN.md` row) lands 5 behavioral unit tests in `crates/fw-match-sim/src/dispatch.rs::mod tests::preempt_check_*`:
+
+| Test name | Pins |
+|---|---|
+| `preempt_check_home_gk_does_not_chase_away_ball` | Policy 2 negative — own-side gate |
+| `preempt_check_home_gk_chases_loose_ball_within_42m_of_own_goal` | Policy 2 positive — 42m threshold + ball-tracking target |
+| `preempt_check_outfield_chaser_count_caps_at_2` | Policy 3 — nearest-2 cap + strict-< tiebreak determinism |
+| `preempt_check_only_fires_on_loose_ball` | Policy 1 — possession gate (GK + outfield branches) |
+| `preempt_check_does_not_conflict_with_goalkeeper_fsm` | Coexistence — `continue;` skips tick_goalkeeper |
+
+Each test is mutation-discriminating per the AC-to-test matrix in the T1-19 MEMORY task-spec — flipping the predicate or removing the `continue;` would surface a failure.
+
+### Audit trail
+
+This amendment closes ultimate-review Track A's "preempt_check is the 4-of-5 RED coverage hole" finding (see `docs/audits/post-t1-ultimate-review-2026-05-16.md` Surface 2). The 5 tests + this amendment were authored together as T1-19 per the audit's cross-track convergence recommendation.
+
+---
+
 ## References
 
 - `docs/DESIGN_DOC.md` §3 (pillars), §1 (scope ambition reframe)
