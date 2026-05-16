@@ -80,9 +80,11 @@ impl fmt::Display for Seed {
 // SeedLayer — ADR-0009 discriminants
 // -------------------------------------------------------------------------
 
-/// The 8 non-overlapping seed discriminants from ADR-0009. Each selects a
-/// distinct BLAKE3 lane in the match-seed derivation so random draws in
-/// different layers never share RNG state.
+/// The 9 non-overlapping seed discriminants from ADR-0009 (8 from the
+/// original ADR + `Commentary` added per the 2026-05-16 amendment logged
+/// at `docs/DECISIONS.md`). Each selects a distinct BLAKE3 lane in the
+/// match-seed derivation so random draws in different layers never share
+/// RNG state.
 ///
 /// Discriminant values are fixed by ADR-0009 — DO NOT reorder or renumber
 /// without a canonical-hash rebaseline and a new ADR entry.

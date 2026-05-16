@@ -304,3 +304,95 @@ fn disk_loaded_fixtures_produce_variant_diversity_across_seeds() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests 6 + 7: CommentaryRenderError variant exercise
+//
+// Codex 2026-05-16 re-audit P1: render_event now returns
+// `Result<String, CommentaryRenderError>` with Tracery + EmptyOutput
+// variants (fix-pass closure for the prior silent-failure P0 where
+// `unwrap_or_default()` converted every error into an empty string). The
+// existing integration tests cover the happy-path render only; without
+// these two tests the typed error surface is structurally untested — a
+// future refactor that quietly collapses the Err arm back into Ok("")
+// would pass the existing suite. These tests construct bad-grammar bank
+// inputs that bypass `try_from_map`'s construction-time guard via the
+// `CommentaryGrammarBank::try_from_map` Err path itself, OR via
+// hand-built valid-by-construction-but-render-broken grammars that
+// reference an undefined substitution variable in their origin.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn render_event_returns_tracery_error_on_undefined_substitution_variable() {
+    use fw_content::commentary::{CommentaryGrammarBank, CommentaryRenderError};
+    use std::collections::BTreeMap;
+
+    // Construct a bank where every grammar's origin references a variable
+    // the renderer does NOT inject (`#nonExistentField#`). The grammar
+    // passes `try_from_map`'s structural checks (non-empty origin variant)
+    // but Tracery raises MissingKeyError at flatten time.
+    let mut map = BTreeMap::new();
+    for disc in MatchEventDiscriminant::all() {
+        let mut rules: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        rules.insert(
+            "origin".into(),
+            vec!["Variable not injected: #nonExistentField#".into()],
+        );
+        map.insert(disc, rules);
+    }
+    let bank = CommentaryGrammarBank::try_from_map(map)
+        .expect("bank construction succeeds — origin rule is non-empty");
+
+    for event in all_events() {
+        let result = render_event(&event, 0xDEAD_BEEF_u64, &bank);
+        assert!(
+            matches!(result, Err(CommentaryRenderError::Tracery { .. })),
+            "render_event({event:?}) should have returned CommentaryRenderError::Tracery \
+             (MissingKeyError on #nonExistentField#); got: {result:?}"
+        );
+    }
+}
+
+#[test]
+fn empty_output_variant_is_publicly_constructible_and_displays_correctly() {
+    use fw_content::commentary::CommentaryRenderError;
+
+    // EmptyOutput is the defensive tripwire in render_event: if Tracery
+    // ever returns `Ok("")` (which it doesn't today — tracery 0.2.1 errors
+    // out on empty rule bodies + try_from_map blocks empty origin variants
+    // at construction time, so EmptyOutput is structurally unreachable via
+    // legitimate input in T1-4b). The check exists because tracery's API
+    // doesn't forbid an empty Ok return; a future tracery version that
+    // changed parser behavior could make it reachable.
+    //
+    // This test confirms the variant is publicly constructible (callers
+    // can pattern-match on it without compile error) + the Display impl
+    // names the variant clearly + the variant is structurally distinct
+    // from Tracery. It's a type-design test, not a render-path test.
+    //
+    // If a future change moves Tracery toward "return Ok(empty)" behavior,
+    // the unreachable defensive check becomes the reachable defense; this
+    // test ensures the API surface is ready for that day.
+    for disc in MatchEventDiscriminant::all() {
+        let err = CommentaryRenderError::EmptyOutput { event_class: disc };
+        let msg = format!("{err}");
+        assert!(
+            msg.contains(&format!("{disc:?}")),
+            "Display impl for EmptyOutput must include discriminant name; got: {msg:?}"
+        );
+        assert!(
+            msg.contains("content-authoring bug"),
+            "Display impl for EmptyOutput must hint at the underlying cause \
+             (content-authoring bug); got: {msg:?}"
+        );
+        // Variant is distinct from Tracery (caller pattern-match works).
+        match err {
+            CommentaryRenderError::EmptyOutput { event_class } => {
+                assert_eq!(event_class, disc, "discriminant must round-trip");
+            }
+            CommentaryRenderError::Tracery { .. } => {
+                panic!("EmptyOutput must not pattern-match as Tracery");
+            }
+        }
+    }
+}
