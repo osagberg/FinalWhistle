@@ -44,17 +44,32 @@ pub const ROLE_AFFINITY_SCHEMA_VERSION: u32 = 1;
 // RoleId — typed handle for a role-string
 // ---------------------------------------------------------------------------
 
-/// A typed role identifier (e.g. `"GK"`, `"CB"`, `"AM"`, `"RWB"`). A
-/// `#[serde(transparent)]` newtype over `String`, so RON sees a bare
-/// string but Rust treats `RoleId` as non-fungible with `String`.
+/// A typed role identifier (e.g. `"GK"`, `"CB"`, `"AM"`, `"RWB"`).
+///
+/// RON sees a bare string (e.g. `"GK"`); the manual `Deserialize` impl
+/// calls `try_new` post-parse so whitespace-only or empty strings are
+/// rejected at load time rather than silently stored.
+///
+/// Serialize remains transparent — the wire form is a bare string in both
+/// RON and JSON.
 ///
 /// The role-id catalogue is open — mods may ship custom roles via their
 /// own `RoleAffinityTable`. Validation lives at lookup time
 /// (`RoleAffinityTable::get`); an unrecognized role surfaces as a
 /// load-time FW-VAL error, not a silent zero-fallback.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct RoleId(String);
+
+impl<'de> serde::Deserialize<'de> for RoleId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        RoleId::try_new(s).map_err(serde::de::Error::custom)
+    }
+}
 
 /// Error returned by `RoleId::try_new`. Codex audit P2 (2026-05-13):
 /// `debug_assert!` on empty input meant release builds silently accepted
@@ -114,17 +129,14 @@ impl std::fmt::Display for RoleId {
     }
 }
 
-impl From<&str> for RoleId {
-    fn from(s: &str) -> Self {
-        Self::new(s)
-    }
-}
-
-impl From<String> for RoleId {
-    fn from(s: String) -> Self {
-        Self::new(s)
-    }
-}
+// T1-12 fix-pass per type-design audit P2-1: `From<&str>` + `From<String>`
+// previously delegated to `RoleId::new` which panics on invalid input. That
+// gave non-test callers (e.g. future Tauri DTO code) an infallible-looking
+// surface that silently skipped the validation the new manual `Deserialize`
+// impl was added to enforce. Removed — callers MUST use `RoleId::new`
+// (panicking, for in-source fixture construction) or `RoleId::try_new`
+// (fallible, for content-load-time validation). No production caller relied
+// on these `From` impls (verified by grep over the workspace).
 
 // ---------------------------------------------------------------------------
 // RoleWeights — per-role attribute weight bag

@@ -28,6 +28,9 @@ tracery     = { workspace = true }
 serde_json  = { workspace = true }
 
 [dev-dependencies]
-insta       = { workspace = true }
+insta        = { workspace = true }
 fw-match-sim = { workspace = true }
-blake3      = { workspace = true }
+blake3       = { workspace = true }
+# T1-12 fix-pass: TempDir for tests that need filesystem fixtures (auto-cleanup
+# avoids the pid-only-uniqueness CI-retry collision called out by code-reviewer).
+tempfile     = { workspace = true }

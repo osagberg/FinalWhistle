@@ -59,11 +59,56 @@ pub enum SignatureIdError {
 /// Per `Content/RULES.md` §2 (hand-authored dotted-form carve-out). Mod packs
 /// may define their own signature IDs using their pack-id namespace.
 ///
-/// Construct via [`SignatureId::try_new`]. `Deserialize` accepts any string;
-/// T2-3 `ContentStore::load_baked` calls `try_new` post-parse for each loaded
-/// fixture.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+/// Construct via [`SignatureId::try_new`]. The manual `Deserialize` impl calls
+/// `try_new` post-parse so malformed IDs are rejected at load time.
+///
+/// RON wire form: `SignatureId("fwh.core:signature.slug")` (newtype struct).
+/// The manual impl preserves this form via `deserialize_newtype_struct`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct SignatureId(String);
+
+impl<'de> serde::Deserialize<'de> for SignatureId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct SignatureIdVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for SignatureIdVisitor {
+            type Value = SignatureId;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(
+                    "a content-pack-qualified signature ID string in the form \
+                     `<pack-id>:signature.<slug>`",
+                )
+            }
+
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<SignatureId, E> {
+                SignatureId::try_new(v).map_err(E::custom)
+            }
+
+            fn visit_string<E: serde::de::Error>(self, v: String) -> Result<SignatureId, E> {
+                SignatureId::try_new(v).map_err(E::custom)
+            }
+
+            // RON dispatches newtype structs (`SignatureId("...")`) via
+            // `visit_newtype_struct`. Deserialize the inner value as a `String`
+            // then validate via `try_new`.
+            fn visit_newtype_struct<A>(self, deserializer: A) -> Result<SignatureId, A::Error>
+            where
+                A: serde::Deserializer<'de>,
+            {
+                let s = String::deserialize(deserializer)?;
+                SignatureId::try_new(s).map_err(serde::de::Error::custom)
+            }
+        }
+
+        // RON delivers `SignatureId("...")` as a newtype struct dispatch;
+        // other formats (JSON, Bincode) deliver the inner string directly.
+        deserializer.deserialize_newtype_struct("SignatureId", SignatureIdVisitor)
+    }
+}
 
 impl SignatureId {
     /// Validate and wrap `s` as a `SignatureId`.
@@ -330,13 +375,46 @@ pub enum SignatureCandidateError {
 /// A player typically has 0–3 candidates. Affinity is a hand-authored
 /// gene-style attribute (procedurally derived at T2-4); it is NOT in the
 /// 55-field `PlayerAttributes` model from ADR-0002.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The manual `Deserialize` impl uses a private `RawSignatureCandidate` bridge
+/// type + `TryFrom` to run `try_new` post-parse. This is cleaner than a
+/// `Visitor` impl for a two-field struct.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SignatureCandidate {
     /// Stable content-pack-qualified signature ID.
     pub signature_id: SignatureId,
     /// Affinity in `[0, 1]` Q32. Used as the softmax input when multiple
     /// candidates are eligible at the same tick (T1-2b-iv dispatcher).
     pub affinity: Q32,
+}
+
+/// Private bridge type for `SignatureCandidate` deserialization.
+///
+/// `RawSignatureCandidate` derives `Deserialize` with no validation logic.
+/// Once deserialized, `TryFrom<RawSignatureCandidate> for SignatureCandidate`
+/// runs `try_new` to enforce the `[0, 1]` affinity constraint.
+#[derive(serde::Deserialize)]
+struct RawSignatureCandidate {
+    signature_id: SignatureId,
+    affinity: Q32,
+}
+
+impl TryFrom<RawSignatureCandidate> for SignatureCandidate {
+    type Error = SignatureCandidateError;
+
+    fn try_from(raw: RawSignatureCandidate) -> Result<Self, Self::Error> {
+        SignatureCandidate::try_new(raw.signature_id, raw.affinity)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for SignatureCandidate {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = RawSignatureCandidate::deserialize(deserializer)?;
+        SignatureCandidate::try_from(raw).map_err(serde::de::Error::custom)
+    }
 }
 
 impl SignatureCandidate {

@@ -52,6 +52,7 @@ tauri       = { version = "2", features = [] }
 insta       = { version = "1", features = ["yaml", "ron"] }
 proptest    = "1"
 hex-literal = "1"
+tempfile    = "3"
 
 # Workspace-internal crate references — the only place where path-deps are spelled out.
 fw-core      = { path = "crates/fw-core",      version = "0.1.0" }

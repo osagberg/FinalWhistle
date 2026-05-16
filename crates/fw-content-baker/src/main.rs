@@ -216,14 +216,18 @@ fn main() -> anyhow::Result<()> {
 ///   `attributes.validate_unit_range()` is empty (every Q32 field in
 ///   `[0, 1]`).
 ///
-/// What's NOT implemented yet (T2-3 backlog; explicit NOT_IMPLEMENTED
-/// return rather than silent-pass per Codex audit):
+/// What's NOT implemented yet (T2-3 backlog):
 /// - The bake-time validators (`crates/fw-content-baker/src/validators.rs`
-///   `check_banned_terms` / `check_licensed_data` / `check_cliche`). These
-///   still return `Ok(())` because they have NO consumers yet (no bake
-///   subcommand calls them); making them fail-closed would break a path
-///   nothing currently uses. They become fail-closed during T2-3 when
-///   `bake-names` is the first consumer.
+///   `check_banned_terms` / `check_licensed_data` / `check_cliche`).
+///
+/// T1-12 audit-triage hardening (2026-05-16): these validators now return
+/// `ValidationError::NotImplemented` instead of `Ok(())` — any caller that
+/// mistakenly invokes them before T2-3 will fail loudly. The `validate`
+/// subcommand (this function) does NOT call them — it uses the structural
+/// validators on `ContentStore` directly — so `cargo run -p fw-content-baker
+/// -- validate` continues to pass as expected. Real implementation of the
+/// bake-time validators lands when `bake-names` becomes the first consumer
+/// at T2-3.
 fn run_validate(cli: &Cli) -> anyhow::Result<()> {
     use fw_content::ContentStore;
     use std::path::PathBuf;

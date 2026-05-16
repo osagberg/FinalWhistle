@@ -415,6 +415,62 @@ pub enum ContentLoadError {
         #[source]
         source: tracery::Error,
     },
+    /// Two RON files in the same content category claim the same stable ID.
+    ///
+    /// IDs must be unique within a content category — duplicate IDs would cause
+    /// the second file to silently overwrite the first, making load order
+    /// a hidden correctness dependency. Fail-closed: surface the collision with
+    /// both paths so the content author can resolve it.
+    #[error(
+        "duplicate content ID in {kind}: id={id:?} first seen at {path_first:?}, \
+         duplicate at {path_dupe:?}"
+    )]
+    DuplicateId {
+        /// Content category (e.g. `"culture"`, `"archetype"`, `"signature_definition"`).
+        kind: &'static str,
+        /// The colliding stable content-pack-qualified ID string.
+        id: String,
+        /// Path of the first RON file that claimed this ID.
+        path_first: PathBuf,
+        /// Path of the duplicate RON file that also claimed this ID.
+        path_dupe: PathBuf,
+    },
+}
+
+/// Insert `value` into `map` under `id`, rejecting duplicates.
+///
+/// `paths_seen` tracks the first path that claimed each ID in this load pass.
+/// On the second insertion for the same `id`, returns
+/// `ContentLoadError::DuplicateId` with both paths for fail-loud reporting.
+///
+/// # Arguments
+/// - `map` — the target `BTreeMap` on the `ContentStore` field.
+/// - `paths_seen` — local accumulator keyed by the same ID type; one per
+///   loader block, not shared across categories (no cross-category ID collision
+///   rule).
+/// - `id` — the stable content-pack-qualified ID string from the parsed RON.
+/// - `value` — the parsed entity to insert.
+/// - `kind` — content category label for the error message (e.g. `"culture"`).
+/// - `path` — the RON file path that `value` was parsed from.
+fn insert_unique<V>(
+    map: &mut BTreeMap<String, V>,
+    paths_seen: &mut BTreeMap<String, PathBuf>,
+    id: String,
+    value: V,
+    kind: &'static str,
+    path: PathBuf,
+) -> Result<(), ContentLoadError> {
+    if let Some(path_first) = paths_seen.get(&id) {
+        return Err(ContentLoadError::DuplicateId {
+            kind,
+            id,
+            path_first: path_first.clone(),
+            path_dupe: path,
+        });
+    }
+    paths_seen.insert(id.clone(), path);
+    map.insert(id, value);
+    Ok(())
 }
 
 impl ContentStore {
@@ -458,38 +514,65 @@ impl ContentStore {
         // Cultures
         let cultures_dir = sources_dir.join("cultures");
         if cultures_dir.is_dir() {
+            let mut seen: BTreeMap<String, PathBuf> = BTreeMap::new();
             for entry in walk_ron_files(&cultures_dir)? {
                 let parsed: Culture = parse_ron_file(&entry)?;
-                store.cultures.insert(parsed.id.clone(), parsed);
+                let id = parsed.id.clone();
+                insert_unique(&mut store.cultures, &mut seen, id, parsed, "culture", entry)?;
             }
         }
 
         // Tactical archetypes
         let archetypes_dir = sources_dir.join("archetypes");
         if archetypes_dir.is_dir() {
+            let mut seen: BTreeMap<String, PathBuf> = BTreeMap::new();
             for entry in walk_ron_files(&archetypes_dir)? {
                 let parsed: TacticalArchetype = parse_ron_file(&entry)?;
-                store.tactical_archetypes.insert(parsed.id.clone(), parsed);
+                let id = parsed.id.clone();
+                insert_unique(
+                    &mut store.tactical_archetypes,
+                    &mut seen,
+                    id,
+                    parsed,
+                    "archetype",
+                    entry,
+                )?;
             }
         }
 
         // Role-affinity tables
         let role_aff_dir = sources_dir.join("role-affinities");
         if role_aff_dir.is_dir() {
+            let mut seen: BTreeMap<String, PathBuf> = BTreeMap::new();
             for entry in walk_ron_files(&role_aff_dir)? {
                 let parsed: crate::RoleAffinityTable = parse_ron_file(&entry)?;
-                store.role_affinity_tables.insert(parsed.id.clone(), parsed);
+                let id = parsed.id.clone();
+                insert_unique(
+                    &mut store.role_affinity_tables,
+                    &mut seen,
+                    id,
+                    parsed,
+                    "role_affinity_table",
+                    entry,
+                )?;
             }
         }
 
         // Player templates
         let players_dir = sources_dir.join("players");
         if players_dir.is_dir() {
+            let mut seen: BTreeMap<String, PathBuf> = BTreeMap::new();
             for entry in walk_ron_files(&players_dir)? {
                 let parsed: crate::PlayerTemplate = parse_ron_file(&entry)?;
-                store
-                    .player_templates
-                    .insert(parsed.qualified_id.clone(), parsed);
+                let id = parsed.qualified_id.clone();
+                insert_unique(
+                    &mut store.player_templates,
+                    &mut seen,
+                    id,
+                    parsed,
+                    "player_template",
+                    entry,
+                )?;
             }
         }
 
@@ -498,11 +581,18 @@ impl ContentStore {
         // cultures/archetypes/players above).
         let signatures_dir = sources_dir.join("signatures");
         if signatures_dir.is_dir() {
+            let mut seen: BTreeMap<String, PathBuf> = BTreeMap::new();
             for entry in walk_ron_files(&signatures_dir)? {
                 let parsed: crate::SignatureDefinition = parse_ron_file(&entry)?;
-                store
-                    .signature_definitions
-                    .insert(parsed.id.as_str().to_owned(), parsed);
+                let id = parsed.id.as_str().to_owned();
+                insert_unique(
+                    &mut store.signature_definitions,
+                    &mut seen,
+                    id,
+                    parsed,
+                    "signature_definition",
+                    entry,
+                )?;
             }
         }
 
@@ -711,5 +801,95 @@ mod tests {
         let b = store.sample_player_name("fwh.core:culture.anglo", seed);
         assert_eq!(a, b);
         assert!(a.is_some());
+    }
+
+    // --- Chunk 1 (T1-12): insert_unique unit tests ---
+
+    #[test]
+    fn insert_unique_first_insertion_succeeds() {
+        let mut map: BTreeMap<String, u32> = BTreeMap::new();
+        let mut seen: BTreeMap<String, PathBuf> = BTreeMap::new();
+        let result = insert_unique(
+            &mut map,
+            &mut seen,
+            "fwh.core:culture.test".to_string(),
+            42u32,
+            "culture",
+            PathBuf::from("/fake/a.ron"),
+        );
+        assert!(result.is_ok());
+        assert_eq!(map.get("fwh.core:culture.test"), Some(&42u32));
+        assert!(seen.contains_key("fwh.core:culture.test"));
+    }
+
+    #[test]
+    fn insert_unique_duplicate_returns_error_with_both_paths() {
+        let mut map: BTreeMap<String, u32> = BTreeMap::new();
+        let mut seen: BTreeMap<String, PathBuf> = BTreeMap::new();
+        let path_first = PathBuf::from("/fake/first.ron");
+        let path_dupe = PathBuf::from("/fake/dupe.ron");
+
+        insert_unique(
+            &mut map,
+            &mut seen,
+            "fwh.core:culture.test".to_string(),
+            1u32,
+            "culture",
+            path_first.clone(),
+        )
+        .expect("first insertion must succeed");
+
+        let err = insert_unique(
+            &mut map,
+            &mut seen,
+            "fwh.core:culture.test".to_string(),
+            2u32,
+            "culture",
+            path_dupe.clone(),
+        )
+        .expect_err("second insertion must return DuplicateId");
+
+        match err {
+            ContentLoadError::DuplicateId {
+                kind,
+                id,
+                path_first: pf,
+                path_dupe: pd,
+            } => {
+                assert_eq!(kind, "culture");
+                assert_eq!(id, "fwh.core:culture.test");
+                assert_eq!(pf, path_first);
+                assert_eq!(pd, path_dupe);
+            }
+            other => panic!("expected DuplicateId, got {other:?}"),
+        }
+
+        // Map still holds first value — not overwritten.
+        assert_eq!(map.get("fwh.core:culture.test"), Some(&1u32));
+    }
+
+    #[test]
+    fn insert_unique_distinct_ids_both_succeed() {
+        let mut map: BTreeMap<String, u32> = BTreeMap::new();
+        let mut seen: BTreeMap<String, PathBuf> = BTreeMap::new();
+        insert_unique(
+            &mut map,
+            &mut seen,
+            "fwh.core:culture.alpha".to_string(),
+            1u32,
+            "culture",
+            PathBuf::from("/fake/alpha.ron"),
+        )
+        .expect("alpha insertion must succeed");
+        insert_unique(
+            &mut map,
+            &mut seen,
+            "fwh.core:culture.beta".to_string(),
+            2u32,
+            "culture",
+            PathBuf::from("/fake/beta.ron"),
+        )
+        .expect("beta insertion must succeed");
+        assert_eq!(map.len(), 2);
     }
 }
