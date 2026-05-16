@@ -193,7 +193,21 @@ const MAGIC: &[u8; 4] = b"FWMS";
 //          [ last_touched_present u8 ] (0 = None, 1 = Some)
 //          [ last_touched_slot u8 ]    (only if last_touched_present == 1)
 //        History note (2026-05-16 T1-3.5): re-baselined per ADR-0012 trigger #1.
-const VERSION: u16 = 8;
+//   9 — T2-1a: MatchState gained home_archetype_id: String +
+//        away_archetype_id: String (per-team archetype loading).
+//        Resolved ArchetypeParams sidecars (home/away_archetype_params) are
+//        NOT encoded — they're derived from the IDs at construction time
+//        via tactic_fsm::archetype_params_for bridge. Wire-format section
+//        appended AFTER last_touched_by:
+//          [ home_id_len u16 LE ] [ home_id_bytes* ]
+//          [ away_id_len u16 LE ] [ away_id_bytes* ]
+//        History note (2026-05-16 T2-1a): re-baselined per ADR-0012 trigger #1
+//        (schema bump: 2 new canonical fields) + trigger #3 on the 600-tick
+//        extended seed (per-team behavior change because the test caller
+//        passes home=attacking-fullback, away=low-block-counter — meaningful
+//        per-team divergence). 60-tick smoke seed drift is schema-only (both
+//        teams default to attacking-fullback via DEFAULT_ARCHETYPE_ID).
+const VERSION: u16 = 9;
 
 /// Streaming canonical encoder. Append bytes as values are emitted; call
 /// `finish()` to get the buffer for hashing.
@@ -340,6 +354,28 @@ impl CanonicalEncoder {
 
         // T1-3.5: last_touched_by — Option<PlayerSlot> (2 bytes max).
         self.encode_option_slot(state.last_touched_by);
+
+        // T2-1a: per-team archetype IDs. Appended AFTER last_touched_by per the
+        // append discipline (no prior sections reordered). Each ID encodes as
+        // [u16 LE byte length] [UTF-8 bytes] — same shape as signature IDs at
+        // lines 287-293 above. Resolved ArchetypeParams sidecars are NOT
+        // encoded; they're recomputed from the IDs at MatchState construction
+        // via tactic_fsm::archetype_params_for. Schema bump VERSION 8 → 9.
+        let home_id_bytes = state.home_archetype_id.as_bytes();
+        assert!(
+            home_id_bytes.len() <= u16::MAX as usize,
+            "home_archetype_id exceeds u16 length field",
+        );
+        self.write_u16(home_id_bytes.len() as u16);
+        self.buf.extend_from_slice(home_id_bytes);
+
+        let away_id_bytes = state.away_archetype_id.as_bytes();
+        assert!(
+            away_id_bytes.len() <= u16::MAX as usize,
+            "away_archetype_id exceeds u16 length field",
+        );
+        self.write_u16(away_id_bytes.len() as u16);
+        self.buf.extend_from_slice(away_id_bytes);
     }
 
     /// Encode a `Vec<MatchEvent>` into the canonical byte stream.
@@ -759,11 +795,11 @@ mod tests {
     }
 
     #[test]
-    fn version_is_8_after_t1_3_5_schema_bump() {
+    fn version_is_9_after_t2_1a_per_team_archetypes_schema_bump() {
         assert_eq!(
-            VERSION, 8,
-            "VERSION should be 8 after T1-3.5 possession-state canonical schema bump \
-             (MatchState gained possession: Option<PlayerSlot> + last_touched_by: Option<PlayerSlot>)"
+            VERSION, 9,
+            "VERSION should be 9 after T2-1a per-team-archetypes canonical schema bump \
+             (MatchState gained home_archetype_id: String + away_archetype_id: String)"
         );
     }
 

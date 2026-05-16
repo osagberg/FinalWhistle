@@ -224,6 +224,17 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   the `[0, 1]` softmax domain after the proximity and personality-bias
 ///   multipliers. GK transition goal-line constants also now use
 ///   `GOAL_LINE_X`. Authorized by the Codex Tier-2 pre-/done audit response.
+/// - 2026-05-16 (T2-1a per-team archetypes) — **re-baselined to
+///   `e0312069...3696`** per ADR-0012 trigger #1 (canonical encoder VERSION
+///   bump 8→9; MatchState gained `home_archetype_id` + `away_archetype_id`
+///   String fields appended after `last_touched_by`). Drift on this
+///   60-tick smoke pin is SCHEMA-ONLY — both teams default to
+///   `DEFAULT_ARCHETYPE_ID = "fwh.core:archetype.attacking-fullback"` on
+///   the bare-init path + the `tactic_fsm::archetype_params_for` bridge
+///   preserves the pre-T2-1a hardcoded `direct_pressing()` params for
+///   that archetype. The 60-tick smoke doesn't score, so the Goal-event
+///   archetype apply at lib.rs:781 is unreachable here; no per-tick
+///   behavior delta on this pin. Authorized by the T2-1a spec in MEMORY.md.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -232,7 +243,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("fcccb840b5868a4ed55c019c353a1d5496259073e2d88bf7abd97d9bdca7a751");
+    hex!("e0312069b901e16cd6caf190a7ca21401ffdd8be9d0bd18cc80280a2612f3696");
 
 /// Read `env_var` as the number of fresh runs for an intra-process determinism
 /// test, falling back to `default` when the env var is absent or unparseable.
@@ -575,13 +586,38 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   `9353bd25...47eb`** per ADR-0012 trigger #3. Same changes as
 ///   PINNED_60_TICK above: shoot utility clamp + `GOAL_LINE_X` alignment.
 ///   Authorized by the Codex Tier-2 pre-/done audit response.
+/// - 2026-05-17 (T2-1a per-team archetypes — REVISE-fix re-framing) —
+///   **re-baselined to `81098579...d999`** per ADR-0012 trigger #1
+///   (canonical encoder VERSION bump 8→9; MatchState gained the two
+///   `home_archetype_id` + `away_archetype_id` `String` fields appended
+///   after `last_touched_by`; same schema bump as PINNED_60_TICK above).
+///   **Drift on this pin is SCHEMA-ONLY** — same character as the 60-tick
+///   smoke pin. The T2-1a self-review CRITICAL-1 finding (silent-failure-
+///   hunter, 2026-05-17) corrected an earlier draft of this history
+///   comment which claimed trigger #3 (per-team behavior divergence)
+///   also drove the drift. It does NOT: the only `TacticEvent` emitted
+///   in current production is `Goal`, and the Goal arm of `apply_event`
+///   (`tactic_fsm.rs::apply_event`) hardcodes `TacticState::MidBlock`
+///   regardless of the archetype param. So even though this 600-tick
+///   test now passes `home="fwh.core:archetype.attacking-fullback"` +
+///   `away="fwh.core:archetype.low-block-counter"` to
+///   `MatchState::initial_with_content`, the away team's sidecar params
+///   never reach a consumer that would produce per-tick divergence vs the
+///   pre-T2-1a shared-default sim path. Per-team behavioral divergence
+///   becomes real (and earns trigger #3) at T2-1b/c when the
+///   `BallInPlay` / `PossessionLost` / `BallRecovered` `TacticEvent`
+///   variants get emitted + their `apply_event` arms consult the
+///   per-team `archetype_params`. Goal envelope verified in `[2, 5]`
+///   per the codified
+///   `extended_seed_600_tick_goal_count_in_t1_exit_gate_envelope` test
+///   below. Authorized by the T2-1a spec in MEMORY.md.
 ///
 /// Re-baselining: update this constant AND the `expected_hash` field of
 /// `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron` in the same commit,
 /// per `docs/specs/determinism-gate.md` §9 — the same protocol that
 /// governs PINNED_60_TICK above.
 const PINNED_600_TICK: [u8; 32] =
-    hex!("9353bd257d4da92092407355e3c2b32cc6e91abc81664d0015336ebe812947eb");
+    hex!("8109857942e1ee2a8c429a43e89bfa5eac4582fb70ef59f1a3a04f26765ad999");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {
@@ -592,8 +628,19 @@ fn extended_seed_600_tick_canonical_hash_pinned() {
     );
 
     let seed = Seed::from_u64(EXTENDED_SEED);
-    let mut state = MatchState::initial_with_content(seed, &content)
-        .expect("initial_with_content should succeed against the committed corpus");
+    // T2-1a: exercise per-team archetype variation in the canonical regression.
+    // home=attacking-fullback (= DEFAULT_ARCHETYPE_ID) preserves the pre-T2-1a
+    // effective behavior on that side; away=low-block-counter creates the
+    // meaningful per-team divergence that proves the per-team feature works
+    // in the canonical pin. Drift on this pin is SCHEMA + PER-TEAM-BEHAVIOR
+    // (the 600-tick run accumulates real tactic-FSM transition differences).
+    let mut state = MatchState::initial_with_content(
+        seed,
+        &content,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        "fwh.core:archetype.low-block-counter",
+    )
+    .expect("initial_with_content should succeed against the committed corpus");
     for _ in 0..EXTENDED_TICK_COUNT {
         state = tick_match(state, &content.signature_definitions);
     }
@@ -645,8 +692,16 @@ fn extended_seed_runs_10_times_produce_one_hash() {
     let mut distinct: BTreeSet<[u8; 32]> = BTreeSet::new();
     for _ in 0..n_runs {
         let seed = Seed::from_u64(EXTENDED_SEED);
-        let mut state = MatchState::initial_with_content(seed, &content)
-            .expect("initial_with_content should succeed");
+        // T2-1a: same per-team archetype pairing as the pinned-hash test above
+        // (home=attacking-fullback, away=low-block-counter) so the determinism
+        // check verifies the per-team feature path, not the bare-default path.
+        let mut state = MatchState::initial_with_content(
+            seed,
+            &content,
+            fw_match_sim::DEFAULT_ARCHETYPE_ID,
+            "fwh.core:archetype.low-block-counter",
+        )
+        .expect("initial_with_content should succeed");
         for _ in 0..EXTENDED_TICK_COUNT {
             state = tick_match(state, &content.signature_definitions);
         }
@@ -771,6 +826,99 @@ fn hex_string(bytes: &[u8]) -> String {
 // `tick_match` are renamed without updating this test, compilation breaks
 // loudly. (Better than a runtime error in CI.)
 // -------------------------------------------------------------------------
+
+/// T2-1a: empirical envelope guards for the extended-seed pinned hash.
+///
+/// Per the post-T1-15 hardening rule + the T2-1a row spec, a canonical-hash
+/// rebaseline driven by per-team behavior change (ADR-0012 trigger #3) MUST
+/// be accompanied by main-thread verification that the empirical envelope
+/// from T1 exit gate Bullet 1 still holds — specifically that the 600-tick
+/// extended seed `0xfeedbeefcafefade` with the T2-1a canonical archetype
+/// pairing (home=attacking-fullback, away=low-block-counter) produces 2-5
+/// total goals.
+///
+/// Two envelope tiers per the T2-1a self-review HIGH-1 finding
+/// (silent-failure-hunter, 2026-05-17): the strict pinned-seed envelope
+/// `[2, 5]` AND a broader 5-seed sanity envelope `[0, 7]` that catches a
+/// future change which keeps the pinned seed inside `[2, 5]` by coincidence
+/// while pushing other seeds into runaway-score (>7) or dead-loop (==0)
+/// territory. Original single-seed guard alone could pass while the engine
+/// silently regressed for everything outside its narrow probe.
+const SCORE_SANITY_SEEDS: &[u64] = &[
+    EXTENDED_SEED,      // pinned smoke seed — must be in [2, 5]
+    0xa1b2c3d4e5f60718, // 5-seed envelope sample
+    0xfedcba9876543210,
+    0x1357acefbd024689,
+    0x0bad_c0de_dead_beef,
+];
+
+#[test]
+fn extended_seed_600_tick_goal_count_in_t1_exit_gate_envelope() {
+    let content_root = workspace_content_root();
+    let content = ContentStore::load_sources(&content_root).expect("content/sources should load");
+
+    let mut all_scores = Vec::with_capacity(SCORE_SANITY_SEEDS.len());
+    for &seed_val in SCORE_SANITY_SEEDS {
+        let seed = Seed::from_u64(seed_val);
+        let mut state = MatchState::initial_with_content(
+            seed,
+            &content,
+            fw_match_sim::DEFAULT_ARCHETYPE_ID,
+            "fwh.core:archetype.low-block-counter",
+        )
+        .expect("initial_with_content should succeed");
+        for _ in 0..EXTENDED_TICK_COUNT {
+            state = tick_match(state, &content.signature_definitions);
+        }
+        let total_goals = state.home_score as u32 + state.away_score as u32;
+        all_scores.push((seed_val, total_goals, state.home_score, state.away_score));
+    }
+
+    // STRICT envelope: pinned smoke seed `EXTENDED_SEED` must be in [2, 5]
+    // — this is the codified T1 exit gate Bullet 1 contract.
+    let (_seed, pinned_goals, pinned_home, pinned_away) = all_scores[0];
+    assert!(
+        (2..=5).contains(&pinned_goals),
+        "T1 exit gate Bullet 1 envelope: pinned extended seed {:#x} must \
+         produce 2-5 total goals across {} ticks; got {} (home={}, away={}). \
+         If this drifts out of envelope alongside a canonical hash rebaseline, \
+         the rebaseline must be escalated per the post-T1-15 hardening rule, \
+         NOT auto-approved.",
+        EXTENDED_SEED,
+        EXTENDED_TICK_COUNT,
+        pinned_goals,
+        pinned_home,
+        pinned_away,
+    );
+
+    // BROADER sanity envelope: every seed in the 5-seed sweep must produce
+    // 0-7 total goals across 600 ticks. Per the T2-1a self-review HIGH-1
+    // fix: 0 catches an engine that's regressed to "no shots ever fire,"
+    // 7+ catches a runaway-scoring regression. The pinned seed's tight
+    // envelope above is the primary contract; this broader envelope catches
+    // the silent-failure mode where the pinned seed coincidentally lands
+    // in [2, 5] but the rest of the seed-space has drifted.
+    for &(seed_val, total_goals, home, away) in &all_scores {
+        assert!(
+            (0..=7).contains(&total_goals),
+            "Broader sanity envelope: seed {:#x} produced {} total goals \
+             (home={}, away={}) across {} ticks — outside [0, 7]. The \
+             pinned seed alone passing its narrow envelope is no longer \
+             sufficient evidence that the sim is healthy across the \
+             seed-space. Investigate before rebaselining. (Full sweep: \
+             {:?})",
+            seed_val,
+            total_goals,
+            home,
+            away,
+            EXTENDED_TICK_COUNT,
+            all_scores
+                .iter()
+                .map(|(s, g, _, _)| (format!("{s:#x}"), *g))
+                .collect::<Vec<_>>(),
+        );
+    }
+}
 
 #[allow(dead_code)]
 fn _surface_area_witness() {

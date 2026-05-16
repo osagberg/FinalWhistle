@@ -37,8 +37,13 @@ fn slot_7_has_signature_candidates_from_sample_am() {
     let store = load_store();
     let seed = Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
 
-    let state = MatchState::initial_with_content(seed, &store)
-        .expect("initial_with_content should succeed");
+    let state = MatchState::initial_with_content(
+        seed,
+        &store,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+    )
+    .expect("initial_with_content should succeed");
 
     let candidates = state.players[7].signature_candidates();
     assert_eq!(
@@ -76,8 +81,13 @@ fn slots_except_7_have_empty_candidates_after_initial_with_content() {
     let store = load_store();
     let seed = Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
 
-    let state = MatchState::initial_with_content(seed, &store)
-        .expect("initial_with_content should succeed");
+    let state = MatchState::initial_with_content(
+        seed,
+        &store,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+    )
+    .expect("initial_with_content should succeed");
 
     for (i, player) in state.players.iter().enumerate() {
         if i == 7 {
@@ -102,10 +112,20 @@ fn initial_with_content_is_deterministic() {
     let store = load_store();
     let seed = Seed::from_u64(0xCAFE_BABE_CAFE_BABE);
 
-    let state_a =
-        MatchState::initial_with_content(seed, &store).expect("initial_with_content (a) failed");
-    let state_b =
-        MatchState::initial_with_content(seed, &store).expect("initial_with_content (b) failed");
+    let state_a = MatchState::initial_with_content(
+        seed,
+        &store,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+    )
+    .expect("initial_with_content (a) failed");
+    let state_b = MatchState::initial_with_content(
+        seed,
+        &store,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+    )
+    .expect("initial_with_content (b) failed");
 
     assert_eq!(
         state_a.encode_canonical(),
@@ -125,8 +145,13 @@ fn initial_with_content_canonical_differs_from_initial() {
     let seed = Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
 
     let state_plain = MatchState::initial(seed);
-    let state_content =
-        MatchState::initial_with_content(seed, &store).expect("initial_with_content failed");
+    let state_content = MatchState::initial_with_content(
+        seed,
+        &store,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+    )
+    .expect("initial_with_content failed");
 
     assert_ne!(
         state_plain.encode_canonical(),
@@ -145,7 +170,12 @@ fn initial_with_content_fails_when_sample_am_missing() {
     let empty_store = ContentStore::default();
     let seed = Seed::from_u64(0);
 
-    let result = MatchState::initial_with_content(seed, &empty_store);
+    let result = MatchState::initial_with_content(
+        seed,
+        &empty_store,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+    );
     assert!(
         result.is_err(),
         "initial_with_content with empty ContentStore should return Err (no sample-am template)"
@@ -162,8 +192,13 @@ fn initial_with_content_then_tick_match_advances() {
     let seed = Seed::from_u64(42);
     let empty_sigs: BTreeMap<String, SignatureDefinition> = BTreeMap::new();
 
-    let state =
-        MatchState::initial_with_content(seed, &store).expect("initial_with_content failed");
+    let state = MatchState::initial_with_content(
+        seed,
+        &store,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+    )
+    .expect("initial_with_content failed");
     let after = tick_match(state, &empty_sigs);
     assert_eq!(
         after.tick,

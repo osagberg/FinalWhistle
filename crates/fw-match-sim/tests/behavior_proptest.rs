@@ -66,18 +66,30 @@
 //!
 //! The following invariants are explicitly out of scope for T1-9 because
 //! `MatchState::initial` does not load per-team `TacticalArchetype` objects.
-//! Per-team archetype wiring lands in T2-1 ("full BT runner with 20-30
-//! manager archetypes"). Re-file these in T2-1 once the archetype field
-//! exists on `MatchState`.
+//! T2-1a wired per-team archetype IDs as canonical-state fields (encoder
+//! VERSION 8 to 9), but with the current 2-archetype catalog the four
+//! behavioral invariants below cannot ship yet (they require archetype
+//! PAIRS that vary on a SINGLE knob, while the 2 existing archetypes vary
+//! on multiple knobs simultaneously). T2-1a ships only the schema-bump
+//! observable invariant `per_team_archetype_ids_round_trip_canonically`
+//! below per the T2-1a self-review MEDIUM-1 finding. The 4 behavioral
+//! invariants stay deferred to T2-1b/c where 5-8+ new archetypes
+//! naturally produce single-knob-varying pairs.
 //!
 //! - `defender_depth_tracks_archetype` — ADR-0007 §Layer 3 invariant (a-4):
 //!   defender average X depth tracks the team's tactical archetype deep-block
-//!   vs high-press setting within 8 m. Cannot test without a per-team
-//!   archetype field in `MatchState`.
+//!   vs high-press setting within 8 m. **Per T2-1a additional gating** (silent-
+//!   failure-hunter CRITICAL-1 framing): even with per-team archetype IDs
+//!   plumbed, the only `TacticEvent` consumer in current production is
+//!   `Goal`, whose `apply_event` arm hardcodes `MidBlock` independent of
+//!   archetype. Real defender-depth divergence requires `BallInPlay` /
+//!   `PossessionLost` / `BallRecovered` event emission + archetype-consuming
+//!   apply arms — that lands at T2-1b/c.
 //!
 //! - `knob_isolation_home_advantage_affects_only_home_team_width` — ADR-0007
 //!   §Layer 3 invariant (c): flip one per-team construction knob, assert only
-//!   the expected invariant changes. No construction-time knobs exist in T1.
+//!   the expected invariant changes. Today's 2-archetype catalog varies on
+//!   multiple knobs simultaneously, blocking single-knob isolation.
 //!
 //! - `knob_isolation_press_intensity_increases_home_territory_passes` — same
 //!   deferral reason.
@@ -576,5 +588,116 @@ proptest! {
                 );
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Invariant 5: per_team_archetype_ids_round_trip_canonically (T2-1a)
+//
+// T1-9 deferred 4 sub-prongs (home-advantage, press-intensity,
+// formation-depth, defender-depth-tracks-archetype) to T2-1 because each
+// requires archetype PAIRS that vary on a SINGLE knob. Today's 2-archetype
+// catalog (attacking-fullback, low-block-counter) varies on MULTIPLE knobs
+// simultaneously, so single-knob directional-delta tests would be measuring
+// compounded effects. ALL 4 stay deferred to T2-1b/c where 5-8+ new
+// archetypes naturally produce single-knob-varying pairs.
+//
+// What ships at T2-1a instead — the SCHEMA-bump-OBSERVABLE invariant:
+//
+// Per-team archetype IDs are now canonical-state fields (encoder VERSION 8→9).
+// The schema-bump-only drift on both canonical-hash pins (per the T2-1a
+// rebaseline history + the CRITICAL-1 corrected framing) means the ONLY
+// observable effect of T2-1a at runtime is that swapping the away-team
+// archetype ID changes the canonical-state bytes (because the ID string
+// IS part of the encoded state). This invariant pins that observable: two
+// initial_with_content calls that differ ONLY in the away-team archetype ID
+// must produce different canonical bytes.
+//
+// Per the T2-1a self-review MEDIUM-1 finding (silent-failure-hunter,
+// 2026-05-17): the prior `defender_depth_tracks_archetype_within_12m`
+// proptest claimed to test archetype-driven behavioral divergence but
+// only asserted home defenders stay in home half (mean_x < 0) + away
+// defenders stay in away half (mean_x > 0) — assertions that pass equally
+// when BOTH teams load the same archetype, because formation_position is
+// hardcoded mirrored. It was a formation-start invariant masquerading as
+// an archetype-divergence invariant. Replaced with this honest schema-
+// round-trip invariant; the 4 deferred behavioral invariants (including
+// the real defender-depth one) ship at T2-1b/c when archetypes actually
+// diverge sim behavior.
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 50,
+        max_shrink_iters: 500,
+        ..ProptestConfig::default()
+    })]
+
+    /// T2-1a schema-bump observable: per-team archetype IDs round-trip
+    /// through canonical encoding and changing the away ID produces a
+    /// different canonical-state byte stream at tick 0 (no sim advance
+    /// required — the IDs ARE the canonical-state delta).
+    ///
+    /// Mutation pre-check (per /next Step 6): if a future change drops
+    /// the two archetype ID fields from the canonical encoder or
+    /// silently aliases them to a single shared ID, this test fails
+    /// because the two byte streams would become equal.
+    #[test]
+    fn per_team_archetype_ids_round_trip_canonically(seed_u64 in arb_seed()) {
+        use fw_content::ContentStore;
+        use std::path::PathBuf;
+
+        let content_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..").join("..").join("content");
+        let content = ContentStore::load_sources(&content_root)
+            .expect("content/sources should load");
+        let seed = Seed::from_u64(seed_u64);
+
+        // Baseline: both teams default archetype.
+        let s_both_default = MatchState::initial_with_content(
+            seed,
+            &content,
+            fw_match_sim::DEFAULT_ARCHETYPE_ID,
+            fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        ).expect("initial_with_content default+default");
+
+        // Variant: away team swapped to low-block-counter.
+        let s_away_lbc = MatchState::initial_with_content(
+            seed,
+            &content,
+            fw_match_sim::DEFAULT_ARCHETYPE_ID,
+            "fwh.core:archetype.low-block-counter",
+        ).expect("initial_with_content default+low-block-counter");
+
+        // The accessor surface MUST reflect the construction args.
+        prop_assert_eq!(s_both_default.home_archetype_id(), fw_match_sim::DEFAULT_ARCHETYPE_ID);
+        prop_assert_eq!(s_both_default.away_archetype_id(), fw_match_sim::DEFAULT_ARCHETYPE_ID);
+        prop_assert_eq!(s_away_lbc.home_archetype_id(), fw_match_sim::DEFAULT_ARCHETYPE_ID);
+        prop_assert_eq!(s_away_lbc.away_archetype_id(), "fwh.core:archetype.low-block-counter");
+
+        // Canonical bytes MUST differ — same seed, same home id, different
+        // away id. If they're equal the schema-bump observable is broken
+        // (either the encoder doesn't append the away id or both teams
+        // were silently aliased to the same value).
+        let bytes_default = s_both_default.encode_canonical();
+        let bytes_lbc = s_away_lbc.encode_canonical();
+        prop_assert_ne!(
+            &bytes_default, &bytes_lbc,
+            "T2-1a schema-bump observable broken: away id change \
+             (default → low-block-counter) produced identical canonical bytes. \
+             Either the canonical encoder doesn't append away_archetype_id, \
+             or initial_with_content silently overwrote it. Seed: {:#018x}",
+            seed_u64
+        );
+
+        // Round-trip determinism: encoding the same state twice must
+        // produce identical bytes (caught by an earlier intra-process
+        // determinism test but pinned here too to make this proptest
+        // self-contained for the per-team-id property).
+        prop_assert_eq!(
+            &bytes_default, &s_both_default.encode_canonical(),
+            "encode_canonical non-deterministic for default+default on seed {:#018x}",
+            seed_u64
+        );
     }
 }

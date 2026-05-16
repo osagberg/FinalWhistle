@@ -87,7 +87,12 @@ pub async fn play_match_inner(
 ) -> Result<MatchResult, IpcError> {
     let seed = parse_seed_hex(&seed_hex)?;
     // `?` exercises `From<ContentLoadError> for IpcError` (see error.rs).
-    let mut sim_state = MatchState::initial_with_content(seed, state.content())?;
+    let mut sim_state = MatchState::initial_with_content(
+        seed,
+        state.content(),
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+    )?;
     for _ in 0..tick_count {
         sim_state = tick_match(sim_state, state.signature_definitions());
     }
@@ -109,7 +114,12 @@ pub async fn match_frames_inner(
 
     let seed = parse_seed_hex(&seed_hex)?;
     // `?` exercises `From<ContentLoadError> for IpcError` (see error.rs).
-    let mut sim_state = MatchState::initial_with_content(seed, state.content())?;
+    let mut sim_state = MatchState::initial_with_content(
+        seed,
+        state.content(),
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+    )?;
 
     // tick_count + 1 frames: index 0 = initial state, index tick_count = final.
     // The guard above caps tick_count at MAX_FRAMES_PER_REQUEST (= 7200), so
@@ -254,7 +264,13 @@ mod tests {
 
         // Independent BLAKE3 computation.
         let seed = Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
-        let mut sim_state = MatchState::initial_with_content(seed, state.content()).expect("init");
+        let mut sim_state = MatchState::initial_with_content(
+            seed,
+            state.content(),
+            fw_match_sim::DEFAULT_ARCHETYPE_ID,
+            fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        )
+        .expect("init");
         for _ in 0..60 {
             sim_state = tick_match(sim_state, state.signature_definitions());
         }

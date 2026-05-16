@@ -12,8 +12,18 @@
 # new=last-existing-line + new-bullet) and rejects mutations / deletions.
 #
 # Wired by .claude/settings.json (PreToolUse, matcher
-# 'Edit|Write|NotebookEdit', file_path filter on docs/DECISIONS.md). The
+# 'Edit|Write|MultiEdit', file_path filter on docs/DECISIONS.md). The
 # matcher passes the tool input JSON on stdin.
+#
+# **Codex 2026-05-16 whole-codebase audit (backlog): MultiEdit coverage gap.**
+# Prior implementation whitelisted ("Edit", "Write", "NotebookEdit") — the
+# settings.json matcher routes MultiEdit to this hook, but the hook
+# silently exited with sys.exit(0) when invoked for MultiEdit because the
+# tool_name wasn't in the whitelist. A MultiEdit batch on DECISIONS.md
+# could therefore mutate dated bullets undetected. Fix: include
+# "MultiEdit" in the whitelist + iterate its `edits: [{old_string,
+# new_string}]` array, applying the same append-only literal-substring
+# rule to each pair.
 
 # Read JSON from stdin into an env var, then let the heredoc provide the
 # Python script. Avoids the stdin double-use bug.
@@ -30,7 +40,7 @@ except Exception:
     sys.exit(0)
 
 tool = data.get("tool_name", "")
-if tool not in ("Edit", "Write", "NotebookEdit"):
+if tool not in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
     sys.exit(0)
 
 ti = data.get("tool_input") or {}
@@ -49,6 +59,13 @@ if "/archive/" in fp:
 old = ti.get("old_string") or ""
 new = ti.get("new_string") or ""
 content = ti.get("content", "")  # Write uses content, not old/new
+
+# MultiEdit fans out to a list of {old_string, new_string} edits applied
+# sequentially. Treat as N back-to-back Edits: any single pair that would
+# mutate a dated bullet trips the same block.
+multi_edits = ti.get("edits") or []
+if tool == "MultiEdit" and not isinstance(multi_edits, list):
+    multi_edits = []
 
 decision_line = re.compile(r'^- \*\*\d{4}-', re.MULTILINE)
 
@@ -100,9 +117,12 @@ if tool == "Write":
             "See CLAUDE.md §4.3 and the /log-decision skill."
         )
 
-# Beyond this point: require the change to involve decision-line context
-# before applying the append-only literal-substring rule.
-if not decision_line.search(old + new + content):
+# Aggregate all decision-line-bearing strings the proposed change touches
+# (single-Edit old+new, Write content, and every MultiEdit pair) for the
+# "does this touch the decisions log at all?" gate.
+multi_blob = "".join((e.get("old_string") or "") + (e.get("new_string") or "")
+                     for e in multi_edits)
+if not decision_line.search(old + new + content + multi_blob):
     sys.exit(0)
 
 if tool == "Write":
@@ -121,7 +141,7 @@ if ti.get("replace_all"):
         "pattern."
     )
 
-# The append-only rule.
+# The append-only rule for single Edit.
 if old and old not in new:
     block(
         "BLOCKED: edit to DECISIONS.md would mutate or delete an existing\n"
@@ -132,6 +152,30 @@ if old and old not in new:
         "  3. Optionally pure-append '(Superseded <date>)' to the prior entry.\n\n"
         "See CLAUDE.md §4.3 and the /log-decision skill."
     )
+
+# The append-only rule for MultiEdit: any pair touching a dated bullet
+# whose new_string drops the old_string trips. Per-pair replace_all also
+# blocks (same risk as single-Edit replace_all on this file).
+for idx, e in enumerate(multi_edits):
+    e_old = e.get("old_string") or ""
+    e_new = e.get("new_string") or ""
+    if e.get("replace_all"):
+        block(
+            f"BLOCKED: MultiEdit edit #{idx + 1} on DECISIONS.md uses "
+            "replace_all=true. Apply each edit with a targeted, "
+            "append-only pattern."
+        )
+    if e_old and e_old not in e_new and decision_line.search(e_old + e_new):
+        block(
+            f"BLOCKED: MultiEdit edit #{idx + 1} on DECISIONS.md would "
+            "mutate or delete an existing decisions-log entry. The log "
+            "is append-only.\n\n"
+            "To revise a prior entry:\n"
+            "  1. Leave the original line intact.\n"
+            "  2. Append a NEW entry at the end with 'Supersedes: <prior date>'.\n"
+            "  3. Optionally pure-append '(Superseded <date>)' to the prior entry.\n\n"
+            "See CLAUDE.md §4.3 and the /log-decision skill."
+        )
 
 sys.exit(0)
 PYEOF

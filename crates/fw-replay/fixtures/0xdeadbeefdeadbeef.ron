@@ -150,6 +150,22 @@
 //                               softmax domain after proximity + personality bias,
 //                               and GK transition constants use GOAL_LINE_X.
 //                               Authorized by Codex Tier-2 pre-/done audit response.
+//   2026-05-16 (T2-1a per-team archetypes) — `e0312069...3696` per
+//                               ADR-0012 trigger #1 (canonical encoder VERSION
+//                               bump 8→9: MatchState gained `home_archetype_id`
+//                               + `away_archetype_id` String fields appended
+//                               after `last_touched_by`). Drift on this 60-tick
+//                               smoke pin is SCHEMA-ONLY — both teams default
+//                               to `DEFAULT_ARCHETYPE_ID =
+//                               "fwh.core:archetype.attacking-fullback"` at
+//                               `MatchState::initial(seed)` + the bridge
+//                               (`tactic_fsm::archetype_params_for`) preserves
+//                               the pre-T2-1a hardcoded `direct_pressing()`
+//                               params for that archetype. No per-tick
+//                               behavior delta on this pin (the 60-tick smoke
+//                               doesn't score so the Goal-event archetype
+//                               apply at lib.rs:781 is unreachable here).
+//                               Authorized by the T2-1a spec in MEMORY.md.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -161,10 +177,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:fcccb840b5868a4ed55c019c353a1d5496259073e2d88bf7abd97d9bdca7a751",
+    expected_hash: "blake3:e0312069b901e16cd6caf190a7ca21401ffdd8be9d0bd18cc80280a2612f3696",
     metadata: (
-        description: "T1-16 shoot utility contract. Shoot scoring uses GOAL_LINE_X and clamps returned shoot utility into [0, 1]; GK transition constants use GOAL_LINE_X. Builds on T1-15 goal-scoring retune.",
+        description: "T2-1a per-team archetypes. MatchState gained home_archetype_id + away_archetype_id String fields (canonical encoder VERSION 8->9); both default to attacking-fullback on the bare-init path so smoke-seed drift is schema-only. Per-team archetype params consumed by the Goal-event apply at lib.rs:781.",
         generated_at: "2026-05-16",
-        notes: "Re-pinned at T1-16 (ADR-0012 trigger #3). Prior hash 2f14a562...cb27 was T1-15 goal scoring.",
+        notes: "Re-pinned at T2-1a (ADR-0012 trigger #1; schema bump). Prior hash fcccb840...a751 was T1-16 shoot-utility contract.",
     ),
 )

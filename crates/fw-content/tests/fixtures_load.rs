@@ -260,10 +260,20 @@ fn signature_load_does_not_drift_canonical_hash() {
     // fw_core::GOAL_LINE_X. ADR-0012 trigger #3 authorized this rebaseline.
     // Prior hash (T1-15 / goal scoring):
     //   2f14a562de30bd2375b9393b1f46c1f563f131ec155fd8c4a7fbae20e25dcb27
+    // T2-1a rebaseline: per-team archetype loading. MatchState gained
+    // home_archetype_id + away_archetype_id String fields; canonical encoder
+    // VERSION bumped 8→9. SCHEMA-ONLY drift on this 60-tick smoke pin (both
+    // teams default to DEFAULT_ARCHETYPE_ID = "fwh.core:archetype.attacking-fullback"
+    // at MatchState::initial; the bridge preserves direct_pressing() params
+    // for that archetype + the 60-tick smoke doesn't score so the Goal-event
+    // archetype apply at lib.rs:781 is unreachable here). ADR-0012 trigger #1
+    // authorized this rebaseline.
+    // Prior hash (T1-16 / shoot utility contract):
+    //   fcccb840b5868a4ed55c019c353a1d5496259073e2d88bf7abd97d9bdca7a751
     const EXPECTED: [u8; 32] = [
-        0xfc, 0xcc, 0xb8, 0x40, 0xb5, 0x86, 0x8a, 0x4e, 0xd5, 0x5c, 0x01, 0x9c, 0x35, 0x3a, 0x1d,
-        0x54, 0x96, 0x25, 0x90, 0x73, 0xe2, 0xd8, 0x8b, 0xf7, 0xab, 0xd9, 0x7d, 0x9b, 0xdc, 0xa7,
-        0xa7, 0x51,
+        0xe0, 0x31, 0x20, 0x69, 0xb9, 0x01, 0xe1, 0x6c, 0xd6, 0xca, 0xf1, 0x90, 0xa7, 0xca, 0x21,
+        0x40, 0x1f, 0xfd, 0xd8, 0xbe, 0x9d, 0x0b, 0xd1, 0x8c, 0xc8, 0x02, 0x80, 0xa2, 0x61, 0x2f,
+        0x36, 0x96,
     ];
 
     // Load the content store (exercises the new signature loader).
@@ -286,9 +296,9 @@ fn signature_load_does_not_drift_canonical_hash() {
     assert_eq!(
         actual, EXPECTED,
         "\nCanonical-state hash drifted unexpectedly.\n\
-         T1-16 rebaselined to fcccb840b5868a4ed55c019c353a1d5496259073e2d88bf7abd97d9bdca7a751\n\
-         (shoot utility clamp + GOAL_LINE_X alignment).\n\
-         ADR-0012 trigger #3 authorized this rebaseline.\n\
+         T2-1a rebaselined to e0312069b901e16cd6caf190a7ca21401ffdd8be9d0bd18cc80280a2612f3696\n\
+         (per-team archetype loading; canonical encoder VERSION 8→9; schema-only drift on this pin).\n\
+         ADR-0012 trigger #1 authorized this rebaseline.\n\
          If this drifts again, it must be an authorized rebaseline — ADR-0012 trigger #1 or #3.\n\
          Actual:   {:02x?}",
         actual

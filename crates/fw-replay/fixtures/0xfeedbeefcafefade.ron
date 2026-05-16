@@ -39,6 +39,29 @@
 //                       alignment for shoot proximity and GK transition
 //                       constants. Authorized by Codex Tier-2 pre-/done
 //                       audit response.
+//   2026-05-17 (T2-1a — REVISE-fix re-framing) — `81098579...d999`
+//                       per ADR-0012 trigger #1 ONLY (canonical encoder
+//                       VERSION bump 8→9: MatchState gained
+//                       `home_archetype_id` + `away_archetype_id` String
+//                       fields, both appended after `last_touched_by`).
+//                       **SCHEMA-ONLY drift** — same character as the 60-tick
+//                       smoke pin's drift. The T2-1a self-review CRITICAL-1
+//                       finding (silent-failure-hunter, 2026-05-17)
+//                       corrected an earlier draft of this comment which
+//                       claimed trigger #3 (per-team behavior divergence)
+//                       also drove the drift; it does NOT, because the
+//                       only `TacticEvent` emitted in current production is
+//                       `Goal`, and the Goal arm of `apply_event` hardcodes
+//                       `TacticState::MidBlock` independent of archetype.
+//                       Per-team behavioral divergence becomes real (and
+//                       earns trigger #3) at T2-1b/c when `BallInPlay` /
+//                       `PossessionLost` / `BallRecovered` TacticEvent
+//                       variants get emitted + consult per-team
+//                       `archetype_params`. Goal envelope verified in
+//                       [2, 5] per the codified
+//                       `extended_seed_600_tick_goal_count_in_t1_exit_gate_envelope`
+//                       test in canonical_hash.rs. Authorized by the
+//                       T2-1a spec in MEMORY.md.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_600_TICK`
@@ -51,10 +74,10 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:9353bd257d4da92092407355e3c2b32cc6e91abc81664d0015336ebe812947eb",
+    expected_hash: "blake3:8109857942e1ee2a8c429a43e89bfa5eac4582fb70ef59f1a3a04f26765ad999",
     metadata: (
-        description: "T1-16 shoot utility contract rebaseline. Content-loaded 600-tick run. Shoot scoring uses GOAL_LINE_X and clamps returned shoot utility into [0, 1]; GK transition constants use GOAL_LINE_X.",
-        generated_at: "2026-05-16",
-        notes: "Re-pinned at T1-16 (ADR-0012 trigger #3). Prior hash 268984...e95ae was T1-15 goal scoring. MatchState::initial_with_content + tick_match(state, &content.signature_definitions) for 600 iterations.",
+        description: "T2-1a per-team archetypes infrastructure (home=attacking-fullback, away=low-block-counter passed in at init). Content-loaded 600-tick run. Schema bump only — per-team archetype params do not yet diverge sim behavior because the sole production TacticEvent emission (`Goal`) hardcodes `MidBlock`. Per-team divergence lands at T2-1b/c.",
+        generated_at: "2026-05-17",
+        notes: "Re-pinned at T2-1a (ADR-0012 trigger #1 ONLY — schema bump: 2 new String fields appended after last_touched_by). NOT trigger #3 — see canonical_hash.rs::PINNED_600_TICK history block for the silent-failure-hunter CRITICAL-1 corrected framing. Prior hash 9353bd25...47eb was T1-16 shoot-utility contract. MatchState::initial_with_content(seed, &content, DEFAULT_ARCHETYPE_ID, \"fwh.core:archetype.low-block-counter\") + tick_match for 600 iterations. Goal envelope verified in [2, 5].",
     ),
 )

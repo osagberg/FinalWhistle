@@ -102,8 +102,15 @@ fn run(cli: &Cli) -> Result<(), String> {
         if let Some(content_path) = &cli.content {
             let store = ContentStore::load_sources(content_path)
                 .map_err(|e| format!("ContentStore::load_sources({content_path:?}): {e}"))?;
-            let state = MatchState::initial_with_content(seed, &store)
-                .map_err(|e| format!("initial_with_content: {e}"))?;
+            // T2-1a: default both teams to DEFAULT_ARCHETYPE_ID; per-team
+            // variation can be added as future dump_frames CLI flags.
+            let state = MatchState::initial_with_content(
+                seed,
+                &store,
+                fw_match_sim::DEFAULT_ARCHETYPE_ID,
+                fw_match_sim::DEFAULT_ARCHETYPE_ID,
+            )
+            .map_err(|e| format!("initial_with_content: {e}"))?;
             let sigs = store.signature_definitions.clone();
             (state, sigs)
         } else {

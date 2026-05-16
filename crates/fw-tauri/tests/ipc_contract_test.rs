@@ -56,8 +56,13 @@ fn play_match_round_trip_canonical_hash_matches() {
     // `encode_canonical()` + `blake3::hash` here). For that stronger
     // round-trip a separate test would shell out to `b3sum` or similar.
     let seed = Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
-    let mut sim_state =
-        MatchState::initial_with_content(seed, state.content()).expect("initial_with_content");
+    let mut sim_state = MatchState::initial_with_content(
+        seed,
+        state.content(),
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+    )
+    .expect("initial_with_content");
     for _ in 0..60 {
         sim_state = tick_match(sim_state, state.signature_definitions());
     }

@@ -32,8 +32,13 @@ fn slot_7_fires_at_least_one_signature_in_600_ticks() {
     let store = load_store();
     let seed = Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
 
-    let mut state = MatchState::initial_with_content(seed, &store)
-        .expect("initial_with_content should succeed");
+    let mut state = MatchState::initial_with_content(
+        seed,
+        &store,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+    )
+    .expect("initial_with_content should succeed");
 
     // Collect the candidate signature IDs for slot 7 from the loaded state.
     let candidate_ids: BTreeSet<String> = state.players[7]

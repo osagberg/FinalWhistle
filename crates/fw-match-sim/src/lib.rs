@@ -115,6 +115,16 @@ pub const PLAYERS_PER_TEAM: usize = 11;
 /// Total players on the pitch (both teams).
 pub const TOTAL_PLAYERS: usize = PLAYERS_PER_TEAM * 2;
 
+/// T2-1a: default tactical archetype ID assigned to both teams by
+/// `MatchState::initial(seed)`. Choice rationale: the bridge in
+/// `tactic_fsm::archetype_params_for` maps this ID's RON values to the same
+/// `ArchetypeParams` as the pre-T2-1a hardcoded `direct_pressing()`,
+/// preserving the smoke-seed canonical-state behavior (drift on the smoke
+/// pin is SCHEMA-ONLY — the 2 new encoded fields — not behavior-driven).
+/// `MatchState::initial_with_content` accepts caller-supplied IDs; this
+/// default only fires on the bare-init path.
+pub const DEFAULT_ARCHETYPE_ID: &str = "fwh.core:archetype.attacking-fullback";
+
 // Codex P3 from self-review: `MatchState::initial` casts `TOTAL_PLAYERS` to
 // `u8` via `slot as u8`. If `PLAYERS_PER_TEAM` ever grew past 127 the cast
 // would silently truncate. Make the truncation a compile-time error.
@@ -313,6 +323,66 @@ pub struct MatchState {
     /// `dispatch::dispatch_tick`) push directly; external callers cannot
     /// `clear()` or `sort()` or otherwise corrupt the chronological invariant.
     pub(crate) match_events: Vec<MatchEvent>,
+
+    // ---- T2-1a additions (per-team archetypes; ADR-0012 trigger #1) ----
+    //
+    // Two NEW canonical-state fields. Encoder VERSION bumped 8 → 9.
+    // Both string IDs are stable + content-pack-qualified per the existing
+    // `<pack-id>:archetype.<slug>` convention. T1-7's ManagerArchetypeId
+    // is the parallel newtype precedent; the dedicated TacticalArchetypeId
+    // newtype refactor is intentionally deferred (see T2-1a MEMORY spec).
+    //
+    // **WIRING-ONLY SCOPE NOTE (T2-1a silent-failure CRITICAL-1)**: T2-1a
+    // ships the per-team archetype SUBSTRATE (canonical fields + sidecar
+    // resolved-params + threading through to `tactic_fsm::apply_event`'s
+    // `archetype` parameter). It does NOT ship a production `TacticEvent`
+    // emission that actually CONSUMES the archetype parameter. The only
+    // `TacticEvent` emitted in production code today is `Goal` (at
+    // `tick_match`'s Goal-event handler), and `apply_event`'s `Goal` arm
+    // hardcodes `TacticState::MidBlock` ignoring the `archetype` parameter
+    // entirely. T2-1b/c wire the `BallInPlay` / `PossessionLost` /
+    // `BallRecovered` / `CounterWindowClosed` emissions that activate
+    // per-team behavioral divergence + earn the ADR-0012 trigger-#3 stamp
+    // on the next rebaseline. T2-1a's drift on BOTH pins (60-tick smoke +
+    // 600-tick extended) is therefore SCHEMA-ONLY (canonical bytes append),
+    // not behavior-driven. Trigger #1 alone authorizes T2-1a's rebaseline.
+    /// Home team's tactical archetype identifier. Canonical-state.
+    ///
+    /// Format: `<pack-id>:archetype.<slug>` per Content/RULES.md §2.
+    /// Default at `MatchState::initial(seed)`: `"fwh.core:archetype.attacking-fullback"`
+    /// (preserves pre-T2-1a effective behavior — bridge maps this to the
+    /// previously-hardcoded `ArchetypeParams::direct_pressing()` values).
+    ///
+    /// `pub(crate)` per the established `possession` / `last_touched_by`
+    /// pattern at T1-3.5 + per T2-1a silent-failure-hunter CRITICAL-2:
+    /// external mutation of the canonical ID without atomically re-resolving
+    /// the sidecar `home_archetype_params` would silently drift canonical
+    /// state from sim behavior. External callers MUST use the
+    /// `home_archetype_id()` accessor; mutation paths route through
+    /// `MatchState::initial` / `initial_with_content` constructors that
+    /// resolve the sidecar atomically.
+    pub(crate) home_archetype_id: String,
+
+    /// Away team's tactical archetype identifier. Canonical-state.
+    /// `pub(crate)` per the same rationale as `home_archetype_id`.
+    pub(crate) away_archetype_id: String,
+
+    /// Resolved `ArchetypeParams` for the home team — sim-runtime
+    /// non-canonical sidecar. Populated at construction time from the
+    /// archetype ID via `tactic_fsm::archetype_params_for(&TacticalArchetype)`.
+    ///
+    /// **Not in canonical encoding** — the canonical state stores the ID
+    /// (stable + human-readable across version migrations); the resolved
+    /// params are recomputed at construction time, never serialized.
+    ///
+    /// `pub(crate)` — consumed by `tick_match`'s Goal-event handler (which
+    /// today passes the param to `apply_event` whose `Goal` arm ignores it
+    /// — see T2-1a CRITICAL-1 scope note above; the wiring is here for
+    /// T2-1b/c's BallInPlay / PossessionLost emissions to consume).
+    pub(crate) home_archetype_params: tactic_fsm::ArchetypeParams,
+
+    /// Resolved `ArchetypeParams` for the away team — see `home_archetype_params`.
+    pub(crate) away_archetype_params: tactic_fsm::ArchetypeParams,
 }
 
 impl MatchState {
@@ -395,6 +465,21 @@ impl MatchState {
                 tick: Tick::ZERO,
                 is_second_half: false,
             }],
+            // T2-1a: per-team archetype IDs. Default to the attacking-fullback
+            // archetype (which the bridge in tactic_fsm::archetype_params_for
+            // resolves to the same ArchetypeParams as the pre-T2-1a hardcoded
+            // direct_pressing()). MatchState::initial doesn't take a
+            // ContentStore, so it can't validate the ID resolves — that's only
+            // checked at MatchState::initial_with_content where the actual
+            // params come from a real content lookup. The default ID + default
+            // params here are kept consistent via the DEFAULT_HOME_ARCHETYPE_ID
+            // constant + ArchetypeParams::direct_pressing() (which matches the
+            // bridge output for attacking-fullback per the unit tests in
+            // tactic_fsm::tests::archetype_params_for_attacking_fullback_*).
+            home_archetype_id: DEFAULT_ARCHETYPE_ID.to_string(),
+            away_archetype_id: DEFAULT_ARCHETYPE_ID.to_string(),
+            home_archetype_params: tactic_fsm::ArchetypeParams::direct_pressing(),
+            away_archetype_params: tactic_fsm::ArchetypeParams::direct_pressing(),
         }
     }
 
@@ -427,6 +512,8 @@ impl MatchState {
     pub fn initial_with_content(
         seed: Seed,
         content: &fw_content::ContentStore,
+        home_archetype_id: &str,
+        away_archetype_id: &str,
     ) -> Result<MatchState, ContentInitError> {
         // Find the first AM template by preferred_role. player_templates is keyed
         // by qualified_id (e.g. "fwh.core:player_00042"), not by file stem, so we
@@ -439,13 +526,38 @@ impl MatchState {
                 key: "preferred_role=AM".into(),
             })?;
 
-        // Build the baseline state, then project slot 7's candidates.
+        // T2-1a: resolve per-team archetype IDs → TacticalArchetype lookups →
+        // ArchetypeParams via the bridge. Fail-loud if either ID is missing
+        // from content (mirrors the MissingTemplate failure mode above).
+        let home_archetype = content
+            .tactical_archetypes
+            .get(home_archetype_id)
+            .ok_or_else(|| ContentInitError::MissingTemplate {
+                key: format!("home_archetype_id={home_archetype_id}"),
+            })?;
+        let away_archetype = content
+            .tactical_archetypes
+            .get(away_archetype_id)
+            .ok_or_else(|| ContentInitError::MissingTemplate {
+                key: format!("away_archetype_id={away_archetype_id}"),
+            })?;
+        let home_archetype_params = tactic_fsm::archetype_params_for(home_archetype);
+        let away_archetype_params = tactic_fsm::archetype_params_for(away_archetype);
+
+        // Build the baseline state, then project slot 7's candidates + override
+        // the default archetype IDs/params with the caller-supplied pair.
         let mut state = MatchState::initial(seed);
 
         // Slot 7 = home AM (3rd home midfielder in 4-3-3).
         // Assign the template's signature_candidates directly. The candidates
         // Vec is `pub(crate)` (accessible here since we're in the same crate).
         state.players[7].signature_candidates = template.signature_candidates.clone();
+
+        // T2-1a: override the default archetype state with caller-supplied IDs.
+        state.home_archetype_id = home_archetype_id.to_string();
+        state.away_archetype_id = away_archetype_id.to_string();
+        state.home_archetype_params = home_archetype_params;
+        state.away_archetype_params = away_archetype_params;
 
         Ok(state)
     }
@@ -485,6 +597,25 @@ impl MatchState {
     /// the Vec is append-only and tick-ordered by construction).
     pub fn match_events(&self) -> &[MatchEvent] {
         &self.match_events
+    }
+
+    /// Canonical archetype ID for the home team (T2-1a).
+    ///
+    /// String form (e.g. `"fwh.core:archetype.attacking-fullback"`) keyed in
+    /// `ContentStore::tactical_archetypes`. The underlying field is
+    /// `pub(crate)` per the T2-1a self-review CRITICAL-2 fix (same pattern
+    /// as `possession` / `last_touched_by`); external callers read via
+    /// this accessor. Mutation is restricted to `initial_with_content`
+    /// at match-setup; no mid-match mutation path exists yet (per the
+    /// T2-1a CRITICAL-1 wiring-only scope note above the field defs).
+    pub fn home_archetype_id(&self) -> &str {
+        &self.home_archetype_id
+    }
+
+    /// Canonical archetype ID for the away team (T2-1a). Mirror of
+    /// [`home_archetype_id`](Self::home_archetype_id).
+    pub fn away_archetype_id(&self) -> &str {
+        &self.away_archetype_id
     }
 
     /// Builder: set `last_touched_by` and return `self` (T1-3.5).
@@ -686,16 +817,20 @@ pub fn tick_match(
                 tick: state.tick,
                 is_second_half: false,
             });
-            let arch = tactic_fsm::ArchetypeParams::direct_pressing();
+            // T2-1a: per-team archetype params. Pre-T2-1a this used a single
+            // hardcoded `direct_pressing()` for BOTH teams; now each team's
+            // tactic-FSM transitions consult ITS OWN archetype's parameters
+            // (resolved at MatchState construction via the bridge in
+            // tactic_fsm::archetype_params_for + cached in the sidecar fields).
             state.team_tactic_states[0] = tactic_fsm::apply_event(
                 state.team_tactic_states[0],
-                &arch,
+                &state.home_archetype_params,
                 tactic_fsm::TacticEvent::Goal,
                 state.tick,
             );
             state.team_tactic_states[1] = tactic_fsm::apply_event(
                 state.team_tactic_states[1],
-                &arch,
+                &state.away_archetype_params,
                 tactic_fsm::TacticEvent::Goal,
                 state.tick,
             );
@@ -935,6 +1070,77 @@ mod smoke {
         let s0 = MatchState::initial(Seed::from_u64(1));
         let s1 = tick_match(s0, &BTreeMap::new());
         assert_eq!(s1.tick, Tick::ZERO.successor());
+    }
+
+    /// T2-1a self-review CRITICAL-3 (silent-failure-hunter, 2026-05-17):
+    /// pin the coherence between three otherwise-independent sites that
+    /// MUST agree for the SCHEMA-ONLY drift claim to hold on the smoke pin:
+    ///
+    /// 1. `DEFAULT_ARCHETYPE_ID` (this file, ~line 126) — the id used by
+    ///    `MatchState::initial` for both teams.
+    /// 2. `MatchState::initial`'s hardcoded sidecar
+    ///    `ArchetypeParams::direct_pressing()` (this file, ~line 481).
+    /// 3. The `tactic_fsm::archetype_params_for` bridge output for the
+    ///    `attacking-fullback.ron` content fixture.
+    ///
+    /// If any of these three drift apart, the smoke seed's canonical
+    /// hash will diverge from the rebaselined `e0312069…3696` even
+    /// without a schema bump — exactly the silent failure mode the
+    /// CRITICAL-3 review surfaced (the hardcoded sidecar would no
+    /// longer match what `archetype_params_for` returns for the
+    /// default id, so any future code path that swaps from "use the
+    /// hardcoded sidecar" to "look up params via the bridge" would
+    /// flip canonical state with no apparent diff).
+    #[test]
+    fn initial_default_sidecar_matches_bridge_on_default_archetype_id() {
+        use fw_content::ContentStore;
+        use std::path::PathBuf;
+
+        // Load real content store to exercise the actual ID resolution path
+        // used by `MatchState::initial_with_content`.
+        let content_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("content");
+        let store = ContentStore::load_sources(&content_root).expect("ContentStore load failed");
+        let default_arch = store
+            .tactical_archetypes
+            .get(DEFAULT_ARCHETYPE_ID)
+            .unwrap_or_else(|| {
+                panic!(
+                    "DEFAULT_ARCHETYPE_ID {DEFAULT_ARCHETYPE_ID:?} must resolve in the loaded content store"
+                )
+            });
+        let bridge_params = tactic_fsm::archetype_params_for(default_arch);
+        let hardcoded_params = tactic_fsm::ArchetypeParams::direct_pressing();
+
+        // The bridge output for the DEFAULT id MUST equal the hardcoded
+        // sidecar that `MatchState::initial` injects. If this fails, the
+        // smoke-pin SCHEMA-ONLY drift claim is FALSE — either the
+        // hardcoded sidecar drifted from `direct_pressing()`, OR the
+        // attacking-fullback.ron content drifted from values that map
+        // through the bridge to direct_pressing()'s buckets, OR the
+        // bridge thresholds drifted. All three are real regressions
+        // that would otherwise show up as a "schema-only" rebaseline
+        // when in fact they're behavior-driven.
+        assert_eq!(
+            bridge_params, hardcoded_params,
+            "T2-1a coherence broken: bridge({DEFAULT_ARCHETYPE_ID}) != direct_pressing(). \
+             The smoke-pin schema-only drift claim relies on these matching. \
+             Either the hardcoded sidecar in MatchState::initial drifted, \
+             or attacking-fullback.ron content drifted across bridge thresholds, \
+             or the bridge thresholds themselves changed. Investigate before \
+             rebaselining the smoke pin."
+        );
+
+        // Also pin that MatchState::initial actually uses DEFAULT_ARCHETYPE_ID
+        // for both teams + injects the matching params — closes the loop on
+        // the 3-way coherence.
+        let s = MatchState::initial(Seed::from_u64(1));
+        assert_eq!(s.home_archetype_id(), DEFAULT_ARCHETYPE_ID);
+        assert_eq!(s.away_archetype_id(), DEFAULT_ARCHETYPE_ID);
+        assert_eq!(s.home_archetype_params, hardcoded_params);
+        assert_eq!(s.away_archetype_params, hardcoded_params);
     }
 
     #[test]

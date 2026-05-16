@@ -156,8 +156,17 @@ pub enum CounterIntent {
 }
 
 /// Archetype parameter bag used by the transition function. T1-2b-ii uses
-/// hardcoded defaults; T1-2b-iii reads these from `fw-content::TacticalArchetype`.
-#[derive(Debug, Clone, Copy)]
+/// hardcoded defaults; T2-1a reads these from `fw-content::TacticalArchetype`
+/// via `archetype_params_for` bridge + caches on `MatchState`.
+///
+/// T2-1a added `Serialize` / `Deserialize` / `PartialEq` / `Eq` derives so
+/// `MatchState` (which now caches per-team `ArchetypeParams` as sidecar
+/// fields) still satisfies its own serde + equality derives. The values are
+/// recomputed from the canonical `home_archetype_id` / `away_archetype_id`
+/// strings at MatchState construction time; serde on this type is for
+/// derive-completeness, NOT for round-trip stability (the canonical encoder
+/// in `canonical.rs` encodes only the IDs, not the resolved params).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArchetypeParams {
     /// Default defensive shape when no explicit trigger applies.
     pub default_in_defence_state: TacticState,
@@ -186,6 +195,77 @@ impl ArchetypeParams {
             press_intensity: PressIntensity::None,
             counter_intent: CounterIntent::High,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T2-1a: TacticalArchetype → ArchetypeParams bridge
+//
+// `TacticalArchetype` (content-pack type, in `fw_content`) holds the
+// content-author surface fields: `press_radius_metres` (u32) +
+// `buildup_speed_factor_bps` (u16) + `formation` (Vec<FormationSlot>).
+// `ArchetypeParams` (this module) holds the sim-runtime enums consumed by
+// `apply_event`. The bridge function below maps the former to the latter.
+//
+// Bridge thresholds are deliberately **preserve-current-behavior** wide
+// 2-bucket buckets: the 2 existing RON archetypes (attacking-fullback +
+// low-block-counter) round-trip through the bridge to their existing
+// hardcoded `ArchetypeParams::direct_pressing()` / `low_block_counter()`
+// values exactly. This minimizes canonical-hash drift on T2-1a's
+// per-team-archetype foundation row: smoke seed drift is SCHEMA-ONLY
+// (the 2 new encoded fields appended to MatchState), not behavior-driven.
+//
+// T2-1d (xG / personality coefficient re-fit) is the row that earns the
+// right to refine these into 4-bucket thresholds calibrated against a
+// 100-match corpus. Today's thresholds preserve the headroom + document
+// the intent.
+// ---------------------------------------------------------------------------
+
+/// Map a content-pack `TacticalArchetype` to its sim-runtime `ArchetypeParams`.
+///
+/// **Preserve-current-behavior bridge**: the 2 existing archetypes
+/// (`attacking-fullback` press_radius=30 buildup=9000 + `low-block-counter`
+/// press_radius=15 buildup=11500) round-trip through this function to the
+/// existing hardcoded `ArchetypeParams::direct_pressing()` /
+/// `low_block_counter()` values. Verified by `tactic_fsm::tests::
+/// archetype_params_for_*` unit tests.
+///
+/// Thresholds:
+///
+/// | TacticalArchetype field                | ArchetypeParams field           | Mapping       |
+/// |----------------------------------------|----------------------------------|---------------|
+/// | `press_radius_metres ≤ 20`             | `press_intensity`                | `None`        |
+/// | `press_radius_metres > 20`             | `press_intensity`                | `High`        |
+/// | `buildup_speed_factor_bps ≥ 11000`     | `counter_intent`                 | `High`        |
+/// | `buildup_speed_factor_bps < 11000`     | `counter_intent`                 | `Default`     |
+/// | `press_radius_metres ≤ 20`             | `default_in_defence_state`       | `LowBlock`    |
+/// | `press_radius_metres > 20`             | `default_in_defence_state`       | `MidBlock`    |
+///
+/// T2-1d will refine these into 4-bucket thresholds (None / Low / Default / High
+/// for press_intensity, etc.) calibrated against a 100-match xG corpus per
+/// `docs/design/xg-coefficients.md`. Today's wide 2-bucket thresholds are the
+/// foundation that T2-1d builds on.
+#[must_use]
+pub fn archetype_params_for(arch: &fw_content::TacticalArchetype) -> ArchetypeParams {
+    let press_intensity = if arch.press_radius_metres > 20 {
+        PressIntensity::High
+    } else {
+        PressIntensity::None
+    };
+    let counter_intent = if arch.buildup_speed_factor_bps >= 11_000 {
+        CounterIntent::High
+    } else {
+        CounterIntent::Default
+    };
+    let default_in_defence_state = if arch.press_radius_metres <= 20 {
+        TacticState::LowBlock
+    } else {
+        TacticState::MidBlock
+    };
+    ArchetypeParams {
+        default_in_defence_state,
+        press_intensity,
+        counter_intent,
     }
 }
 
@@ -847,5 +927,121 @@ mod tests {
         );
         assert_eq!(a.state, b.state);
         assert_eq!(a.entry_tick, b.entry_tick);
+    }
+
+    // ------------------------------------------------------------------
+    // T2-1a: archetype_params_for bridge tests (preserve-current-behavior
+    // verification)
+    // ------------------------------------------------------------------
+
+    fn attacking_fullback_fixture() -> fw_content::TacticalArchetype {
+        fw_content::TacticalArchetype {
+            id: "fwh.core:archetype.attacking-fullback".into(),
+            formation: vec![],
+            press_radius_metres: 30,
+            buildup_speed_factor_bps: 9_000,
+        }
+    }
+
+    fn low_block_counter_fixture() -> fw_content::TacticalArchetype {
+        fw_content::TacticalArchetype {
+            id: "fwh.core:archetype.low-block-counter".into(),
+            formation: vec![],
+            press_radius_metres: 15,
+            buildup_speed_factor_bps: 11_500,
+        }
+    }
+
+    /// LOAD-BEARING: `attacking-fullback` (the FW v1 `direct-pressing.yaml`
+    /// rename) MUST bridge to the EXACT same ArchetypeParams as the existing
+    /// hardcoded `ArchetypeParams::direct_pressing()`. Mismatch = T2-1a's
+    /// "smoke seed canonical hash drift is schema-only" claim is broken +
+    /// the rebaseline should be flagged for re-investigation.
+    #[test]
+    fn archetype_params_for_attacking_fullback_matches_direct_pressing_hardcoded() {
+        let archetype = attacking_fullback_fixture();
+        let bridged = archetype_params_for(&archetype);
+        let hardcoded = ArchetypeParams::direct_pressing();
+        assert_eq!(
+            bridged.default_in_defence_state,
+            hardcoded.default_in_defence_state
+        );
+        assert_eq!(bridged.press_intensity, hardcoded.press_intensity);
+        assert_eq!(bridged.counter_intent, hardcoded.counter_intent);
+    }
+
+    /// LOAD-BEARING: `low-block-counter` MUST bridge to the EXACT same
+    /// ArchetypeParams as `ArchetypeParams::low_block_counter()`. Same
+    /// rationale as the attacking-fullback test above.
+    #[test]
+    fn archetype_params_for_low_block_counter_matches_hardcoded() {
+        let archetype = low_block_counter_fixture();
+        let bridged = archetype_params_for(&archetype);
+        let hardcoded = ArchetypeParams::low_block_counter();
+        assert_eq!(
+            bridged.default_in_defence_state,
+            hardcoded.default_in_defence_state
+        );
+        assert_eq!(bridged.press_intensity, hardcoded.press_intensity);
+        assert_eq!(bridged.counter_intent, hardcoded.counter_intent);
+    }
+
+    /// Threshold-boundary test: press_radius_metres == 20 exactly is in the
+    /// "None press / LowBlock default" bucket. Off-by-one in the bridge
+    /// (using `<` instead of `≤` for the None check) would trip this.
+    #[test]
+    fn archetype_params_for_at_press_radius_20_yields_none_lowblock() {
+        let archetype = fw_content::TacticalArchetype {
+            id: "fwh.test:archetype.threshold-20".into(),
+            formation: vec![],
+            press_radius_metres: 20,
+            buildup_speed_factor_bps: 10_000,
+        };
+        let p = archetype_params_for(&archetype);
+        assert_eq!(p.press_intensity, PressIntensity::None);
+        assert_eq!(p.default_in_defence_state, TacticState::LowBlock);
+        assert_eq!(p.counter_intent, CounterIntent::Default);
+    }
+
+    /// Threshold-boundary test: press_radius_metres == 21 is just over the
+    /// boundary; press goes High + default goes MidBlock.
+    #[test]
+    fn archetype_params_for_at_press_radius_21_yields_high_midblock() {
+        let archetype = fw_content::TacticalArchetype {
+            id: "fwh.test:archetype.threshold-21".into(),
+            formation: vec![],
+            press_radius_metres: 21,
+            buildup_speed_factor_bps: 10_000,
+        };
+        let p = archetype_params_for(&archetype);
+        assert_eq!(p.press_intensity, PressIntensity::High);
+        assert_eq!(p.default_in_defence_state, TacticState::MidBlock);
+    }
+
+    /// Threshold-boundary test: buildup_speed_factor_bps == 11000 exactly
+    /// yields High counter (the ≥ threshold). 10999 yields Default.
+    #[test]
+    fn archetype_params_for_buildup_speed_threshold_at_11000() {
+        let at_threshold = fw_content::TacticalArchetype {
+            id: "fwh.test:archetype.buildup-11000".into(),
+            formation: vec![],
+            press_radius_metres: 25,
+            buildup_speed_factor_bps: 11_000,
+        };
+        assert_eq!(
+            archetype_params_for(&at_threshold).counter_intent,
+            CounterIntent::High
+        );
+
+        let just_below = fw_content::TacticalArchetype {
+            id: "fwh.test:archetype.buildup-10999".into(),
+            formation: vec![],
+            press_radius_metres: 25,
+            buildup_speed_factor_bps: 10_999,
+        };
+        assert_eq!(
+            archetype_params_for(&just_below).counter_intent,
+            CounterIntent::Default
+        );
     }
 }

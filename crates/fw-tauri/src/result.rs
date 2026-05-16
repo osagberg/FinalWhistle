@@ -251,8 +251,13 @@ mod tests {
     fn canonical_hash_matches_independent_computation() {
         let content = load_content();
         let seed = Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
-        let mut state =
-            MatchState::initial_with_content(seed, &content).expect("initial_with_content");
+        let mut state = MatchState::initial_with_content(
+            seed,
+            &content,
+            fw_match_sim::DEFAULT_ARCHETYPE_ID,
+            fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        )
+        .expect("initial_with_content");
         for _ in 0..60 {
             state = tick_match(state, &content.signature_definitions);
         }
@@ -279,8 +284,13 @@ mod tests {
     fn commentary_preview_length_matches_events_length() {
         let content = load_content();
         let seed = Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
-        let mut state =
-            MatchState::initial_with_content(seed, &content).expect("initial_with_content");
+        let mut state = MatchState::initial_with_content(
+            seed,
+            &content,
+            fw_match_sim::DEFAULT_ARCHETYPE_ID,
+            fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        )
+        .expect("initial_with_content");
         for _ in 0..60 {
             state = tick_match(state, &content.signature_definitions);
         }
