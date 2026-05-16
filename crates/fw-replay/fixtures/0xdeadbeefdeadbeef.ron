@@ -132,6 +132,17 @@
 //                               MatchFrameDto gained possession: Option<u8>.
 //                               Prior hash was HASH OF BROKEN MATCH (no ball
 //                               motion). Authorized by T1-3.6 spec.
+//   2026-05-16 (T1-15 goal scoring) — `2f14a562...cb27` per ADR-0012
+//                               trigger #3 (sim behavioral change). Ball physics
+//                               tuned so shots reach goal (rolling_friction 0.002,
+//                               linear_drag 0.005 per tick). GK loose-ball chase
+//                               added (preempt_check routes GK toward ball when
+//                               within 10m of own goal line). Loose-ball pickup
+//                               extended to include GK near their goal. MAX_PLAYER_
+//                               SPEED raised 5->8 m/s. Preempt_check limited to
+//                               nearest-2-chasers per team. Shoot target corrected
+//                               to 52m (was 45m). Smoke seed produces 4 goals (2-2)
+//                               in 600 ticks. Authorized by T1-15 spec.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -143,10 +154,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:ddccaf88c94f328274d484ed1e14ced8638d1ccf63bb922ad64a4f28664000b3",
+    expected_hash: "blake3:2f14a562de30bd2375b9393b1f46c1f563f131ec155fd8c4a7fbae20e25dcb27",
     metadata: (
-        description: "T1-3.6 BT carrier routing fix. evaluate_transitions now routes possession holder into InPossession. Ball moves: Pass events from tick 5. Prior hash 782fcde6...8c0f was hash of broken match (ball never moved).",
+        description: "T1-15 goal scoring. GK loose-ball chase, 2-chaser preempt, MAX_PLAYER_SPEED 8 m/s, shoot target 52m. Smoke seed now produces 4 goals (2-2) in 600 ticks.",
         generated_at: "2026-05-16",
-        notes: "Re-pinned at T1-3.6 (ADR-0012 trigger #1). Carrier routing pre-pass in dispatch_tick; evaluate_transitions consults state.possession. MatchFrameDto.possession added.",
+        notes: "Re-pinned at T1-15 (ADR-0012 trigger #3). Prior hash ddccaf88...00b3 was T1-3.6 carrier routing fix.",
     ),
 )

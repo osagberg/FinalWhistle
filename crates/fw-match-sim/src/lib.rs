@@ -46,7 +46,6 @@ pub mod utility;
 
 use fw_content::SignatureId;
 use fw_content::event::GOAL_HALF_WIDTH_M;
-#[cfg(test)]
 use fw_core::Q32;
 use fw_core::{GOAL_LINE_X, SIDELINE_Y};
 use fw_core::{Seed, Tick};
@@ -789,6 +788,102 @@ pub fn tick_match(
     for p in state.players.iter_mut() {
         p.pos_x += p.vel_x * dt;
         p.pos_y += p.vel_y * dt;
+    }
+
+    // Step 7b (T1-15): loose-ball pickup.
+    //
+    // When possession is None (ball loose after a shot or free kick), check
+    // whether any outfield player is within PICKUP_RADIUS_M of the ball.
+    // If so, the nearest qualifying player takes possession.
+    //
+    // Rationale: ball physics now carries shots 30+ m before stopping (T1-15
+    // rolling-friction re-calibration from k=0.035 to k=0.01). Without an
+    // active pickup mechanic, possession stays None until a player is manually
+    // routed toward the ball AND happens to call Dribble or Pass. With the
+    // preempt_check already routing outfield players toward the ball (also
+    // T1-15), this pickup closes the loop: once a player is close enough, they
+    // claim the ball deterministically (closest player wins; home-first on tie
+    // since slots 0..11 are iterated before 11..22; this is a T1 approximation).
+    //
+    // GK slots (0 and 11) are excluded — GK pickup is handled in goalkeeper_fsm.
+    // Pickup DOES NOT emit a MatchEvent (no `Pass` or `Tackle` event yet).
+    // T2+ wires a `LooseBallPickup` / `Interception` event when the event
+    // schema supports contested-ball semantics.
+    // Note on timing: step 6 (dispatch_tick) fires shot intents which:
+    //   1. Set possession = None.
+    //   2. Snap ball.pos to shooter's feet.
+    //   3. Set ball.vel_x = ~23 m/s toward goal.
+    // The ball physics step (step 4) ran BEFORE dispatch_tick, so the ball has
+    // NOT yet physically moved away from the shooter's feet when this pickup
+    // check runs. Guard against phantom re-pickup of a freshly-shot ball by
+    // requiring the ball speed to be below PICKUP_MAX_SPEED_MPS — a ball
+    // traveling at shot speed (~23 m/s) must not be collected immediately by the
+    // shooter standing at the ball's current position. Pickup only triggers when
+    // the ball has nearly settled (< 3 m/s), meaning it has traveled far from
+    // the shooter or has been deflected and stopped nearby.
+    // Pickup radius: 5m — generous for T1. Real ball-control is T2+.
+    // A 5m radius ensures that once the ball decelerates near a player,
+    // they claim it without needing pixel-perfect convergence.
+    const PICKUP_RADIUS_M: Q32 = Q32::from_raw(5_i64 << 32); // 5 metres
+    // Speed threshold: ball must be below 8 m/s to be picked up.
+    // - Prevents immediate re-pickup after a shot (22 m/s > 8 m/s ✓).
+    // - Allows pickup within ~30-40 ticks of a shot slowing from 22→8 m/s.
+    // - At 8 m/s, the ball is still "catchable" from a standing start (a player
+    //   at the ball's future position can step onto it within 1-2 ticks).
+    const PICKUP_MAX_SPEED_MPS: Q32 = Q32::from_raw(8_i64 << 32); // 8 m/s threshold
+    let ball_speed_sq = state.ball.vel_x * state.ball.vel_x + state.ball.vel_y * state.ball.vel_y;
+    let pickup_speed_sq = PICKUP_MAX_SPEED_MPS * PICKUP_MAX_SPEED_MPS;
+    if state.possession.is_none() && ball_speed_sq < pickup_speed_sq {
+        let bx = state.ball.pos_x;
+        let by = state.ball.pos_y;
+        let mut best_slot: Option<u8> = None;
+        let mut best_dist_sq = Q32::MAX;
+
+        for slot_idx in 0..22usize {
+            // Exclude GKs from general pickup, EXCEPT when the ball is near
+            // their own goal line (>42m from centre). In that case the GK
+            // can claim the ball to restart play with a goal kick or
+            // short distribution, rather than leaving the ball stranded
+            // 2-3m short of the goal line for hundreds of ticks.
+            if slot_idx == 0 || slot_idx == 11 {
+                let bx_bits = bx.to_bits();
+                let bx_abs: u64 = bx_bits.unsigned_abs();
+                const GK_PICKUP_THRESHOLD_BITS: u64 = 42_u64 << 32; // 42m
+                if bx_abs < GK_PICKUP_THRESHOLD_BITS {
+                    continue; // ball not near goal — skip GK
+                }
+                // Ball is near a goal line — only allow the GK defending that end.
+                // Home GK (slot 0): defends negative x.
+                // Away GK (slot 11): defends positive x.
+                let ball_in_home_half = bx_bits < 0;
+                let is_home_gk = slot_idx == 0;
+                if ball_in_home_half != is_home_gk {
+                    continue; // ball near opponent's goal — skip this GK
+                }
+            }
+            let p = &state.players[slot_idx];
+            let dx = p.pos_x - bx;
+            let dy = p.pos_y - by;
+            let dist_sq = dx * dx + dy * dy;
+            let radius_sq = PICKUP_RADIUS_M * PICKUP_RADIUS_M;
+            if dist_sq <= radius_sq && dist_sq < best_dist_sq {
+                best_dist_sq = dist_sq;
+                best_slot = Some(p.slot);
+            }
+        }
+
+        if let Some(slot) = best_slot {
+            state.possession = Some(slot);
+            state.last_touched_by = Some(slot);
+            // Snap the ball to the player's feet so the next tick's InPossession
+            // dispatch fires from the correct position.
+            let slot_idx = slot as usize;
+            state.ball.pos_x = state.players[slot_idx].pos_x;
+            state.ball.pos_y = state.players[slot_idx].pos_y;
+            state.ball.vel_x = Q32::ZERO;
+            state.ball.vel_y = Q32::ZERO;
+            state.ball.vel_z = Q32::ZERO;
+        }
     }
 
     // Step 8 (T1-2b-iii-d): player-separation positional correction.

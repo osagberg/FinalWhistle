@@ -110,15 +110,32 @@ pub fn phase1_seeds() -> BallPhysicsCoefficients {
         // 9.81 m/s² = 981/100. Q32 division uses the panic-on-overflow
         // operator policy.
         gravity: Q32::from_int(981) / Q32::from_int(100),
-        // 0.02 per-step linear drag.
-        linear_drag: Q32::from_int(2) / Q32::from_int(100),
+        // T1-15 re-calibration: 0.005 per-step linear drag (was 0.02).
+        //
+        // Linear drag applies to ALL axes every tick (air resistance model).
+        // Rolling friction applies ONLY when ball is settled on the ground.
+        // The two compound: combined deceleration = linear_drag + rolling_friction.
+        //
+        // Physical target: a 20 m/s shot from x=12 should reach x=45 (33m).
+        // With combined k=0.01/tick, stopping distance = v0/(k*60Hz) = 20/0.6 ≈ 33m.
+        // Old value 0.02 + 0.015 = 0.035 → stopping distance = 20/(0.035*60) ≈ 9.5m
+        // (ball dies ~21m into the pitch, never reaching the goal at 45m).
+        linear_drag: Q32::from_int(5) / Q32::from_int(1000),
         // STUB for T1 — Magnus contributes zero behaviorally; the
         // structure is present in ball_step for T1-2b-iii.
         magnus_coupling: Q32::ZERO,
         // 0.55 bounce retention.
         bounce_retention: Q32::from_int(55) / Q32::from_int(100),
-        // 0.25 rolling friction.
-        rolling_friction: Q32::from_int(25) / Q32::from_int(100),
+        // T1-15 re-calibration: 0.002 rolling friction per 60Hz tick (was 0.015, then 0.005).
+        //
+        // Rolling friction compounds with linear drag (both apply on settled ground).
+        // Combined k = linear_drag + rolling_friction ≈ 0.005 + 0.002 = 0.007/tick.
+        // At k=0.007: stopping distance = v0 / (k × 60Hz).
+        // - 22 m/s shot from x=10 → 22/(0.007×60) = 52.4m → stops at x=62.4 > 52.5m goal ✓
+        // - 17.5 m/s pass → 17.5/(0.007×60) = 41.7m → comfortable progression ✓
+        // Prior values: 0.005/tick gave k=0.01 → stopping dist 37m → ball stopped at x≈47m,
+        // consistently 5m short of the 52.5m goal line even from the attack third.
+        rolling_friction: Q32::from_int(2) / Q32::from_int(1000),
     }
 }
 
@@ -333,7 +350,7 @@ mod tests {
             "vel_y must stay positive (lateral motion, no gravity); got {:?}",
             after.vel_y.to_bits()
         );
-        // vel_y reduced by linear_drag (was 5, now 5 × (1 - 0.02) ≈ 4.9).
+        // vel_y reduced by linear_drag (was 5, now 5 × (1 - 0.005) ≈ 4.975).
         // NOT zero (would mean gravity hit the lateral axis = wrong convention).
         assert!(
             after.vel_y > Q32::from_int(4),
@@ -363,11 +380,14 @@ mod tests {
         let s = phase1_seeds();
         // 9.81 → bits = round(9.81 * 2^32). Test by reconstructing.
         assert_eq!(s.gravity, Q32::from_int(981) / Q32::from_int(100));
-        assert_eq!(s.linear_drag, Q32::from_int(2) / Q32::from_int(100));
+        // T1-15 re-calibration: 0.005/tick linear drag (was 0.02).
+        assert_eq!(s.linear_drag, Q32::from_int(5) / Q32::from_int(1000));
         // Magnus is the T1 stub.
         assert_eq!(s.magnus_coupling, Q32::ZERO);
         assert_eq!(s.bounce_retention, Q32::from_int(55) / Q32::from_int(100));
-        assert_eq!(s.rolling_friction, Q32::from_int(25) / Q32::from_int(100));
+        // T1-15 re-calibration: 0.002/tick rolling friction (was 0.015, then 0.005).
+        // Combined k = 0.005+0.002 = 0.007 → 22 m/s shot from x=10 reaches 52.5m goal.
+        assert_eq!(s.rolling_friction, Q32::from_int(2) / Q32::from_int(1000));
     }
 
     #[test]
@@ -443,8 +463,8 @@ mod tests {
             after.vel_z
         );
         // Magnitude: g * dt = 9.81 / 60 ≈ 0.1635 m/s after 1 tick. With
-        // 0.02 drag applied AFTER gravity, vel_z ≈ -0.1635 * 0.98 =
-        // -0.16023. We assert range to leave room for Q32 rounding.
+        // 0.005 drag applied AFTER gravity, vel_z ≈ -0.1635 * 0.995 =
+        // -0.16268. We assert range to leave room for Q32 rounding.
         let expected_min = -Q32::from_int(17) / Q32::from_int(100); // -0.17
         let expected_max = -Q32::from_int(15) / Q32::from_int(100); // -0.15
         assert!(
@@ -466,11 +486,12 @@ mod tests {
             ..BallState::centre_spot()
         };
         let after = ball_step(&before, &phase1_seeds());
-        // 10 * 0.98 = 9.8 m/s — assert vel_x is between 9.7 and 9.9.
+        // T1-15: linear_drag = 0.005 → retention = 0.995.
+        // 10 * 0.995 = 9.95 m/s — assert vel_x is between 9.9 and 10.0.
         assert!(
-            after.vel_x > Q32::from_int(97) / Q32::from_int(10)
-                && after.vel_x < Q32::from_int(99) / Q32::from_int(10),
-            "vel_x after 1 tick of drag at altitude = {:?}; expected ~9.8",
+            after.vel_x > Q32::from_int(990) / Q32::from_int(100)
+                && after.vel_x < Q32::from_int(1000) / Q32::from_int(100),
+            "vel_x after 1 tick of drag at altitude = {:?}; expected ~9.95 (drag=0.005)",
             after.vel_x
         );
     }
@@ -488,9 +509,9 @@ mod tests {
         };
         let after = ball_step(&before, &phase1_seeds());
         // Post-bounce: vel_z = -e * vel_z_after_gravity. Gravity adds
-        // -9.81/60 ≈ -0.16 to vel_z first, then drag scales by 0.98,
+        // -9.81/60 ≈ -0.1635 to vel_z first, then drag scales by 0.995 (linear_drag=0.005),
         // then bounce flips + scales by 0.55. So roughly
-        // vel_z ≈ -0.55 * 0.98 * (-10 - 0.16) ≈ +5.48 m/s.
+        // vel_z ≈ -0.55 * 0.995 * (-10 - 0.1635) ≈ +5.55 m/s.
         assert!(
             after.vel_z > Q32::from_int(50) / Q32::from_int(10), // > 5.0
             "post-bounce vel_z = {:?}; expected ~5.5",
@@ -501,9 +522,9 @@ mod tests {
 
     /// A ball rolling on the ground (vel_z = 0, on ground) loses
     /// horizontal velocity to rolling friction in addition to drag.
-    /// μ = 0.25, so 75% retained per tick on x/y; 0.98 drag stacks on
-    /// the same axes. T1-3.5: altitude is pos_z; rolling friction now
-    /// acts on vx and vy (pitch-plane velocities).
+    /// T1-15 re-calibration: linear_drag=0.005, rolling_friction=0.002.
+    /// Combined retention: 0.995 * 0.998 = 0.993010 per tick.
+    /// T1-3.5: altitude is pos_z; rolling friction acts on vx and vy.
     #[test]
     fn ground_ball_loses_horizontal_velocity_to_friction() {
         let before = BallState {
@@ -512,12 +533,12 @@ mod tests {
             ..BallState::centre_spot()
         };
         let after = ball_step(&before, &phase1_seeds());
-        // vel_x after one tick: drag scales by 0.98, then rolling
-        // friction scales by 0.75. 10 * 0.98 * 0.75 = 7.35 m/s.
+        // vel_x after one tick: drag scales by 0.995, rolling friction by 0.998.
+        // 10 * 0.995 * 0.998 = 9.930 m/s.
         assert!(
-            after.vel_x > Q32::from_int(72) / Q32::from_int(10)  // > 7.2
-                && after.vel_x < Q32::from_int(75) / Q32::from_int(10), // < 7.5
-            "vel_x after 1 tick of rolling friction = {:?}; expected ~7.35",
+            after.vel_x > Q32::from_int(985) / Q32::from_int(100)  // > 9.85
+                && after.vel_x < Q32::from_int(998) / Q32::from_int(100), // < 9.98
+            "vel_x after 1 tick of rolling friction = {:?}; expected ~9.93 (drag=0.005, μ=0.002)",
             after.vel_x
         );
     }
@@ -528,7 +549,7 @@ mod tests {
     /// branch, satisfy the `vz <= Q32::ZERO` rolling-friction guard, and
     /// double-decay horizontal velocity. The `did_bounce` flag prevents
     /// that. We assert horizontal velocity is only decayed by drag
-    /// (× 0.98), not drag-then-friction (× 0.98 × 0.75).
+    /// (× 0.995 at linear_drag=0.005), not drag-then-friction.
     /// T1-3.5: altitude axis is pos_z/vel_z.
     #[test]
     fn zero_bounce_retention_does_not_apply_rolling_friction_on_contact() {
@@ -549,12 +570,13 @@ mod tests {
             Q32::ZERO,
             "vel_z should be zero after dead bounce"
         );
-        // Horizontal velocity should be 10 * 0.98 = 9.8 (drag only).
-        // If rolling friction leaked, it would be 10 * 0.98 * 0.75 = 7.35.
+        // Horizontal velocity should be 10 * 0.995 = 9.95 (drag only, linear_drag=0.005).
+        // If rolling friction leaked (μ=0.002), it would be 10 * 0.995 * 0.998 = 9.93.
+        // The test only needs vel_x > 9.93 to distinguish drag-only from leaked-friction.
         assert!(
-            after.vel_x > Q32::from_int(97) / Q32::from_int(10),
+            after.vel_x > Q32::from_int(993) / Q32::from_int(100),
             "vel_x = {:?}; rolling friction leaked onto bounce tick \
-             (expected drag-only ≈ 9.8, friction-stacked would be ≈ 7.35)",
+             (expected drag-only ≈ 9.95, friction-stacked at μ=0.002 would be ≈ 9.93)",
             after.vel_x
         );
     }

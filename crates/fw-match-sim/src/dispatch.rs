@@ -72,9 +72,11 @@ use fw_content::{MatchEvent, PassKind, is_shot_on_target};
 /// Maximum player speed in m/s (skeleton tier). Direct vel-set; no
 /// acceleration model. -iii-b introduces an acceleration ramp.
 ///
-/// 5 m/s ≈ slow jog. Enough for skeleton movement toward formation.
-/// In Q32.32 format: 5 × 2^32 = 5 << 32 = 21_474_836_480 as i64.
-const MAX_PLAYER_SPEED: Q32 = Q32::from_raw(5_i64 << 32); // 5.0 in Q32.32
+/// 8 m/s ≈ a brisk run / moderate sprint. Raised from 5 m/s at T1-15
+/// so outfield players can close a ~10m gap toward a loose ball within
+/// ~10 ticks (~0.17s) rather than never converging at the old 5 m/s jog.
+/// In Q32.32 format: 8 × 2^32 = 8 << 32.
+const MAX_PLAYER_SPEED: Q32 = Q32::from_raw(8_i64 << 32); // 8.0 in Q32.32
 
 // ---------------------------------------------------------------------------
 // Ball-speed constants (T1-3.5)
@@ -528,10 +530,16 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 target_y: *target_y,
                 on_target,
             });
-            // T1-3.5: ball mutation — kick toward target.
-            let speed = compute_ball_speed_for_shot(&state.players[slot_idx]);
+            // T1-15: snap ball to shooter's feet before kicking. Without this
+            // the ball starts from its last physical position (often center
+            // spot after kick-off) rather than the shooter's feet, causing
+            // shots to travel from center and miss the goal entirely.
             let from_x = state.players[slot_idx].pos_x;
             let from_y = state.players[slot_idx].pos_y;
+            state.ball.pos_x = from_x;
+            state.ball.pos_y = from_y;
+            // T1-3.5: ball mutation — kick toward target.
+            let speed = compute_ball_speed_for_shot(&state.players[slot_idx]);
             let (bvx, bvy) = ball_unit_vel(from_x, from_y, *target_x, *target_y, speed);
             state.ball.vel_x = bvx;
             state.ball.vel_y = bvy;
@@ -550,10 +558,16 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 kind: PassKind::Short,
                 completed: T1_PASS_COMPLETED,
             });
-            // T1-3.5: ball mutation — kick toward receiver's current position.
-            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+            // T1-15: snap ball to passer's feet before computing velocity.
+            // Without this, the ball starts from its last physical position
+            // (often center spot) rather than the passer's feet, so rolling
+            // friction stops the ball before it reaches the receiver.
             let from_x = state.players[slot_idx].pos_x;
             let from_y = state.players[slot_idx].pos_y;
+            state.ball.pos_x = from_x;
+            state.ball.pos_y = from_y;
+            // T1-3.5: ball mutation — kick toward receiver's current position.
+            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
             let to_x = state.players[to_slot as usize].pos_x;
             let to_y = state.players[to_slot as usize].pos_y;
             let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
@@ -574,9 +588,12 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 kind: PassKind::Long,
                 completed: T1_PASS_COMPLETED,
             });
-            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+            // T1-15: snap ball to passer's feet (same pattern as Short/Dribble).
             let from_x = state.players[slot_idx].pos_x;
             let from_y = state.players[slot_idx].pos_y;
+            state.ball.pos_x = from_x;
+            state.ball.pos_y = from_y;
+            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
             let to_x = state.players[to_slot as usize].pos_x;
             let to_y = state.players[to_slot as usize].pos_y;
             let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
@@ -596,9 +613,12 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 kind: PassKind::Cross,
                 completed: T1_PASS_COMPLETED,
             });
-            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+            // T1-15: snap ball to crosser's feet before kick.
             let from_x = state.players[slot_idx].pos_x;
             let from_y = state.players[slot_idx].pos_y;
+            state.ball.pos_x = from_x;
+            state.ball.pos_y = from_y;
+            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
             let to_x = state.players[to_slot as usize].pos_x;
             let to_y = state.players[to_slot as usize].pos_y;
             let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
@@ -618,9 +638,12 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 kind: PassKind::LayOff,
                 completed: T1_PASS_COMPLETED,
             });
-            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+            // T1-15: snap ball to passer's feet before kick.
             let from_x = state.players[slot_idx].pos_x;
             let from_y = state.players[slot_idx].pos_y;
+            state.ball.pos_x = from_x;
+            state.ball.pos_y = from_y;
+            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
             let to_x = state.players[to_slot as usize].pos_x;
             let to_y = state.players[to_slot as usize].pos_y;
             let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
@@ -650,10 +673,13 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
             let from_slot = state.players[slot_idx].slot;
             let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
             // No MatchEvent for GK distribution in T1 (commentary in T1-4b).
-            // T1-3.5: ball mutation toward receiver.
-            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+            // T1-15: snap ball to GK's feet before kick.
             let from_x = state.players[slot_idx].pos_x;
             let from_y = state.players[slot_idx].pos_y;
+            state.ball.pos_x = from_x;
+            state.ball.pos_y = from_y;
+            // T1-3.5: ball mutation toward receiver.
+            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
             let to_x = state.players[to_slot as usize].pos_x;
             let to_y = state.players[to_slot as usize].pos_y;
             let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
@@ -668,9 +694,12 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
             // scaling (GKs kick hard) rather than pass-speed scaling.
             let from_slot = state.players[slot_idx].slot;
             let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
-            let speed = compute_ball_speed_for_shot(&state.players[slot_idx]);
+            // T1-15: snap ball to GK's feet before kick.
             let from_x = state.players[slot_idx].pos_x;
             let from_y = state.players[slot_idx].pos_y;
+            state.ball.pos_x = from_x;
+            state.ball.pos_y = from_y;
+            let speed = compute_ball_speed_for_shot(&state.players[slot_idx]);
             let to_x = state.players[to_slot as usize].pos_x;
             let to_y = state.players[to_slot as usize].pos_y;
             let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
@@ -817,15 +846,105 @@ fn clamp_speed(delta: Q32) -> Q32 {
 // Pre-emption hooks (stub)
 // ---------------------------------------------------------------------------
 
-/// Universal pre-emption hook check. Returns `Some(intent)` if a pre-emption
-/// fires for this player, `None` to proceed to normal role dispatch.
+/// Pre-emption hook — wires loose-ball chase for T1-15.
 ///
-/// T1-2b-iii-a: always returns `None`. -iii-b / T1-4 wires:
-/// - Single-chaser claim (only one player chases the loose ball)
-/// - Foul reaction
-/// - Set-piece switchover
-fn preempt_check(_state: &MatchState, _slot_idx: usize) -> Option<PlayerIntent> {
-    None
+/// Returns `Some(intent)` if a pre-emption fires for this player,
+/// `None` to proceed to normal role dispatch.
+///
+/// When `state.possession == None` (loose ball — ball has been shot or knocked
+/// free), the nearest-2 outfield players per team chase the ball's current
+/// position. This prevents possession from staying `None` indefinitely while
+/// preserving formation Y-spread (routing all 10 outfielders collapses width).
+///
+/// GKs (slots 0 and 11) are normally excluded — GK routing remains in the
+/// goalkeeper FSM — EXCEPT when the ball is within 10m of the GK's own goal
+/// line. In that case the GK chases the ball to prevent it from lingering
+/// uncontested near the goal (the "ball stranded 2-3m short of goal line"
+/// scenario from T1-15).
+///
+/// Full pre-emption hook (foul reaction, set-piece switchover, etc.) defers
+/// to T2+ per ADR-0006. Loose-ball chase is the only live hook in T1.
+fn preempt_check(state: &MatchState, slot_idx: usize) -> Option<PlayerIntent> {
+    // Only fire when the ball is loose (no current carrier).
+    if state.possession.is_some() {
+        return None;
+    }
+
+    // GK slots: only chase when ball is near their own goal line.
+    // Home GK (slot 0): own goal at x = -52.5m.
+    // Away GK (slot 11): own goal at x = +52.5m.
+    // "Near" = within GK_CHASE_RADIUS_M of the goal line (absolute x distance).
+    //
+    // In Q32, GOAL_LINE_X = 52.5m stored as Q32::from_raw(52_i64 << 32 | ...)
+    // We use a simple integer comparison: if abs(ball_x) > GK_CHASE_THRESHOLD_X,
+    // the ball is close enough to the goal line for the GK to chase.
+    // GK_CHASE_THRESHOLD_X = 42m (ball within 10m of the 52.5m goal line).
+    if slot_idx == 0 || slot_idx == 11 {
+        // Threshold: ball must be in the attacking third (>42m from centre)
+        // to trigger GK chase. This keeps the GK in position during normal play.
+        let bx_bits = state.ball.pos_x.to_bits();
+        let bx_abs: u64 = bx_bits.unsigned_abs();
+        // 42m in Q32: 42 << 32 = 180_388_203_520_u64
+        const THRESHOLD_BITS: u64 = 42_u64 << 32;
+        if bx_abs < THRESHOLD_BITS {
+            return None; // ball is not near a goal line — let GK FSM decide
+        }
+        // Ball is near a goal line. Check it's near THIS GK's goal.
+        // Home GK (slot 0): defends negative x (bx < 0).
+        // Away GK (slot 11): defends positive x (bx > 0).
+        let home_gk_side = bx_bits < 0; // true if ball is in home half
+        let is_home_gk = slot_idx == 0;
+        if home_gk_side != is_home_gk {
+            return None; // ball is near the OPPONENT's goal — stay back
+        }
+        // GK chases the ball.
+        return Some(PlayerIntent::MoveToPosition {
+            target_x: state.ball.pos_x,
+            target_y: state.ball.pos_y,
+        });
+    }
+
+    // Only route the two outfield players NEAREST the ball toward it.
+    // Routing all 10 outfielders collapses Y-formation spread (the
+    // team_width invariant catches this). In real football, the nearest
+    // 1-2 players chase; others hold shape. T1-15 approximation: nearest
+    // 2 from each team chase; the rest hold formation (returning via BT).
+    //
+    // Compute this player's Manhattan distance to the ball.
+    let bx = state.ball.pos_x;
+    let by = state.ball.pos_y;
+    let p = &state.players[slot_idx];
+    let my_dx = (p.pos_x - bx).to_bits().unsigned_abs() as i128;
+    let my_dy = (p.pos_y - by).to_bits().unsigned_abs() as i128;
+    let my_dist = my_dx + my_dy;
+
+    // Count how many same-team outfield players are closer to the ball.
+    let team_start = if slot_idx < 11 { 1usize } else { 12usize };
+    let team_end = if slot_idx < 11 { 11usize } else { 22usize };
+    let gk_slot = if slot_idx < 11 { 0usize } else { 11usize };
+
+    let closer_count = (team_start..team_end)
+        .filter(|&i| {
+            if i == slot_idx || i == gk_slot {
+                return false;
+            }
+            let op = &state.players[i];
+            let dx = (op.pos_x - bx).to_bits().unsigned_abs() as i128;
+            let dy = (op.pos_y - by).to_bits().unsigned_abs() as i128;
+            dx + dy < my_dist
+        })
+        .count();
+
+    // If 2 or more same-team outfielders are closer, hold formation.
+    // Only the 2 nearest outfielders chase the ball.
+    if closer_count >= 2 {
+        return None; // let BT decide (formation hold)
+    }
+
+    Some(PlayerIntent::MoveToPosition {
+        target_x: state.ball.pos_x,
+        target_y: state.ball.pos_y,
+    })
 }
 
 // ---------------------------------------------------------------------------

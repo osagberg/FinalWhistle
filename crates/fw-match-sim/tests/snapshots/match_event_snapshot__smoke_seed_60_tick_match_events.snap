@@ -15,53 +15,21 @@ expression: state.match_events()
         tick: Tick(
             5,
         ),
-        kind: Cross,
+        kind: Long,
         completed: true,
     },
-    Pass {
-        from_slot: 10,
-        to_slot: 9,
+    Shot {
+        shooter_slot: 10,
         tick: Tick(
             11,
         ),
-        kind: Cross,
-        completed: true,
-    },
-    Pass {
-        from_slot: 9,
-        to_slot: 10,
-        tick: Tick(
-            20,
+        target_x: Q32(
+            52,
         ),
-        kind: Cross,
-        completed: true,
-    },
-    Pass {
-        from_slot: 10,
-        to_slot: 9,
-        tick: Tick(
-            26,
+        target_y: Q32(
+            0,
         ),
-        kind: Long,
-        completed: true,
-    },
-    Pass {
-        from_slot: 9,
-        to_slot: 10,
-        tick: Tick(
-            35,
-        ),
-        kind: Cross,
-        completed: true,
-    },
-    Pass {
-        from_slot: 10,
-        to_slot: 9,
-        tick: Tick(
-            56,
-        ),
-        kind: Long,
-        completed: true,
+        on_target: true,
     },
     FullTime {
         tick: Tick(

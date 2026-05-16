@@ -207,6 +207,16 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   Option<u8>` projected from `state.possession()`. Insta snapshot
 ///   updated to reflect Pass events starting at tick 5.
 ///   Authorized by T1-3.6 task-spec in MEMORY.md.
+/// - 2026-05-16 (T1-15 goal scoring) — **re-baselined to `2f14a562...cb27`**
+///   per ADR-0012 trigger #3 (sim behavior change with documented intent):
+///   Ball physics tuned so shots reach the goal line (reduced rolling_friction
+///   to 0.002 + linear_drag to 0.005 per-tick). GK loose-ball chase added
+///   (preempt_check routes GK toward ball when within 10m of own goal line).
+///   Loose-ball pickup extended to include GK when ball is near their goal.
+///   MAX_PLAYER_SPEED raised from 5 to 8 m/s (brisk run) for faster convergence.
+///   Preempt_check limited to nearest-2-chasers per team (preserves formation
+///   Y-spread). Smoke seed now produces 4 goals (2-2) in 600 ticks.
+///   Authorized by T1-15 task-spec in MEMORY.md.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -215,7 +225,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("ddccaf88c94f328274d484ed1e14ced8638d1ccf63bb922ad64a4f28664000b3");
+    hex!("2f14a562de30bd2375b9393b1f46c1f563f131ec155fd8c4a7fbae20e25dcb27");
 
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.
@@ -507,13 +517,19 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   extended seed runs `MatchState::initial_with_content` against the
 ///   committed `content/sources/` tree + passes `content.signature_definitions`
 ///   to every `tick_match` call.
+/// - 2026-05-16 (T1-15 goal scoring) — **re-baselined to `268984...e95ae`**
+///   per ADR-0012 trigger #3 (sim behavior change with documented intent):
+///   Same changes as PINNED_60_TICK above (GK chase, 2-chaser preempt,
+///   MAX_PLAYER_SPEED 5→8, rolling_friction 0.002, goal line target 52m).
+///   600-tick run now produces 4 goals (2-2) on this seed.
+///   Authorized by T1-15 task-spec in MEMORY.md.
 ///
 /// Re-baselining: update this constant AND the `expected_hash` field of
 /// `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron` in the same commit,
 /// per `docs/specs/determinism-gate.md` §9 — the same protocol that
 /// governs PINNED_60_TICK above.
 const PINNED_600_TICK: [u8; 32] =
-    hex!("66585ca8af67a5445f32a31f7661089c1a2a608a6dad283f22ac50efc6a34625");
+    hex!("268984120f5eb3ecece932b845f367b0d6f45b94613b7e773ce187027b7e95ae");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

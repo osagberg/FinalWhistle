@@ -203,17 +203,54 @@ pub fn utility_shoot(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q3
         (Q32::ONE + w_vision * a.mental.vision) * (Q32::ONE + w_balance * a.physical.balance);
     let raw = raw * secondary;
 
+    // T1-15 baseline boost: shoot has 4 primary factors vs 3 for cross/long_pass,
+    // so its product is ~2× lower at mid-range attributes. Without a boost, shoot
+    // never reaches the top-3 softmax pool (ADR-0003 §6 N=3) and no goals fire.
+    // 2× flat boost + spatial proximity bonus: within 30m of goal (x > 15 home /
+    // x < -15 away), shoot utility is multiplied by an additional 4× so it clearly
+    // dominates the softmax pool and forwards in the attack third actually shoot.
+    // Real spatial xG replaces this stub at T1-4/T2-1. Authorized by T1-15 task-spec.
+    let goal_x = if (roster_slot as usize) < 11 {
+        Q32::from_int(45)
+    } else {
+        Q32::from_int(-45)
+    };
+    // Distance from goal: |goal_x - player.pos_x|. When near the goal (dist < 30m),
+    // apply proximity multiplier. Q32 subtraction: |45 - pos_x| for home team.
+    let dist_to_goal = if goal_x > Q32::ZERO {
+        goal_x - player.pos_x
+    } else {
+        player.pos_x - goal_x
+    };
+    // Proximity multiplier: 4× when within 30m, 2× when within 40m, else 2×.
+    let proximity_mul = if dist_to_goal < Q32::from_int(30) {
+        Q32::from_int(4)
+    } else if dist_to_goal < Q32::from_int(40) {
+        Q32::from_int(3)
+    } else {
+        Q32::from_int(2)
+    };
+    let raw = raw * proximity_mul;
+
     // Effective defender pressure = PT-attenuated proxy (complement of composure).
     let raw_pressure = Q32::ONE - a.mental.composure;
     let eff_pressure = read_defender_pressure(a, raw_pressure);
 
     let biased = apply_shoot_bias(raw, a, eff_pressure);
 
-    // Target: the attacking goal centre.
+    // Target: the attacking goal centre. Use 52m (behind the goal line) so that
+    // even when the shooter has drifted to the goal line (pos_x ≈ 45m), the
+    // ball_unit_vel direction vector is non-zero and the ball travels forward.
+    // At T1 there is no keeper model; `is_shot_on_target` checks target_y ±3.66m
+    // so this is fine — the actual ball position is what determines a goal, not
+    // the target. Using 45 as target caused zero-velocity shots when pos_x == 45
+    // (the zero-distance fallback in ball_unit_vel returns (0,0) to prevent
+    // phantom goals from co-located passers, but that fallback is wrong for shots
+    // from the goal line). Authorized by T1-15 task-spec.
     let (target_x, target_y) = if (roster_slot as usize) < 11 {
-        (Q32::from_int(45), Q32::ZERO)
+        (Q32::from_int(52), Q32::ZERO)
     } else {
-        (Q32::from_int(-45), Q32::ZERO)
+        (Q32::from_int(-52), Q32::ZERO)
     };
 
     (PlayerIntent::AttemptShot { target_x, target_y }, biased)
@@ -239,9 +276,17 @@ pub fn utility_pass_short(player: &PlayerState, roster_slot: u8) -> (PlayerInten
 
     let biased = apply_safe_pass_bias(raw, a);
 
-    let (fx, fy) = formation_position(roster_slot);
-    let target_x = fx;
-    let target_y = fy + Q32::from_int(5);
+    // T1-15 fix: short pass targets 10m FORWARD from the carrier's CURRENT
+    // position (not formation position). Using current position ensures the
+    // target is always ahead of the carrier — even when players have drifted
+    // far from their formation slot. Prior code used `fy + 5` (Y-axis sideways
+    // offset from formation), causing the ball to loop in midfield forever.
+    let target_x = if (roster_slot as usize) < 11 {
+        player.pos_x + Q32::from_int(10)
+    } else {
+        player.pos_x - Q32::from_int(10)
+    };
+    let target_y = player.pos_y;
 
     (
         PlayerIntent::AttemptPassShort { target_x, target_y },
@@ -812,5 +857,35 @@ mod tests {
         };
         assert!(htx > Q32::ZERO, "home team shoots toward +x");
         assert!(atx < Q32::ZERO, "away team shoots toward -x");
+    }
+
+    // T1-15: short pass target must advance FORWARD, not sideways.
+    // Home slot 5 has formation_x = -10; forward = +x → target_x > -10.
+    // Away slot 16 has formation_x = +10; forward = -x → target_x < +10.
+    #[test]
+    fn pass_short_target_advances_forward_home() {
+        let p = mid_player(5);
+        let (fx, _fy) = formation_position(5);
+        let (PlayerIntent::AttemptPassShort { target_x, .. }, _) = utility_pass_short(&p, 5) else {
+            panic!("expected AttemptPassShort");
+        };
+        assert!(
+            target_x > fx,
+            "home short-pass target_x ({target_x:?}) must be ahead of formation_x ({fx:?})"
+        );
+    }
+
+    #[test]
+    fn pass_short_target_advances_forward_away() {
+        let p = mid_player(16);
+        let (fx, _fy) = formation_position(16);
+        let (PlayerIntent::AttemptPassShort { target_x, .. }, _) = utility_pass_short(&p, 16)
+        else {
+            panic!("expected AttemptPassShort");
+        };
+        assert!(
+            target_x < fx,
+            "away short-pass target_x ({target_x:?}) must be ahead (less than) formation_x ({fx:?})"
+        );
     }
 }
