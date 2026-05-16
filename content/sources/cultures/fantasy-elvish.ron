@@ -27,6 +27,18 @@ Culture(
         "Wraithwood", "Stillwater", "Yarrowmoon", "Brookhaven",
         "Hollowmere", "Larkenshade", "Pinedrift", "Quietbrook",
     ],
+    team_name_bank: [
+        "Mithlond Spires",
+        "Lothloren Wanderers",
+        "Nargothrond Sentinels",
+        "Imladris Vale",
+        "Mirkwood Rangers",
+        "Eregion Smiths",
+        "Tirion Ascendant",
+        "Doriath Greenwood",
+        "Gondolin Heights",
+        "Avathar Tides",
+    ],
     // Elvish convention: first-name space (descriptor-)surname.
     naming_pattern: "{first} {last}",
     weights: (

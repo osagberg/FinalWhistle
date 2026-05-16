@@ -1,0 +1,24 @@
+// Pragmatic Defender manager archetype — hand-authored, NOT LLM-baked.
+//
+// A defensive-minded tactician who sets up compact low blocks and relies on
+// fast transitions to threaten on the counter. Low risk appetite; slight
+// defensive lean on possession preference.
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.3 × 2^32 = 1_288_490_188.8 → 1_288_490_189
+//   possession_preference: 0.4 × 2^32 = 1_717_986_918.4 → 1_717_986_918
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   low-block-counter.ron  (validated at load time by ContentStore).
+//
+// Content-pack-qualified ID format per Content/RULES.md §2 (hand-authored
+// dotted form): fwh.core:manager.<slug>.
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.pragmatic-defender",
+    display_name: "Pragmatic Defender",
+    tactical_archetype_id: "fwh.core:archetype.low-block-counter",
+    risk_appetite: (bits: 1288490189),
+    possession_preference: (bits: 1717986918),
+)

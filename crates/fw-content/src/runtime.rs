@@ -177,6 +177,13 @@ pub struct Culture {
     pub first_name_bank: Vec<String>,
     /// Last-name bank. Same constraints as first_name_bank.
     pub last_name_bank: Vec<String>,
+    /// Team-name bank. Hand-authored football-native club names for this
+    /// culture. Used by `procgen::generate_team` to pick a team name;
+    /// Markov is NOT used for team names (team names are authored, not
+    /// generated). `#[serde(default)]` for backwards-compat with
+    /// pre-T1-7 culture fixtures that lack this field.
+    #[serde(default)]
+    pub team_name_bank: Vec<String>,
     /// Naming pattern grammar — `{first}`, `{last}`, optional `{patronymic}`.
     /// Default `"{first} {last}"`.
     #[serde(default = "default_naming_pattern")]
@@ -335,6 +342,11 @@ pub struct ContentStore {
     /// Missing any of the 6 required files is a hard load error
     /// (`ContentLoadError::MissingCommentaryGrammar`).
     pub commentary_grammars: crate::commentary::CommentaryGrammarBank,
+    /// Manager archetypes — keyed by stable ID (`fwh.core:manager.<slug>`).
+    /// Loaded from `content/sources/managers/*.ron`. Optional directory —
+    /// absent directory is silently skipped (backwards-compat; old content
+    /// packs have no managers/ dir).
+    pub managers: BTreeMap<String, crate::manager::ManagerArchetype>,
     // TODO(T2-3): bios, scout phrases, headlines, manager quotes, fan
     // reactions — wired in as each baker subcommand lands.
 }
@@ -376,6 +388,7 @@ impl Default for ContentStore {
             role_affinity_tables: BTreeMap::new(),
             signature_definitions: BTreeMap::new(),
             commentary_grammars,
+            managers: BTreeMap::new(),
         }
     }
 }
@@ -434,6 +447,32 @@ pub enum ContentLoadError {
         path_first: PathBuf,
         /// Path of the duplicate RON file that also claimed this ID.
         path_dupe: PathBuf,
+    },
+    /// A content fixture references another content entity by ID, but that
+    /// ID doesn't resolve in the loaded `ContentStore`.
+    ///
+    /// T1-7 fix-pass per silent-failure F4 — prior `ManagerArchetype` doc
+    /// claimed cross-reference validation at load time but no validator
+    /// existed; manager fixtures with dangling `tactical_archetype_id`
+    /// loaded silently + the failure only surfaced later via
+    /// `generate_team`'s `MissingTacticalArchetype`, misleadingly
+    /// suggesting the call site was wrong rather than the fixture. This
+    /// variant surfaces dangling refs at load time.
+    #[error(
+        "dangling content reference: {from_kind} {from_id:?} (loaded from {from_path:?}) \
+         references {to_kind} {to_id:?} which does not exist in the loaded ContentStore"
+    )]
+    DanglingReference {
+        /// Content category of the entity holding the reference (e.g. `"manager_archetype"`).
+        from_kind: &'static str,
+        /// ID of the entity holding the reference.
+        from_id: String,
+        /// Path of the RON file that defines the entity holding the reference.
+        from_path: PathBuf,
+        /// Content category being referenced (e.g. `"tactical_archetype"`).
+        to_kind: &'static str,
+        /// The unresolved reference ID.
+        to_id: String,
     },
 }
 
@@ -607,6 +646,63 @@ impl ContentStore {
         //   signature_first_fired.tracery.json → SignatureFirstFired
         let commentary_dir = sources_dir.join("commentary");
         store.commentary_grammars = load_commentary_grammars(&commentary_dir)?;
+
+        // Manager archetypes (T1-7). Optional — old content packs may not
+        // have a managers/ dir; silently skip if absent. ID conversion
+        // `ManagerArchetypeId -> String` mirrors the SignatureDefinition
+        // loader pattern (line 600) — BTreeMap key is bare String for
+        // hashability while the struct's id field is the newtype. Kind
+        // string `"manager_archetype"` matches the snake_case-mirrors-
+        // type-name convention used by the other 5 loaders (T1-7 fix-pass
+        // per code-reviewer P2).
+        //
+        // Manager-fixture path also tracked separately for the cross-reference
+        // validator below (we need the RON file path to surface in the
+        // DanglingReference error).
+        let mut manager_paths: BTreeMap<String, PathBuf> = BTreeMap::new();
+        let managers_dir = sources_dir.join("managers");
+        if managers_dir.is_dir() {
+            let mut seen: BTreeMap<String, PathBuf> = BTreeMap::new();
+            for entry in walk_ron_files(&managers_dir)? {
+                let parsed: crate::manager::ManagerArchetype = parse_ron_file(&entry)?;
+                let id = parsed.id.as_str().to_owned();
+                manager_paths.insert(id.clone(), entry.clone());
+                insert_unique(
+                    &mut store.managers,
+                    &mut seen,
+                    id,
+                    parsed,
+                    "manager_archetype",
+                    entry,
+                )?;
+            }
+        }
+
+        // Cross-reference validation (T1-7 fix-pass per silent-failure F4):
+        // every ManagerArchetype.tactical_archetype_id MUST resolve in
+        // store.tactical_archetypes — fail loudly with DanglingReference if
+        // a manager fixture points at a deleted/typo'd archetype. Prior
+        // behavior surfaced this as `MissingTacticalArchetype` only when
+        // `generate_team` was called against that manager, misleadingly
+        // implicating the call site rather than the fixture.
+        for (manager_id, manager) in &store.managers {
+            if !store
+                .tactical_archetypes
+                .contains_key(&manager.tactical_archetype_id)
+            {
+                let from_path = manager_paths
+                    .get(manager_id)
+                    .cloned()
+                    .unwrap_or_else(|| PathBuf::from("<unknown path>"));
+                return Err(ContentLoadError::DanglingReference {
+                    from_kind: "manager_archetype",
+                    from_id: manager_id.clone(),
+                    from_path,
+                    to_kind: "tactical_archetype",
+                    to_id: manager.tactical_archetype_id.clone(),
+                });
+            }
+        }
 
         Ok(store)
     }
@@ -792,6 +888,7 @@ mod tests {
                 name: "Anglo".to_string(),
                 first_name_bank: vec!["James".into(), "William".into(), "Henry".into()],
                 last_name_bank: vec!["Smith".into(), "Jones".into(), "Brown".into()],
+                team_name_bank: vec![],
                 naming_pattern: "{first} {last}".to_string(),
                 weights: CultureWeights::default(),
             },

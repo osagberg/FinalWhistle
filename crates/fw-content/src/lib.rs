@@ -11,7 +11,10 @@
 pub mod archetype;
 pub mod commentary;
 pub mod event;
+pub mod manager;
+pub mod markov;
 pub mod player;
+pub mod procgen;
 pub mod role_affinity;
 pub mod runtime;
 pub mod signature;
@@ -24,7 +27,16 @@ pub use commentary::{
 // MatchEventDiscriminant moved to event module at T1-11 type-design P1 fix-pass
 // (was in commentary; cyclic-import once MatchEvent::discriminant() returns it).
 pub use event::{MatchEvent, MatchEventDiscriminant, PassKind, is_shot_on_target};
+pub use manager::{
+    MANAGER_ARCHETYPE_SCHEMA_VERSION, ManagerArchetype, ManagerArchetypeError, ManagerArchetypeId,
+    ManagerArchetypeIdError,
+};
+pub use markov::{MAX_NAME_LEN, MarkovError, MarkovNameChain};
 pub use player::{PLAYER_TEMPLATE_SCHEMA_VERSION, PlayerTemplate};
+pub use procgen::{
+    ManagerName, PlayerName, ProcGenError, ProcGenInputs, ProcGenTeam, generate_team,
+    train_culture_chain,
+};
 pub use role_affinity::{
     ROLE_AFFINITY_SCHEMA_VERSION, RoleAffinityTable, RoleId, RoleIdError, RoleWeights,
 };

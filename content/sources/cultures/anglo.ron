@@ -40,6 +40,18 @@ Culture(
         "Holbridge", "Inkpen", "Janney", "Kerwood", "Lanstead",
         "Marlborough", "Netherbridge", "Ormiston", "Padstow", "Quarmby",
     ],
+    team_name_bank: [
+        "Wessex United",
+        "Northshire Town",
+        "Tynemouth Rovers",
+        "Ashfield City",
+        "Whitcomb Wanderers",
+        "Brookhaven United",
+        "Carlow Athletic",
+        "Greendale Town",
+        "Hollyfield Rovers",
+        "Eastvale City",
+    ],
     naming_pattern: "{first} {last}",
     weights: (
         // 7_000 bps == 0.7. Skews first-letter distribution mildly toward
