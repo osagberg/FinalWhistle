@@ -39,11 +39,34 @@
 //! `MAX_PLAYER_SPEED`. Direct velocity set (no acceleration model) — adequate
 //! for the skeleton tier. -iii-b will add an acceleration ramp.
 //!
-//! ## Pre-emption hooks (stub)
+//! ## Pre-emption hooks — 3-policy live (T1-15 + T1-19)
 //!
-//! Universal pre-emption hooks (single-chaser claim, foul reaction,
-//! set-piece switchover) are stubbed to return `None`. They will be wired
-//! in -iii-b / T1-4 once `MatchEvent` exists.
+//! `preempt_check` runs before per-slot signature evaluation + role dispatch.
+//! Returning `Some(intent)` short-circuits both: the intent is applied, the
+//! decision counter is bumped, and the slot's per-tick decision loop body
+//! `continue`s past role dispatch. T1-15 grew this from the prior stub to
+//! a substantive 3-policy implementation; T1-19 added 5 behavioral unit tests
+//! + amended ADR-0006 to document the scope. The 3 live policies:
+//!
+//!   1. **Possession gate** — `preempt_check` returns `None` whenever
+//!      `state.possession.is_some()`. All other policies require a loose ball.
+//!   2. **Goalkeeper own-side chase** — slot 0 (home GK) / slot 11 (away GK)
+//!      return `Some(MoveToPosition { target: ball })` IFF `|ball.pos_x| > 42m`
+//!      (ball within 10m of the ±52.5m goal line) AND the ball is on the GK's
+//!      own side (`bx_bits < 0` for home GK; `bx_bits >= 0` for away GK).
+//!      Originally framed for the "ball stranded 2-3m short of goal line"
+//!      failure surfaced during T1-15 empirical playtesting.
+//!   3. **Outfield nearest-2 chase** — for outfielders, `preempt_check`
+//!      returns `MoveToPosition { target: ball }` UNLESS 2+ same-team
+//!      outfielders are STRICTLY closer (Manhattan distance; `<` tiebreak;
+//!      same-team GK excluded from the count). Under exact-Manhattan ties
+//!      more than 2 may chase — a known limitation deferred to T2-1's
+//!      archetype-driven positioning.
+//!
+//! See `docs/adr/0006-bt-vs-fsm-decision-layer.md` "Amendment 2026-05-16 —
+//! preempt_check 3-policy scope" for the architectural rationale + future
+//! T2+ scope (foul reaction, set-piece switchover, 60 Hz reactive interrupts).
+//! Behavioral coverage lives in `dispatch::tests::preempt_check_*` (T1-19).
 
 use std::collections::BTreeMap;
 
@@ -51,7 +74,7 @@ use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
 use fw_content::{CooldownPolicy, SignatureDefinition, SimBiasSnapshot, StackingPolicy};
-use fw_core::{Q32, Tick};
+use fw_core::Q32;
 
 use crate::MatchState;
 use crate::bt::{BtContext, LeafKind, Node, Tree, tick_tree};
@@ -328,12 +351,17 @@ pub fn dispatch_tick(
                 &active_firings,
             ) {
                 // Determine cooldown end tick from the definition's CooldownPolicy.
+                // T1-23 (post-Codex Finding #1): `Tick::checked_add_ticks(u32)` replaces
+                // `Tick::from_raw(state.tick.to_raw() + n as i64)`. Same arithmetic at
+                // the realistic tick range; the helper funnels overflow through the
+                // §11 panic-on-overflow policy so a stuck-loop bug at i64::MAX
+                // surfaces loudly instead of silently wrapping.
                 let cooldown_end_tick = match sig_def.cooldown {
-                    CooldownPolicy::EveryTicks(n) => Tick::from_raw(state.tick.to_raw() + n as i64),
+                    CooldownPolicy::EveryTicks(n) => state.tick.checked_add_ticks(n),
                     CooldownPolicy::PerMatchCount(_) => {
                         // For PerMatchCount, use the 600-tick default as the
                         // intra-match spacing; the count limit enforced at T2-4.
-                        Tick::from_raw(state.tick.to_raw() + 600)
+                        state.tick.checked_add_ticks(600)
                     }
                 };
                 // Set cooldown.

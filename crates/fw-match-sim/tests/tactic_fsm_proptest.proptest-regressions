@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1a8feae21e204c27eec60dc8f10c78ca3fd71f69c9ea6de34671c6f61f2326ee # shrinks to current = TeamTacticState { state: HighPress, entry_tick: Tick(1135) }, now_tick_raw = 0

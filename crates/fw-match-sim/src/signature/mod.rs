@@ -120,11 +120,16 @@ impl SignatureFiring {
     pub fn is_active(&self, current_tick: Tick) -> bool {
         // Guard against retroactive firings: a firing can only be active
         // once the simulation has reached its start tick.
-        if current_tick.to_raw() < self.start_tick.to_raw() {
+        if current_tick < self.start_tick {
             return false;
         }
-        let end_raw = self.start_tick.to_raw() + self.duration_ticks as i64;
-        current_tick.to_raw() < end_raw
+        // T1-23 (post-Codex Finding #1): `Tick::checked_add_ticks` replaces
+        // raw `self.start_tick.to_raw() + self.duration_ticks as i64`. Same
+        // arithmetic at realistic tick range; the helper funnels overflow
+        // through the §11 panic-on-overflow policy. Returning Tick (not raw
+        // i64) lets the comparison stay typed.
+        let end_tick = self.start_tick.checked_add_ticks(self.duration_ticks);
+        current_tick < end_tick
     }
 }
 

@@ -110,6 +110,14 @@ proptest! {
     /// Invariant 1: transition determinism.
     ///
     /// `apply_event` is a pure function: same inputs → same result state.
+    ///
+    /// T1-23 (post-Codex Finding #1): `prop_assume!` filters out inputs that
+    /// violate the cooldown-math invariant `now_tick >= entry_tick`. The
+    /// pre-T1-23 saturating arithmetic silently saturated to 0 on the
+    /// invariant-violating input space; the new `Tick::checked_elapsed_since`
+    /// panics per §11. The purity property is verified for the legal input
+    /// space; the panic-on-illegal-input contract is verified separately by
+    /// `fw_core::tick::tests::checked_elapsed_since_panics_when_entry_in_future`.
     #[test]
     fn transition_is_deterministic(
         current in arb_team_tactic_state(),
@@ -118,6 +126,7 @@ proptest! {
         now_tick_raw in 0i64..10000,
     ) {
         let now_tick = Tick::from_raw(now_tick_raw);
+        prop_assume!(now_tick >= current.entry_tick());
         let a = apply_event(current, &archetype, event, now_tick);
         let b = apply_event(current, &archetype, event, now_tick);
         prop_assert_eq!(a.state(), b.state());
@@ -135,6 +144,8 @@ proptest! {
         now_tick_raw in 0i64..10000,
     ) {
         let now_tick = Tick::from_raw(now_tick_raw);
+        // T1-23: see transition_is_deterministic's prop_assume rationale.
+        prop_assume!(now_tick >= current.entry_tick());
         let a = apply_event(current, &archetype, event, now_tick);
         let b = apply_event(current, &archetype, event, now_tick);
         let c = apply_event(current, &archetype, event, now_tick);
@@ -149,6 +160,8 @@ proptest! {
         now_tick_raw in 0i64..10000,
     ) {
         let now_tick = Tick::from_raw(now_tick_raw);
+        // T1-23: see transition_is_deterministic's prop_assume rationale.
+        prop_assume!(now_tick >= current.entry_tick());
         let a = heartbeat_check(&current, now_tick);
         let b = heartbeat_check(&current, now_tick);
         let c = heartbeat_check(&current, now_tick);
@@ -252,6 +265,17 @@ proptest! {
         entry_tick_raw in 0i64..5000,
         now_tick_raw in 0i64..10000,
     ) {
+        // T1-23 note: no prop_assume!(now >= entry) filter needed here.
+        // `heartbeat_check` only calls `checked_elapsed_since` inside the
+        // `if current.state == TacticState::HighPress` branch (see
+        // `tactic_fsm.rs::heartbeat_check`); this invariant deliberately
+        // excludes HighPress via the `prop_oneof![MidBlock, LowBlock,
+        // CounterAttack]` strategy above, so the panic branch is unreachable
+        // for this test's input space. Documented here so a future
+        // maintainer reading this alongside the 3 filtered Invariants
+        // (1, 2, 2b) doesn't add a spurious filter — or worse, copy this
+        // unfiltered pattern to a HighPress-scoped test and get false
+        // confidence.
         let current = TeamTacticState::initial()
             .transition(tactic_state, Tick::from_raw(entry_tick_raw));
         let result = heartbeat_check(&current, Tick::from_raw(now_tick_raw));

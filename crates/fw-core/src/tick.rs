@@ -164,6 +164,85 @@ impl Tick {
     pub const fn clamping_sub(self, rhs: Tick) -> Tick {
         Tick(self.0.saturating_sub(rhs.0))
     }
+
+    // ---------------------------------------------------------------------
+    // Typed cooldown-math helpers (T1-23 per Codex post-followup-review
+    // Finding #1)
+    //
+    // Cooldown / elapsed-time math in `fw-match-sim::tactic_fsm` +
+    // `dispatch` + `signature` was hand-rolling `tick.to_raw() ± ...` raw
+    // i64 arithmetic, bypassing the T1-21 panic-on-overflow operator
+    // policy. These helpers expose the cooldown idioms as typed methods
+    // that funnel through `i64::checked_*` so the §11 release-active
+    // panic discipline applies to the production hot path, not just to
+    // the operators no production code actually uses.
+    //
+    // These are the canonical alternative to direct `.to_raw()` arithmetic
+    // for cooldown math. Direct `.to_raw()` should be reserved for:
+    //   - serialization / canonical encoding (read only)
+    //   - test fixture authoring
+    //   - genuinely-signed-offset uses (rare; see file prologue)
+    // ---------------------------------------------------------------------
+
+    /// Return the number of ticks elapsed since `entry`, as a `u32`.
+    ///
+    /// Panics if `self < entry` — that would mean negative elapsed time,
+    /// which is a cooldown-math invariant violation (e.g. `entry_tick`
+    /// somehow lives in the future). Panics also if the difference exceeds
+    /// `u32::MAX` ticks (~828 days at 60Hz; well past any realistic match).
+    ///
+    /// Why `u32` return: elapsed-tick counts in sim code feed comparisons
+    /// against u32-typed `EveryTicks(u32)` / `DEFAULT_FIRING_DURATION_TICKS`
+    /// / similar constants. Returning u32 keeps the comparison type-aligned
+    /// without an explicit `as u32` at the call site that would silently
+    /// truncate on overflow.
+    ///
+    /// T1-23 introduced this helper. Pre-T1-23 cooldown sites did
+    /// `(now_tick.to_raw() - entry_tick.to_raw()) as u32` which silently
+    /// underflows-then-truncates on invariant violation, hiding the bug.
+    #[inline]
+    pub fn checked_elapsed_since(self, entry: Tick) -> u32 {
+        let diff = self.0.checked_sub(entry.0).expect(
+            "Tick::checked_elapsed_since underflowed i64 — invariant violation \
+             in cooldown math; use Tick::clamping_sub for opt-in saturation \
+             (Sim/RULES.md §11)",
+        );
+        assert!(
+            diff >= 0,
+            "Tick::checked_elapsed_since called with entry={entry:?} > self={self:?}; \
+             negative elapsed time is a cooldown-math invariant violation \
+             (Sim/RULES.md §11)",
+        );
+        u32::try_from(diff).unwrap_or_else(|_| {
+            panic!(
+                "Tick::checked_elapsed_since diff {diff} exceeds u32::MAX \
+                 (~828 days at 60Hz); upstream caller has a stuck-loop bug \
+                 or entry_tick is from a different match"
+            )
+        })
+    }
+
+    /// Return `self + n` ticks as a new `Tick`, panicking on `i64` overflow.
+    ///
+    /// Cooldown-end math idiom: `state.tick.checked_add_ticks(cooldown_n)`
+    /// computes the tick at which the cooldown expires. Pre-T1-23 sites did
+    /// `Tick::from_raw(state.tick.to_raw() + n as i64)` which silently
+    /// wraps on i64 overflow (impossible in practice but the explicit
+    /// panic surfaces a stuck-loop bug at the violation site).
+    ///
+    /// Why `u32` argument: cooldown durations across the project are
+    /// uniformly `u32` (`CooldownPolicy::EveryTicks(u32)`,
+    /// `DEFAULT_FIRING_DURATION_TICKS: u32`, etc.). Restricting to u32
+    /// rejects negative durations at compile time + avoids the `as i64`
+    /// cast at call sites.
+    #[inline]
+    pub fn checked_add_ticks(self, n: u32) -> Tick {
+        Tick(self.0.checked_add(n as i64).expect(
+            "Tick::checked_add_ticks overflowed i64::MAX — invariant \
+             violation; use Tick::clamping_add for opt-in saturation \
+             (Sim/RULES.md §11)",
+        ))
+    }
 }
 
 impl Add for Tick {
@@ -376,5 +455,68 @@ mod tests {
             Tick::from_raw(5).clamping_sub(Tick::from_raw(3)),
             Tick::from_raw(2),
         );
+    }
+
+    // -----------------------------------------------------------------
+    // T1-23: typed cooldown-math helpers (Codex post-followup-review
+    // Finding #1)
+    // -----------------------------------------------------------------
+
+    /// `checked_elapsed_since` returns the elapsed-tick count for valid
+    /// inputs (entry ≤ self), as a u32 ready for u32-typed cooldown
+    /// comparisons.
+    #[test]
+    fn checked_elapsed_since_returns_elapsed_count_for_valid_inputs() {
+        assert_eq!(Tick::from_raw(10).checked_elapsed_since(Tick::ZERO), 10);
+        assert_eq!(
+            Tick::from_raw(600).checked_elapsed_since(Tick::from_raw(100)),
+            500
+        );
+        assert_eq!(
+            Tick::from_raw(7).checked_elapsed_since(Tick::from_raw(7)),
+            0
+        );
+    }
+
+    /// `checked_elapsed_since` panics when entry > self (cooldown
+    /// invariant violation: entry_tick somehow in the future).
+    #[test]
+    #[should_panic(expected = "checked_elapsed_since called with entry=")]
+    fn checked_elapsed_since_panics_when_entry_in_future() {
+        let _underflow = Tick::ZERO.checked_elapsed_since(Tick::from_raw(1));
+    }
+
+    /// `checked_elapsed_since` panics on i64 underflow at the extreme
+    /// (entry near i64::MAX, self near i64::MIN).
+    #[test]
+    #[should_panic(expected = "checked_elapsed_since underflowed i64")]
+    fn checked_elapsed_since_panics_on_i64_underflow_at_extremes() {
+        let _underflow = Tick::from_raw(i64::MIN).checked_elapsed_since(Tick::from_raw(1));
+    }
+
+    /// `checked_elapsed_since` panics when the difference exceeds u32::MAX
+    /// (~828 days at 60Hz; only reachable via deliberately huge inputs).
+    #[test]
+    #[should_panic(expected = "exceeds u32::MAX")]
+    fn checked_elapsed_since_panics_when_diff_exceeds_u32_max() {
+        let _too_big = Tick::from_raw(i64::from(u32::MAX) + 1).checked_elapsed_since(Tick::ZERO);
+    }
+
+    /// `checked_add_ticks` adds non-negative duration as a Tick.
+    #[test]
+    fn checked_add_ticks_adds_duration() {
+        assert_eq!(Tick::ZERO.checked_add_ticks(60), Tick::from_raw(60));
+        assert_eq!(
+            Tick::from_raw(100).checked_add_ticks(500),
+            Tick::from_raw(600)
+        );
+        assert_eq!(Tick::from_raw(7).checked_add_ticks(0), Tick::from_raw(7));
+    }
+
+    /// `checked_add_ticks` panics on i64 overflow.
+    #[test]
+    #[should_panic(expected = "checked_add_ticks overflowed i64::MAX")]
+    fn checked_add_ticks_panics_on_i64_overflow() {
+        let _overflow = Tick::from_raw(i64::MAX).checked_add_ticks(1);
     }
 }

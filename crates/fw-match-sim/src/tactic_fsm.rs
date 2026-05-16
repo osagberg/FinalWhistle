@@ -267,10 +267,17 @@ pub const PRESS_TIMEOUT_TICKS: i64 = 300;
 
 /// Anti-thrash guard: HighPress re-entry requires >600 ticks since prior
 /// HighPress entry (prevents oscillation from rapid PossessionLost events).
-pub const HIGH_PRESS_REENTRY_COOLDOWN_TICKS: i64 = 600;
+///
+/// T1-23: `u32` (was `i64`) to align with `Tick::checked_elapsed_since`'s
+/// return type — durations are non-negative by definition, so u32 is the
+/// honest signature + lets the comparison site type-check without an
+/// `as i64` cast on the elapsed-tick count.
+pub const HIGH_PRESS_REENTRY_COOLDOWN_TICKS: u32 = 600;
 
 /// HighPress 10s drift limit for the heartbeat: 600 ticks at 60 Hz.
-pub const HIGH_PRESS_HEARTBEAT_TIMEOUT_TICKS: i64 = 600;
+///
+/// T1-23: `u32` (was `i64`) — same rationale as `HIGH_PRESS_REENTRY_COOLDOWN_TICKS`.
+pub const HIGH_PRESS_HEARTBEAT_TIMEOUT_TICKS: u32 = 600;
 
 /// 30-tick heartbeat interval (2 Hz at 60 Hz integration rate).
 pub const HEARTBEAT_INTERVAL_TICKS: i64 = 30;
@@ -310,7 +317,14 @@ pub fn apply_event(
                 TacticState::MidBlock | TacticState::LowBlock => {
                     if recovery_likely
                         && archetype.press_intensity >= PressIntensity::High
-                        && (now_tick.to_raw() - current.entry_tick.to_raw())
+                        // T1-23 (post-Codex Finding #1): `Tick::checked_elapsed_since`
+                        // funnels the previously-raw `now.to_raw() - entry.to_raw()`
+                        // subtraction through the §11 panic-on-underflow policy.
+                        // If entry_tick somehow lives in the future (a real
+                        // cooldown-math invariant violation), this now fails loudly
+                        // at the violation site instead of silently producing
+                        // garbage from negative-i64-then-cast arithmetic.
+                        && now_tick.checked_elapsed_since(current.entry_tick)
                             > HIGH_PRESS_REENTRY_COOLDOWN_TICKS
                     {
                         current.transition(TacticState::HighPress, now_tick)
@@ -403,7 +417,10 @@ pub fn apply_event(
 #[must_use]
 pub fn heartbeat_check(current: &TeamTacticState, now_tick: Tick) -> Option<TeamTacticState> {
     if current.state == TacticState::HighPress {
-        let ticks_in_state = now_tick.to_raw() - current.entry_tick.to_raw();
+        // T1-23 (post-Codex Finding #1): `Tick::checked_elapsed_since` replaces
+        // the previously-raw `now.to_raw() - entry.to_raw()` subtraction. Same
+        // §11 panic-on-underflow rationale as the PossessionLost branch above.
+        let ticks_in_state = now_tick.checked_elapsed_since(current.entry_tick);
         if ticks_in_state > HIGH_PRESS_HEARTBEAT_TIMEOUT_TICKS {
             return Some(current.transition(TacticState::MidBlock, now_tick));
         }

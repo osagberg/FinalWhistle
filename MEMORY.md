@@ -31,7 +31,92 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-(none — T1-22 closed 2026-05-16; `scripts/fw verify` exit 0; canonical hashes UNCHANGED on both pins. **All 4 post-T1-close ultimate-review follow-ups (T1-19 + T1-20 + T1-21 + T1-22) now DONE.** Next `/next` picks T2-1 (full BT runner with 20-30 manager archetypes + xG / personality coefficient calibration) — the main T2 row.)
+(none — T1-23 closed 2026-05-16; `scripts/fw verify` exit 0; canonical hashes UNCHANGED on both pins. **Codex post-followup-review Finding #1 (Tick policy bypass) + Finding #3 (stale dispatch.rs header) both fixed.** Next `/next` picks T1-24 (hash-pin atomicity — procedural; Codex Finding #2) or T2-1 (full BT runner with 20-30 manager archetypes) per declared-order + skip-DEFERRED rule.)
+
+<!-- T1-23 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
+
+<!-- ORIGINAL T1-23 SPEC FOLLOWS (will be GC'd on next /next cycle):
+- **id:** T1-23
+- **title:** `fw-core::Tick` checked-arithmetic helpers + 4 cooldown-math callsite refactor + `dispatch.rs` module-header doc update
+- **started:** 2026-05-16
+- **task class:** sim-rust (small focused policy follow-through; ~120-180 LoC total: 2 new helper methods + `#[should_panic]` tests in `fw-core/src/tick.rs`; 4 raw-arithmetic callsite refactors in `fw-match-sim`; 1 doc-comment update). Closes Codex post-followup-review Finding #1 (P1 — production cooldown math bypasses T1-21 policy) + Finding #3 (P2 — stale dispatch.rs module header).
+- **required subagent:** **main thread** — mechanical refactor against a fully-specified contract; 5 file touches, all small + reviewable inline. Subagent dispatch overhead outweighs benefit. Cross-file coordination (4 callsites + helper additions + doc-header) needs main thread for atomic semantics.
+
+### Design references
+
+- **Codex review verdict (this session, 2026-05-16)** — REVISE on commits `3dceb7d5..3fc97ba4`. Finding #1: T1-21 made `Tick + Tick` / `Tick - Tick` panic-on-overflow, but production cooldown paths use `tick.to_raw() ± ...` directly — bypassing the policy. Finding #3: `dispatch.rs:42` module header still says "Pre-emption hooks: stubbed `None`" when `preempt_check` is now the live 3-policy implementation per T1-19 + ADR-0006 amendment.
+- **`crates/fw-core/src/tick.rs`** — T1-21 added `Tick::clamping_add` / `Tick::clamping_sub` opt-in saturation. T1-23 adds two MORE typed helpers for the cooldown-math idiom: `checked_elapsed_since(entry) -> u32` (returns elapsed-tick count; panics if `self < entry`) + `checked_add_ticks(n: u32) -> Tick` (panics on i64 overflow). Per Sim/RULES.md §11 these are panic-on-overflow, NOT opt-in saturation.
+- **4 raw-arithmetic callsites to refactor:**
+  - `crates/fw-match-sim/src/tactic_fsm.rs:313` — `(now_tick.to_raw() - current.entry_tick.to_raw())` compared against `EVERY_TICKS` cooldown — should be `now_tick.checked_elapsed_since(current.entry_tick)`.
+  - `crates/fw-match-sim/src/tactic_fsm.rs:406` — `let ticks_in_state = now_tick.to_raw() - current.entry_tick.to_raw();` — same pattern; same fix.
+  - `crates/fw-match-sim/src/dispatch.rs:332` — `Tick::from_raw(state.tick.to_raw() + n as i64)` where `n: u32` from `CooldownPolicy::EveryTicks(u32)` — should be `state.tick.checked_add_ticks(n)`.
+  - `crates/fw-match-sim/src/signature/mod.rs:126` — `let end_raw = self.start_tick.to_raw() + self.duration_ticks as i64;` (used as i64 for an unrelated comparison; check whether refactor returns Tick or whether end_raw stays i64 with a `.to_raw()` at the end).
+- **`crates/fw-match-sim/src/dispatch.rs:42`** — module header current text: "Pre-emption hooks (stub): Universal pre-emption hooks (single-chaser claim, foul reaction, set-piece switchover) are stubbed to return `None`. They will be wired in -iii-b / T1-4 once `MatchEvent` exists." Update: name the 3 live policies + cross-ref ADR-0006 amendment.
+- **`docs/adr/0006-bt-vs-fsm-decision-layer.md` "Amendment 2026-05-16 — preempt_check 3-policy scope"** — landed at T1-19. The dispatch.rs header doc update should cross-reference this amendment.
+
+### Acceptance criteria (falsifiable)
+
+1. **`Tick::checked_elapsed_since(entry: Tick) -> u32`** exists in `fw-core::tick`; panics with informative message if `self < entry` (cooldown invariant violation); returns u32 elapsed-tick-count for valid inputs.
+2. **`Tick::checked_add_ticks(n: u32) -> Tick`** exists in `fw-core::tick`; panics on i64 overflow per §11; returns Tick.
+3. **Both helpers have `#[should_panic]` tests** + non-panic tests covering normal usage. Tests pass in BOTH debug + release per §11.
+4. **4 raw callsites refactored** — zero remaining `tick.to_raw() -` or `tick.to_raw() + ... as i64` patterns in `crates/fw-match-sim/src/{tactic_fsm.rs,dispatch.rs,signature/mod.rs}` (modulo `signature/mod.rs:126`'s end_raw which may legitimately stay as raw i64 if its consumer needs i64; document inline if so).
+5. **`dispatch.rs:42` module header** updated to name the 3 live preempt policies (possession gate / GK own-side chase / outfield nearest-2 cap) + cross-ref ADR-0006 amendment.
+6. **`scripts/fw verify` clean** end-to-end.
+7. **Canonical hash UNCHANGED on both pins** (60-tick `fcccb840…a751` + 600-tick `9353bd25…947eb`) — helpers wrap the same arithmetic as raw callsites; if drift surfaces, diagnose not rebaseline.
+
+### AC-to-test matrix
+
+| AC | Test or check | Observable |
+|---|---|---|
+| 1 + 2. Helper existence | `cargo test -p fw-core --lib tick::tests::checked_elapsed_since checked_add_ticks` | Both helper-test groups pass; helpers callable from production code |
+| 3. Panic behavior | `cargo test -p fw-core --lib --release tick:: -- --nocapture` | `#[should_panic]` tests pass in release; verifies §11-aligned release-active asserts |
+| 4. Zero raw cooldown arithmetic | `grep -n "\.to_raw() -\|\.to_raw() +.*as i64" crates/fw-match-sim/src/tactic_fsm.rs crates/fw-match-sim/src/dispatch.rs crates/fw-match-sim/src/signature/mod.rs` | Returns 0 lines (or only documented exceptions with inline rationale) |
+| 5. dispatch.rs doc updated | `grep -n "3-policy\|3 live\|possession gate\|nearest-2" crates/fw-match-sim/src/dispatch.rs \| head -5` | Module-header section names the 3 policies + ADR-0006 cross-ref |
+| 6. scripts/fw verify | `scripts/fw verify` | exit 0 |
+| 7. Canonical hash UNCHANGED | `cargo test -p fw-replay --test canonical_hash smoke_seed_60_tick extended_seed_600_tick` | Both pins still pass |
+
+**Mutation-thinking pre-check** (per /next Step 6 hardening):
+- AC1/AC2 helper tests: if helpers used saturating instead of checked arithmetic, `#[should_panic]` tests would fail (no panic). ✓ discriminating.
+- AC4 refactor: if 1 of 4 callsites is missed in refactor, the grep would still find 1 raw pattern. ✓ discriminating.
+- AC7 canonical hash UNCHANGED: if the refactor produced different arithmetic (e.g. u32 wrap where i64 would have continued), the smoke seed's cooldown math would diverge → canonical hash drifts. The unchanged-hash assertion catches semantic equivalence regression.
+
+### Files in scope
+
+- `crates/fw-core/src/tick.rs` (MODIFIED — 2 new pub fn helpers + ~30 LoC tests)
+- `crates/fw-match-sim/src/tactic_fsm.rs` (MODIFIED — 2 callsite refactors at line 313 + 406)
+- `crates/fw-match-sim/src/dispatch.rs` (MODIFIED — 1 callsite refactor at line 332 + module-header doc update at line 42)
+- `crates/fw-match-sim/src/signature/mod.rs` (MODIFIED — 1 callsite refactor at line 126 IF the i64 return semantic permits Tick-typed intermediate; else add inline `// SAFETY:`-style comment explaining why raw i64 stays)
+
+### Files out of scope (do NOT touch — escalate if needed)
+
+- `crates/fw-core/src/tick.rs` operators / clamping_* (T1-21 work; unchanged)
+- All other sim crates (fw-replay, fw-content, fw-memory, fw-save, fw-scouting) — unchanged
+- `crates/fw-replay/fixtures/*.ron` (no canonical hash rebaseline)
+- ADR-0006 / ADR-0009 / Sim/RULES.md (T1-19, T1-21 work; cross-referenced but unchanged)
+- `docs/DESIGN_DOC.md` / `CLAUDE.md` / `docs/MASTER_PLAN.md` row bodies (T1-23 row status flip is the only allowed MASTER_PLAN mutation)
+- Frontend / Tauri / content fixture paths
+
+### Intentionally NOT done in this task
+
+- **Other raw-arithmetic `.to_raw()` patterns outside the 4 named callsites** — full audit deferred. If grep surfaces additional sites in scope crates, refactor opportunistically; if outside scope crates (e.g. dev binaries like `dump_frames`), defer to commit-body P3 list.
+- **`signature/mod.rs:126` end_raw return-type refactor** beyond what the consumer permits — if the i64 end_raw is needed by an upstream caller, keep it i64 with an inline comment; don't churn the call chain.
+- **`Tick::checked_add(rhs: Tick) -> Result<Tick, OverflowError>` Option-returning variant** — Codex didn't ask for it; defer until a real caller wants explicit non-panic semantics.
+- **Hash-pin atomicity refactor (T1-24)** — Codex's framing was "next hardening patch before next rebaseline"; deferred to T1-24 as a separate row.
+
+### Plan (4 chunks)
+
+- [ ] **Chunk 1 — Tick helpers + tests**: add `checked_elapsed_since` + `checked_add_ticks` to `crates/fw-core/src/tick.rs` with informative panic messages citing `Sim/RULES.md §11`. Add `#[should_panic]` tests for both panic paths + non-panic tests for normal usage.
+- [ ] **Chunk 2 — Refactor 4 raw callsites**: tactic_fsm.rs:313 + :406 → `checked_elapsed_since`; dispatch.rs:332 → `checked_add_ticks`; signature/mod.rs:126 → `checked_add_ticks` IF i64 not required by caller, else `// SAFETY:` comment + raw stays. Each callsite gets an inline comment referencing T1-23 + Codex Finding #1.
+- [ ] **Chunk 3 — `dispatch.rs:42` module header update**: rewrite the "Pre-emption hooks (stub)" section to name the 3 live policies (possession gate / GK own-side chase 42m threshold / outfield nearest-2-chasers strict-< tiebreak) + cross-reference ADR-0006's "Amendment 2026-05-16 — preempt_check 3-policy scope" + the 5 T1-19 behavioral tests.
+- [ ] **Chunk 4 — Verify + self-review + sync + commit**: `scripts/fw verify` (canonical hash UNCHANGED); self-review triple per Step 6 (≥100 LoC code, fail-closed on fw-core + fw-match-sim); sync ledgers; atomic commit citing Codex post-followup-review Finding #1 + Finding #3.
+
+### After implementation
+
+1. `scripts/fw verify` exit 0 — cargo fmt + clippy + workspace tests (helper tests pass; existing canonical_hash tests UNCHANGED) + frontend 56 tests + banned-terms + canonical-hash regression + content-pack validate-structural + cargo audit + cargo deny.
+2. Self-review triple (≥100 LoC code threshold; fail-closed on fw-core + fw-match-sim per Step 6).
+3. Sync MASTER_PLAN T1-23 IN-PROGRESS → DONE; MEMORY current-task → recently-completed; STATUS pointer; CHANGELOG bullet; (DECISIONS.md only if logged-decision-worthy).
+4. Atomic commit per Step 7-8.
+-->
 
 <!-- T1-22 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
 
@@ -465,6 +550,8 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 5. Commit atomically. Flag in commit body: **The "match-engine vertical complete" claim from T1-6/T1-7 is now ACTUALLY true** (was false at those commit times per Codex's audit). The canonical hash drift IS the proof T1-3.5 didn't actually work end-to-end. T1-8 + T1-9 are next + actually have behavior to test against now.
 
 ## Recently completed
+
+- 2026-05-16 — **T1-23 `fw-core::Tick` checked-arithmetic helpers + 4 cooldown-math callsite refactor + `dispatch.rs` module-header doc update.** Closes Codex post-followup-review Finding #1 (Tick policy bypassed in production cooldown math) + Finding #3 (stale dispatch.rs module header). Main-thread implementation (~280 LoC code; 5 files). **2 new typed helpers** in `fw-core::tick`: `checked_elapsed_since(entry: Tick) -> u32` (panics on `entry > self` or i64 underflow or diff > u32::MAX) + `checked_add_ticks(n: u32) -> Tick` (panics on i64 overflow). Both align with Sim/RULES.md §11 panic-on-overflow policy. 6 new tests (4 `#[should_panic]` + 2 non-panic). **4 raw cooldown callsites refactored**: `tactic_fsm.rs::apply_event` PossessionLost branch + `heartbeat_check`; `dispatch.rs` signature cooldown_end_tick; `signature/mod.rs::is_active` (also tightened raw `.to_raw() < .to_raw()` comparison to typed `Tick: Ord` operator). 2 cooldown constants `HIGH_PRESS_REENTRY_COOLDOWN_TICKS` + `HIGH_PRESS_HEARTBEAT_TIMEOUT_TICKS` changed `i64 → u32` to align with helper return type — durations are non-negative by definition. **`dispatch.rs:42` module header rewritten** to reflect live 3-policy `preempt_check` (possession gate / GK own-side chase 42m threshold / outfield nearest-2 cap) + cross-ref ADR-0006 amendment + 5 T1-19 tests. **3 proptests** (`transition_is_deterministic`, `apply_event_is_pure`, `heartbeat_check_is_pure`) gained `prop_assume!(now_tick >= current.entry_tick())` filters — the §11 panic discipline now fires on invariant-violating inputs (which the proptest previously generated freely + the saturating math silently swallowed). The 4th proptest `non_highpress_heartbeat_never_fires` got an explicit doc-comment per code-reviewer P2 explaining why NO filter is needed there (the panic branch is unreachable when the strategy excludes HighPress). **Canonical hashes UNCHANGED on both pins** — helpers wrap the same arithmetic at realistic tick range; cooldown semantics unchanged. **Self-review triple all ACCEPT** with 1 P2 fixed in-place (the unfiltered-proptest doc-comment) + several P3 deferred (`checked_*` naming convention drift from std; `.to_raw() ±` lint-mechanization at higher site count; `PRESS_TIMEOUT_TICKS` i64↔u32 inconsistency — not a bug). Type-design verdict: "asymmetric return types are load-bearing, the u32 argument ratifies a project-wide invariant, the const-type flip propagates the typed contract to comparison sites." `scripts/fw verify` exit 0. **T2-1 now inherits a Tick-typed, panic-on-overflow cooldown substrate** per Codex's pre-T2-1 framing. Next /next picks T1-24 (hash-pin atomicity — procedural; Codex Finding #2) OR T2-1 (full BT runner with 20-30 manager archetypes — main T2 row).
 
 - 2026-05-16 — **T1-22 hash-pin registry script + env-driven determinism rerun counts.** Fourth + final post-T1-close ultimate-review follow-up. Closes Codex Track D 5th-pin finding + Codex Track F caveat + Codex workflow improvement #6. New `scripts/fw-hash-pins.py` (~330 LoC Python) provides list + atomic-update + dry-run modes over a structured `PIN_LOCATIONS` table of 5 entries spanning 3 syntactic forms (RON `expected_hash: "blake3:..."`, Rust `hex!()` macro, Rust raw `[u8; 32]` byte-array). `scripts/fw hash-pins` wires the script into the bash dispatcher; the script's update mode produces byte-identical output via a 15/15/2 byte-layout that matches `cargo fmt`'s default output (roundtrip-tested). `canonical_hash.rs` gets a new `runs_for_test(env_var, default) -> usize` helper that reads `FW_DETERMINISM_SMOKE_RUNS` (default 100) + `FW_DETERMINISM_EXTENDED_RUNS` (default 10); 2 existing tests parameterized via the helper. Helper panics on `0` (vacuous-test config) + on parse failure (typo'd env var) per Sim/RULES.md §11 release-active assert discipline. `docs/specs/determinism-gate.md §9` rewritten to reference the script + document the 5-location table + rebaseline procedure + env vars. **Self-review triple all REVISE-then-fixed-in-place**; same cross-tool convergence pattern as T1-21 reproduced again: silent-failure-hunter (P1 — `update_pin` swallowed real failures as no-ops; partial-update silent-failure mode the script was DESIGNED to prevent was structurally re-enabled by the loop) + type-design-analyzer (P2 — `update_pin` `tuple[bool, str]` collapsed no-op + error into same False; same root cause) + code-reviewer (Important — exit code 1 vs 2 mismatch with docstring for unknown seed). ALL three converged on the same fix shape: distinguish failure outcomes from no-op outcomes. Rewrote `update_pin` to return `tuple[bool, bool, str]` = `(changed, is_failure, message)` + `update_mode` accumulates failures + exits 1 if any. Fixed unknown-seed exit code 1 → 2 per docstring contract. Added regression test simulating a regex-drift scenario: temporarily renamed `EXPECTED` const → broken pattern; verified script now exits 1 with "Partial-update is exactly the silent-failure class fw-hash-pins exists to prevent" message + `✗` symbol on the failed row. **4 P3 follow-ups deferred** to commit body: `PinLocation.form: str` could be `Literal["ron", "hex_macro", "byte_array"]` for static exhaustiveness; module-level invariant check on PIN_LOCATIONS registry; `read_pin` could distinguish file-missing from pattern-mismatch in `<NOT FOUND>` output; `_replace_byte_array` is silently format-locked to one cargo-fmt layout (would benefit from optional `cargo fmt` post-write OR fixture form unification to `hex!()` macro). **Canonical hashes UNCHANGED on both pins** (tooling + test parameterization only). `scripts/fw verify` exit 0; env-var override verified (`FW_DETERMINISM_SMOKE_RUNS=5` works). **All 4 post-T1-close ultimate-review follow-ups now DONE** (T1-19 preempt_check tests; T1-20 validate-structural rename + sentinel-scope close + sig-candidate dangling-ref; T1-21 Tick panic-on-overflow + §11 debug_assert conversions; T1-22 hash-pin registry + env-driven rerun counts). Cross-tool self-review convergence pattern surfaced 2 distinct silent-failure bug classes across 2 consecutive tasks (T1-21 SAFETY-comment factual error; T1-22 update_pin silent-failure) — the playbook is reliably catching real bugs at single-task scope, not just at phase-boundary scope. **Next /next picks T2-1 (full BT runner with 20-30 manager archetypes + xG/personality coefficient calibration)** — the main T2 row.
 
