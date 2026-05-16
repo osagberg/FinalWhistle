@@ -4,20 +4,21 @@
 
 ## Phase
 
-**T1 — First Match.** T1-2b sub-phase + T1-2b-fix audit-remediation closed (4 rounds). T1-4a (MatchEvent emission, sim side) shipped. Next: T1-4b commentary template bank in `fw-content::commentary` — blocked on `/log-decision` for ADR-0009 amendment.
+**T1 — First Match.** T1-2b sub-phase + T1-2b-fix audit-remediation closed. T1-4a (MatchEvent emission, sim side) shipped. Codex 2026-05-16 whole-codebase audit landed REVISE — 1 P0 (ball mutation) + 8 P1s + 6 backlog; triaged into new row T1-3.5 + 4 hardening rows T1-10..T1-13. T1-4b reordered behind T1-3.5 so commentary renders real outcomes, not intentions.
 
 ## Active task
 
-(none — T1-4a closed; T1-4b queued behind a prereq)
+(none — Codex audit triage decision logged + MASTER_PLAN revised. `/next` will pick T1-3.5 (ball mutation P0) per the audit-recommended order.)
 
 ## Phase pointer
 
-- **Just closed:** **T1-4a MatchEvent emission + canonical encoding.** `MatchEvent` enum (6 variants) in `fw-content::event`; PlayerSlot moved to fw-core; encoder VERSION 6→7; 5 live emission paths + Goal forward-compat encoder-only. Self-review triple flagged 8 P0/P1 across silent-failure-hunter + type-design-analyzer + code-reviewer (heavy overlap); all closed in main-thread fix-pass per the cargo-cult meta-pattern.
-- **Next:** **T1-4b** — Tracery template bank + deterministic renderer in `fw-content::commentary`. Owned by `narrative-director` per CLAUDE.md §5 + ADR-0007 line 87. ≥3 variants per MatchEvent slot (≥18 templates total). **Blocked on `/log-decision`** to amend ADR-0009 with a new `SeedLayer::Commentary` discriminant (Tracery variant-pick needs a canonical seed layer; without the ADR amendment, T1-4b's deterministic-variant-pick has no SeedLayer to live under). After T1-4b: T1-5 (Tauri `play_match` + frontend can finally see a match flow end-to-end).
+- **Just closed:** **Codex 2026-05-16 audit triage + MASTER_PLAN revision.** Two `docs/DECISIONS.md` entries appended (ADR-0009 amendment for `SeedLayer::Commentary 0x18` + audit-triage decision). MASTER_PLAN grew from 13 to 23 T1 rows: T1-3.5 (ball-mutation P0) inserted before T1-4b; T1-10/11/12/13 hardening rows appended; T1-5 scope amended to fold in IPC consolidation + match_frames cap; T0-7b flipped TODO → DONE (state-doc-drift fix).
+- **Next:** **T1-3.5** — Ball mutation + possession state + goal detection. Closes Codex's P0 finding: `apply_intent` currently treats Shot/Pass/Cross/LayOff/Dribble as "move player toward target" with no ball.vel mutation, no possession transfer, no goal detection. Adds canonical `possession: Option<PlayerSlot>` + `last_touched_by: Option<PlayerSlot>` to MatchState; ball-physics mutation in apply_intent; goal detection at tick-end with `MatchEvent::Goal` emission + score bump + new KickOff. Canonical hash REBASELINE expected. After T1-3.5: T1-4b (Tracery commentary templates; was queued first but reordered behind ball-mutation per Codex's recommended order so commentary describes real outcomes).
+- **Recommended /next order** (per audit triage decision): T1-3.5 → T1-4b → T1-11 (signature wiring into tick_match) → T1-5 (Tauri + IPC consolidation) → T1-12 (content validation) → T1-10 (LUT bake) → T1-13 (frontend tests + cargo audit) → T1-6 → T1-7 → T1-8 → T1-9.
 
 ## Blockers
 
-T1-4b needs `/log-decision` for `SeedLayer::Commentary` ADR-0009 amendment before `/next` invokes it.
+None. T1-4b's `SeedLayer::Commentary` prereq logged at `docs/DECISIONS.md` 2026-05-16; T1-4b's dep upgraded to also include T1-3.5.
 
 ## Last green verify
 
@@ -25,4 +26,4 @@ T1-4b needs `/log-decision` for `SeedLayer::Commentary` ADR-0009 amendment befor
 
 ## Last canonical hash
 
-`blake3:02ab97d06e60f508f5076aa37cf371263c73d5fc104ab1448989cb5f5627e686` (60-tick smoke seed; rebaselined T1-4a per ADR-0012 trigger #1 — MatchState gained `match_events: Vec<MatchEvent>` + `match_end_tick: Tick`; `signature_memory_events` field removed; encoder VERSION 6→7 schema bump; KickOff + FullTime now appear in the 60-tick smoke output as the first/last entries of the event stream). Prior pin `d376ba26…fa93` was T1-2b-fix round 1.
+`blake3:02ab97d06e60f508f5076aa37cf371263c73d5fc104ab1448989cb5f5627e686` (60-tick smoke seed; pinned at T1-4a per ADR-0012 trigger #1 — encoder VERSION 6→7 schema bump for MatchState's new match_events + match_end_tick + signature_memory_events removal). T1-3.5 will rebaseline again when possession + ball-mutation fields land.
