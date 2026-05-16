@@ -122,16 +122,30 @@ impl Q32 {
 
     /// Convert from `f64`, clamping the result to Q32's representable range.
     ///
-    /// Used ONLY at LUT startup (in `fw_core::math`) — never in per-tick
-    /// canonical paths. Exposing f64 to the wider workspace is forbidden per
-    /// `Sim/RULES.md §1`; hence `pub(crate)`.
+    /// **BAKE-TIME ONLY.** Used by content baking + drift-detection tests
+    /// for math LUTs. NEVER called from per-tick canonical paths. Exposing
+    /// f64 in canonical state is forbidden per `Sim/RULES.md §1`. The
+    /// `pub` visibility (T1-10 promotion from `pub(crate)`) enables
+    /// integration tests in `crates/fw-core/tests/` to re-bake math LUT
+    /// values for drift detection against committed const tables; without
+    /// it the drift test would need to vendor its own rounding logic that
+    /// could subtly diverge from `fixed::FixedI64::saturating_from_num`
+    /// (round-to-nearest-even).
     ///
     /// The `f64` arithmetic is deterministic across IEEE-754 platforms;
-    /// the Q32 conversion is exact (truncates fractional bits).
+    /// the Q32 conversion uses round-to-nearest-even.
     ///
     /// Clamps to `[Q32::MIN, Q32::MAX]` rather than panicking.
+    ///
+    /// `#[doc(hidden)]` per T1-10 type-design audit P2-2: `pub` for
+    /// drift-test access but hidden from rustdoc to discourage discovery
+    /// by contributors who haven't read the "BAKE-TIME ONLY" warning
+    /// above. Public API consumers should never need this; canonical sim
+    /// paths must use Q32 arithmetic directly. T2-3 baker is the next
+    /// legitimate consumer.
     #[inline]
-    pub(crate) fn from_f64_clamped(v: f64) -> Q32 {
+    #[doc(hidden)]
+    pub fn from_f64_clamped(v: f64) -> Q32 {
         // fixed::FixedI64::<U32>::from_num saturates on out-of-range.
         Q32(Q32Inner::saturating_from_num(v))
     }

@@ -4,15 +4,24 @@
 //! [-8, +8] with linear interpolation between entries.  Values outside the
 //! domain are clamped (saturated) to the appropriate limit.
 //!
-//! The LUT is computed once at startup (via `std::sync::LazyLock`) using
-//! f64 intermediate math, then each entry is converted to `Q32`.  f64 is used
-//! ONLY in the LazyLock closure (bake-time); the per-tick evaluation path
-//! (`lut_eval`) is pure Q32 — no f64 escape at call sites.
+//! # T1-10 (Codex 2026-05-16 audit P1 closure)
 //!
-//! This satisfies ADR-0003 §1: per-tick arithmetic is bit-exact Q32 across all
-//! platforms. The LazyLock bake uses IEEE-754 f64 (deterministic across
-//! IEEE-754 platforms, which is every target we ship to) and rounds each
-//! result into Q32 exactly once at init.
+//! The LUTs are committed `const [Q32; 257]` arrays — NO runtime bake.
+//! The raw `i64` bits live in `math_luts.rs` (committed source); a
+//! const-fn helper maps them into `Q32` at compile time. The prior design
+//! built the LUTs at process startup via `LazyLock` using `f64::exp()`,
+//! then quantized to Q32 — a libm/platform-dependent bake step that could
+//! silently drift on a libc change. T1-10 moves the bake out of the
+//! determinism critical chain entirely; drift becomes a code-review
+//! artifact (the committed `i64` bytes change) rather than a runtime
+//! variance. See `math_luts.rs` for the regeneration procedure.
+//!
+//! The per-tick interpolation path is pure Q32 — no f64 anywhere in
+//! production code paths.
+//!
+//! This satisfies ADR-0003 §1 (per-tick arithmetic bit-exact across all
+//! platforms) AND `Sim/RULES.md` §1 (no floats in canonical state — now
+//! genuinely zero f64 in the runtime, even at process startup).
 //!
 //! # Domain choice
 //! sigmoid(-8) approx 3.35e-4; sigmoid(+8) approx 9.997e-1.  For any
@@ -22,7 +31,7 @@
 //! softmax window.
 
 use crate::Q32;
-use std::sync::LazyLock;
+use crate::math_luts;
 
 // -------------------------------------------------------------------------
 // LUT parameters
@@ -42,45 +51,48 @@ const LUT_MIN: Q32 = Q32::from_raw(-8i64 << 32);
 /// index: `scaled = (x - LUT_MIN) / stride = (x + 8) * 16`.
 const LUT_STRIDE_INV: Q32 = Q32::from_raw(16i64 << 32); // 16.0 exactly
 
-/// Domain parameters kept as f64 constants for the LazyLock LUT-bake only.
-/// These NEVER appear at per-tick call sites — they live only in the closure
-/// passed to `LazyLock::new(...)`.
-const DOMAIN_MAX_F64: f64 = 8.0;
-#[allow(clippy::float_arithmetic)] // LUT bake only — see module doc
-const STEP_F64: f64 = (2.0 * DOMAIN_MAX_F64) / ((LUT_N - 1) as f64);
+// -------------------------------------------------------------------------
+// Const helper: map raw i64 bits -> Q32 array at compile time
+// -------------------------------------------------------------------------
+
+/// Convert a `[i64; N]` of Q32 raw bits into a `[Q32; N]` at compile time.
+///
+/// T1-10: the committed LUTs in `math_luts.rs` are stored as `[i64; 257]`
+/// (pure data, no fw-core type dependency). This helper rebuilds them as
+/// `[Q32; 257]` in `const` context so the public `SIGMOID_LUT` / `EXP_LUT`
+/// stay strongly typed without paying a runtime cost.
+const fn q32_array_from_raw(raw: &[i64; LUT_N]) -> [Q32; LUT_N] {
+    let mut out = [Q32::ZERO; LUT_N];
+    let mut i = 0;
+    while i < LUT_N {
+        out[i] = Q32::from_raw(raw[i]);
+        i += 1;
+    }
+    out
+}
 
 // -------------------------------------------------------------------------
-// Sigmoid LUT
+// Sigmoid + Exp LUTs (committed const, T1-10)
 // -------------------------------------------------------------------------
 
 /// 257-entry sigmoid LUT over [-8, +8].  Entry i corresponds to x = -8 + i * step.
-static SIGMOID_LUT: LazyLock<[Q32; LUT_N]> = LazyLock::new(|| {
-    let mut lut = [Q32::ZERO; LUT_N];
-    for (i, entry) in lut.iter_mut().enumerate() {
-        let x: f64 = -DOMAIN_MAX_F64 + (i as f64) * STEP_F64;
-        let s: f64 = 1.0 / (1.0 + (-x).exp());
-        // Clamp to [0.0, 1.0] before converting — avoids representability edge.
-        let s = s.clamp(0.0, 1.0);
-        *entry = Q32::from_f64_clamped(s);
-    }
-    lut
-});
-
-// -------------------------------------------------------------------------
-// Exp LUT
-// -------------------------------------------------------------------------
+///
+/// Backed by committed const raw-bits in `math_luts.rs`. No runtime bake.
+///
+/// Module-private — only the `lut_eval` helper below reads it. T1-10
+/// type-design audit P2-1: prior `pub(crate)` exposed it to every fw-core
+/// module (player_attributes, seed, ids, etc.) that has no business
+/// reading raw LUT tables. The prior `static LazyLock` was also
+/// file-scoped (implicitly private); tightening to module-private matches
+/// the prior surface + reduces accidental coupling.
+const SIGMOID_LUT: [Q32; LUT_N] = q32_array_from_raw(&math_luts::SIGMOID_LUT_RAW);
 
 /// 257-entry exp LUT over [-8, +8].  Entry i corresponds to x = -8 + i * step.
 /// exp(+8) approx 2981 fits comfortably in Q32 (max integer ~2.15e9).
-static EXP_LUT: LazyLock<[Q32; LUT_N]> = LazyLock::new(|| {
-    let mut lut = [Q32::ZERO; LUT_N];
-    for (i, entry) in lut.iter_mut().enumerate() {
-        let x: f64 = -DOMAIN_MAX_F64 + (i as f64) * STEP_F64;
-        let e: f64 = x.exp();
-        *entry = Q32::from_f64_clamped(e);
-    }
-    lut
-});
+///
+/// Backed by committed const raw-bits in `math_luts.rs`. No runtime bake.
+/// Module-private (see SIGMOID_LUT comment).
+const EXP_LUT: [Q32; LUT_N] = q32_array_from_raw(&math_luts::EXP_LUT_RAW);
 
 // -------------------------------------------------------------------------
 // Public API

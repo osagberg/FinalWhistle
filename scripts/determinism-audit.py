@@ -141,16 +141,29 @@ FLOAT_RULE_NAME = "Sim/RULES.md §1 — f32/f64 type (denied by clippy::float_ar
 # A file here is NOT fully skipped — only the listed rules are suppressed.
 # Use the full rule name strings from RULES above.
 PER_RULE_EXEMPT: dict[Path, set[str]] = {
-    # T1-2b-iii-b: math.rs builds the 257-entry sigmoid + exp LUTs at startup
-    # using f64 — IEEE-754 deterministic, result quantised to Q32 before any
-    # canonical path uses it. The per-tick lut_eval path is pure Q32.
-    # Exempt from the f64 rule ONLY; HashMap/HashSet/clock/RNG/async rules
-    # still scan.
-    Path("crates/fw-core/src/math.rs"): {FLOAT_RULE_NAME},
-    # q32.rs contains one f64-bearing function: from_f64_clamped (pub(crate),
-    # called ONLY from math.rs's LazyLock bake closure). Per-tick paths are
-    # pure Q32. Exempt from the f64 rule ONLY.
+    # T1-10 (Codex 2026-05-16 audit P1 closure): math.rs is now PURE Q32 — no
+    # runtime f64 bake. The prior LazyLock bake using f64::exp() was replaced
+    # with committed const tables in math_luts.rs (also pure i64, no f64).
+    # The math.rs file-level exemption is REMOVED entirely; if f64 reappears
+    # in math.rs it should fail the audit.
+    #
+    # q32.rs contains one f64-bearing function: from_f64_clamped (T1-10
+    # promoted to `pub` for integration-test drift detection; called ONLY at
+    # bake time, never on canonical paths). Exempt from the f64 rule ONLY.
     Path("crates/fw-core/src/q32.rs"): {FLOAT_RULE_NAME},
+    # T1-10: integration test that re-bakes the math LUTs via f64 + asserts
+    # equality with the committed const tables in src/math_luts.rs. f64 is
+    # intentional + bake-time-only; the test is `#[ignore]`-gated so it
+    # doesn't run by default.
+    Path("crates/fw-core/tests/lut_drift_detection.rs"): {FLOAT_RULE_NAME},
+    # T1-10 self-review fix-pass per silent-failure-hunter P3 + code-reviewer
+    # P2: the printer test was originally self-referential (read committed
+    # const + printed it back), so a libm drift would yield STALE values not
+    # NEW f64-baked truth. Rewrote to re-bake from f64 — same path as the
+    # drift-detection test — making the printer the authoritative
+    # regeneration source on the current toolchain. f64 is intentional +
+    # bake-time-only; `#[ignore]`-gated.
+    Path("crates/fw-core/tests/print_luts_oneshot.rs"): {FLOAT_RULE_NAME},
 }
 
 # Fully-exempt files: ALL rules are suppressed. Reserved for renderer-side

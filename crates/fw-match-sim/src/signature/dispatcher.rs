@@ -645,8 +645,9 @@ mod tests {
     }
 
     /// Build a Q32 from integer + tenths-fraction (e.g. q32(1, 5) = 1.5).
-    /// Q32 lacks a public f64-constructor; this gives test-friendly values
-    /// without touching pub(crate) `from_f64_clamped`.
+    /// This gives test-friendly values without calling the bake-time-only
+    /// `Q32::from_f64_clamped` (T1-10 promoted to `pub` for math-LUT
+    /// drift-detection but explicitly off-limits to canonical-path code).
     fn q32(int: i32, tenths: i32) -> Q32 {
         Q32::from_int(int) + Q32::from_int(tenths) / Q32::from_int(10)
     }

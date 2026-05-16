@@ -23,6 +23,9 @@
 
 pub mod ids;
 pub mod math;
+// T1-10: committed-source LUT raw bits consumed by math.rs at compile time.
+// Private — only math.rs reads it; not part of the public surface.
+pub(crate) mod math_luts;
 pub mod player_attributes;
 pub mod q32;
 pub mod seed;
