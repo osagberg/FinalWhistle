@@ -86,6 +86,17 @@
 //!     [ slot u8 ]
 //!     [ id_len u16 LE ]
 //!     [ id_bytes* ]
+//! [ match_end_tick i64 LE ]                        (T1-4a: match duration; 60 ticks for T1 smoke)
+//! [ match_events ]                                 (T1-4a: Vec<MatchEvent> — canonical)
+//!   [ event_count u32 LE ]
+//!   [ events × event_count ]
+//!     [ discriminant u8 ]
+//!     KickOff (0):            [ tick i64 LE ] [ is_second_half u8 ]
+//!     FullTime (1):           [ tick i64 LE ] [ home_score u16 LE ] [ away_score u16 LE ]
+//!     Goal (2):               [ scorer_slot u8 ] [ tick i64 LE ] [ score_home_after u16 LE ] [ score_away_after u16 LE ]
+//!     Shot (3):               [ shooter_slot u8 ] [ tick i64 LE ] [ target_x i64 LE ] [ target_y i64 LE ] [ on_target u8 ]
+//!     Pass (4):               [ from_slot u8 ] [ to_slot u8 ] [ tick i64 LE ] [ kind u8 ] [ completed u8 ]
+//!     SignatureFirstFired (5): [ player_slot u8 ] [ tick i64 LE ] [ id_len u16 LE ] [ id_bytes* ]
 //! ```
 //!
 //! **Field order rationale (T1-2b-iii-a):** the new per-player fields
@@ -130,7 +141,8 @@
 
 use crate::signature::SignatureFiring;
 use crate::tactic_fsm::{SetPieceKind, TacticState, TeamTacticState};
-use crate::{BallState, MatchState, PlayerState};
+use crate::{BallState, MatchEvent, MatchState, PlayerState};
+use fw_content::PassKind;
 
 const MAGIC: &[u8; 4] = b"FWMS";
 // VERSION history:
@@ -150,7 +162,24 @@ const MAGIC: &[u8; 4] = b"FWMS";
 //        id_len u16 LE + id_bytes + affinity i64 LE (raw Q32 bits)] appended
 //        AFTER the 55 attribute fields. Canonical hash REBASELINED (ADR-0012
 //        trigger #1 — schema bump).
-const VERSION: u16 = 6;
+//   7 — T1-4a: MatchState gained match_events: Vec<MatchEvent> (in canonical
+//        state; section appended after signature_first_fired_seen).
+//        signature_memory_events field REMOVED (was #[serde(skip)] transient
+//        scratch buffer; subsumed by match_events). Canonical hash REBASELINED
+//        per ADR-0012 trigger #1 (MatchState +1 canonical field; encoder VERSION
+//        6→7 schema bump).
+//        Wire-format for match_events section:
+//          [ event_count u32 LE ]
+//          [ per event: ]
+//            [ discriminant u8 ]  (0=KickOff, 1=FullTime, 2=Goal, 3=Shot, 4=Pass, 5=SignatureFirstFired)
+//            [ variant-specific fields in stable order ]
+//        KickOff:            [ tick i64 LE ] [ is_second_half u8 (0=false, 1=true) ]
+//        FullTime:           [ tick i64 LE ] [ home_score u16 LE ] [ away_score u16 LE ]
+//        Goal:               [ scorer_slot u8 ] [ tick i64 LE ] [ score_home_after u16 LE ] [ score_away_after u16 LE ]
+//        Shot:               [ shooter_slot u8 ] [ tick i64 LE ] [ target_x i64 LE ] [ target_y i64 LE ] [ on_target u8 ]
+//        Pass:               [ from_slot u8 ] [ to_slot u8 ] [ tick i64 LE ] [ kind u8 ] [ completed u8 ]
+//        SignatureFirstFired: [ player_slot u8 ] [ tick i64 LE ] [ id_len u16 LE ] [ id_bytes* ]
+const VERSION: u16 = 7;
 
 /// Streaming canonical encoder. Append bytes as values are emitted; call
 /// `finish()` to get the buffer for hashing.
@@ -278,6 +307,134 @@ impl CanonicalEncoder {
             );
             self.write_u16(id_bytes.len() as u16);
             self.buf.extend_from_slice(id_bytes);
+        }
+
+        // T1-4a: match_end_tick — i64 LE. Canonical so replaying fixtures
+        // with different durations produce different hashes.
+        self.write_i64(state.match_end_tick.to_raw());
+
+        // T1-4a: match_events — Vec<MatchEvent> in chronological order.
+        // Layout: [event_count u32 LE] [per-event encoding…]
+        // Vec iteration is insertion order = chronological order (events are pushed
+        // at the tick they fire; the Vec is never sorted post-construction).
+        self.encode_match_events(&state.match_events);
+    }
+
+    /// Encode a `Vec<MatchEvent>` into the canonical byte stream.
+    ///
+    /// Wire format:
+    /// ```text
+    /// [ event_count u32 LE ]
+    /// [ per event: discriminant u8 + variant-specific fields ]
+    /// ```
+    ///
+    /// Discriminant table (stable; do NOT reorder):
+    /// - 0 = `KickOff`
+    /// - 1 = `FullTime`
+    /// - 2 = `Goal`
+    /// - 3 = `Shot`
+    /// - 4 = `Pass`
+    /// - 5 = `SignatureFirstFired`
+    ///
+    /// PassKind discriminant table (stable; do NOT reorder):
+    /// - 0 = `Short`
+    /// - 1 = `Long`
+    /// - 2 = `Cross`
+    /// - 3 = `LayOff`
+    pub(crate) fn encode_match_events(&mut self, events: &[MatchEvent]) {
+        assert!(
+            events.len() <= u32::MAX as usize,
+            "match_events overflowed u32 count field"
+        );
+        self.write_u32(events.len() as u32);
+        for event in events {
+            self.encode_match_event(event);
+        }
+    }
+
+    /// Encode a single `MatchEvent`.
+    fn encode_match_event(&mut self, event: &MatchEvent) {
+        match event {
+            MatchEvent::KickOff {
+                tick,
+                is_second_half,
+            } => {
+                self.write_u8(0); // discriminant
+                self.write_i64(tick.to_raw());
+                self.write_u8(if *is_second_half { 1 } else { 0 });
+            }
+            MatchEvent::FullTime {
+                tick,
+                home_score,
+                away_score,
+            } => {
+                self.write_u8(1);
+                self.write_i64(tick.to_raw());
+                self.write_u16(*home_score);
+                self.write_u16(*away_score);
+            }
+            MatchEvent::Goal {
+                scorer_slot,
+                tick,
+                score_home_after,
+                score_away_after,
+            } => {
+                self.write_u8(2);
+                self.write_u8(*scorer_slot);
+                self.write_i64(tick.to_raw());
+                self.write_u16(*score_home_after);
+                self.write_u16(*score_away_after);
+            }
+            MatchEvent::Shot {
+                shooter_slot,
+                tick,
+                target_x,
+                target_y,
+                on_target,
+            } => {
+                self.write_u8(3);
+                self.write_u8(*shooter_slot);
+                self.write_i64(tick.to_raw());
+                self.write_i64(target_x.to_bits());
+                self.write_i64(target_y.to_bits());
+                self.write_u8(if *on_target { 1 } else { 0 });
+            }
+            MatchEvent::Pass {
+                from_slot,
+                to_slot,
+                tick,
+                kind,
+                completed,
+            } => {
+                self.write_u8(4);
+                self.write_u8(*from_slot);
+                self.write_u8(*to_slot);
+                self.write_i64(tick.to_raw());
+                let kind_tag: u8 = match kind {
+                    PassKind::Short => 0,
+                    PassKind::Long => 1,
+                    PassKind::Cross => 2,
+                    PassKind::LayOff => 3,
+                };
+                self.write_u8(kind_tag);
+                self.write_u8(if *completed { 1 } else { 0 });
+            }
+            MatchEvent::SignatureFirstFired {
+                player_slot,
+                signature_id,
+                tick,
+            } => {
+                self.write_u8(5);
+                self.write_u8(*player_slot);
+                self.write_i64(tick.to_raw());
+                let id_bytes = signature_id.as_str().as_bytes();
+                assert!(
+                    id_bytes.len() <= u16::MAX as usize,
+                    "signature ID exceeds u16 length field"
+                );
+                self.write_u16(id_bytes.len() as u16);
+                self.buf.extend_from_slice(id_bytes);
+            }
         }
     }
 
@@ -553,11 +710,11 @@ mod tests {
     }
 
     #[test]
-    fn version_is_6_after_p1_2_schema_bump() {
+    fn version_is_7_after_t1_4a_schema_bump() {
         assert_eq!(
-            VERSION, 6,
-            "VERSION should be 6 after T1-2b-fix P1-2 canonical schema bump \
-             (PlayerState encode now includes per-player signature_candidates)"
+            VERSION, 7,
+            "VERSION should be 7 after T1-4a MatchEvent emission canonical schema bump \
+             (MatchState gained match_events: Vec<MatchEvent>; signature_memory_events removed)"
         );
     }
 
@@ -720,28 +877,104 @@ mod tests {
         );
     }
 
-    /// P0-2: `signature_memory_events` is transient — must not affect canonical encoding.
-    /// Two states that differ ONLY in this field must produce identical encoded bytes.
+    /// T1-4a: `match_events` IS in canonical encoding (opposite of the prior
+    /// `signature_memory_events_not_in_canonical_encoding` test — the old field
+    /// was a transient scratch buffer excluded from encoding; `match_events` is
+    /// persistent canonical state that IS encoded).
+    ///
+    /// Two states that differ only in `match_events` must produce DIFFERENT encoded bytes.
     #[test]
-    fn signature_memory_events_not_in_canonical_encoding() {
-        use crate::signature::ledger::MemoryEvent;
-        use fw_content::SignatureId;
+    fn match_events_is_in_canonical_encoding() {
+        use fw_content::{MatchEvent, PassKind};
         use fw_core::Tick;
 
         let state_a = MatchState::initial(Seed::from_u64(1));
         let mut state_b = state_a.clone();
-        // Inject a dummy event into state_b only.
-        state_b
-            .signature_memory_events
-            .push(MemoryEvent::SignatureFirstFired {
-                player_slot: 5,
-                signature_id: SignatureId::try_new("fwh.core:signature.no-op-stub").unwrap(),
-                tick: Tick::from_raw(42),
-            });
-        assert_eq!(
+        // Push a Pass event into state_b only.
+        state_b.match_events.push(MatchEvent::Pass {
+            from_slot: 5,
+            to_slot: 7,
+            tick: Tick::from_raw(10),
+            kind: PassKind::Short,
+            completed: true,
+        });
+        assert_ne!(
             state_a.encode_canonical(),
             state_b.encode_canonical(),
-            "signature_memory_events is transient; must not affect canonical encoding"
+            "match_events is canonical; states differing only in match_events \
+             must produce different encoded bytes"
+        );
+        // Also verify state_a (empty events) has a 4-byte u32=0 events count
+        // embedded somewhere in the output — proves the empty-list encoding
+        // doesn't accidentally elide the count field.
+        let bytes_a = state_a.encode_canonical();
+        let bytes_b = state_b.encode_canonical();
+        // state_b has 1 event; state_a has 0. The encoding must be longer.
+        assert!(
+            bytes_b.len() > bytes_a.len(),
+            "encoding with 1 event must be longer than with 0 events"
+        );
+    }
+
+    /// T1-4a Codex Tier-2 follow-up (silent-failure P0-3, code-reviewer Important,
+    /// type-design P3 — all 2026-05-16): exercise `encode_match_event(Goal { .. })`
+    /// directly even though no production code path emits Goal yet.
+    ///
+    /// Rationale: `MatchEvent::Goal` is structurally unreachable in T1 (the
+    /// `apply_tactic_event_with_emission` helper was deleted as dead code; the
+    /// real emission path waits on T1-9/T2 ball-in-net detection). Without this
+    /// test, the Goal encoder arm has ZERO coverage — a future encoder refactor
+    /// could break it silently and only surface when T1-9 wires actual emission.
+    /// This test hand-constructs a Goal event, runs it through encode_match_event,
+    /// and asserts the byte output is non-empty + starts with the Goal discriminant.
+    #[test]
+    fn encode_match_event_goal_arm_is_exercised() {
+        use fw_content::MatchEvent;
+        use fw_core::Tick;
+
+        let mut enc = CanonicalEncoder::new();
+        let goal_event = MatchEvent::Goal {
+            scorer_slot: 9,
+            tick: Tick::from_raw(1234),
+            score_home_after: 1,
+            score_away_after: 0,
+        };
+        enc.encode_match_event(&goal_event);
+        let bytes = enc.finish();
+
+        // CanonicalEncoder::new() prepends MAGIC (b"FWMS", 4 bytes) +
+        // VERSION (u16 LE, 2 bytes) = 6-byte header. Goal payload starts
+        // at offset 6.
+        const HEADER_BYTES: usize = MAGIC.len() + 2; // 4 + 2 = 6
+
+        // Goal discriminant is 2 (per the wire-format table: KickOff=0,
+        // FullTime=1, Goal=2, Shot=3, Pass=4, SignatureFirstFired=5).
+        assert!(
+            bytes.len() > HEADER_BYTES,
+            "encode_match_event(Goal) produced no payload bytes after header"
+        );
+        assert_eq!(
+            bytes[HEADER_BYTES], 2u8,
+            "Goal discriminant must be 2 (got {})",
+            bytes[HEADER_BYTES]
+        );
+        // Goal encoding layout (per encode_match_event): discriminant u8 (1)
+        // + scorer_slot u8 (1) + tick i64 LE (8) + score_home_after u16 LE (2)
+        // + score_away_after u16 LE (2) = 14 bytes after the header.
+        assert_eq!(
+            bytes.len(),
+            HEADER_BYTES + 14,
+            "Goal variant must encode to exactly {} bytes (header {} + payload 14); got {}",
+            HEADER_BYTES + 14,
+            HEADER_BYTES,
+            bytes.len()
+        );
+        // Spot-check the scorer_slot byte at header_bytes + 1.
+        assert_eq!(
+            bytes[HEADER_BYTES + 1],
+            9u8,
+            "scorer_slot byte mismatch at offset {}",
+            HEADER_BYTES + 1
         );
     }
 

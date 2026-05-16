@@ -1,0 +1,20 @@
+---
+source: crates/fw-match-sim/tests/match_event_snapshot.rs
+assertion_line: 54
+expression: state.match_events
+---
+[
+    KickOff {
+        tick: Tick(
+            0,
+        ),
+        is_second_half: false,
+    },
+    FullTime {
+        tick: Tick(
+            60,
+        ),
+        home_score: 0,
+        away_score: 0,
+    },
+]

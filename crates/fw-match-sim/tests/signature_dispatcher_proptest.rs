@@ -635,7 +635,7 @@ fn ac4_active_signature_bias_changes_selected_intent() {
 
 #[test]
 fn ac5_signature_first_fired_emitted_exactly_once_per_player_per_sig() {
-    use fw_match_sim::signature::SignatureMemoryEvent;
+    use fw_match_sim::MatchEvent;
 
     let lrs_id = "fwh.core:signature.long-range-strike";
     let id = SignatureId::try_new(lrs_id).unwrap();
@@ -657,23 +657,21 @@ fn ac5_signature_first_fired_emitted_exactly_once_per_player_per_sig() {
         make_def(lrs_id, BiasCategory::Attacking, amplify_shoot_bias()),
     );
 
-    // Accumulate all memory events from 150 ticks. P0-2 fix clears
-    // signature_memory_events at the TOP of every dispatch_tick, so drain
-    // after each call.
-    let mut all_events: Vec<SignatureMemoryEvent> = Vec::new();
+    // Run 150 ticks. T1-4a: SignatureFirstFired events now accumulate in
+    // state.match_events (persistent canonical stream, not drained per tick).
     for _ in 0..150 {
         state = dispatch::dispatch_tick(state, &defs);
-        all_events.extend_from_slice(&state.signature_memory_events);
         state.tick = state.tick.successor();
     }
 
-    // Count SignatureFirstFired events for slot 8 / LRS.
-    let first_fired_count = all_events
+    // Count SignatureFirstFired events for slot 8 / LRS from match_events.
+    let first_fired_count = state
+        .match_events()
         .iter()
         .filter(|e| {
             matches!(
                 e,
-                SignatureMemoryEvent::SignatureFirstFired {
+                MatchEvent::SignatureFirstFired {
                     player_slot: 8,
                     signature_id,
                     ..

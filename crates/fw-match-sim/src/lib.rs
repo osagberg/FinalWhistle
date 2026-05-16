@@ -56,6 +56,7 @@ pub use ball_physics::{BallPhysicsCoefficients, dt_per_tick, phase1_seeds};
 pub use canonical::CanonicalEncoder;
 pub use decision_cadence::{SeedLayer, assign_decision_slots, seed_fn, should_decide};
 pub use dto::{BallFrameDto, MatchFrameDto, PlayerFrameDto};
+pub use fw_content::MatchEvent;
 pub use player::PlayerState;
 pub use role_states::{
     DefenderState, ForwardState, GoalkeeperState, MidfielderState, PlayerIntent, PlayerRoleState,
@@ -84,7 +85,9 @@ const _: () = assert!(
     "TOTAL_PLAYERS exceeds u8 — canonical-encoder slot field would silently truncate"
 );
 
-/// Slot index for a player. Stable for the duration of a match — the slot
+/// Slot index for a player. Re-exported from `fw-core` (moved at T1-4a so
+/// `fw-content::event::MatchEvent` can reference `PlayerSlot` without
+/// creating a dep cycle). Stable for the duration of a match — the slot
 /// holds the canonical position in the team's ordered roster (GK = slot 0,
 /// outfield by tactical position thereafter). Substitutions swap the
 /// occupant of a slot; the slot identifier itself never changes mid-match.
@@ -92,7 +95,7 @@ const _: () = assert!(
 /// This is the canonical-encoding key for player state: encoding iterates
 /// slots 0..22 in fixed order, so the encoded byte stream is structural,
 /// not pointer-dependent.
-pub type PlayerSlot = u8;
+pub use fw_core::PlayerSlot;
 
 // -------------------------------------------------------------------------
 // MatchState — the canonical-state struct
@@ -198,24 +201,47 @@ pub struct MatchState {
     pub signature_firing: [[Option<signature::SignatureFiring>; 4]; 22],
 
     /// Tracks which `(PlayerSlot, SignatureId)` pairs have fired for the first
-    /// time this match. Used to gate `MemoryEvent::SignatureFirstFired` emission —
+    /// time this match. Used to gate `MatchEvent::SignatureFirstFired` emission —
     /// the event fires ONCE per player+signature pair per match.
     ///
     /// `BTreeSet` for deterministic canonical encoding.
     pub signature_first_fired_seen: BTreeSet<(PlayerSlot, SignatureId)>,
 
-    /// Transient per-tick signature memory events accumulated during `dispatch_tick`.
+    // ---- T1-4a additions (MatchEvent emission; ADR-0007 Layer 1) ----
+    //
+    // `match_events` is in canonical state (encoder VERSION bumped 6→7).
+    // Events accumulate across the match; never cleared between ticks.
+    // T1-4b's commentary renderer reads this Vec after tick_match returns.
+    // T3-1 wires these events to the real fw-memory ledger.
+    /// The tick at which the match ends (inclusive). When `state.tick`
+    /// reaches this value, `FullTime` is emitted and the match is considered
+    /// complete.
     ///
-    /// **Transient scratch buffer** — cleared at the TOP of every `dispatch_tick`
-    /// call. Callers that want to collect events across ticks must drain this Vec
-    /// between calls. Excluded from serde (not canonical state) and from the
-    /// canonical encoder (events are ephemeral, not part of the pinned hash).
+    /// T1: hardcoded to `Tick::from_raw(60)` (the 1-second smoke-seed budget).
+    /// T1-5 makes this configurable via the `play_match` Tauri command
+    /// (likely via a `MatchState::initial_with_match_end_tick(seed, end_tick)`
+    /// constructor variant).
     ///
-    /// T3-1 wires these to the real `fw-memory` ledger. Until then, this Vec
-    /// collects `SignatureFirstFired` events for testing + replay output.
-    /// Events are appended in slot order (dispatch iterates 0..22 in fixed order).
-    #[serde(skip)]
-    pub signature_memory_events: Vec<signature::SignatureMemoryEvent>,
+    /// `pub(crate)` per Codex Tier-2 P1 on T1-4a 2026-05-16 — mirrors the
+    /// `signature_candidates` visibility pattern from T1-2b-iv P1-2. Use
+    /// [`MatchState::match_end_tick()`] from outside the crate.
+    pub(crate) match_end_tick: Tick,
+
+    /// Accumulated in-match event stream. Every tick may append one or more
+    /// `MatchEvent` entries. Entries are in chronological (tick-ascending)
+    /// order by construction — the Vec is never sorted post-construction.
+    ///
+    /// Unlike the removed `signature_memory_events` scratch buffer, this Vec
+    /// is canonical state: it persists across ticks and IS encoded by the
+    /// canonical encoder (VERSION 6→7).
+    ///
+    /// `pub(crate)` per Codex Tier-2 P1 on T1-4a 2026-05-16 — mirrors the
+    /// `signature_candidates` visibility pattern from T1-2b-iv P1-2. Use
+    /// [`MatchState::match_events()`] from outside the crate. Internal
+    /// emission sites (`tick_match`, `dispatch::apply_intent`,
+    /// `dispatch::dispatch_tick`) push directly; external callers cannot
+    /// `clear()` or `sort()` or otherwise corrupt the chronological invariant.
+    pub(crate) match_events: Vec<MatchEvent>,
 }
 
 impl MatchState {
@@ -282,7 +308,16 @@ impl MatchState {
                 [EMPTY_ROW; 22]
             },
             signature_first_fired_seen: BTreeSet::new(),
-            signature_memory_events: Vec::new(),
+            // T1-4a: match duration. Hardcoded to 60 ticks for T1 (the smoke-seed
+            // budget). T1-5 makes this configurable via the play_match Tauri command.
+            match_end_tick: Tick::from_raw(60),
+            // T1-4a: in-match event stream. KickOff is the first event.
+            // Emitted here before any tick; all subsequent events are appended
+            // by tick_match / dispatch_tick as they fire.
+            match_events: vec![MatchEvent::KickOff {
+                tick: Tick::ZERO,
+                is_second_half: false,
+            }],
         }
     }
 
@@ -295,7 +330,56 @@ impl MatchState {
         enc.encode_match_state(self);
         enc.finish()
     }
+
+    /// Read-only access to the in-match event stream (T1-4a).
+    ///
+    /// External callers (Tauri command handlers, integration tests, the
+    /// T1-4b commentary renderer) read events via this accessor; the
+    /// underlying `Vec` is `pub(crate)` so it cannot be mutated from
+    /// outside the crate (preserves the chronological invariant —
+    /// the Vec is append-only and tick-ordered by construction).
+    pub fn match_events(&self) -> &[MatchEvent] {
+        &self.match_events
+    }
+
+    /// The tick at which the match ends (T1-4a).
+    ///
+    /// External callers read via this accessor; the underlying field is
+    /// `pub(crate)` so mid-match mutation is impossible from outside
+    /// the crate. T1: always `Tick::from_raw(60)` (smoke-seed budget).
+    /// T1-5 will add a constructor variant to make this configurable.
+    pub fn match_end_tick(&self) -> Tick {
+        self.match_end_tick
+    }
 }
+
+// NOTE: `apply_tactic_event_with_emission` (T1-4a draft) was DELETED in the
+// T1-4a self-review fix-pass per the Codex Tier-2 silent-failure P0-3 +
+// type-design P3 + code-reviewer Critical findings (2026-05-16):
+//
+// - The function was `#[allow(dead_code)] pub(crate)` with no call sites.
+// - Shipping it implied `MatchEvent::Goal` was emittable; in reality the
+//   variant is structurally unreachable until the contest model + ball-in-net
+//   detection lands (T1-9 / T2).
+// - The `scorer_slot.unwrap_or(0)` fallback would have silently misattributed
+//   unattributed goals to slot 0 (the home goalkeeper).
+//
+// The `MatchEvent::Goal` variant + its canonical encoder + its serde
+// round-trip test all REMAIN, providing forward-compat for the T1-9/T2
+// wiring. A direct `encode_match_event(Goal { ... })` unit test was added
+// to `canonical.rs` to cover the encoder path even without a live emission.
+//
+// When goal-scoring wiring lands, the call site should:
+//   1. Detect ball-in-net (ball physics or contest model).
+//   2. Attribute the scorer via possession chain (last shooter, not Option).
+//   3. Update scoreline (home_score / away_score).
+//   4. Call `tactic_fsm::apply_event(..., TacticEvent::Goal, ...)`.
+//   5. Push `MatchEvent::Goal { scorer_slot, tick, score_home_after,
+//      score_away_after }` to `state.match_events`.
+//
+// Inlining at the wiring site (not in a helper) is preferred — the call
+// site has full context (scorer attribution is non-optional; scoreline
+// updates atomic).
 
 // -------------------------------------------------------------------------
 // tick_match — the canonical advance function
@@ -303,7 +387,7 @@ impl MatchState {
 
 /// Advance the match by one tick.
 ///
-/// Six sequential steps (T1-2b-iii-d adds step 6):
+/// Seven sequential steps (T1-4a adds step 7):
 ///   1. Increment `state.tick`.
 ///   2. Advance ball physics (T1-2b-i).
 ///   3. Run the 2 Hz tactic-FSM heartbeat every 30 ticks per team (T1-2b-ii).
@@ -315,6 +399,13 @@ impl MatchState {
 ///   6. Player-separation positional-correction pass (T1-2b-iii-d):
 ///      for each pair (i,j) with slot_i < slot_j, push apart if within
 ///      `separation::MIN_PLAYER_DISTANCE` (0.4 m). Velocities untouched.
+///   7. Emit `MatchEvent::FullTime` if `state.tick >= state.match_end_tick`
+///      AND no FullTime is already at the tail of `match_events` (T1-4a).
+///      This is the LAST step so all other events from this tick are
+///      already in `match_events` before FullTime is appended. The
+///      already-emitted guard pins "FullTime fires at most once" even
+///      under caller over-advancement (e.g. stale match_end_tick from
+///      a save-load mid-match).
 pub fn tick_match(mut state: MatchState) -> MatchState {
     state.tick = state.tick.successor();
     // T1-2b-i: advance ball physics by one 60Hz tick.
@@ -357,6 +448,29 @@ pub fn tick_match(mut state: MatchState) -> MatchState {
     // Runs after integration so velocities are already applied; corrects
     // positions only — velocities remain as the BT runner last wrote them.
     separation::apply_player_separation(&mut state);
+
+    // Step 7 (T1-4a): emit FullTime at end of match.
+    //
+    // Must be LAST so all same-tick events (goals, shots, passes) are already
+    // appended before FullTime. The match caller is expected to stop advancing
+    // after FullTime; this guard ensures FullTime emits AT MOST ONCE even if
+    // the caller over-advances (Codex Tier-2 silent-failure P0-2 on T1-4a
+    // 2026-05-16 — the prior `==` check would silently fail to emit FullTime
+    // if the caller advanced past match_end_tick before the check fired, e.g.
+    // via a save-load mid-match with a stale match_end_tick).
+    //
+    // The `>=` covers the "advanced past match_end_tick" case. The
+    // already-emitted guard via last-event inspection is O(1) and pins
+    // the "FullTime is the terminal event" invariant.
+    let full_time_already_emitted =
+        matches!(state.match_events.last(), Some(MatchEvent::FullTime { .. }));
+    if state.tick >= state.match_end_tick && !full_time_already_emitted {
+        state.match_events.push(MatchEvent::FullTime {
+            tick: state.tick,
+            home_score: state.home_score as u16,
+            away_score: state.away_score as u16,
+        });
+    }
 
     state
 }

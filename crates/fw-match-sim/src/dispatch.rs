@@ -59,11 +59,11 @@ use crate::decision_cadence::{SeedLayer, seed_fn, should_decide};
 use crate::goalkeeper_fsm::tick_goalkeeper;
 use crate::role_states::{PlayerIntent, PlayerRoleState};
 use crate::signature;
-use crate::signature::ledger::MemoryEvent;
 use crate::signature::{
     DEFAULT_FIRING_DURATION_TICKS, SignatureFiring, build_trigger_table, evaluate_signatures,
 };
 use crate::subtree_library::select_outfield_intent;
+use fw_content::{MatchEvent, PassKind, is_shot_on_target};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -109,11 +109,9 @@ pub fn dispatch_tick(
     mut state: MatchState,
     sig_definitions: &BTreeMap<String, SignatureDefinition>,
 ) -> MatchState {
-    // P0-2: clear the transient event scratch-buffer at the start of each tick.
-    // `signature_memory_events` is a per-tick accumulator: callers drain it
-    // after each dispatch_tick call. Clearing here ensures events from tick N
-    // do not bleed into tick N+1 when the caller forgets to drain.
-    state.signature_memory_events.clear();
+    // T1-4a: match_events is the persistent canonical event stream (replaces
+    // the removed signature_memory_events scratch buffer). It is NOT cleared
+    // here — events accumulate across the match by design.
 
     // Build the trigger table once per tick (cheap: it's a BTreeMap of fn ptrs).
     let trigger_table = build_trigger_table();
@@ -198,16 +196,16 @@ pub fn dispatch_tick(
                     duration_ticks: DEFAULT_FIRING_DURATION_TICKS,
                 });
                 // Emit SignatureFirstFired if first time this match.
+                // T1-4a: push to match_events (persistent canonical stream),
+                // replacing the removed signature_memory_events scratch buffer.
                 let first_fired_key = (slot, sig_id.clone());
                 if !state.signature_first_fired_seen.contains(&first_fired_key) {
                     state.signature_first_fired_seen.insert(first_fired_key);
-                    state
-                        .signature_memory_events
-                        .push(MemoryEvent::SignatureFirstFired {
-                            player_slot: slot,
-                            signature_id: sig_id,
-                            tick: state.tick,
-                        });
+                    state.match_events.push(MatchEvent::SignatureFirstFired {
+                        player_slot: slot,
+                        signature_id: sig_id,
+                        tick: state.tick,
+                    });
                 }
             }
         }
@@ -304,20 +302,132 @@ pub fn dispatch_tick(
 // apply_intent
 // ---------------------------------------------------------------------------
 
-/// Apply a `PlayerIntent` to a player by mutating their `vel_x`/`vel_y`.
+/// Apply a `PlayerIntent` to a player by mutating their `vel_x`/`vel_y`
+/// and emitting any corresponding `MatchEvent` entries.
 ///
-/// `MoveToPosition`: compute direction vector from current pos to target;
-///   clamp magnitude to `MAX_PLAYER_SPEED`; set vel.
-/// `Idle`: set vel = (0, 0).
+/// ## Event emissions (T1-4a)
 ///
-/// Direction is computed via Q32 integer arithmetic: each component is
-/// clamped to [-MAX_PLAYER_SPEED, +MAX_PLAYER_SPEED] independently rather
-/// than computing a true 2D normalisation (which would require a Q32 sqrt
-/// or cordic approximation). This is acceptable for the skeleton tier —
-/// diagonal movement is slightly faster than cardinal, but formation
-/// positions are grid-like enough that the approximation is imperceptible.
-/// -iii-b may refine to a proper cordic normalisation.
+/// - `AttemptShot` → `MatchEvent::Shot` (before velocity update; happens regardless of outcome)
+/// - `AttemptPassShort` → `MatchEvent::Pass { kind: Short }`
+/// - `AttemptPassLong` → `MatchEvent::Pass { kind: Long }`
+/// - `Cross` → `MatchEvent::Pass { kind: Cross }`
+/// - `LayOff` → `MatchEvent::Pass { kind: LayOff }`
+///
+/// All other intents update velocity only; no event emitted.
+///
+/// ## T1 approximations
+///
+/// - `Shot.on_target`: derived from `target_y` within ±3.66 m half-width.
+///   No keeper model yet.
+/// - `Pass.to_slot`: nearest teammate heuristic — the nearest same-team
+///   player to the target point. T2 will refine with passing-lane model.
+/// - `Pass.completed`: always `true` in T1 (no contest physics yet).
+///
+/// ## Velocity model
+///
+/// All variants with a target use the same velocity-toward-target model:
+/// clamp each component to `±MAX_PLAYER_SPEED` independently. No 2D
+/// normalisation — diagonal movement is slightly faster than cardinal but
+/// acceptable for the skeleton tier.
+/// T1 placeholder for `MatchEvent::Pass.completed`. Always `true` until the
+/// contest model lands in T2 — at which point this const becomes a function
+/// of the contest outcome AND every reference here must become a real bool.
+///
+/// Why a named const instead of literal `true`: a single rename (grep
+/// `T1_PASS_COMPLETED`) surfaces every pass-emission site for T2 wiring.
+/// A scattered `completed: true` would silently leak past the contest model
+/// for any site the T2 author missed. Codex Tier-2 P1-4 on T1-4a
+/// (2026-05-16).
+const T1_PASS_COMPLETED: bool = true;
+
 pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerIntent) {
+    // Emit events BEFORE mutating velocity. The emission match is EXHAUSTIVE
+    // (no `_` wildcard) so that adding a new `PlayerIntent` variant produces
+    // a compile error here — forcing the author to decide whether the new
+    // variant emits a `MatchEvent` or not. Codex Tier-2 P0-1 on T1-4a
+    // (2026-05-16) caught a `_ => {}` catch-all that would have silently
+    // dropped events for any future pass-like variant (ThroughBall, Backheel,
+    // OneTwo, etc.). Mirrors the T1-2b-iv `intent_to_bias_consideration`
+    // wildcard removal lesson (P0-3 fix-pass).
+    match &intent {
+        PlayerIntent::AttemptShot { target_x, target_y } => {
+            let shooter_slot = state.players[slot_idx].slot;
+            let on_target = is_shot_on_target(*target_y);
+            state.match_events.push(MatchEvent::Shot {
+                shooter_slot,
+                tick: state.tick,
+                target_x: *target_x,
+                target_y: *target_y,
+                on_target,
+            });
+        }
+        PlayerIntent::AttemptPassShort { target_x, target_y } => {
+            let from_slot = state.players[slot_idx].slot;
+            let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
+            state.match_events.push(MatchEvent::Pass {
+                from_slot,
+                to_slot,
+                tick: state.tick,
+                kind: PassKind::Short,
+                completed: T1_PASS_COMPLETED,
+            });
+        }
+        PlayerIntent::AttemptPassLong { target_x, target_y } => {
+            let from_slot = state.players[slot_idx].slot;
+            let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
+            state.match_events.push(MatchEvent::Pass {
+                from_slot,
+                to_slot,
+                tick: state.tick,
+                kind: PassKind::Long,
+                completed: T1_PASS_COMPLETED,
+            });
+        }
+        PlayerIntent::Cross { target_x, target_y } => {
+            let from_slot = state.players[slot_idx].slot;
+            let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
+            state.match_events.push(MatchEvent::Pass {
+                from_slot,
+                to_slot,
+                tick: state.tick,
+                kind: PassKind::Cross,
+                completed: T1_PASS_COMPLETED,
+            });
+        }
+        PlayerIntent::LayOff { target_x, target_y } => {
+            let from_slot = state.players[slot_idx].slot;
+            let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
+            state.match_events.push(MatchEvent::Pass {
+                from_slot,
+                to_slot,
+                tick: state.tick,
+                kind: PassKind::LayOff,
+                completed: T1_PASS_COMPLETED,
+            });
+        }
+        // Non-emitting variants — enumerated explicitly so adding a new
+        // PlayerIntent variant forces a compile error here (see preamble).
+        PlayerIntent::Idle
+        | PlayerIntent::MoveToPosition { .. }
+        | PlayerIntent::Dribble { .. }
+        | PlayerIntent::HoldBall { .. }
+        | PlayerIntent::TrackBack { .. }
+        | PlayerIntent::Press { .. }
+        | PlayerIntent::MarkPlayer { .. }
+        | PlayerIntent::RunOffBall { .. }
+        | PlayerIntent::HoldFormation { .. }
+        | PlayerIntent::GkShotStop { .. }
+        | PlayerIntent::GkCollectCross { .. }
+        | PlayerIntent::GkSweeperRush { .. }
+        | PlayerIntent::GkDistributeShort { .. }
+        | PlayerIntent::GkDistributeLong { .. } => {
+            // No MatchEvent emitted for movement / defensive / GK intents.
+            // T2+ may add events for press-trigger / interception / save —
+            // wire them at this site, not via a wildcard.
+        }
+    }
+
+    // Velocity update (same for all target-bearing intents; Idle zeroes vel).
     let p = &mut state.players[slot_idx];
     match intent {
         PlayerIntent::Idle => {
@@ -353,6 +463,71 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
             p.vel_y = clamp_speed(dy);
         }
     }
+}
+
+/// Find the nearest same-team player to `(target_x, target_y)`, excluding
+/// `passer_slot_idx`. Returns the slot of the nearest teammate, or falls
+/// back to the passer's own slot if no teammate exists.
+///
+/// Team is determined by slot index: slots 0..11 = home, 11..22 = away.
+/// Comparison uses Manhattan distance (Q32 integer arithmetic; no sqrt).
+///
+/// **Panic safety (Codex Tier-2 P1-3 on T1-4a 2026-05-16):** distance
+/// computation uses `i128` so the subtraction can't overflow even at the
+/// extremes of `Q32`'s `i64` raw range, and the `unsigned_abs()` call can't
+/// hit the `i64::MIN.abs()` undefined-behavior path. (`i64::MIN.abs()`
+/// panics in debug and is UB in release.)
+///
+/// **Self-pass guard (Codex Tier-2 Critical on T1-4a 2026-05-16):** the
+/// 22-slot match always has 10 teammates available (11 same-team players
+/// minus the passer), so the loop runs ≥10 iterations and `best_slot` is
+/// always overwritten. A `debug_assert_ne!` against the passer slot pins
+/// this invariant — if a future refactor breaks the team_start/team_end
+/// derivation, the assertion fires in debug builds before the bad event
+/// silently lands in `match_events`.
+///
+/// T1 approximation — T2 refines with passing-lane model.
+fn nearest_teammate_near(
+    state: &MatchState,
+    passer_slot_idx: usize,
+    target_x: Q32,
+    target_y: Q32,
+) -> u8 {
+    let passer_team = if passer_slot_idx < 11 { 0usize } else { 1usize };
+    let team_start = passer_team * 11;
+    let team_end = team_start + 11;
+    let passer_slot = state.players[passer_slot_idx].slot;
+
+    let mut best_slot = passer_slot;
+    // i128 distance space — Q32 raw bits fit comfortably; no overflow path.
+    let mut best_dist: i128 = i128::MAX;
+
+    let target_x_i128 = target_x.to_bits() as i128;
+    let target_y_i128 = target_y.to_bits() as i128;
+
+    for teammate_idx in team_start..team_end {
+        if teammate_idx == passer_slot_idx {
+            continue;
+        }
+        let tp = &state.players[teammate_idx];
+        // Manhattan distance in i128 (positive by construction via unsigned_abs).
+        let dx = (tp.pos_x.to_bits() as i128 - target_x_i128).unsigned_abs() as i128;
+        let dy = (tp.pos_y.to_bits() as i128 - target_y_i128).unsigned_abs() as i128;
+        let dist = dx + dy;
+        if dist < best_dist {
+            best_dist = dist;
+            best_slot = tp.slot;
+        }
+    }
+
+    debug_assert_ne!(
+        best_slot, passer_slot,
+        "nearest_teammate_near produced a self-pass for slot_idx={passer_slot_idx} \
+         (team {passer_team}, range {team_start}..{team_end}); loop did not find \
+         any teammate — check team-boundary derivation"
+    );
+
+    best_slot
 }
 
 /// Clamp a Q32 delta to `[-MAX_PLAYER_SPEED, +MAX_PLAYER_SPEED]`.

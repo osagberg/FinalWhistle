@@ -166,6 +166,12 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   - 4 reactive predicates rewritten to spec (P2-9; not wired into dispatch, so
 ///     no simulation output change — predicates unused until T1-4).
 ///   - Authorized by the T1-2b-fix P1-5/P2-9 task-spec in MEMORY.md.
+/// - 2026-05-16 (T1-4a MatchEvent emission) — **re-baselined to `02ab97d0...27e686`**
+///   per ADR-0012 trigger #1 (canonical schema bump): `MatchState` gained
+///   `match_events: Vec<MatchEvent>` (persistent canonical event stream) and
+///   `match_end_tick: Tick`. `signature_memory_events` field REMOVED (was transient
+///   scratch buffer; subsumed by `match_events`). Encoder VERSION bumped 6->7.
+///   Authorized by T1-4a task-spec in MEMORY.md.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -174,7 +180,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("d376ba2624646f19e3061342f5854bc117ed0a35a2b99a13f51a143bc446fa93");
+    hex!("02ab97d06e60f508f5076aa37cf371263c73d5fc104ab1448989cb5f5627e686");
 
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.

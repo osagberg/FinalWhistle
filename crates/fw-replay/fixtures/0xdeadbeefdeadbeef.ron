@@ -98,6 +98,19 @@
 //                               hold_formation: equivalent math, different attrs.
 //                               4 reactive predicates rewritten to spec (P2-9;
 //                               not wired into dispatch until T1-4).
+//   2026-05-16 (T1-4a MatchEvent emission) — `02ab97d0...27e686` per ADR-0012
+//                               trigger #1 (canonical schema bump). MatchState
+//                               gained match_events: Vec<MatchEvent> (persistent
+//                               canonical event stream) and match_end_tick: Tick.
+//                               signature_memory_events field REMOVED (transient
+//                               scratch buffer; subsumed by match_events).
+//                               Encoder VERSION bumped 6->7. Wire-format section
+//                               added: match_end_tick i64 LE + match_events section
+//                               (event_count u32 LE + per-event encoding).
+//                               PlayerSlot moved from fw-match-sim to fw-core.
+//                               MatchEvent enum added to fw-content::event (6
+//                               variants: KickOff/FullTime/Goal/Shot/Pass/
+//                               SignatureFirstFired). Authorized by T1-4a spec.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -109,10 +122,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:d376ba2624646f19e3061342f5854bc117ed0a35a2b99a13f51a143bc446fa93",
+    expected_hash: "blake3:02ab97d06e60f508f5076aa37cf371263c73d5fc104ab1448989cb5f5627e686",
     metadata: (
-        description: "T1-2b-fix P1-5/P2-9 attribute-binding corrections smoke fixture. Bias helpers corrected: lay_off selflessness-only, mark determination-only, run_off_ball work_rate+risk. utility_shoot long_shots as secondary.",
-        generated_at: "2026-05-15",
-        notes: "Re-pinned at T1-2b-fix P1-5/P2-9 (ADR-0012 trigger #3). Six BT decision sites corrected per bt-attribute-binding.md. Bias helper multiplicative forms changed for lay_off, mark, run_off_ball. utility_shoot: long_shots moved to secondary modifier. 4 reactive predicates rewritten (P2-9, not wired). No schema bump.",
+        description: "T1-4a MatchEvent emission smoke fixture. MatchState gained match_events Vec<MatchEvent> + match_end_tick Tick. signature_memory_events removed. Encoder VERSION 6->7. KickOff at tick 0, FullTime at tick 60 emitted by smoke seed.",
+        generated_at: "2026-05-16",
+        notes: "Re-pinned at T1-4a (ADR-0012 trigger #1). Canonical schema bump: match_events + match_end_tick added; signature_memory_events removed. PlayerSlot moved to fw-core. MatchEvent enum in fw-content::event.",
     ),
 )

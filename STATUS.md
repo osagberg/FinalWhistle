@@ -4,26 +4,25 @@
 
 ## Phase
 
-**T1 — First Match.** T1-2b sub-phase shipped + T1-2b-fix audit-remediation closed across 4 rounds. Match-engine inner loop complete. Next: T1-4 MatchEvent emission.
+**T1 — First Match.** T1-2b sub-phase + T1-2b-fix audit-remediation closed (4 rounds). T1-4a (MatchEvent emission, sim side) shipped. Next: T1-4b commentary template bank in `fw-content::commentary` — blocked on `/log-decision` for ADR-0009 amendment.
 
 ## Active task
 
-(none — T1-2b-fix round 4 closes the last Codex P1; awaiting Codex re-audit confirmation before `/next` picks T1-4)
+(none — T1-4a closed; T1-4b queued behind a prereq)
 
 ## Phase pointer
 
-- **Just closed:** **T1-2b-fix round 4** — AC-2 rewritten to observe `signature_cooldowns[&key]` + `signature_firing[slot][cat].start_tick()` instead of the structurally-non-duplicating `signature_first_fired_seen` set (Codex round-3 P1-8 remaining gap). Hash unchanged (test-only behavioral fix).
-- **T1-2b sub-phase:** all 9 rows shipped (i, ii, iii-a/b/c/d, T1-3, iv, fix). T1-2b-fix consolidated 8 Codex P1s + 6 P2s across 4 fix rounds; per-round meta-pattern (cargo-cult fix-shape-without-substance) captured in `docs/DECISIONS.md`.
-- **Next:** **T1-4** — `MatchEvent` enum (Goal / Shot / Pass / KickOff / FullTime) + ledger output struct + diagnostic commentary templates rich enough to spot brain-dead behavior from text alone (ADR-0007 dev-verification §Layer 1). Reconciles `MemoryEvent::SignatureFirstFired` stub into the real `MatchEvent`. Canonical hash REBASELINE expected.
+- **Just closed:** **T1-4a MatchEvent emission + canonical encoding.** `MatchEvent` enum (6 variants) in `fw-content::event`; PlayerSlot moved to fw-core; encoder VERSION 6→7; 5 live emission paths + Goal forward-compat encoder-only. Self-review triple flagged 8 P0/P1 across silent-failure-hunter + type-design-analyzer + code-reviewer (heavy overlap); all closed in main-thread fix-pass per the cargo-cult meta-pattern.
+- **Next:** **T1-4b** — Tracery template bank + deterministic renderer in `fw-content::commentary`. Owned by `narrative-director` per CLAUDE.md §5 + ADR-0007 line 87. ≥3 variants per MatchEvent slot (≥18 templates total). **Blocked on `/log-decision`** to amend ADR-0009 with a new `SeedLayer::Commentary` discriminant (Tracery variant-pick needs a canonical seed layer; without the ADR amendment, T1-4b's deterministic-variant-pick has no SeedLayer to live under). After T1-4b: T1-5 (Tauri `play_match` + frontend can finally see a match flow end-to-end).
 
 ## Blockers
 
-None. Pending Codex round-4 re-audit verdict on the AC-2 observable rewrite.
+T1-4b needs `/log-decision` for `SeedLayer::Commentary` ADR-0009 amendment before `/next` invokes it.
 
 ## Last green verify
 
-2026-05-16 — `scripts/fw verify` clean post round-4: fmt + clippy + `cargo test --workspace` + release-mode canonical-hash regression on `d376ba26…fa93` + banned-terms + determinism-audit + `fw-content-baker validate`.
+2026-05-16 — `scripts/fw verify` clean post T1-4a + fix-pass: fmt + clippy + `cargo test --workspace` + release-mode canonical-hash regression on `02ab97d0…27e686` + banned-terms + determinism-audit + `fw-content-baker validate`.
 
 ## Last canonical hash
 
-`blake3:d376ba2624646f19e3061342f5854bc117ed0a35a2b99a13f51a143bc446fa93` (60-tick smoke seed; pinned at T1-2b-fix round 1 per ADR-0012 trigger #3 — bias-application restructured; subsequent T1-2b-fix rounds 2-4 left the hash unchanged because the new behavior — GK FSM attribute bindings, cross-category bias combine, AC test observables, wire-diagram doc — doesn't reach the smoke-seed dispatch path).
+`blake3:02ab97d06e60f508f5076aa37cf371263c73d5fc104ab1448989cb5f5627e686` (60-tick smoke seed; rebaselined T1-4a per ADR-0012 trigger #1 — MatchState gained `match_events: Vec<MatchEvent>` + `match_end_tick: Tick`; `signature_memory_events` field removed; encoder VERSION 6→7 schema bump; KickOff + FullTime now appear in the 60-tick smoke output as the first/last entries of the event stream). Prior pin `d376ba26…fa93` was T1-2b-fix round 1.

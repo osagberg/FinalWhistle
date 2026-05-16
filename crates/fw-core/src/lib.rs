@@ -51,6 +51,21 @@ pub use seed::{Seed, SeedLayer, seed_fn};
 pub use tick::Tick;
 
 // -------------------------------------------------------------------------
+// PlayerSlot — canonical sim slot index
+// -------------------------------------------------------------------------
+
+/// Canonical sim slot index for a player. Stable for the duration of a match:
+/// home team occupies slots `0..11`, away team occupies slots `11..22`.
+///
+/// Slot 0 = home GK, slots 1-4 = home DEF, 5-7 = home MID, 8-10 = home FWD.
+/// Slot 11 = away GK, slots 12-15 = away DEF, 16-18 = away MID, 19-21 = away FWD.
+///
+/// Moved to `fw-core` at T1-4a so `fw-content::event::MatchEvent` can reference
+/// `PlayerSlot` without depending on `fw-match-sim` (which would create a cycle
+/// since `fw-match-sim` depends on `fw-content`).
+pub type PlayerSlot = u8;
+
+// -------------------------------------------------------------------------
 // Smoke
 // -------------------------------------------------------------------------
 

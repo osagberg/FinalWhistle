@@ -238,17 +238,17 @@ fn signature_load_does_not_drift_canonical_hash() {
 
     const SMOKE_SEED: u64 = 0xdeadbeefdeadbeef;
     const SMOKE_TICKS: u32 = 60;
-    // Rebaselined at T1-2b-fix P1-5/P2-9: bias helper multiplicative forms corrected per spec.
-    // Three bias helpers changed math at uniform attrs: apply_lay_off_bias (2→1 factor),
-    // apply_mark_bias (2→1 factor), apply_run_off_ball_bias (k₉→k₁₀ first factor).
-    // utility_shoot long_shots demoted from primary to secondary modifier.
+    // Rebaselined at T1-4a: MatchEvent emission + match_end_tick added to canonical encoding.
+    // match_events Vec<MatchEvent> + match_end_tick Tick added to MatchState; signature_memory_events
+    // removed; canonical encoder VERSION bumped 6→7. KickOff emitted at tick 0, FullTime at tick 60.
+    // Prior T1-2b-fix P1-5/P2-9 hash: d376ba2624646f19e3061342f5854bc117ed0a35a2b99a13f51a143bc446fa93
     // Prior T1-2b-fix hash: dbe4f49bdb8b866d47c9e46a16e22416dfddbcb6edd9355139114133a25085f2
     // Prior T1-2b-iv hash: 18f1776c2f77939d32849dc72e05909caf78b93bf6ce50a1222b28f9c6a5d048
     // Represented as raw bytes so we can compare without a hex crate.
     const EXPECTED: [u8; 32] = [
-        0xd3, 0x76, 0xba, 0x26, 0x24, 0x64, 0x6f, 0x19, 0xe3, 0x06, 0x13, 0x42, 0xf5, 0x85, 0x4b,
-        0xc1, 0x17, 0xed, 0x0a, 0x35, 0xa2, 0xb9, 0x9a, 0x13, 0xf5, 0x1a, 0x14, 0x3b, 0xc4, 0x46,
-        0xfa, 0x93,
+        0x02, 0xab, 0x97, 0xd0, 0x6e, 0x60, 0xf5, 0x08, 0xf5, 0x07, 0x6a, 0xa3, 0x7c, 0xf3, 0x71,
+        0x26, 0x3c, 0x73, 0xd5, 0xfc, 0x10, 0x4a, 0xb1, 0x44, 0x89, 0x89, 0xcb, 0x5f, 0x56, 0x27,
+        0xe6, 0x86,
     ];
 
     // Load the content store (exercises the new signature loader).
@@ -271,9 +271,9 @@ fn signature_load_does_not_drift_canonical_hash() {
     assert_eq!(
         actual, EXPECTED,
         "\nCanonical-state hash drifted unexpectedly.\n\
-         T1-2b-fix P1-5/P2-9 rebaselined to d376ba2624646f19e3061342f5854bc117ed0a35a2b99a13f51a143bc446fa93\n\
-         (bias helper math corrections: lay_off 2→1 factor, mark 2→1 factor, run_off_ball k₉→k₁₀).\n\
-         If this drifts again, it must be an authorized rebaseline — ADR-0012 trigger #3.\n\
+         T1-4a rebaselined to 02ab97d06e60f508f5076aa37cf371263c73d5fc104ab1448989cb5f5627e686\n\
+         (MatchEvent emission: match_events Vec<MatchEvent> + match_end_tick added; encoder VERSION 6→7).\n\
+         If this drifts again, it must be an authorized rebaseline — ADR-0012 trigger #1 or #3.\n\
          Actual:   {:02x?}",
         actual
     );

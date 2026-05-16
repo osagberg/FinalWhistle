@@ -223,9 +223,16 @@ impl ArchetypeParams {
 ///   needs than the scoring team). Re-audit the transition arm at T1-4.
 /// - `HalfTime` ← `MatchEvent::HalfTime` (direct rename).
 ///
-/// Also: this enum will need `Serialize + Deserialize` derives when reconciled,
-/// because `MatchEvent` lives in canonical state (the ledger). Flagged in
-/// T1-4's task spec.
+/// T1-4a reconciliation note: `TacticEvent` stays sim-internal (no serde
+/// needed) — it drives FSM transitions only, not the canonical event stream.
+/// The canonical event stream uses `MatchEvent` (in `fw_content::event`).
+/// `TacticEvent::Goal` does NOT yet have a corresponding `MatchEvent::Goal`
+/// emission — that wiring waits on T1-9/T2 ball-in-net detection. The
+/// `MatchEvent::Goal` variant + canonical encoder + serde round-trip + a
+/// direct `encode_match_event(Goal)` unit test all ship in T1-4a as
+/// forward-compat scaffolding; the call site that pushes the event is the
+/// next-phase delivery. See `fw_match_sim::lib`'s deletion comment for
+/// `apply_tactic_event_with_emission` for the call-site protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TacticEvent {
     /// Ball went out of play; set-piece type decided.

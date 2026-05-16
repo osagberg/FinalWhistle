@@ -6,7 +6,11 @@
 //! - `triggers.rs`: 3 trigger predicate functions + binding table.
 //! - `dispatcher.rs`: `evaluate_signatures` — cooldown check + softmax sample.
 //! - `bias_apply.rs`: `apply_signature_bias` — composes `SimBiasSnapshot` into utility.
-//! - `ledger.rs`: local `MemoryEvent::SignatureFirstFired` stub (T1-4 reconciles).
+//!
+//! Note: `ledger.rs` was deleted at T1-4a. The local `MemoryEvent::SignatureFirstFired`
+//! stub it contained has been replaced by `fw_content::MatchEvent::SignatureFirstFired`,
+//! which is pushed to `MatchState.match_events` (canonical persistent event stream)
+//! rather than the removed `signature_memory_events` transient scratch buffer.
 //!
 //! ## Design choices (documented per task-spec §"Design choices to make")
 //!
@@ -42,7 +46,6 @@
 
 pub mod bias_apply;
 pub mod dispatcher;
-pub mod ledger;
 pub mod triggers;
 
 use fw_content::SignatureId;
@@ -131,7 +134,6 @@ impl SignatureFiring {
 
 pub use bias_apply::{BiasConsideration, apply_signature_bias};
 pub use dispatcher::evaluate_signatures;
-pub use ledger::MemoryEvent as SignatureMemoryEvent;
 pub use triggers::{TriggerFn, build_trigger_table};
 
 // ---------------------------------------------------------------------------
