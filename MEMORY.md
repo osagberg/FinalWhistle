@@ -31,7 +31,7 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-(none — T1-9 closed via qa-lead subagent + main-thread fix-pass for 2 P2 self-review findings; 9th clean silent-failure-hunter verdict in a row. **The T1 phase is now ready for `/done`** + Codex Tier-3 phase-boundary review per ADR-0015.)
+(none — `/done` attempted 2026-05-16 + PAUSED on T1 exit-gate Bullet 1 fail: 0 goals across 5 sampled 600-tick smoke seeds, not the locked 2-5 envelope. Ball moves in 592/601 frames but stays in [-1.72, 1.14]m Y × [0, 2.64]m X — centre-circle midfielders cycle possession indefinitely; build-up never advances. **T1-15 added to MASTER_PLAN** to investigate + fix; user picked "Add T1-15 → reach 2-5 goals before /done". Re-attempt `/done` after T1-15 ships.)
 
 <!-- T1-9 SPEC retained below for one cycle of traceability while /done is still pending; will be GC'd on the next /next cycle after T2 starts. -->
 

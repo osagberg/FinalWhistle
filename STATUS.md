@@ -4,28 +4,30 @@
 
 ## Phase
 
-**T1 — First Match. COMPLETE.** T1-9 (the last numbered T1 row) shipped — `crates/fw-match-sim/tests/behavior_proptest.rs` adds 4 NEW positional regression-guard proptest invariants per ADR-0007 §Layer 3: GK home/away stays within 30m of own goal line (≥95% of ticks), team width during in-possession stays in [25, 70]m band, no player sustains >12 m/s sprint for ≥4s (vacuously true today at MAX_PLAYER_SPEED=5 m/s — regression-guard for future cap-bump). 100+ line doc-comment header catalogs what lives where + what's deferred to T2-1 (defender-depth-tracks-archetype + 3 pair-seed knob-isolation tests, all blocked on per-team archetype loading) + what's deferred to T2 (5 stat-distribution assertions, need season-length aggregates). qa-lead subagent shipped the file; main-thread fix-pass closed 2 P2 self-review findings (dead-code `sq_sum` guard → `debug_assert!` + bare sqrt; doc-comment "Eight" → "Seven" PlayerSeparation invariants off-by-one). 9th clean silent-failure-hunter verdict in a row. Canonical hashes UNCHANGED on both pins. **T1 phase status: 10 of 11 numbered rows DONE — the phase is COMPLETE; run `/done` to verify the acceptance gate + print the `gh pr create` command for Codex Tier-3 phase-boundary review per ADR-0015.**
+**T1 — First Match. IN PROGRESS (one blocker: T1-15).** First `/done` attempt on T1 paused 2026-05-16: T1 exit-gate Bullet 1 ("Play Match produces a sensible text recap — 2-5 goals total across 600 ticks, no NaN-tier weirdness") fails empirically. Diagnostic over 5 sampled smoke seeds = 0 goals every run; ball moves in 592/601 frames + 377 distinct positions but stays in [-1.72, 1.14]m Y × [0, 2.64]m X (centre-circle midfielders cycle possession indefinitely; build-up never reaches the attacking third → 0 shots → 0 goals). Real passes ARE firing (T1-3.5 ball mutation + T1-3.6 BT carrier routing land end-to-end) but the offensive progression model is too conservative. All OTHER T1 exit-gate bullets PASS (5 behavioral proptests, replay corpus ≥2 fixtures pin cross-OS, cargo test + clippy + fmt clean, no `unwrap()` in sim non-test code, commentary renders with minute markers). User picked: **add T1-15 to investigate + fix → reach 2-5 goals before `/done`**. T1-15 row added to MASTER_PLAN with hypothesis catalog + acceptance criteria + canonical-hash rebaseline authorization per ADR-0012 trigger #3 (sim behavior change). After T1-15 ships, re-run `/done`.
 
 ## Active task
 
-(none — T1-9 closed; T1 phase complete.)
+(none — T1-15 is the next `/next` target; T1 phase remains IN-PROGRESS until Bullet 1 passes.)
 
 ## Phase pointer
 
-- **Just closed:** **T1-9** — Behavioral assertions per ADR-0007 §Layer 3. 1 new file (`crates/fw-match-sim/tests/behavior_proptest.rs`, ~474 LoC), 4 new proptest invariants, doc-comment catalog header. Self-review: all 3 ACCEPT (2 P2 FIXED in-place); 9th clean silent-failure verdict in a row.
-- **Next:** **`/done`** — close the T1 phase. The skill at `.claude/skills/done/SKILL.md` will: (1) re-run `scripts/fw verify` end-to-end, (2) verify T1's acceptance gate (90-min match completes + replay round-trip byte-identical + proptest invariants hold over 10k matches), (3) append a phase-summary block to CHANGELOG.md, (4) rewrite STATUS.md to point at the T2 phase, (5) print the `gh pr create` command for Codex Tier-3 review per ADR-0015. After Codex review + merge → T2 phase begins.
-- **T1 deliverables shipped this phase**: 16 numbered rows + audit-triage sub-rows + Codex fix-pass = end-to-end match-engine vertical (sim crates fw-core / fw-match-sim / fw-content / fw-replay all wired; Tauri IPC + frontend Match page + 2D dev tactical board; 600-tick smoke seed runs to completion with real ball motion + signature dispatcher firings + MatchEvent emission + Tracery commentary; canonical-hash determinism gate green on 2 corpus pins; behavioral proptest invariants land; 8 numbered self-review verdicts clean in a row; Codex pre-T0 + T1-2b mid-phase + post-T1-7 adversarial audits all closed).
+- **Just attempted:** **`/done` on T1** — paused at Step 3 (acceptance-gate verification) when Bullet 1's 2-5-goals envelope was not met across 5 sampled seeds. No git tag created, no PR opened. Other gate bullets all passed.
+- **Next:** **T1-15** — investigate + fix offensive build-up; reach 2-5 goals in smoke seed `0xfeedbeefcafefade`. Hypotheses catalogued in the MASTER_PLAN row (4 candidates: `nearest_teammate_near` recursive central loop / off-ball forwards don't drift upfield / shot-attempt utility gates on distance-to-goal / dominant possession slot wrongly bound to deep-lying playmaker subtree). Approach: instrumented dump_frames + commentary trace → identify root cause → MINIMAL fix (calibrate utility weights or fix the obvious bug; deeper tuning defers to T2-1 per its own scope). Canonical-hash REBASELINE authorized per ADR-0012 trigger #3 (sim behavior change with documented intent).
+- **After T1-15:** re-attempt `/done`. With Bullet 1 green, the gate passes; tag `v0.1.0-first-match`; open the Codex Tier-3 PR per ADR-0015.
 
 ## Blockers
 
-None.
+- **T1-15** — `/done` blocker; T1 exit gate Bullet 1 fails. See MASTER_PLAN T1-15 row.
 
 ## Last green verify
 
-2026-05-16 — `scripts/fw verify` clean post T1-9 + fix-pass: cargo fmt + clippy + cargo test --workspace --release (fw-match-sim went +4 new tests via behavior_proptest.rs) + pnpm test (56 frontend tests) + canonical-hash regression on BOTH pins (60-tick `ddccaf88…000b3` + 600-tick `66585ca8…4625`) + banned-terms + determinism-audit + fw-content-baker validate + cargo audit + cargo deny check.
+2026-05-16 — `scripts/fw verify` clean: cargo fmt + clippy + cargo test --workspace --release (8 fw-replay tests + 4 behavior_proptest invariants + all existing) + pnpm test (56 frontend tests) + canonical-hash regression on BOTH pins (60-tick `ddccaf88…000b3` + 600-tick `66585ca8…4625`) + banned-terms + determinism-audit + fw-content-baker validate + cargo audit + cargo deny check. The test/lint/canonical gates ARE green; T1-15 is a behavioral-envelope gate fail, not a regression.
 
 ## Last canonical hash
 
-`blake3:ddccaf88c94f328274d484ed1e14ced8638d1ccf63bb922ad64a4f28664000b3` (60-tick smoke seed; UNCHANGED since T1-3.6 rebaseline).
+`blake3:ddccaf88c94f328274d484ed1e14ced8638d1ccf63bb922ad64a4f28664000b3` (60-tick smoke seed; unchanged since T1-3.6 rebaseline).
 
-**Second corpus pin (T1-8):** `blake3:66585ca8af67a5445f32a31f7661089c1a2a608a6dad283f22ac50efc6a34625` (600-tick extended seed `0xfeedbeefcafefade` with content-loaded init). Both pins held across T1-8 + T1-9 — no canonical-state schema changes in either row.
+**Second corpus pin:** `blake3:66585ca8af67a5445f32a31f7661089c1a2a608a6dad283f22ac50efc6a34625` (600-tick extended seed `0xfeedbeefcafefade`).
+
+**Note:** both pins WILL rebaseline at T1-15 per ADR-0012 trigger #3 (BT/utility tuning to fix offensive build-up changes per-tick decision outputs → canonical state shifts).
