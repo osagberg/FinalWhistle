@@ -1,12 +1,18 @@
 /*
- * Wire types — MUST stay in sync with `src-tauri/src/commands.rs`.
+ * Wire types — MUST stay in sync with fw-tauri Rust DTOs.
  *
  * Naming convention: TypeScript uses camelCase; Rust uses snake_case but the
- * commands.rs structs carry `#[serde(rename_all = "camelCase")]` so the
- * boundary is camelCase on both sides. When fw-tauri begins exporting real
- * serde structs (T1-5+), these types should be regenerated from the Rust
- * surface (candidate tool: `specta` or `ts-rs` — decision deferred to T2-5).
+ * fw-tauri structs carry `#[serde(rename_all = "camelCase")]` so the boundary
+ * is camelCase on both sides.
+ *
+ * T1-5: LeagueStanding / Fixture / PlayerSummary deleted (were T0-2 stubs;
+ * the real types land at T2-6/T2-7 via fw-tauri season controller commands).
+ * MatchResult / Score / IpcError added to match fw-tauri::result + fw-tauri::error.
  */
+
+// ---------------------------------------------------------------------------
+// Liveness check — returned by get_dummy_state
+// ---------------------------------------------------------------------------
 
 export interface DummyState {
   appVersion: string;
@@ -14,6 +20,16 @@ export interface DummyState {
   backendReady: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Match types — returned by play_match
+// ---------------------------------------------------------------------------
+
+export interface Score {
+  home: number;
+  away: number;
+}
+
+/** Match event kinds the sim currently emits. Open enum — may grow. */
 export type MatchEventKind =
   | "Goal"
   | "Shot"
@@ -22,60 +38,59 @@ export type MatchEventKind =
   | "HalfTime"
   | "FullTime"
   | "Card"
-  | "Substitution";
+  | "Substitution"
+  | "SignatureFirstFired";
 
 export interface MatchEvent {
   tick: number;
   minute: number;
-  kind: MatchEventKind | string; // open enum at scaffold time
-  description: string;
+  kind: MatchEventKind | string; // open string for forward-compat
+  description?: string;
 }
 
+/**
+ * Full match result returned by `play_match`.
+ *
+ * `canonicalHash` is `"blake3:<64-hex-chars>"` — the BLAKE3 digest of
+ * `MatchState::encode_canonical()` after `tickCount` ticks. Use for
+ * pinned-corpus regression in QA.
+ *
+ * `commentaryPreview` is pre-rendered prose, one line per `matchEvents`
+ * entry, so the Match page shows a text recap without a second round-trip.
+ */
 export interface MatchResult {
-  matchId: string;
-  homeId: string;
-  awayId: string;
-  homeScore: number;
-  awayScore: number;
-  /** 32-byte hash, `0x`-prefixed hex string. Used for pinned-corpus regression. */
+  finalScore: Score;
   canonicalHash: string;
-  events: MatchEvent[];
+  matchEvents: MatchEvent[];
+  seedHex: string;
+  tickCount: number;
+  commentaryPreview: string[];
 }
 
-export interface LeagueStanding {
-  position: number;
-  clubId: string;
-  clubName: string;
-  played: number;
-  won: number;
-  drawn: number;
-  lost: number;
-  goalsFor: number;
-  goalsAgainst: number;
-  goalDifference: number;
-  points: number;
-}
+// ---------------------------------------------------------------------------
+// IpcError — discriminated union matching fw-tauri::IpcError serde shape.
+//
+// `#[serde(tag = "kind", rename_all = "camelCase")]` on the Rust side means:
+//   { kind: "tooManyFrames", requested: 7201, max: 7200 }
+//   { kind: "invalidSeed", input: "0xggg", reason: "..." }
+//   { kind: "matchInitFailed", reason: "..." }
+// ---------------------------------------------------------------------------
 
-export interface PlayerSummary {
-  playerId: string;
-  name: string;
-  age: number;
-  role: string;
-  /**
-   * Football-native labels (e.g. "late bloomer", "fragile", "early-crosser").
-   * NEVER raw gene numbers. See DESIGN_DOC.md §2 rule 7 + ui-vocabulary.md.
-   */
-  phenotypeLabels: string[];
-  contractEnd: string; // ISO date
-}
+export type IpcError =
+  | { kind: "tooManyFrames"; requested: number; max: number }
+  | { kind: "invalidSeed"; input: string; reason: string }
+  | { kind: "matchInitFailed"; reason: string };
 
-export interface Fixture {
-  fixtureId: string;
-  date: string; // ISO date
-  homeId: string;
-  awayId: string;
-  competition: string;
-}
+// ---------------------------------------------------------------------------
+// Frame-cap constant — mirrors `fw_tauri::MAX_FRAMES_PER_REQUEST`.
+//
+// Single source of truth is the Rust const. This TS mirror is validated by
+// the IPC contract test in `crates/fw-tauri/tests/ipc_contract_test.rs`.
+// Update both when the cap changes.
+// ---------------------------------------------------------------------------
+
+/** Maximum frames per `match_frames` request (= 2 min at 60 Hz). */
+export const MAX_FRAMES_PER_REQUEST = 7200 as const;
 
 // ---------------------------------------------------------------------------
 // T1-2a tactical board DTOs — mirrors fw-match-sim::dto (camelCase serde)

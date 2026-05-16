@@ -1462,6 +1462,7 @@ dependencies = [
 name = "fw-tauri"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "fw-content",
  "fw-core",
  "fw-match-sim",

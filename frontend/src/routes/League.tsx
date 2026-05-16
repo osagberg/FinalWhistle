@@ -1,11 +1,19 @@
 import { type ColumnDef } from "@tanstack/solid-table";
 import type { JSX } from "solid-js";
 import DataTable from "~/components/DataTable";
-import type { LeagueStanding } from "~/lib/types";
+
+// T2-6 stub: LeagueStanding type lives inline until the season controller
+// ships real standings data. Deleted from lib/types.ts at T1-5 alongside
+// the other T0-2 placeholder IPC stubs.
+interface LeagueStandingStub {
+  position: number;
+  clubName: string;
+  points: number;
+}
 
 // Three stub columns per the T0-2 spec. Real columns (P / W / D / L / GF / GA
-// / GD / Pts) land at T2-6 once `get_league_standings` returns real data.
-const columns: ColumnDef<LeagueStanding>[] = [
+// / GD / Pts) land at T2-6 once the season controller is wired.
+const columns: ColumnDef<LeagueStandingStub>[] = [
   {
     accessorKey: "position",
     header: "#",
@@ -21,7 +29,7 @@ const columns: ColumnDef<LeagueStanding>[] = [
 ];
 
 export default function League(): JSX.Element {
-  const data: LeagueStanding[] = [];
+  const data: LeagueStandingStub[] = [];
 
   return (
     <div class="space-y-4">

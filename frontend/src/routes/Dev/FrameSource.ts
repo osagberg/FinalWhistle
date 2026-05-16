@@ -24,6 +24,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { MatchFrameDTO } from "~/lib/types";
+import { MAX_FRAMES_PER_REQUEST } from "~/lib/types";
 
 export interface FrameSource {
   /** Return the complete frame sequence. The result may be cached by the caller. */
@@ -57,6 +58,15 @@ export class TauriFrameSource implements FrameSource {
   }
 
   async loadFrames(): Promise<MatchFrameDTO[]> {
+    // Pre-invoke cap check — avoids the IPC round-trip on a guaranteed failure.
+    // Single source of truth is `fw_tauri::MAX_FRAMES_PER_REQUEST` (Rust const);
+    // `MAX_FRAMES_PER_REQUEST` in lib/types.ts mirrors it with a doc-citation.
+    if (this.tickCount > MAX_FRAMES_PER_REQUEST) {
+      throw new FrameSourceConfigError(
+        `tickCount ${this.tickCount} exceeds MAX_FRAMES_PER_REQUEST (${MAX_FRAMES_PER_REQUEST}). ` +
+          `Reduce tickCount or increase the cap (requires a matching Rust change).`,
+      );
+    }
     return invoke<MatchFrameDTO[]>("match_frames", {
       seedHex: this.seedHex,
       tickCount: this.tickCount,

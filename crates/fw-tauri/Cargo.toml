@@ -30,6 +30,7 @@ fw-save      = { workspace = true }
 serde        = { workspace = true }
 serde_json   = { workspace = true }
 thiserror    = { workspace = true }
+blake3       = { workspace = true }
 log          = { workspace = true }
 # Tauri itself is dev-only at this stage; the command-handler proc-macro is
 # pulled in but no app is built. The shell binary in src-tauri/ depends on

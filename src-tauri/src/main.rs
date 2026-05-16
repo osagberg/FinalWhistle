@@ -1,9 +1,16 @@
 // Hide the console window in non-debug Windows builds. Tauri convention.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod commands;
+use std::path::Path;
 
 fn main() {
+    // Content path resolution: FW_CONTENT_PATH env var (used by integration
+    // tests that run from per-crate CWDs) or the default "content" relative
+    // to the app's working directory (`pnpm tauri dev` from project root).
+    let content_path = std::env::var("FW_CONTENT_PATH").unwrap_or_else(|_| "content".to_string());
+    let app_state = fw_tauri::AppState::new(Path::new(&content_path))
+        .expect("Failed to load ContentStore — check that content/ directory exists");
+
     // Forward Rust log output to the dev console via tauri-plugin-log. Cheap
     // DX win; disabled in release builds via plugin config.
     tauri::Builder::default()
@@ -12,30 +19,15 @@ fn main() {
                 .level(log::LevelFilter::Info)
                 .build(),
         )
-        // Wire the IPC command surface. Two paths here:
-        //   1. (preferred) `fw_tauri::generate_handler!()` — once the workspace
-        //      `fw-tauri` crate exports a `generate_handler!` macro that pulls
-        //      in every #[tauri::command] from the sim, content, memory layers,
-        //      this is the single line that wires the whole game to the UI.
-        //   2. (current) local placeholder commands in `commands::*`. These
-        //      return stub `MatchResult`s and `LeagueStanding`s shaped to match
-        //      what `fw-tauri` will return when T0-2 → T1-5 lands. The frontend
-        //      can develop against the placeholder types and require no changes
-        //      when the real backend lands.
-        //
-        // When fw-tauri lands its handler macro, replace the `.invoke_handler`
-        // call below with `fw_tauri::generate_handler()`.
+        // Inject AppState so all command handlers receive it via
+        // `tauri::State<'_, AppState>` without loading ContentStore per call.
+        .manage(app_state)
+        // Wire the IPC command surface. All commands live in fw-tauri::commands.
+        // src-tauri has ZERO local commands (T1-5 consolidation; Codex T0 Imp #10).
         .invoke_handler(tauri::generate_handler![
-            commands::get_dummy_state,
-            commands::play_match,
-            commands::get_league_standings,
-            commands::get_squad,
-            commands::list_fixtures,
-            // T1-2a: fw_tauri owns the real match_frames implementation (the
-            // src-tauri local commands.rs is placeholder-tier until T1-5
-            // consolidation per Codex Imp #10). match_frames feeds the
-            // dev-tier 2D tactical board via Tauri IPC.
+            fw_tauri::commands::play_match,
             fw_tauri::commands::match_frames,
+            fw_tauri::commands::get_dummy_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

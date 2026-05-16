@@ -11,24 +11,26 @@ export default function Match(): JSX.Element {
 
   // Deterministic seed for the placeholder. Real seed selection lands at T1-6.
   const PLACEHOLDER_SEED = 0xfeedbeefcafefaden;
+  // 90 simulated minutes at ~1 tick/6s real time = 900 ticks. Enough for a
+  // full match. Real tick-count configuration is T1-6 territory.
+  const PLACEHOLDER_TICKS = 900;
 
   const onPlay = async () => {
     setError(null);
     setBusy(true);
     try {
       if (!isTauri()) {
-        // Browser preview — fake a 0-0 result so the surface renders.
+        // Browser preview — fake a result so the surface renders.
         setResult({
-          matchId: "browser-preview",
-          homeId: "home",
-          awayId: "away",
-          homeScore: 0,
-          awayScore: 0,
-          canonicalHash: "0x" + "0".repeat(64),
-          events: [],
+          finalScore: { home: 0, away: 0 },
+          canonicalHash: "blake3:" + "0".repeat(64),
+          matchEvents: [],
+          seedHex: "0xfeedbeefcafefade",
+          tickCount: 0,
+          commentaryPreview: [],
         });
       } else {
-        setResult(await playMatch(PLACEHOLDER_SEED, "home", "away"));
+        setResult(await playMatch(PLACEHOLDER_SEED, PLACEHOLDER_TICKS));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -44,7 +46,7 @@ export default function Match(): JSX.Element {
           <div>
             <h1 class="font-display text-3xl text-pitch-600 dark:text-pitch-300">Match</h1>
             <p class="mt-1 text-sm text-ink-subtle dark:text-paper-subtle">
-              T0 placeholder — tactical board renders an empty pitch. Real sim lands at T1-5.
+              T1-5 IPC surface live. Press Play to run a full sim match.
             </p>
           </div>
           <button
@@ -67,32 +69,29 @@ export default function Match(): JSX.Element {
               when={result()}
               fallback={
                 <p class="text-sm text-ink-mute dark:text-paper-subtle">
-                  Press <span class="font-mono">Play match</span> to run the stub command.
+                  Press <span class="font-mono">Play match</span> to run the sim.
                 </p>
               }
             >
               {(r) => (
                 <div class="space-y-2 text-sm">
                   <p class="font-mono text-base">
-                    {r().homeScore} – {r().awayScore}
+                    {r().finalScore.home} – {r().finalScore.away}
                   </p>
                   <p class="text-xs text-ink-mute font-mono break-all">
                     {r().canonicalHash}
                   </p>
                   <ul class="space-y-1">
                     <For
-                      each={r().events}
+                      each={r().commentaryPreview}
                       fallback={
                         <li class="text-xs text-ink-mute italic">
-                          No events yet (placeholder result).
+                          No events recorded.
                         </li>
                       }
                     >
-                      {(ev) => (
-                        <li class="text-xs">
-                          <span class="font-mono mr-1">{ev.minute}'</span>
-                          {ev.description}
-                        </li>
+                      {(line) => (
+                        <li class="text-xs">{line}</li>
                       )}
                     </For>
                   </ul>

@@ -1,11 +1,19 @@
 import { type ColumnDef } from "@tanstack/solid-table";
 import type { JSX } from "solid-js";
 import DataTable from "~/components/DataTable";
-import type { PlayerSummary } from "~/lib/types";
+
+// T2-7 stub: PlayerSummary type lives inline until get_squad is wired.
+// Deleted from lib/types.ts at T1-5 alongside the other T0-2 placeholder
+// IPC stubs.
+interface PlayerSummaryStub {
+  name: string;
+  age: number;
+  role: string;
+}
 
 // Three stub columns per the T0-2 spec. Real columns + phenotype rendering
-// land at T2-7 once `get_squad` returns real data.
-const columns: ColumnDef<PlayerSummary>[] = [
+// land at T2-7 once the season controller wires up get_squad.
+const columns: ColumnDef<PlayerSummaryStub>[] = [
   {
     accessorKey: "name",
     header: "Player",
@@ -22,8 +30,8 @@ const columns: ColumnDef<PlayerSummary>[] = [
 
 export default function Squad(): JSX.Element {
   // Empty data at scaffold time. Switch to a Tauri resource when fw-tauri
-  // wires up get_squad.
-  const data: PlayerSummary[] = [];
+  // wires up get_squad at T2-7.
+  const data: PlayerSummaryStub[] = [];
 
   return (
     <div class="space-y-4">
