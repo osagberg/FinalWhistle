@@ -29,7 +29,23 @@ export interface Score {
   away: number;
 }
 
-/** Match event kinds the sim currently emits. Open enum — may grow. */
+/**
+ * Match event kinds the sim emits.
+ *
+ * T1-6 fix-pass per type-design P1 + silent-failure P3: this is a CLOSED
+ * discriminated union (no `| string` escape hatch). When the sim adds a new
+ * variant in `fw-content::event::MatchEvent`, this type must be updated in
+ * lockstep — at which point every exhaustive `switch (kind)` in the UI
+ * fails to compile, surfacing the drift loudly. The prior `| string` form
+ * widened the union to `string` and defeated exhaustiveness in
+ * `eventLabel` / `badgeClass` switches that returned the raw kind string
+ * silently for unknown variants.
+ *
+ * For forward-compat with sim variants the UI hasn't been updated for yet,
+ * add a `parseMatchEvent` boundary function that maps unknown strings to
+ * a sentinel `"Unknown"` variant — but only after a variant is actually
+ * added. Today the sim catalogue + UI catalogue are in lockstep.
+ */
 export type MatchEventKind =
   | "Goal"
   | "Shot"
@@ -44,7 +60,7 @@ export type MatchEventKind =
 export interface MatchEvent {
   tick: number;
   minute: number;
-  kind: MatchEventKind | string; // open string for forward-compat
+  kind: MatchEventKind;
   description?: string;
 }
 
