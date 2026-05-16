@@ -4,6 +4,79 @@ Append-only human-readable ship log. One line per shipped MASTER_PLAN task. Phas
 
 ---
 
+## Phase T1: First Match — CLOSED 2026-05-16
+
+Duration: 2026-05-13 16:22 → 2026-05-16 20:23 (~3 days, 4 hours wall-clock). 43 commits since T0 close at `27920de6`; 151 files changed; +135,488 / -677 LoC.
+
+### What shipped
+
+**Sim core (fw-match-sim + fw-core + fw-content)**
+- T1-1: PlayerTemplate + RoleAffinityTable RON schemas; 7 fixture seeds (3 archetypes + 2 cultures + 1 player template + 1 role-affinity table).
+- T1-2a: dev-tier PixiJS tactical board (browser-dev + Tauri-bound modes via `match_frames` IPC); URL-param-driven frame source.
+- T1-2b sub-phase (T1-2b-i through T1-2b-iv + T1-2b-fix): ball physics + tactic FSM + decision-cadence stagger + BT runner + per-role BT skeletons + utility math (5 primitives: xG logistic, xT grid, Spearman pitch-control, product-form pressing, top-N softmax) + PlayerAttributes 55-field baseline + 12 BT site bindings + personality bias + PlayerSeparation + visual playtest gate + signature dispatcher (3 signatures end-to-end + ADR-0011 stacking policy).
+- T1-3.5 / T1-3.6: ball mutation (Shot/Pass advances ball.vel; possession transfer; goal detection at goal-line) + BT carrier routing (carriers route to InPossession; previously unreachable on-ball BT branch is now production-live).
+- T1-4a / T1-4b: MatchEvent enum + 5 live emission paths + Tracery commentary renderer with 3-variants-per-event templates + deterministic variant pick via `SeedLayer::Commentary`.
+- T1-7: procedural content stub (2-gram char-level Markov player-name chain + 2-team team_name_bank + ManagerArchetype with personality traits Q32 fields).
+- T1-10: f64 LUT bake replaced with committed Q32 const tables; runtime f64-free per determinism gate.
+- T1-11: signatures wired into normal `tick_match` path via `sig_definitions` required parameter.
+- T1-12: content validation hardening (`ContentLoadError::DuplicateId` + serde post-parse `try_new` on ID newtypes + `DanglingReference` cross-ref validator).
+- T1-15 + T1-16 + T1-18: offensive build-up fix (utility_pass_short forward target + MAX_PLAYER_SPEED 5→8 m/s + nearest-2-chasers preempt + GK chase + ball physics friction tuning + shoot proximity multiplier with [0, 1] clamp) + behavior_proptest split-band + Codex Tier-2 audit-response chain. Canonical hashes REBASELINED twice during the phase via ADR-0012 trigger #1 + #3.
+
+**IPC + frontend (fw-tauri + frontend/)**
+- T1-5: `play_match` + `match_frames` Tauri commands + `MAX_FRAMES_PER_REQUEST` cap + `IpcError::TooManyFrames` + 9 IPC contract tests + frontend consolidation (deleted src-tauri local stubs).
+- T1-6: Match page with Play button + text recap rendering + structured event list + minute markers + dev-board toggle. Vitest substrate activated.
+- T1-13: frontend test scaffolding broadening (FrameSource + TacticalBoard tests + window.fwDev typed surface) + `pnpm test` wired into `just verify` + CI + `cargo audit` + `cargo deny` gates.
+
+**QA + corpus (fw-replay + tests)**
+- T1-8: replay corpus fixture #1 (`0xfeedbeefcafefade.ron` at 600 ticks content-loaded init); cross-OS pinned canonical hash.
+- T1-9: behavioral proptest invariants per ADR-0007 §Layer 3 (4 new positional regression-guards + delegated events_chronological from T1-4a + 7 PlayerSeparation invariants from T1-2b-iii-d).
+
+### Canonical-state hashes (REBASELINED 3 times this phase per ADR-0012)
+
+- 60-tick smoke `0xdeadbeefdeadbeef`: T0 pin `d6258107…d96b1a49` → T1-3.6 pin `ddccaf88…000b3` (trigger #1: BT carrier routing) → T1-15 pin `2f14a562…cb27` (trigger #3: offensive build-up retune) → **T1-16 final pin `fcccb840…a751`** (trigger #3: shoot utility clamp + `GOAL_LINE_X` alignment).
+- 600-tick extended `0xfeedbeefcafefade`: T1-8 pin `66585ca8…4625` → T1-15 pin `268984…e95ae` → **T1-16 final pin `9353bd25…47eb`**.
+
+### Tests added (rough counts)
+
+- ~360 workspace tests (was ~80 at T0 close)
+- 56 frontend Vitest tests (was 0 at T0 close)
+- 7 PlayerSeparation invariants (T1-2b-iii-d)
+- 4 ball mutation proptests (T1-3.5)
+- 4 behavioral proptests (T1-9: GK home/away/team width/sustained sprint)
+- 2 corpus pins (60-tick + 600-tick)
+- 1 canonical-encoder unique-attribute test (1485-pair brute-force swap)
+- 9 IPC contract tests (T1-5)
+- All green on macos-14 dev box; CI matrix `[macos-14, windows-latest, ubuntu-22.04]` per T0-7b auto-gates.
+
+### Audit history this phase
+
+- **Codex Tier-2 mid-phase audit (2026-05-15)** on T1-2b sub-phase: 8 P1 + 6 P2 findings closed in T1-2b-fix.
+- **Codex post-T1-7 adversarial multi-agent audit (2026-05-16, HEAD `575917bc`)** triggered T1-3.6: BT carrier-routing P0 + 4 P1s (`MatchFrameDto.possession` field; frontend runtime shape guards; canonical-unique-attr test; stale-doc cleanup). All closed.
+- **Codex Tier-2 pre-/done audit (2026-05-16, range `575917bc..e79ac115`)**: REVISE verdict — T1-16 + T1-18 must close before /done; T1-17 OK to defer; workflow improvements for /next before T2. T1-16 + T1-18 closed at `ea9dc436` (Codex took over after Claude API 500-burst). T1-17 deferred per Codex + user.
+- **Self-review triple verdicts**: 9 clean silent-failure-hunter verdicts in a row (T1-11 through T1-9), streak broken by T1-15 subagent scope-creep (3 P1 + 5 P2/MEDIUM surfaced post-hoc; all addressed in T1-16/T1-18 or deferred to T1-17).
+
+### Deferred follow-ups (NOT /done blockers per user + Codex Tier-2 decisions)
+
+- **T1-17**: friction-test discrimination rewrite at 60-tick integration horizon + new `ball_never_exits_pitch_bounds_in_600_ticks` proptest. Test-quality debt; no canonical hash drift.
+- **T2-1 cross-band oscillation invariant** (T1-18 self-review MEDIUM): catches GK↔outfield oscillation regression class the split-band can't see directly.
+- **Workflow improvements** (Codex Tier-2): forbidden-file lists + no-autonomous-commit rule + hash-drift-requires-main-thread-review gate → feed into `/next` skill before T2 starts.
+- **T4-9** (Stretch): enhanced 2D tactical/replay viewer ("Unity-equivalent but built for Claude-friendly iteration"); deps T3-3 + T4-1 + T4-5; may stay dev-only forever per Stretch class.
+
+### T1 exit-gate (8 bullets, all PASS at /done)
+
+| # | Bullet | Result |
+|---|---|---|
+| 1 | Play Match recap (2-5 goals, no NaN) | PASS — smoke seed `0xfeedbeefcafefade` = 2-2 / 4 goals; 0 NaN frames |
+| 2 | 2D tactical board renders football-shape | TECH-WIRED — T1-2a board + T1-3.5/3.6 ball motion + T1-2b BT runner; visual gate user-judged |
+| 3 | 5 behavioral proptests hold over 100 random seeds | PASS — 4 in `behavior_proptest.rs` + delegated `events_chronological` in `match_event_proptest.rs` |
+| 4 | Diagnostic commentary surfaces position + decision | PASS — T1-4b Tracery + T1-6 Match page renders with minute markers |
+| 5 | Replay corpus ≥ 2 fixtures, both pin cross-OS | PASS — 60-tick + 600-tick pins; T0-7b CI matrix auto-gates |
+| 6 | `cargo test --workspace` green; clippy + fmt clean | PASS — `scripts/fw verify` exit 0 |
+| 7 | Zero `unwrap()` in `fw-match-sim/src/` non-test code | PASS — all 33 hits inside `#[cfg(test)] mod tests` |
+| 8 | Vertical-slice tag `v0.1.0-first-match` | LANDING (created during /done Step 7) |
+
+---
+
 ## Phase T1: First Match — IN PROGRESS
 
 - 2026-05-16 — **T1-16 shoot utility softmax-domain fix + `GOAL_LINE_X` alignment (Codex Tier-2 pre-/done audit P1 fix).** Main-thread takeover after Claude API failures. `utility_shoot` now uses `fw_core::GOAL_LINE_X` for proximity zones instead of stale ±45m, clamps the shoot score back into `[0, 1]` after proximity + personality bias before normal softmax, and adds a near-goal 4×-branch regression test using max attributes. `goalkeeper_fsm` transition constants now use `GOAL_LINE_X`; transition fixtures were updated to the 52.5m goal-line geometry while formation-position targets stay at their tactical table positions. Canonical hashes intentionally rebaselined per ADR-0012 trigger #3: 60-tick `2f14a562…cb27` → `fcccb840…a751`; 600-tick `268984…e95ae` → `9353bd25…47eb`. Smoke seed `0xfeedbeefcafefade` still finishes 2-2 after 600 ticks, so T1 exit-gate Bullet 1 remains met. T1-17 friction-test discrimination remains deferred per Codex.
