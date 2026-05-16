@@ -108,10 +108,12 @@ export default function TacticalBoard(): JSX.Element {
   const layout = pitchLayout(CANVAS_W, CANVAS_H);
 
   // Expose debug surface in dev builds so Claude Preview can scrub frames
-  // without using the range input.
+  // without using the range input. Shape declared in `~/lib/fw-dev.d.ts`
+  // (FwDevApi) so producer + test + console consumer share one type
+  // (T1-13 type-design audit P2 — was duplicated as inline casts).
   function exposeFwDev() {
     if (import.meta.env.DEV) {
-      (window as { fwDev?: unknown }).fwDev = {
+      window.fwDev = {
         scrubTo: (n: number) =>
           setCurrentTick(Math.max(0, Math.min(n, frames().length - 1))),
         currentTick: () => currentTick(),

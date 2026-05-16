@@ -17,7 +17,11 @@ members = [
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
-license = "Proprietary"
+# T1-13: SPDX-compliant form (`LicenseRef-<id>` per SPDX 2.x spec) so
+# cargo-deny's license gate can parse it; was bare "Proprietary" which is
+# not a valid SPDX expression. Semantics unchanged — closed-source
+# one-time-purchase game per docs/DESIGN_DOC.md §1.
+license = "LicenseRef-Proprietary"
 authors = ["Vibelogic <osagberg@proton.me>"]
 repository = "https://github.com/osagberg/FinalWhistle"
 

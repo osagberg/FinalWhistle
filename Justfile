@@ -27,6 +27,14 @@ dev:
 test:
     cargo test --workspace --release
 
+# T1-13: Frontend Vitest suite. Runs the Vitest substrate activated at T1-6
+# + broadened at T1-13 (FrameSource + TacticalBoard lifecycle + window.fwDev).
+# Wired into `ci-local` (and therefore `scripts/fw verify`) so a frontend
+# test regression blocks the pre-commit gate. Runtime budget: <10s on dev box
+# (currently ~800ms for 34 tests across 3 files).
+frontend-test:
+    cd frontend && pnpm test
+
 # Library-only fast iteration (skips integration tests + tauri build).
 test-fast:
     cargo test --workspace --lib
@@ -76,7 +84,30 @@ bundle:
 # Reproduces the per-PR CI matrix as closely as `just` can on a single
 # host. Use before pushing to `main` direct-commit per CLAUDE.md §4.5.
 # This is what `/next` step 6 (verify) invokes via `scripts/fw verify`.
-ci-local: lint test banned-terms test-determinism determinism-audit verify-content
+#
+# T1-13: extended with `frontend-test` (Vitest), `audit` (cargo-audit
+# vulnerability scan), `deny` (cargo-deny license + advisory check). The
+# audit/deny gates run on the workspace root; both tools must be
+# `cargo install`-ed locally (see `cargo install cargo-audit cargo-deny`).
+ci-local: lint test frontend-test banned-terms test-determinism determinism-audit verify-content audit deny
+
+# T1-13: RustSec vulnerability scan via cargo-audit. Fails on any active
+# advisory; baseline (T1-13 commit time) is zero vulnerabilities + 19
+# transitive unmaintained warnings from Tauri's GTK3 stack on Linux.
+#
+# Tool install (one-time): `cargo install cargo-audit`. CI does this in
+# the dedicated cargo-audit job per ci.yml.
+audit:
+    cargo audit
+
+# T1-13: cargo-deny multi-gate (advisories + licenses + bans + sources)
+# per `deny.toml` at repo root. License allowlist is permissive +
+# LGPL-compatible; advisories deny vulnerabilities + warn on unmaintained
+# (the bincode `RUSTSEC-2025-0141` ignore is documented inline in deny.toml).
+#
+# Tool install (one-time): `cargo install cargo-deny`.
+deny:
+    cargo deny check
 
 # ----------------------------------------------------------------
 # Banned-terms lint (football-native vocabulary)

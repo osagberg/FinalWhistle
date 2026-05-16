@@ -1,0 +1,97 @@
+# cargo-deny configuration — Final Whistle workspace (T1-13)
+#
+# T1-13 (Codex 2026-05-16 audit P1 closure — 5th + final audit-triage P1):
+# wires `cargo deny` into `just verify` + CI as a security/licensing gate.
+# Baseline at T1-13 commit time: zero vulnerabilities, zero license
+# violations against the allowlist below; the 19 unmaintained-crate
+# warnings flagged by `cargo audit` are transitive GTK3 dependencies of
+# Tauri 2 on Linux (atk, gtk, gdk, etc.) — upstream Tauri owns the fix.
+#
+# Policy intent:
+#   - DENY new vulnerabilities outright (CI fails)
+#   - WARN on unmaintained / deprecated / no-replacement crates (CI passes
+#     but dev sees the message); revisit periodically as the dep set
+#     evolves
+#   - Restrict licenses to permissive + LGPL (no GPL viral; explicit
+#     allowlist beats deny-by-default for clarity)
+#   - No `bans` rules at T1-13 — defer to T2+ when the dep set needs
+#     tightening (today the workspace is small + every dep is intentional)
+#
+# Regeneration / policy update: edit this file in source then run
+# `just deny` locally to confirm green; if a new license appears that
+# isn't in the allowlist, evaluate it deliberately rather than blanket-
+# allowing.
+
+[advisories]
+# Block on RUSTSEC vulnerability advisories. Unmaintained warnings stay
+# as warnings — the 19 baseline `cargo audit` warnings are all transitive
+# GTK3 deps Tauri 2 owns (atk, gtk, gdk, etc.). Upgrading them requires
+# Tauri upstream to migrate to GTK4; out of scope for this row.
+version = 2
+unmaintained = "workspace"
+ignore = [
+    # bincode (1.x dev-dep for Q32 serde round-trip tests in fw-core;
+    # 2.x workspace dep planned for fw-save). Per RUSTSEC-2025-0141 the
+    # bincode team has permanently ceased development after a harassment
+    # incident; v1.3.3 is considered "complete." Treating as
+    # acceptable-risk for T1 — migration to `postcard` / `bitcode` /
+    # `rkyv` is a substantive refactor scoped to a dedicated T2 row
+    # (save-format choice is canonical-state-shaped + needs care). The
+    # informational advisory itself confirms there's no security issue,
+    # just no future updates.
+    "RUSTSEC-2025-0141",
+]
+
+[licenses]
+# Permissive + LGPL allowlist. Reject everything else (GPL viral, AGPL,
+# proprietary unspecified) so a dep change that pulls in a viral license
+# fails CI loudly. SPDX identifiers per https://spdx.org/licenses/.
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "0BSD",
+    # Workspace member crates use `LicenseRef-Proprietary` (SPDX 2.x form
+    # for unregistered licenses; semantically closed-source). cargo-deny's
+    # `private.ignore = true` requires `publish = false` per workspace
+    # crate, which isn't set today; allowlisting the license string is
+    # the lower-friction equivalent.
+    "LicenseRef-Proprietary",
+]
+# Confidence threshold for license-text matching. Default 0.8; 0.93 is
+# common in security-conscious projects. Lower means more "fuzzy" matches
+# pass; higher means a crate with an oddly-formatted LICENSE file fails
+# even though it's a real MIT.
+confidence-threshold = 0.93
+
+# Workspace member crates declare `license = "Proprietary"` (non-SPDX,
+# private one-time-purchase game). Exempt them from license checking;
+# only THIRD-PARTY deps get the allowlist gate.
+private = { ignore = true }
+
+[bans]
+# T1-13 ships with no banned crates. T2+ candidates: explicit ban on any
+# crate using `sys-time` or `chrono` in sim crates (the determinism-audit
+# script catches Instant::now / SystemTime::now but a transitive
+# dependency could re-introduce them); ban on `rayon` in sim crates
+# (parallelism breaks deterministic iteration order).
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+# Only allow registry deps from crates.io. Git deps require explicit
+# allowlisting if a future workspace member needs one (none today).
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

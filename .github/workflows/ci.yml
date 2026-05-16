@@ -157,6 +157,15 @@ jobs:
         working-directory: frontend
         run: pnpm lint
 
+      # T1-13: Frontend Vitest suite. The Vitest substrate was activated at
+      # T1-6 (1 test file); T1-13 broadened to 3 files (Match + FrameSource
+      # + TacticalBoard lifecycle) covering the audit P1 acceptance. Runtime
+      # budget ~1s on macOS dev box; matrix legs should comfortably stay
+      # under 30s.
+      - name: pnpm test
+        working-directory: frontend
+        run: pnpm test
+
       - name: pnpm build
         working-directory: frontend
         run: pnpm build
@@ -175,3 +184,65 @@ jobs:
             frontend/dist/
           if-no-files-found: ignore
           retention-days: 7
+
+  # ------------------------------------------------------------------
+  # Job 2 (T1-13): cargo-audit security scan.
+  # Runs in parallel with build-test on ubuntu-latest only. Blocks CI
+  # on any new RUSTSEC vulnerability advisory. Baseline at T1-13 commit
+  # time: 19 transitive unmaintained warnings from Tauri's GTK3 stack
+  # (acceptable risk — upstream Tauri owns the fix); zero vulnerabilities.
+  # ------------------------------------------------------------------
+  cargo-audit:
+    name: cargo audit (RUSTSEC vulnerabilities)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo-audit
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-cargo-audit
+          cache-bin: false
+
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+
+      - name: cargo audit
+        run: cargo audit
+
+  # ------------------------------------------------------------------
+  # Job 3 (T1-13): cargo-deny license + advisory + bans gate.
+  # Per deny.toml at repo root. Permissive + LGPL-compatible license
+  # allowlist; advisories deny vulnerabilities + warn on unmaintained
+  # (bincode RUSTSEC-2025-0141 explicitly ignored — documented inline
+  # in deny.toml). Blocks CI on new viral-license deps or new vulns.
+  # ------------------------------------------------------------------
+  cargo-deny:
+    name: cargo deny (licenses + advisories + bans)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo-deny
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-cargo-deny
+          cache-bin: false
+
+      - name: Install cargo-deny
+        run: cargo install --locked cargo-deny
+
+      - name: cargo deny check
+        run: cargo deny check
