@@ -132,8 +132,14 @@ EXEMPTION_RE = re.compile(
 # Scope is ACTIVE shipped content: root project docs, active design docs,
 # Rust crates, SolidJS frontend, content RON files, baker prompts.
 # Excludes: .claude/ dev scaffolding, node_modules, target/ (cargo output),
-# docs/archive/ (Unity-era historical), content/baked/ (generated; lint runs
-# pre-bake on prompts AND post-bake on fragments via the baker).
+# docs/archive/ (Unity-era historical).
+#
+# T1-20 (post-T1-close ultimate-review Track E #3): `/content/baked/` is NO
+# LONGER excluded. The prior assumption ("baker lints separately") doesn't hold
+# while `fw-content-baker`'s semantic validators (`check_banned_terms` /
+# `check_licensed_data` / `check_cliche`) return `NotImplemented` per T1-12
+# hardening. Until those land at T2-3, this lint must scan baked output as the
+# safety net.
 EXCLUDE_DIR_FRAGMENTS = (
     "/.git/",
     "/.claude/",                  # all Claude infra
@@ -142,10 +148,41 @@ EXCLUDE_DIR_FRAGMENTS = (
     "/dist/",                     # frontend build output
     "/.cargo-cache/",
     "/docs/archive/",             # Unity-era historical docs (kept for ref)
-    "/content/baked/",            # generated artifacts (baker lints separately)
 )
 
 LINT_EXTENSIONS = {".md", ".rs", ".ts", ".tsx", ".jsx", ".json", ".ron", ".sh", ".py", ".yml", ".yaml", ".toml"}
+
+# Path prefixes (relative to the lint root) under which `ui-lint:ignore-start`/
+# `-end` sentinel blocks are RESPECTED. Any file outside this allowlist still
+# gets the full Category-A/B scan, even when the file contains sentinel markers.
+#
+# T1-20 (post-T1-close ultimate-review Track E #4): security hardening. The
+# linter strips sentinel blocks BEFORE matching, which means an attacker could
+# hide Category-A banned terms inside JSON/RON comments or strings by wrapping
+# them in sentinel markers (e.g. inside `content/baked/x.ron` a comment line
+# `// ui-lint:ignore-start reason="hide attack" --> Manchester United Football
+# Club <!-- ui-lint:ignore-end`). Sentinels are now ONLY honored under docs +
+# Rust source paths where the meta-reference use-case (banned-term catalogs in
+# `docs/design/ui-vocabulary.md`, hidden-string Rust lint catalogs in
+# `scripts/lint-banned-terms.py` itself) is legitimate.
+#
+# Outside the allowlist sentinels do NOTHING — they still appear as plain text
+# in the file but the scanner treats those sections like any other content.
+#
+# **Matching is anchored at the relative-path PREFIX, not substring** — silent-
+# failure-hunter T1-20 P1 finding. Substring matching against absolute paths
+# made e.g. `frontend/src/docs/legacy/x.ts` look like a `/docs/` allowlisted
+# path (because `/docs/` appeared deep in the resolved absolute path),
+# re-opening the exact escape this rule is designed to close.
+SENTINEL_RESPECTED_PATH_PREFIXES = (
+    "docs/",
+    "crates/",
+    "scripts/",
+    # Files at project root with `.md` extension (CLAUDE.md, STATUS.md,
+    # CHANGELOG.md, MEMORY.md, README.md, REFERENCES.md) are also docs and
+    # respect sentinels. Handled in `sentinel_scope_allows` via parent-root
+    # check rather than path prefix since they have no `docs/` prefix.
+)
 
 
 @dataclass
@@ -190,8 +227,57 @@ def should_lint(path: Path) -> bool:
     return not any(frag in path_str for frag in EXCLUDE_DIR_FRAGMENTS)
 
 
-def strip_sentinel_blocks(lines: list[str]) -> list[tuple[int, str]]:
-    """Return (original_line_num, line_text) for lines OUTSIDE sentinel blocks."""
+def sentinel_scope_allows(path: Path, root: Path) -> bool:
+    """Return True iff `ui-lint:ignore-start`/`-end` sentinels are honored for `path`.
+
+    T1-20 (post-T1-close ultimate-review Track E #4): sentinel blocks are
+    legitimately used inside docs (banned-term catalogs / meta-references) and
+    inside Rust + Python source (the linter itself + reference catalogs). They
+    are NOT legitimate inside shipped content (content/sources/**, content/baked/**)
+    or shipped frontend code (frontend/src/**); allowing them there would let
+    an attacker hide Category-A terms behind sentinel-bracketed RON/JSON comments.
+
+    Allowlist:
+      - Files whose ROOT-relative path starts with `docs/`, `crates/`, or `scripts/`
+        (per SENTINEL_RESPECTED_PATH_PREFIXES).
+      - Project-root `.md` files (CLAUDE.md / STATUS.md / CHANGELOG.md / MEMORY.md
+        / README.md / REFERENCES.md / etc.) — these have no `docs/` prefix but
+        are semantically docs.
+
+    Outside the allowlist, sentinels are ignored: the file is scanned in full.
+
+    **Anchored at relative-path prefix, not substring** (T1-20 silent-failure
+    P1 fix): a path like `frontend/src/docs/legacy/x.ts` is NOT inside the
+    allowlist even though `docs/` appears mid-path. Only true top-level
+    `docs/...` (relative to the lint root) qualifies. Same for `crates/` +
+    `scripts/`. This closes the escape path the prior substring-match design
+    accidentally re-opened.
+    """
+    try:
+        rel = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        # Path outside the lint root — default to no-sentinel-honor for safety.
+        return False
+    rel_posix = rel.as_posix()
+    if any(rel_posix.startswith(prefix) for prefix in SENTINEL_RESPECTED_PATH_PREFIXES):
+        return True
+    # Project-root .md files (CLAUDE.md / STATUS.md / etc.) count as docs.
+    # The relative path has no `/` (top-level) and the extension is `.md`.
+    if path.suffix == ".md" and "/" not in rel_posix:
+        return True
+    return False
+
+
+def strip_sentinel_blocks(lines: list[str], *, honor_sentinels: bool = True) -> list[tuple[int, str]]:
+    """Return (original_line_num, line_text) for lines OUTSIDE sentinel blocks.
+
+    When `honor_sentinels=False`, sentinel markers are treated as plain text and
+    every line passes through. The T1-20 sentinel-scope restriction (see
+    `sentinel_scope_allows`) drives this flag: outside the docs/Rust allowlist,
+    sentinels are ignored so attackers can't hide banned terms inside them.
+    """
+    if not honor_sentinels:
+        return [(idx, line) for idx, line in enumerate(lines, start=1)]
     result = []
     in_block = False
     for idx, line in enumerate(lines, start=1):
@@ -206,13 +292,14 @@ def strip_sentinel_blocks(lines: list[str]) -> list[tuple[int, str]]:
     return result
 
 
-def lint_file(path: Path, report: Report) -> None:
+def lint_file(path: Path, report: Report, root: Path) -> None:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return
     lines = text.splitlines()
-    active_lines = strip_sentinel_blocks(lines)
+    honor_sentinels = sentinel_scope_allows(path, root)
+    active_lines = strip_sentinel_blocks(lines, honor_sentinels=honor_sentinels)
 
     for line_num, line in active_lines:
         for pattern, label in CATEGORY_A_PATTERNS:
@@ -293,7 +380,7 @@ def main() -> int:
 
     report = Report()
     for f in walk(root, targets):
-        lint_file(f, report)
+        lint_file(f, report, root)
 
     if args.report:
         data = [

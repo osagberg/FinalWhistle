@@ -119,6 +119,15 @@ jobs:
       - name: banned-terms lint
         run: python3 scripts/lint-banned-terms.py content/ docs/design/ frontend/src/
 
+      # T1-20: regression tests for the lint script — sentinel-scope
+      # restriction (must be ignored under content/sources/**, content/baked/**,
+      # frontend/src/**, including nested-`docs/`/`scripts/` substrings), and
+      # `/content/baked/` coverage (must be scanned, no longer excluded). Adds
+      # ~1s of wall-clock; runs on all 3 OSes so cross-OS path-resolution
+      # quirks surface here rather than at content-bake time.
+      - name: banned-terms lint test suite
+        run: python3 scripts/test-lint-banned-terms.py T1_20_LintCoverage T1_20_SentinelScopeRestriction
+
       - name: determinism-audit
         run: python3 scripts/determinism-audit.py
 
@@ -133,8 +142,11 @@ jobs:
       # RON walk; release-mode compile of fw-content-baker pushed
       # ubuntu-22.04 over the 20m timeout (run 25810479477). Debug build
       # is plenty fast for a content-load + validation pass.
-      - name: content-pack validation
-        run: cargo run -p fw-content-baker -- validate
+      - name: content-pack validation (structural only)
+        # T1-20: renamed `validate` → `validate-structural` so the CLI surface
+        # stops promising "all validators passed" when only structural validators
+        # actually run. `validate-semantic` + `validate-content-pack` land at T2-3.
+        run: cargo run -p fw-content-baker -- validate-structural
 
       # The determinism gate fires here. Release mode per spec §11: debug
       # integer-overflow checks can mask hash-affecting bugs by panicking

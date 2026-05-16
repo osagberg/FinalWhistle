@@ -597,13 +597,21 @@ impl ContentStore {
             }
         }
 
-        // Player templates
+        // Player templates.
+        //
+        // T1-20: track player-fixture paths separately (mirroring the managers
+        // loader's `manager_paths` at line 662) so the post-load cross-reference
+        // validator below can surface the RON file path in the DanglingReference
+        // error when a `signature_candidates[i].signature_id` fails to resolve
+        // in `store.signature_definitions`.
+        let mut player_paths: BTreeMap<String, PathBuf> = BTreeMap::new();
         let players_dir = sources_dir.join("players");
         if players_dir.is_dir() {
             let mut seen: BTreeMap<String, PathBuf> = BTreeMap::new();
             for entry in walk_ron_files(&players_dir)? {
                 let parsed: crate::PlayerTemplate = parse_ron_file(&entry)?;
                 let id = parsed.qualified_id.clone();
+                player_paths.insert(id.clone(), entry.clone());
                 insert_unique(
                     &mut store.player_templates,
                     &mut seen,
@@ -701,6 +709,35 @@ impl ContentStore {
                     to_kind: "tactical_archetype",
                     to_id: manager.tactical_archetype_id.clone(),
                 });
+            }
+        }
+
+        // Cross-reference validation (T1-20 per post-T1-close ultimate-review
+        // Track E #3): every `PlayerTemplate.signature_candidates[i].signature_id`
+        // MUST resolve in `store.signature_definitions`. Surfaces dangling refs
+        // at load time so a typo or deleted signature in a content pack fails
+        // loudly with the offending player-fixture path, NOT silently as a
+        // sim-time "signature never fires" mystery during a 90-min match.
+        //
+        // Mirrors the manager → tactical_archetype check above; uses the same
+        // `DanglingReference` variant. Iterates BTreeMap-deterministic so the
+        // FIRST detected violation is reported deterministically across runs.
+        for (player_id, template) in &store.player_templates {
+            for candidate in &template.signature_candidates {
+                let sig_id_str = candidate.signature_id.as_str();
+                if !store.signature_definitions.contains_key(sig_id_str) {
+                    let from_path = player_paths
+                        .get(player_id)
+                        .cloned()
+                        .unwrap_or_else(|| PathBuf::from("<unknown path>"));
+                    return Err(ContentLoadError::DanglingReference {
+                        from_kind: "player_template",
+                        from_id: player_id.clone(),
+                        from_path,
+                        to_kind: "signature_definition",
+                        to_id: sig_id_str.to_owned(),
+                    });
+                }
             }
         }
 

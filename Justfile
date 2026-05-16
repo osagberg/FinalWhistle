@@ -118,6 +118,10 @@ deny:
 # exemption via `// ui-lint:allow term="..." reason="..." reviewer="..."`.
 banned-terms:
     python3 scripts/lint-banned-terms.py content/ docs/design/ frontend/src/
+    # T1-20: regression test that the lint detects banned terms under
+    # content/baked/ (post-exclusion-drop) + ignores sentinel blocks outside
+    # the docs/Rust scope (post-sentinel-scope-restriction).
+    python3 scripts/test-lint-banned-terms.py
 
 # ----------------------------------------------------------------
 # Content-pack validation (FW-VAL)
@@ -131,15 +135,23 @@ banned-terms:
 #   Two bugs there: (a) `validate-content` isn't a valid subcommand (the
 #   CLI's command is `validate`); (b) `|| echo` masked any failure, so the
 #   recipe silently passed.
-# - Now: invokes the real `validate` subcommand. Exits non-zero on any
-#   validation error (fail-closed). No silent skip.
+# - Now: invokes the real `validate-structural` subcommand. Exits non-zero on
+#   any validation error (fail-closed). No silent skip.
 #
-# Runtime content validators (RoleAffinityTable + PlayerAttributes range)
-# are real as of Tranche 6. The bake-time validators (banned-terms shell-
-# out + licensed-data corpus + cliché detection) are still NOT
-# IMPLEMENTED — they land at T2-3 when their consumer (bake-names) lands.
+# T1-20 (post-T1-close ultimate-review Track E #1): the subcommand was renamed
+# `validate` → `validate-structural` so the CLI surface stops promising "all
+# validators passed" when only structural validators actually run.
+# `validate-semantic` + `validate-content-pack` land at T2-3 alongside the real
+# bake pipeline per Codex workflow improvement #4's 3-way split.
+#
+# Runtime content validators (RoleAffinityTable weight sums + PlayerAttributes
+# Q32 range + manager → tactical_archetype cross-ref + player_template →
+# signature_definition cross-ref) are real as of T1-20. The bake-time semantic
+# validators (banned-terms shell-out + licensed-data corpus + cliché detection)
+# are still NOT IMPLEMENTED — they land at T2-3 when their consumer (bake-names)
+# lands.
 verify-content:
-    cargo run -p fw-content-baker -- validate
+    cargo run -p fw-content-baker -- validate-structural
 
 # ----------------------------------------------------------------
 # Determinism audit (Codex pre-T0 audit follow-up)

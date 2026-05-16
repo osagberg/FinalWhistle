@@ -53,7 +53,7 @@ acceptance:
   - Pack-qualified IDs in form fwh.core:culture_<5digit>
   - Each culture has ≥40 first names, ≥30 surnames, ≥5 club-name fragments
   - scripts/fw banned-terms clean
-  - cargo run --bin fw-content-baker -- validate succeeds
+  - cargo run --bin fw-content-baker -- validate-structural succeeds
 files_in_scope:
   - content/sources/cultures/anglo-northern.ron
   - content/sources/cultures/anglo-isles.ron
@@ -68,7 +68,7 @@ estimated_LoC: ~600 lines of RON
 
 **Step 5** — Spawn narrative-director with spec + reference to `docs/design/ui-vocabulary.md`.
 
-**Step 6** — `scripts/fw verify` + `scripts/fw banned-terms` green. `cargo run --bin fw-content-baker -- validate` confirms schema + ID uniqueness.
+**Step 6** — `scripts/fw verify` + `scripts/fw banned-terms` green. `cargo run --bin fw-content-baker -- validate-structural` confirms schema + ID uniqueness + cross-references resolve (manager → tactical_archetype + player_template → signature_definition).
 
 **Step 7** — Not ≥100 LoC of code (RON is data, not code). Self-review optional; sample 5 names per culture for tone check.
 

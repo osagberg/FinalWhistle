@@ -52,7 +52,10 @@ Per `docs/specs/content-pack-validation-contract.md`:
 - Cross-references resolve (a player's `archetype_id` must exist in the archetype RON)
 - Tracery grammar well-formedness (parseable, no orphan rules)
 
-Run with `cargo run --bin fw-content-baker -- validate`.
+Run with `cargo run --bin fw-content-baker -- validate-structural` (the
+`validate` → `validate-structural` rename landed at T1-20 per Codex workflow
+improvement #4; `validate-semantic` + `validate-content-pack` ship at T2-3
+alongside the real bake pipeline).
 
 ## Cost-awareness
 

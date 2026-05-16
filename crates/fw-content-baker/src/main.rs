@@ -116,10 +116,22 @@ enum Command {
     /// model_id / prompt_hash / seed audit trail).
     Manifest,
 
-    /// Run the validators (banned-terms lint + JSON-schema check + cliché
-    /// detector) over the existing content/baked/** without re-baking.
-    /// Useful pre-commit.
-    Validate,
+    /// Run the **structural** validators over loaded content/sources/**
+    /// (role-affinity weight sums, player-template attribute Q32 ranges,
+    /// ability-ceiling bounds, manager → tactical_archetype cross-refs,
+    /// player → signature_definition cross-refs). Useful pre-commit.
+    ///
+    /// **NOT** a full content-pack validation — `banned_terms`,
+    /// `licensed_data`, and `cliche` validators return
+    /// `ValidationError::NotImplemented` per T1-12 hardening; they land at
+    /// MASTER_PLAN T2-3 alongside the real bake pipeline. The future
+    /// `validate-semantic` + `validate-content-pack` subcommands ship at T2-3
+    /// per Codex workflow improvement #4's 3-way honesty split.
+    ///
+    /// T1-20 (post-T1-close ultimate-review Track E #1): renamed from
+    /// `validate` so the CLI surface stops promising "all validators passed"
+    /// when only structural validators actually run.
+    ValidateStructural,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -191,23 +203,27 @@ fn main() -> anyhow::Result<()> {
             log::info!("manifest");
             stub_unimplemented("manifest", "T2-3")
         }
-        Command::Validate => {
-            log::info!("validate");
-            run_validate(&cli)
+        Command::ValidateStructural => {
+            log::info!("validate-structural");
+            run_validate_structural(&cli)
         }
     }
 }
 
-/// `validate` subcommand entry point.
+/// `validate-structural` subcommand entry point.
 ///
-/// Codex full-project audit P1 (2026-05-13): the prior stub returned
-/// `Ok(())` unconditionally; the Justfile recipe `verify-content` masked
-/// any failure with `|| echo`. Both issues fixed: this function actually
-/// runs every available validator and exits non-zero on failure.
+/// Renamed from `validate` at T1-20 (post-T1-close ultimate-review Track E #1
+/// and Codex workflow improvement #4) — the old name implied full content-pack
+/// validation while only structural checks actually run. The 3-way split lets
+/// the CLI surface stay honest about which validator class is in scope:
+/// `validate-structural` now; `validate-semantic` and `validate-content-pack`
+/// land at T2-3.
 ///
 /// What's implemented today (real, fail-closed):
 /// - Load every committed content fixture under `content/sources/*` via
-///   `fw_content::ContentStore::load_sources` (Codex Tranche 6 loader).
+///   `fw_content::ContentStore::load_sources` (Codex Tranche 6 loader). The
+///   loader itself enforces manager → tactical_archetype cross-refs (T1-7)
+///   and player_template → signature_definition cross-refs (T1-20).
 /// - For each loaded `RoleAffinityTable`, assert:
 ///   * `invalid_roles()` is empty (every role weights sum to 10_000)
 ///   * `unknown_attribute_keys()` is empty (every weight key resolves to
@@ -216,25 +232,24 @@ fn main() -> anyhow::Result<()> {
 ///   `attributes.validate_unit_range()` is empty (every Q32 field in
 ///   `[0, 1]`).
 ///
-/// What's NOT implemented yet (T2-3 backlog):
-/// - The bake-time validators (`crates/fw-content-baker/src/validators.rs`
+/// What's NOT in scope here (deferred to T2-3 `validate-semantic` +
+/// `validate-content-pack`):
+/// - The bake-time semantic validators (`crates/fw-content-baker/src/validators.rs`
 ///   `check_banned_terms` / `check_licensed_data` / `check_cliche`).
+/// - Content-pack manifest cohesion, mod overlay ordering, corpus_version
+///   alignment, baked-fragment audit-trail completeness.
 ///
-/// T1-12 audit-triage hardening (2026-05-16): these validators now return
+/// T1-12 audit-triage hardening: the semantic validators above return
 /// `ValidationError::NotImplemented` instead of `Ok(())` — any caller that
-/// mistakenly invokes them before T2-3 will fail loudly. The `validate`
-/// subcommand (this function) does NOT call them — it uses the structural
-/// validators on `ContentStore` directly — so `cargo run -p fw-content-baker
-/// -- validate` continues to pass as expected. Real implementation of the
-/// bake-time validators lands when `bake-names` becomes the first consumer
-/// at T2-3.
-fn run_validate(cli: &Cli) -> anyhow::Result<()> {
+/// mistakenly invokes them before T2-3 will fail loudly. `validate-structural`
+/// does NOT call them; it uses `ContentStore` structural validators directly.
+fn run_validate_structural(cli: &Cli) -> anyhow::Result<()> {
     use fw_content::ContentStore;
     use std::path::PathBuf;
 
     let content_root: PathBuf = PathBuf::from(&cli.workspace).join("content");
     println!(
-        "fw-content-baker: validating content at {}",
+        "fw-content-baker: running STRUCTURAL validation at {}",
         content_root.display()
     );
 
@@ -271,11 +286,13 @@ fn run_validate(cli: &Cli) -> anyhow::Result<()> {
     }
 
     println!(
-        "fw-content-baker: validated {} cultures, {} archetypes, {} role-affinity tables, {} player templates",
+        "fw-content-baker: structurally validated {} cultures, {} archetypes, {} role-affinity tables, {} player templates, {} signatures, {} managers",
         store.cultures.len(),
         store.tactical_archetypes.len(),
         store.role_affinity_tables.len(),
         store.player_templates.len(),
+        store.signature_definitions.len(),
+        store.managers.len(),
     );
 
     if !errors.is_empty() {
@@ -285,7 +302,10 @@ fn run_validate(cli: &Cli) -> anyhow::Result<()> {
         anyhow::bail!("{} validation error(s); see stderr above", errors.len());
     }
 
-    println!("fw-content-baker: validation passed.");
+    println!(
+        "fw-content-baker: STRUCTURAL validation passed \
+         (semantic + content-pack validators land at T2-3)."
+    );
     Ok(())
 }
 
