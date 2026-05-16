@@ -217,6 +217,13 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   Preempt_check limited to nearest-2-chasers per team (preserves formation
 ///   Y-spread). Smoke seed now produces 4 goals (2-2) in 600 ticks.
 ///   Authorized by T1-15 task-spec in MEMORY.md.
+/// - 2026-05-16 (T1-16 shoot utility contract) — **re-baselined to
+///   `fcccb840...a751`** per ADR-0012 trigger #3 (sim behavior change with
+///   documented intent): shoot proximity scoring now uses `fw_core::GOAL_LINE_X`
+///   instead of the stale ±45m literal, and shoot utility is clamped back into
+///   the `[0, 1]` softmax domain after the proximity and personality-bias
+///   multipliers. GK transition goal-line constants also now use
+///   `GOAL_LINE_X`. Authorized by the Codex Tier-2 pre-/done audit response.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -225,7 +232,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("2f14a562de30bd2375b9393b1f46c1f563f131ec155fd8c4a7fbae20e25dcb27");
+    hex!("fcccb840b5868a4ed55c019c353a1d5496259073e2d88bf7abd97d9bdca7a751");
 
 /// The corpus table. New seeds append here as the corpus grows. Each row:
 /// `(seed_hex_string, tick_count, expected_blake3_digest)`.
@@ -523,13 +530,17 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   MAX_PLAYER_SPEED 5→8, rolling_friction 0.002, goal line target 52m).
 ///   600-tick run now produces 4 goals (2-2) on this seed.
 ///   Authorized by T1-15 task-spec in MEMORY.md.
+/// - 2026-05-16 (T1-16 shoot utility contract) — **re-baselined to
+///   `9353bd25...47eb`** per ADR-0012 trigger #3. Same changes as
+///   PINNED_60_TICK above: shoot utility clamp + `GOAL_LINE_X` alignment.
+///   Authorized by the Codex Tier-2 pre-/done audit response.
 ///
 /// Re-baselining: update this constant AND the `expected_hash` field of
 /// `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron` in the same commit,
 /// per `docs/specs/determinism-gate.md` §9 — the same protocol that
 /// governs PINNED_60_TICK above.
 const PINNED_600_TICK: [u8; 32] =
-    hex!("268984120f5eb3ecece932b845f367b0d6f45b94613b7e773ce187027b7e95ae");
+    hex!("9353bd257d4da92092407355e3c2b32cc6e91abc81664d0015336ebe812947eb");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

@@ -143,6 +143,13 @@
 //                               nearest-2-chasers per team. Shoot target corrected
 //                               to 52m (was 45m). Smoke seed produces 4 goals (2-2)
 //                               in 600 ticks. Authorized by T1-15 spec.
+//   2026-05-16 (T1-16 shoot utility contract) — `fcccb840...a751` per
+//                               ADR-0012 trigger #3. Shoot proximity scoring now
+//                               uses fw_core::GOAL_LINE_X instead of stale ±45m,
+//                               shoot utility is clamped back into the [0, 1]
+//                               softmax domain after proximity + personality bias,
+//                               and GK transition constants use GOAL_LINE_X.
+//                               Authorized by Codex Tier-2 pre-/done audit response.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -154,10 +161,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:2f14a562de30bd2375b9393b1f46c1f563f131ec155fd8c4a7fbae20e25dcb27",
+    expected_hash: "blake3:fcccb840b5868a4ed55c019c353a1d5496259073e2d88bf7abd97d9bdca7a751",
     metadata: (
-        description: "T1-15 goal scoring. GK loose-ball chase, 2-chaser preempt, MAX_PLAYER_SPEED 8 m/s, shoot target 52m. Smoke seed now produces 4 goals (2-2) in 600 ticks.",
+        description: "T1-16 shoot utility contract. Shoot scoring uses GOAL_LINE_X and clamps returned shoot utility into [0, 1]; GK transition constants use GOAL_LINE_X. Builds on T1-15 goal-scoring retune.",
         generated_at: "2026-05-16",
-        notes: "Re-pinned at T1-15 (ADR-0012 trigger #3). Prior hash ddccaf88...00b3 was T1-3.6 carrier routing fix.",
+        notes: "Re-pinned at T1-16 (ADR-0012 trigger #3). Prior hash 2f14a562...cb27 was T1-15 goal scoring.",
     ),
 )

@@ -16,7 +16,8 @@
 //! 4. `InBoxPositioning` — default.
 //!
 //! All Q32 constants use pitch coordinates: X = attacking axis
-//! (home goal at x≈-45, away goal at x≈+45). Z = touchline axis.
+//! (home goal line at `-GOAL_LINE_X`, away goal line at `+GOAL_LINE_X`).
+//! Z = touchline axis.
 //!
 //! ## Determinism
 //!
@@ -28,22 +29,22 @@ use rand_chacha::ChaCha8Rng;
 use crate::ball::BallState;
 use crate::player::PlayerState;
 use crate::role_states::{GoalkeeperState, PlayerIntent};
-use fw_core::Q32;
+use fw_core::{GOAL_LINE_X, Q32};
 
 // ---------------------------------------------------------------------------
 // Spatial thresholds (all in metres, Q32.32)
 // ---------------------------------------------------------------------------
 
 /// Penalty-area boundary: within 16m of goal line (proxy for 18-yard box).
-/// Home penalty area: pos_x < -29  (−45 + 16).
-/// Away penalty area: pos_x > +29  (+45 − 16).
+/// Home penalty area: pos_x < -36.5  (−52.5 + 16).
+/// Away penalty area: pos_x > +36.5  (+52.5 − 16).
 const PENALTY_AREA_DEPTH: Q32 = Q32::from_raw(16_i64 << 32); // 16.0
 
-/// Home goal line x-coordinate (−45 m).
-const HOME_GOAL_X: Q32 = Q32::from_raw(-45_i64 << 32); // −45.0
+/// Home goal line x-coordinate (`-GOAL_LINE_X`).
+const HOME_GOAL_X: Q32 = Q32::from_raw(-GOAL_LINE_X.to_bits());
 
-/// Away goal line x-coordinate (+45 m).
-const AWAY_GOAL_X: Q32 = Q32::from_raw(45_i64 << 32); // +45.0
+/// Away goal line x-coordinate (`+GOAL_LINE_X`).
+const AWAY_GOAL_X: Q32 = GOAL_LINE_X;
 
 /// Distribution trigger: ball within 3 m of GK goal line (proxy for catch).
 const DISTRIBUTION_THRESHOLD: Q32 = Q32::from_raw(3_i64 << 32); // 3.0
@@ -98,8 +99,8 @@ fn evaluate_transitions(
     let bvx = ball.vel_x;
 
     if is_home {
-        // Home GK: goal line at x = −45; penalty area x < −29 (= −45 + 16).
-        let penalty_boundary = HOME_GOAL_X + PENALTY_AREA_DEPTH; // = −29
+        // Home GK: goal line at -GOAL_LINE_X; penalty area is 16m deep.
+        let penalty_boundary = HOME_GOAL_X + PENALTY_AREA_DEPTH;
         let in_own_half = bx < Q32::ZERO;
         let in_penalty_area = bx < penalty_boundary;
         // Ball approaching home goal: vel_x < 0.
@@ -121,8 +122,8 @@ fn evaluate_transitions(
             GoalkeeperState::InBoxPositioning
         }
     } else {
-        // Away GK: goal line at x = +45; penalty area x > +29 (= +45 − 16).
-        let penalty_boundary = AWAY_GOAL_X - PENALTY_AREA_DEPTH; // = +29
+        // Away GK: goal line at +GOAL_LINE_X; penalty area is 16m deep.
+        let penalty_boundary = AWAY_GOAL_X - PENALTY_AREA_DEPTH;
         let in_own_half = bx > Q32::ZERO;
         let in_penalty_area = bx > penalty_boundary;
         // Ball approaching away goal: vel_x > 0.
@@ -413,8 +414,8 @@ mod tests {
 
     #[test]
     fn home_gk_ball_in_penalty_area_approaching_gives_shot_stopping() {
-        // Ball at x=−33 (inside penalty area boundary at −29) moving toward home goal (vel_x < 0).
-        let ball = ball_at(-33, -5);
+        // Ball at x=-40 (inside penalty area boundary at -36.5) moving toward home goal (vel_x < 0).
+        let ball = ball_at(-40, -5);
         let state = evaluate_transitions(GoalkeeperState::InBoxPositioning, 0, &ball);
         assert_eq!(
             state,
@@ -437,8 +438,8 @@ mod tests {
 
     #[test]
     fn home_gk_ball_near_goal_line_gives_distributing() {
-        // Ball at x=−43 (within 3m of goal line at −45), not approaching.
-        let ball = ball_at(-43, 2);
+        // Ball at x=-50 (within 3m of goal line at -52.5), not approaching.
+        let ball = ball_at(-50, 2);
         let state = evaluate_transitions(GoalkeeperState::InBoxPositioning, 0, &ball);
         assert_eq!(
             state,
@@ -463,8 +464,8 @@ mod tests {
 
     #[test]
     fn away_gk_ball_in_penalty_area_approaching_gives_shot_stopping() {
-        // Ball at x=+33 (inside away penalty area at +29) moving toward away goal (vel_x > 0).
-        let ball = ball_at(33, 5);
+        // Ball at x=+40 (inside away penalty area at +36.5) moving toward away goal (vel_x > 0).
+        let ball = ball_at(40, 5);
         let state = evaluate_transitions(GoalkeeperState::InBoxPositioning, 11, &ball);
         assert_eq!(state, GoalkeeperState::ShotStopping);
     }
@@ -478,7 +479,7 @@ mod tests {
 
     #[test]
     fn away_gk_ball_near_goal_line_gives_distributing() {
-        let ball = ball_at(43, -2);
+        let ball = ball_at(50, -2);
         let state = evaluate_transitions(GoalkeeperState::InBoxPositioning, 11, &ball);
         assert_eq!(state, GoalkeeperState::DistributingFromHand);
     }
@@ -491,7 +492,7 @@ mod tests {
 
     #[test]
     fn tick_goalkeeper_shot_stopping_scenario_reaches_shot_stopping_state() {
-        let ball = ball_at(-33, -5);
+        let ball = ball_at(-40, -5);
         let player = dummy_player();
         let (state, intent) = tick_goalkeeper(
             GoalkeeperState::InBoxPositioning,

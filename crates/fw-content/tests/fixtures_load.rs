@@ -252,13 +252,18 @@ fn signature_load_does_not_drift_canonical_hash() {
     // Represented as raw bytes so we can compare without a hex crate.
     // T1-15 rebaseline: GK loose-ball chase + 2-chaser preempt + MAX_PLAYER_SPEED 5→8 m/s.
     // Ball now reaches goal: smoke seed produces 4 goals (2-2) in 600 ticks.
-    // ADR-0012 trigger #1 authorized this rebaseline.
+    // ADR-0012 trigger #3 authorized this rebaseline.
     // Prior hash (T1-3.6 / BT carrier routing):
     //   ddccaf88c94f328274d484ed1e14ced8638d1ccf63bb922ad64a4f28664000b3
+    // T1-16 rebaseline: shoot utility clamps back into [0, 1] after proximity +
+    // personality bias; shoot proximity and GK transition constants now use
+    // fw_core::GOAL_LINE_X. ADR-0012 trigger #3 authorized this rebaseline.
+    // Prior hash (T1-15 / goal scoring):
+    //   2f14a562de30bd2375b9393b1f46c1f563f131ec155fd8c4a7fbae20e25dcb27
     const EXPECTED: [u8; 32] = [
-        0x2f, 0x14, 0xa5, 0x62, 0xde, 0x30, 0xbd, 0x23, 0x75, 0xb9, 0x39, 0x3b, 0x1f, 0x46, 0xc1,
-        0xf5, 0x63, 0xf1, 0x31, 0xec, 0x15, 0x5f, 0xd8, 0xc4, 0xa7, 0xfb, 0xae, 0x20, 0xe2, 0x5d,
-        0xcb, 0x27,
+        0xfc, 0xcc, 0xb8, 0x40, 0xb5, 0x86, 0x8a, 0x4e, 0xd5, 0x5c, 0x01, 0x9c, 0x35, 0x3a, 0x1d,
+        0x54, 0x96, 0x25, 0x90, 0x73, 0xe2, 0xd8, 0x8b, 0xf7, 0xab, 0xd9, 0x7d, 0x9b, 0xdc, 0xa7,
+        0xa7, 0x51,
     ];
 
     // Load the content store (exercises the new signature loader).
@@ -281,10 +286,9 @@ fn signature_load_does_not_drift_canonical_hash() {
     assert_eq!(
         actual, EXPECTED,
         "\nCanonical-state hash drifted unexpectedly.\n\
-         T1-3.6 rebaselined to ddccaf88c94f328274d484ed1e14ced8638d1ccf63bb922ad64a4f28664000b3\n\
-         (BT carrier routing fix: evaluate_transitions routes possession holder into\n\
-          InPossession; carrier-routing pre-pass in dispatch_tick; ball now moves).\n\
-         ADR-0012 trigger #1 authorized this rebaseline.\n\
+         T1-16 rebaselined to fcccb840b5868a4ed55c019c353a1d5496259073e2d88bf7abd97d9bdca7a751\n\
+         (shoot utility clamp + GOAL_LINE_X alignment).\n\
+         ADR-0012 trigger #3 authorized this rebaseline.\n\
          If this drifts again, it must be an authorized rebaseline — ADR-0012 trigger #1 or #3.\n\
          Actual:   {:02x?}",
         actual

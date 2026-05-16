@@ -1,5 +1,6 @@
 ---
 source: crates/fw-match-sim/tests/match_event_snapshot.rs
+assertion_line: 54
 expression: state.match_events()
 ---
 [
@@ -15,13 +16,31 @@ expression: state.match_events()
         tick: Tick(
             5,
         ),
+        kind: Cross,
+        completed: true,
+    },
+    Pass {
+        from_slot: 10,
+        to_slot: 9,
+        tick: Tick(
+            11,
+        ),
+        kind: Long,
+        completed: true,
+    },
+    Pass {
+        from_slot: 9,
+        to_slot: 10,
+        tick: Tick(
+            20,
+        ),
         kind: Long,
         completed: true,
     },
     Shot {
         shooter_slot: 10,
         tick: Tick(
-            11,
+            26,
         ),
         target_x: Q32(
             52,

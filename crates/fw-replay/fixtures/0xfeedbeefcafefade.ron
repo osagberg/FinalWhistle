@@ -33,6 +33,12 @@
 //                       SPEED 5->8 m/s, rolling_friction 0.002, shoot target
 //                       52m. 600-tick run produces 4 goals (2-2) on this seed.
 //                       Authorized by T1-15 spec in MEMORY.md.
+//   2026-05-16 (T1-16) — `9353bd25...47eb` per ADR-0012 trigger #3.
+//                       Same changes as PINNED_60_TICK: shoot utility clamp
+//                       back into the [0, 1] softmax domain + GOAL_LINE_X
+//                       alignment for shoot proximity and GK transition
+//                       constants. Authorized by Codex Tier-2 pre-/done
+//                       audit response.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_600_TICK`
@@ -45,10 +51,10 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:268984120f5eb3ecece932b845f367b0d6f45b94613b7e773ce187027b7e95ae",
+    expected_hash: "blake3:9353bd257d4da92092407355e3c2b32cc6e91abc81664d0015336ebe812947eb",
     metadata: (
-        description: "T1-15 goal scoring rebaseline. Content-loaded 600-tick run. GK loose-ball chase, 2-chaser preempt, MAX_PLAYER_SPEED 8 m/s, shoot target 52m. 600-tick run produces 4 goals (2-2). Prior T1-8 pin was 66585ca8...4625.",
+        description: "T1-16 shoot utility contract rebaseline. Content-loaded 600-tick run. Shoot scoring uses GOAL_LINE_X and clamps returned shoot utility into [0, 1]; GK transition constants use GOAL_LINE_X.",
         generated_at: "2026-05-16",
-        notes: "Re-pinned at T1-15 (ADR-0012 trigger #3). MatchState::initial_with_content + tick_match(state, &content.signature_definitions) for 600 iterations.",
+        notes: "Re-pinned at T1-16 (ADR-0012 trigger #3). Prior hash 268984...e95ae was T1-15 goal scoring. MatchState::initial_with_content + tick_match(state, &content.signature_definitions) for 600 iterations.",
     ),
 )

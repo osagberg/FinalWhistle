@@ -206,23 +206,47 @@ pub fn utility_shoot(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q3
     // T1-15 baseline boost: shoot has 4 primary factors vs 3 for cross/long_pass,
     // so its product is ~2× lower at mid-range attributes. Without a boost, shoot
     // never reaches the top-3 softmax pool (ADR-0003 §6 N=3) and no goals fire.
-    // 2× flat boost + spatial proximity bonus: within 30m of goal (x > 15 home /
-    // x < -15 away), shoot utility is multiplied by an additional 4× so it clearly
-    // dominates the softmax pool and forwards in the attack third actually shoot.
-    // Real spatial xG replaces this stub at T1-4/T2-1. Authorized by T1-15 task-spec.
+    // 2× flat boost + spatial proximity bonus: within 30m of goal (x > 22.5m
+    // home / x < -22.5m away under GOAL_LINE_X=52.5), shoot utility is multiplied
+    // by an additional 4× so it clearly dominates the softmax pool and forwards
+    // in the attack third actually shoot.
+    //
+    // T1-16 (Codex Tier-2 pre-/done audit fix): two changes to this block:
+    //   (a) `goal_x = ±45` literal → `±fw_core::GOAL_LINE_X` (= ±52.5) for
+    //       single-source-of-truth alignment with the actual pitch geometry.
+    //       Shifts the proximity zones 7.5m further forward; the 4× zone is
+    //       now `pos_x > 22.5` (home) / `pos_x < -22.5` (away) rather than
+    //       `pos_x > 15` / `pos_x < -15`. Forwards at initial formation
+    //       (pos_x=±10) drop from 3× into 2× — they have to advance into the
+    //       attack third before the proximity boost engages. This is a more
+    //       football-shaped trigger than "shoot from midfield".
+    //   (b) Clamp `raw * proximity_mul` to `Q32::ONE` post-multiplier (literal
+    //       Codex fix: "Clamp or normalize after proximity"). Restores the
+    //       [0, 1] contract that `apply_shoot_bias::debug_assert!` expects,
+    //       then clamp the personality-biased return value before it enters
+    //       the softmax candidate set. Without this, peak-attribute shots
+    //       inside the 4× zone produce raw=2.0+ and personality-biased values
+    //       well above 1.0, collapsing near-goal decisions toward argmax.
+    //       At mid-range attrs the clamp doesn't bite (typical raw × 4 ≈
+    //       0.3-0.6); only peak-attribute super-shooters hit the cap. The
+    //       2×/3×/4× zone differentiation IS preserved at mid-range; clamp
+    //       only collapses zones for peak-attribute players.
+    //
+    // Real spatial xG replaces this stub at T1-4/T2-1. Authorized by T1-15
+    // task-spec + T1-16 Codex Tier-2 pre-/done audit response.
     let goal_x = if (roster_slot as usize) < 11 {
-        Q32::from_int(45)
+        fw_core::GOAL_LINE_X
     } else {
-        Q32::from_int(-45)
+        -fw_core::GOAL_LINE_X
     };
     // Distance from goal: |goal_x - player.pos_x|. When near the goal (dist < 30m),
-    // apply proximity multiplier. Q32 subtraction: |45 - pos_x| for home team.
+    // apply proximity multiplier.
     let dist_to_goal = if goal_x > Q32::ZERO {
         goal_x - player.pos_x
     } else {
         player.pos_x - goal_x
     };
-    // Proximity multiplier: 4× when within 30m, 2× when within 40m, else 2×.
+    // Proximity multiplier: 4× when within 30m, 3× when within 40m, else 2×.
     let proximity_mul = if dist_to_goal < Q32::from_int(30) {
         Q32::from_int(4)
     } else if dist_to_goal < Q32::from_int(40) {
@@ -231,12 +255,17 @@ pub fn utility_shoot(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q3
         Q32::from_int(2)
     };
     let raw = raw * proximity_mul;
+    // T1-16 clamp (Codex Tier-2 fix — "Clamp or normalize after proximity"):
+    // restore [0, 1] contract for downstream apply_shoot_bias debug_assert +
+    // softmax exp(u/T) numerical stability.
+    let raw = if raw > Q32::ONE { Q32::ONE } else { raw };
 
     // Effective defender pressure = PT-attenuated proxy (complement of composure).
     let raw_pressure = Q32::ONE - a.mental.composure;
     let eff_pressure = read_defender_pressure(a, raw_pressure);
 
     let biased = apply_shoot_bias(raw, a, eff_pressure);
+    let biased = if biased > Q32::ONE { Q32::ONE } else { biased };
 
     // Target: the attacking goal centre. Use 52m (behind the goal line) so that
     // even when the shooter has drifted to the goal line (pos_x ≈ 45m), the
@@ -479,6 +508,58 @@ mod tests {
         let (_, u) = utility_shoot(&p, 6);
         assert!(u >= Q32::ZERO, "shoot utility must be >= 0; got {:?}", u);
         assert!(u <= Q32::ONE, "shoot utility must be <= 1; got {:?}", u);
+    }
+
+    /// T1-16 (Codex Tier-2 pre-/done audit): "add a near-goal test that
+    /// actually hits the 4× branch."
+    ///
+    /// `shoot_utility_in_unit_range` above uses slot 6 (home MID at
+    /// formation_x = -10); under `GOAL_LINE_X = 52.5`, that's dist =
+    /// 52.5 - (-10) = 62.5m → falls into the `else` 2× zone (not the 4×
+    /// branch). Without a test at a near-goal position, the 4× branch
+    /// is exercised by the proximity-multiplier code path but never
+    /// asserted to stay within `[0, 1]` post-clamp.
+    ///
+    /// This test constructs a home forward (slot 9) at pos_x = +30m
+    /// (well inside the 4× zone: dist = 52.5 - 30 = 22.5 < 30). Asserts
+    /// the post-clamp shoot utility is in `[0, 1]` even with all peak
+    /// shooting attributes. Without the T1-16 clamp, raw_post_secondary
+    /// ≈ 0.722 × 4 = 2.88, then × apply_shoot_bias factors → utility
+    /// could exceed 1.0 and break the softmax `exp(u/T)` numerical
+    /// stability. With the clamp, raw_post_proximity is capped at 1.0
+    /// pre-bias, then the returned post-personality value is capped at 1.0
+    /// before softmax.
+    #[test]
+    fn shoot_utility_in_unit_range_at_attack_third_4x_branch() {
+        // Construct home FWD slot 9 at advanced position pos_x = 30
+        // (inside 4× zone: dist_to_goal = 52.5 - 30 = 22.5 < 30).
+        let mut p = mid_player(9);
+        p.pos_x = Q32::from_int(30);
+        p.attributes = fw_core::PlayerAttributes::max_baseline();
+        // Sanity: confirm this position hits the 4× branch under the
+        // current GOAL_LINE_X = 52.5 + proximity-zone thresholds (`dist <
+        // 30` → 4×). If the proximity-zone logic shifts, this test must
+        // shift accordingly OR the test fails honestly (signal that
+        // the near-goal branch coverage is gone).
+        let dist = fw_core::GOAL_LINE_X - p.pos_x;
+        assert!(
+            dist < Q32::from_int(30),
+            "test fixture must hit 4× proximity branch (dist < 30); got dist = {dist:?}"
+        );
+
+        let (_, u) = utility_shoot(&p, 9);
+        // Post-T1-16 clamp: utility must remain in [0, 1] even in the
+        // 4× branch with peak shooting attributes and personality-bias
+        // expansion on top.
+        assert!(
+            u >= Q32::ZERO,
+            "shoot utility must be >= 0 in 4× branch; got {u:?}"
+        );
+        assert!(
+            u <= Q32::ONE,
+            "shoot utility must be <= 1 in 4× branch (T1-16 clamp \
+             restores softmax [0, 1] domain contract); got {u:?}"
+        );
     }
 
     #[test]
