@@ -31,7 +31,95 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-(none — T2-6 closed 2026-05-18; `scripts/fw verify` exit 0; **canonical hashes UNCHANGED on both pins** — frontend-only work. Next /next picks T2-7 (Frontend Squad page — depends on T2-4 + T2-5; T2-4 still BLOCKED on `design/player-generation.md`) OR T2-8 (Frontend Transfer-window stub — UI shell only, deps T2-6 DONE) OR T2-9 (`fw-save` bincode + version migration, deps T2-5 DONE). The first eligible non-blocked TODO is T2-8.)
+(none — T2-8 closed 2026-05-18; `scripts/fw verify` exit 0; **canonical hashes UNCHANGED on both pins** — frontend-only work. Next /next picks T2-9 (`fw-save` bincode + version-migration enum chain; deps T2-5 DONE). T2-7 (Squad page) still BLOCKED on T2-4 (BLOCKED on `design/player-generation.md`).)
+
+<!-- T2-8 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
+
+<!-- ORIGINAL T2-8 SPEC START — pruned 2026-05-18 — kept commented for one cycle of audit traceability
+- **id:** T2-8
+- **title:** Frontend Transfer-window stub — UI shell only, no transfer mechanics; window-open/closed state derived from current match-day
+- **started:** 2026-05-18
+- **task class:** UI / frontend (read-only consumption of T2-5 IPC; pure helper function + route rewrite + vitest)
+- **required subagent:** none (main thread — well-defined edge cases, no creative design, ~200 LoC including tests)
+- **selection note:** T2-7 still BLOCKED on T2-4 (BLOCKED on missing `design/player-generation.md`); T2-8 is the lex-lowest eligible TODO.
+
+### Acceptance criteria (falsifiable)
+
+1. **Window-state visible** — Transfers route renders a clear window-state label: "Summer window — open", "Winter window — open", or "Closed", derived from the current match-day.
+2. **State updates with match-day** — calling `getStandings()` returns the current match-day (via `StandingsRow.played` of the first row, same derivation as League page); the window state recomputes whenever standings change.
+3. **Determinism rule** — calendar-window mapping is a PURE function `computeTransferWindowState(currentMatchDay: number): WindowState` that lives in `frontend/src/lib/transfer-window.ts`. Rule (simple two-window calendar, deterministic + boundary-tested):
+   - `currentMatchDay === 0` → "Summer window — open" (pre-season)
+   - `1 <= currentMatchDay <= 18` → "Closed"
+   - `19 <= currentMatchDay <= 20` → "Winter window — open"
+   - `21 <= currentMatchDay <= 38` → "Closed"
+   - `currentMatchDay > 38` → "Closed" (season complete / out-of-bounds defensive)
+   The boundary days (19, 20, 21) intentionally encode the FM-style mid-season window per football convention.
+4. **"Mechanics deferred" copy** — the page explicitly tells the player transfer mechanics aren't implemented yet; a panel reads "Transfer mechanics land at Phase T3 — bids, negotiations, and contracts." so the empty UI doesn't look broken.
+5. **Vitest coverage** — `transfer-window.ts` has unit tests for all 5 branches + each boundary (day 0, 1, 18, 19, 20, 21, 38, 39); the route has a smoke test asserting the window label renders for at least 2 distinct match-days.
+6. **No regressions** — `pnpm typecheck` + `pnpm lint` + `pnpm test` stay clean; no Rust files touched.
+
+### AC-to-test matrix
+
+| Acceptance criterion | Exact test or visual check | Observable that proves it |
+|---|---|---|
+| AC1: window-state label visible | `pnpm test -- Transfers.test.tsx::renders_window_state_label` | Page has element with text matching `/window|closed/i` |
+| AC2: state updates with match-day | `pnpm test -- Transfers.test.tsx::window_label_reflects_match_day_via_getStandings` | After `vi.mocked(getStandings).mockResolvedValue([{played: 0, ...}])`, label === "Summer window — open"; after re-render with `played: 19`, label === "Winter window — open" |
+| AC3a: pre-season → Summer | `pnpm test -- transfer-window.test.ts::computeTransferWindowState_returns_summer_for_match_day_0` | `computeTransferWindowState(0).kind === "summer"` |
+| AC3b: early-season → Closed | Same test file, `..._returns_closed_for_match_day_1_through_18` | `computeTransferWindowState(n).kind === "closed"` for n in [1, 18] |
+| AC3c: mid-season → Winter | `..._returns_winter_for_match_day_19_and_20` | `computeTransferWindowState(19).kind === "winter"` AND `computeTransferWindowState(20).kind === "winter"` |
+| AC3d: late-season → Closed | `..._returns_closed_for_match_day_21_through_38` | Boundary tested at 21, mid (30), 38 |
+| AC3e: out-of-bounds → Closed | `..._returns_closed_for_match_day_above_38` | `computeTransferWindowState(39).kind === "closed"` (defensive) |
+| AC4: mechanics-deferred copy | `Transfers.test.tsx::renders_mechanics_deferred_panel` | Page text contains "Transfer mechanics land at Phase T3" |
+| AC5: vitest coverage | Same as AC3 + AC1 + AC2 tests | All tests in `transfer-window.test.ts` + `Transfers.test.tsx` pass |
+| AC6: no regressions | `pnpm typecheck && pnpm lint && pnpm test` + `scripts/fw verify` | All exit 0 |
+
+### Files in scope
+
+- `frontend/src/lib/transfer-window.ts` — NEW: pure function `computeTransferWindowState(currentMatchDay: number): WindowState` + `WindowState` type + display-string helper
+- `frontend/src/lib/transfer-window.test.ts` — NEW: vitest tests for the helper (8 branch + boundary tests)
+- `frontend/src/routes/Transfers.tsx` — REWRITE the placeholder
+- `frontend/src/routes/Transfers.test.tsx` — NEW: vitest smoke covering the route render + state derivation
+
+### Files out of scope (binding)
+
+- `docs/DESIGN_DOC.md`, `docs/DECISIONS.md`, `CLAUDE.md`
+- `docs/MASTER_PLAN.md` (only the T2-8 status flip)
+- `design/**.md`
+- All Rust crates (`crates/**`), `src-tauri/**`
+- `frontend/src/routes/{Home,Squad,Tactics,Match,Match.test,League,League.test,Dev/**}.tsx` (other routes untouched)
+- `frontend/src/components/**` (read-only patterns)
+- `frontend/src/lib/types.ts` (no DTO additions)
+- `frontend/src/lib/api/season.ts` (read-only)
+- `frontend/src/lib/columns/**` (T2-6's columns; not consumed here)
+- `frontend/tailwind.config.ts`, `frontend/src/styles.css`, `frontend/package.json`, `pnpm-lock.yaml`
+- `.claude/**`, `.github/**`, any `Justfile`
+- Any pin file or canonical-state crate
+
+### Intentionally NOT done in this task
+
+- Real transfer mechanics (bids, negotiations, contracts) — deferred to Phase T3 explicitly.
+- IPC commands for window-state — the derivation is frontend-pure; no backend additions.
+- Calendar-date rendering (specific dates like "January 15") — the season concept is match-day-only at T2-5; date conversion would require a new IPC.
+- Cup-window or international-break special cases — not in the simple two-window calendar.
+- Transfer-window history view — out of scope.
+- Configurability of window dates — hardcoded per FM-convention.
+
+### Plan
+
+- [ ] Chunk 1: NEW `frontend/src/lib/transfer-window.ts` — `WindowState` discriminated union (`{kind: 'summer' | 'winter' | 'closed'; label: string}`) + pure `computeTransferWindowState(currentMatchDay)` function with the 5-branch decision tree per AC3.
+- [ ] Chunk 2: NEW `frontend/src/lib/transfer-window.test.ts` — 8 unit tests covering all 5 branches + boundary days (0, 1, 18, 19, 20, 21, 38, 39).
+- [ ] Chunk 3: REWRITE `frontend/src/routes/Transfers.tsx` — `createResource(() => getStandings())` for current match-day derivation; window-state label rendered prominently (uses existing `fw-pill` styling); "Transfer mechanics land at Phase T3" panel; loading + error states for the standings fetch.
+- [ ] Chunk 4: NEW `frontend/src/routes/Transfers.test.tsx` — smoke test rendering Transfers with mocked `getStandings`; assert window-label changes for played=0 (summer) vs played=19 (winter); assert the mechanics-deferred copy is present.
+
+### Design references
+
+- T2-8 row in `docs/MASTER_PLAN.md` line 244 (scope + done criteria)
+- T2-5 `getStandings()` IPC + `StandingsRow.played` field (same source as T2-6's `matchDayHeader` derivation)
+- T2-6 `frontend/src/routes/League.tsx` (loading/error/empty patterns + createResource shape — useful template)
+- `Frontend/RULES.md` §1 (SolidJS; no React patterns), §6 (no `any`), §9 (banned terms — football-native only)
+- FM-convention two-window calendar: summer (pre-season) + winter (mid-season at match-days 19-20)
+
+ORIGINAL T2-8 SPEC END -->
 
 <!-- T2-6 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
 
@@ -898,6 +986,8 @@ ORIGINAL T2-3 SPEC END -->
 5. Commit atomically. Flag in commit body: **The "match-engine vertical complete" claim from T1-6/T1-7 is now ACTUALLY true** (was false at those commit times per Codex's audit). The canonical hash drift IS the proof T1-3.5 didn't actually work end-to-end. T1-8 + T1-9 are next + actually have behavior to test against now.
 
 ## Recently completed
+
+- 2026-05-18 — **T2-8 Frontend Transfer-window stub — UI shell only; window-open/closed state derived from current match-day.** Selected ahead of T2-9 by lex order; both have all deps DONE. T2-7 still BLOCKED on T2-4 (BLOCKED on missing `design/player-generation.md`). **Ships**: NEW `frontend/src/lib/transfer-window.ts` (~60 LoC) with pure `computeTransferWindowState(matchDay) -> WindowState` discriminated-union helper + FM-style two-window calendar (match-day 0 → Summer; 1-18 → Closed; 19-20 → Winter; 21-38 → Closed). NEW `frontend/src/lib/transfer-window.test.ts` (~75 LoC, 10 unit tests covering all 5 branches + boundary days 0/1/18/19/20/21/38/39 + invalid-input throws for negative/non-integer/NaN/Infinity). REWRITTEN `frontend/src/routes/Transfers.tsx` (~135 LoC) with `createResource(getStandings)` for current-match-day derivation; window-state pill via `windowPillClass(state)`; explicit `<Show>`-gated branches for loading / error / season-not-loaded / rendered-state; `describeStandingsError` helper that unwraps Solid's `castError` wrapper to surface the IpcError `kind` discriminator; object-wrap pattern for `<Show when>` to preserve the valid pre-season `played: 0` case (Solid treats `0` as falsy). NEW `frontend/src/routes/Transfers.test.tsx` (~135 LoC, 6 smoke tests covering AC1/AC2/AC4 + 2 silent-failure-fix regression tests). **Self-review triple: 3 P1 + 1 P1 + 4 P2/P3 deferred — all 4 P1s fixed in-place pre-commit**. silent-failure-hunter REVISE: (P1) `try/catch` around `getStandings()` silently swallowed all errors → `[]` → "Summer window" lie for lockPoisoned / IPC failures / serde mishaps; FIX: dropped the try/catch; let createResource surface `.error`; added explicit error-arm `<Show>` that renders "Couldn't read season state — window status unavailable (IPC error (kind))". (P1) `currentMatchDayFromStandings` returned `0` for empty / null input → conflated "pre-season" with "fetch returned empty array" / "fetch failed"; FIX: returns `number | null`; consumer renders distinct `role="status"` "Season not loaded" message for the null path; object-wrapped Show pattern preserves the `played: 0` case which Solid would otherwise treat as falsy. (P1) `computeTransferWindowState` silently returned `closed` for invalid inputs (NaN / Infinity / negative / non-integer) → would have laundered a future serde mishap into a confidently-wrong "Closed" pill mid-summer; FIX: throws `RangeError` with descriptive message; error surfaces via `createResource.error` + the error-arm above; matches Sim/RULES.md §11 fail-loud-on-invariant-violation discipline. code-reviewer REVISE: (P1) "Phase T3" internal milestone label leaked into TWO player-facing strings (header subtitle + deferral panel) → violates Frontend/RULES.md §9 (football-native vocabulary only) + CLAUDE.md §7; FIX: replaced both with "transfer mechanics are coming soon" / "coming — bids, negotiations, and contracts" football-vernacular framing. type-design Accept-with-revisions: 4 P2/P3 deferred (drop `label` literal-string field from `WindowState` for i18n-readiness; `MatchDay` newtype on `currentMatchDay: number`; extract `SUMMER_END_MATCHDAY` / `WINTER_WINDOW_START` / `WINTER_WINDOW_END` / `SEASON_LENGTH_MATCHDAYS` named constants to a season-calendar module; `WindowState.closed` over-collapses three semantically distinct cases). **Canonical hashes UNCHANGED on both pins** — frontend-only work. `scripts/fw verify` exit 0 end-to-end. 87 frontend tests green (was 69 pre-T2-8; +18: 10 transfer-window unit + 6 Transfers smoke; the 2 silent-failure-regression tests replace the prior silent-failure-bake-in tests). Next /next picks **T2-9** (`fw-save` bincode-based save format + version-migration enum chain; deps T2-5 DONE). T2-7 still BLOCKED on T2-4.
 
 - 2026-05-18 — **T2-6 Frontend League page — TanStack Table v8 standings + season action buttons.** Consumes T2-5's IPC commands (`getStandings`, `advanceWeek`, `playFixtures`). Replaces the placeholder `frontend/src/routes/League.tsx` with full implementation: 10-column standings table (`#` / Club / P / W / D / L / GF / GA / GD / Pts) sortable via existing DataTable component; two season action buttons (Advance Week, Play Fixtures fast-forward) with disabled-during-pending state; typed `ActionOutcome` union signal that shows BOTH success-with-summary (`Match-day N played (X matches)`) AND failure-with-IpcError messages; standingsError shown in role="alert" panel, actionOutcome in role="status" region — distinct so they don't collide; header sub-line ("Pre-season" / "Match-day N of 38" / "Season complete") suppressed when standingsError is set (no inconsistent dual state). NEW `frontend/src/lib/columns/league.columns.ts` per Frontend/RULES.md §3 (10 ColumnDefs); position column uses `findIndex(r => r.id === row.id) + 1` against `getRowModel().rows` for VISUAL position (post-T2-6 silent-failure-hunter P0 fix — see below). Selected ahead of T2-4 (still BLOCKED on `design/player-generation.md` design-doc gap). 13 vitest tests in NEW `frontend/src/routes/League.test.tsx` covering AC1 (10 column headers), AC2 (IPC load + 3-row render), AC4 (Advance Week + Play Fixtures call + disable + Working… text), AC4d (success-outcome shows summary), AC5a (loading fallback), AC5b (standings error), AC5c (action error in role="status"), AC5d (empty state), AC sort coverage (3 tests: Pts header sort DESC-then-ASC, position-column re-numbers visually, position-column not sortable). **Self-review triple: 1 P0 + 6 P1 + 4 P2/P3**. **All P0/P1 fixed in-place pre-commit**. **silent-failure-hunter REVISE → 1 P0 + 4 P1 + 1 P1-edge**: (P0) position column `cell: (info) => info.row.index + 1` used TanStack v8's ORIGINAL-array index — silently wrong after any user sort (most-read column on a standings table); FIX: `info.table.getRowModel().rows.findIndex(r => r.id === info.row.id) + 1` (canonical v8 pattern; `indexOf` fails because TanStack memoizes row refs separately per call site, so identity-by-id is the only reliable match). (P1) `formatIpcError` default arm returned `_exhaustive: never` which at runtime is the actual `err` object → `[object Object]` in template-literal display, masking the variant-drift the pattern is supposed to fail-loud on; FIX: `throw new Error(...)` with JSON-stringified `err` payload. (P1) `standingsError` returned `[] as StandingsRow[]` on fetch failure → indistinguishable from empty league + inconsistent UI ("Pre-season" header alongside "Failed to load standings" alert); FIX: resource fetcher returns `null` on failure (distinct from `[]`); render gates `standingsError()` first + suppresses header sub-line; adds `console.error` log for stack-trace survival across navigation. (P1) `actionError` cleared on each click + summary DTOs (`AdvanceWeekSummary` / `PlayFixturesSummary`) discarded — no success feedback; user couldn't distinguish successful no-op (play_fixtures returns `{matchesPlayed: 0}` against a complete season) from a 330-match fast-forward; FIX: typed `ActionOutcome` union signal (`{ok: true, kind: 'advanceWeek', summary} | {ok: true, kind: 'playFixtures', summary} | {ok: false, error}`) + `describeActionOutcome()` formatter that derives user-facing text from the summary fields. (P1-edge) Zero sort coverage in test suite — the gap that let the P0 land; FIX: 3 new tests for Pts-header sort DESC/ASC + position-column visual re-numbering + position-column not-sortable. **type-design-analyzer REVISE → 4 P2/P3 deferred**: F1 extract `lib/ipc-error.ts` to dedupe Match.tsx/League.tsx trio; F2 narrow `actionError`/`standingsError` to typed unions (PARTIALLY DONE: standingsError now typed `IpcError | Error | null`); F3 name the `38` magic constant (DONE inline: `const TOTAL_MATCH_DAYS = 38`); F4 spawn follow-up for `SeasonStateDto` to decouple "current match-day" from per-club `played` field. **code-reviewer REVISE → 1 P1**: `aria-label` on text-labeled buttons is an ARIA anti-pattern (Frontend/RULES.md §8 specifies icon-only buttons); FIX: removed `aria-label` from both buttons; accessible name now derives from visible text content correctly. **Canonical hashes UNCHANGED on both pins** — frontend-only work. `scripts/fw verify` exit 0 end-to-end. 69 frontend tests green (was 56 pre-T2-6; +13 new). Next /next likely picks **T2-8** (Frontend Transfer-window stub — UI shell only; deps T2-6 DONE) since T2-7 still depends on the blocked T2-4. Alternative: T2-9 (`fw-save` bincode + migration; deps T2-5 DONE) which would unblock the Save-cycle pillar work.
 
