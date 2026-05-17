@@ -8,9 +8,12 @@ authors.workspace      = true
 repository.workspace   = true
 description = "Bake-time LLM content compiler for Final Whistle. Dev-only CLI — never linked into the runtime."
 
-# Binary-only crate. The runtime (fw-content) does NOT depend on this — that's
-# the whole point of the bake-time/runtime split. No tokio / reqwest / API-keys
-# anywhere downstream of fw-content.
+# Library target: exposes `bake` and `validators` modules so integration tests
+# under tests/ can import them without going through the binary.
+[lib]
+name = "fw_content_baker"
+path = "src/lib.rs"
+
 [[bin]]
 name = "fw-content-baker"
 path = "src/main.rs"
@@ -41,8 +44,15 @@ thiserror  = { workspace = true }
 log        = { workspace = true }
 env_logger = { workspace = true }
 
+# Deterministic RNG for offline bake workers (ChaCha8Rng name sampling).
+rand        = { workspace = true }
+rand_chacha = { workspace = true }
+
 # Hashing for prompt-hash + audit-trail manifest entries
 blake3     = { workspace = true }
 
 # JSON-schema validation of LLM output
 jsonschema = "0.18"
+
+[dev-dependencies]
+tempfile = { workspace = true }

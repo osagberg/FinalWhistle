@@ -11,16 +11,21 @@
 //! corpus once at startup and samples deterministically via ChaCha8Rng.
 //!
 //! See `docs/CONTENT_PIPELINE.md` for the contract this implements.
-//!
-//! Real implementation lands at MASTER_PLAN T2-3 + T3-3. This stub establishes
-//! the CLI surface so downstream wiring (Justfile, CI, `scripts/fw bake`) can
-//! be authored before the LLM-calling guts exist.
+
+use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
 mod prompts;
 mod schemas;
-mod validators;
+
+// Re-use the library surface (exposed via lib.rs) so the bin and integration
+// tests share the same module tree.
+use fw_content_baker::bake::BakeNamesOffline;
+use fw_content_baker::validators::{
+    CultureValidator, PlayerTemplateValidator, RoleAffinityTableValidator,
+    TacticalArchetypeValidator,
+};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -51,14 +56,27 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Bake per-culture player-name banks (first + last + naming-pattern grammar).
+    ///
+    /// T2-3: offline-deterministic path — samples from the culture's existing
+    /// `first_name_bank` × `last_name_bank` via seeded `ChaCha8Rng`.
+    /// Real Claude API call wiring lands at T2-4.
     BakeNames {
-        /// Culture archetype to bake (e.g. anglo, germanic, fantasy-elvish).
-        /// Omit to bake all cultures defined in content/sources/cultures/.
-        #[arg(long)]
-        culture: Option<String>,
-        /// Number of first-name + last-name entries per culture.
+        /// Culture ID to bake (content-pack-qualified, e.g.
+        /// `fwh.core:culture.anglo`). Required — must match a culture loaded
+        /// from `content/sources/cultures/`. Post-T2-3 silent-failure-hunter
+        /// P1 fix: `required = true` so clap surfaces the missing-arg error
+        /// at parse time rather than inside the handler after env_logger init.
+        #[arg(long, required = true)]
+        culture: String,
+
+        /// Number of full-name entries to generate.
         #[arg(long, default_value_t = 50)]
         count_per_bank: usize,
+
+        /// Output directory. Receives `names_<slug>.ron` +
+        /// `names_<slug>.manifest.json`. Defaults to `content/baked/`.
+        #[arg(long, default_value = "content/baked")]
+        output: String,
     },
 
     /// Bake player biographies per culture × role archetype.
@@ -118,19 +136,23 @@ enum Command {
 
     /// Run the **structural** validators over loaded content/sources/**
     /// (role-affinity weight sums, player-template attribute Q32 ranges,
-    /// ability-ceiling bounds, manager → tactical_archetype cross-refs,
-    /// player → signature_definition cross-refs). Useful pre-commit.
+    /// ability-ceiling bounds, culture name-bank minimums,
+    /// tactical-archetype formation correctness).
     ///
     /// **NOT** a full content-pack validation — `banned_terms`,
     /// `licensed_data`, and `cliche` validators return
-    /// `ValidationError::NotImplemented` per T1-12 hardening; they land at
-    /// MASTER_PLAN T2-3 alongside the real bake pipeline. The future
+    /// `ValidationError::NotImplemented` per T1-12 hardening. The future
     /// `validate-semantic` + `validate-content-pack` subcommands ship at T2-3
     /// per Codex workflow improvement #4's 3-way honesty split.
     ///
     /// T1-20 (post-T1-close ultimate-review Track E #1): renamed from
     /// `validate` so the CLI surface stops promising "all validators passed"
     /// when only structural validators actually run.
+    ///
+    /// T2-3: now delegates to the four dedicated `*Validator` structs
+    /// (`RoleAffinityTableValidator`, `PlayerTemplateValidator`,
+    /// `CultureValidator`, `TacticalArchetypeValidator`) rather than
+    /// inline rule lists.
     ValidateStructural,
 }
 
@@ -138,7 +160,7 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
     let cli = Cli::parse();
 
-    log::info!("fw-content-baker stub — implementation lands at MASTER_PLAN T2-3");
+    log::info!("fw-content-baker");
     log::info!("workspace: {}", cli.workspace);
     log::info!("dry_run:   {}", cli.dry_run);
     log::info!("seed:      0x{:016x}", cli.seed);
@@ -147,14 +169,13 @@ fn main() -> anyhow::Result<()> {
         Command::BakeNames {
             culture,
             count_per_bank,
+            output,
         } => {
-            log::info!(
-                "bake-names: culture={:?} count_per_bank={}",
-                culture,
-                count_per_bank
-            );
-            stub_unimplemented("bake-names", "T2-3")
+            let workspace = cli.workspace.clone();
+            let seed = cli.seed;
+            run_bake_names(&workspace, seed, culture, count_per_bank, &output)
         }
+
         Command::BakeBios {
             culture,
             archetype,
@@ -197,57 +218,105 @@ fn main() -> anyhow::Result<()> {
         }
         Command::BakeAll => {
             log::info!("bake-all");
-            stub_unimplemented("bake-all", "T2-3 (names) → T3-3 (rest)")
+            stub_unimplemented("bake-all", "T2-4 (full pipeline orchestration)")
         }
         Command::Manifest => {
             log::info!("manifest");
-            stub_unimplemented("manifest", "T2-3")
+            // Post-T2-3 code-reviewer P1 fix: milestone string was "T2-3" but
+            // `Manifest` (a read-and-print-the-baked-manifest command) was
+            // never in T2-3 scope — `BakeNamesOffline` writes manifests in
+            // this row but a separate read-side surface lands at T2-4 when
+            // the bake-time pipeline can produce more than one bake artifact.
+            stub_unimplemented("manifest", "T2-4")
         }
         Command::ValidateStructural => {
             log::info!("validate-structural");
-            run_validate_structural(&cli)
+            run_validate_structural(&cli.workspace)
         }
     }
 }
 
+// ---------------------------------------------------------------------------
+// bake-names subcommand
+// ---------------------------------------------------------------------------
+
+fn run_bake_names(
+    workspace: &str,
+    seed: u64,
+    culture_id: String,
+    count_per_bank: usize,
+    output: &str,
+) -> anyhow::Result<()> {
+    use fw_content::ContentStore;
+
+    // Post-T2-3 silent-failure-hunter P1 fix: `--culture` is now
+    // `#[arg(long, required = true)]` so clap rejects missing flags at parse
+    // time. The handler no longer needs the `Option::ok_or_else` shim.
+
+    let content_root = PathBuf::from(workspace).join("content");
+    let store = ContentStore::load_sources(&content_root)
+        .map_err(|e| anyhow::anyhow!("content load failed: {e}"))?;
+
+    let cult = store.cultures.get(&culture_id).ok_or_else(|| {
+        let available: Vec<&str> = store.cultures.keys().map(String::as_str).collect();
+        anyhow::anyhow!(
+            "culture {culture_id:?} not found in content/sources/cultures/; \
+             available: {available:?}"
+        )
+    })?;
+
+    let output_dir = PathBuf::from(output);
+    std::fs::create_dir_all(&output_dir)
+        .map_err(|e| anyhow::anyhow!("could not create output dir {output_dir:?}: {e}"))?;
+
+    let baker = BakeNamesOffline {
+        culture: cult,
+        count: count_per_bank,
+        seed,
+    };
+    let (ron_path, manifest_path) = baker
+        .run(&output_dir)
+        .map_err(|e| anyhow::anyhow!("bake failed: {e}"))?;
+
+    println!(
+        "bake-names: wrote {} entries to {} (manifest: {})",
+        count_per_bank,
+        ron_path.display(),
+        manifest_path.display(),
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// validate-structural subcommand
+// ---------------------------------------------------------------------------
+
 /// `validate-structural` subcommand entry point.
 ///
-/// Renamed from `validate` at T1-20 (post-T1-close ultimate-review Track E #1
-/// and Codex workflow improvement #4) — the old name implied full content-pack
-/// validation while only structural checks actually run. The 3-way split lets
-/// the CLI surface stay honest about which validator class is in scope:
-/// `validate-structural` now; `validate-semantic` and `validate-content-pack`
-/// land at T2-3.
+/// T2-3 refactor: delegates all validation to the four dedicated `*Validator`
+/// structs in `fw_content_baker::validators`. Prior implementation had inline
+/// rule lists; the Validator structs are the single audit surface from now on.
 ///
 /// What's implemented today (real, fail-closed):
 /// - Load every committed content fixture under `content/sources/*` via
-///   `fw_content::ContentStore::load_sources` (Codex Tranche 6 loader). The
-///   loader itself enforces manager → tactical_archetype cross-refs (T1-7)
-///   and player_template → signature_definition cross-refs (T1-20).
-/// - For each loaded `RoleAffinityTable`, assert:
-///   * `invalid_roles()` is empty (every role weights sum to 10_000)
-///   * `unknown_attribute_keys()` is empty (every weight key resolves to
-///     `fw_core::VISIBLE_ATTRIBUTE_NAMES`)
-/// - For each loaded `PlayerTemplate`, assert that
-///   `attributes.validate_unit_range()` is empty (every Q32 field in
-///   `[0, 1]`).
+///   `fw_content::ContentStore::load_sources`. The loader itself enforces
+///   manager → tactical_archetype and player → signature_definition
+///   cross-refs (T1-7 + T1-20).
+/// - `RoleAffinityTableValidator`: weight sums + unknown attribute keys.
+/// - `PlayerTemplateValidator`: attribute unit-range + ability-ceiling.
+/// - `CultureValidator`: first/last name bank minimums.
+/// - `TacticalArchetypeValidator`: formation size + buildup-speed range +
+///   roster-slot permutation.
 ///
-/// What's NOT in scope here (deferred to T2-3 `validate-semantic` +
+/// What's NOT in scope (deferred to T2-3 `validate-semantic` +
 /// `validate-content-pack`):
-/// - The bake-time semantic validators (`crates/fw-content-baker/src/validators.rs`
-///   `check_banned_terms` / `check_licensed_data` / `check_cliche`).
-/// - Content-pack manifest cohesion, mod overlay ordering, corpus_version
-///   alignment, baked-fragment audit-trail completeness.
-///
-/// T1-12 audit-triage hardening: the semantic validators above return
-/// `ValidationError::NotImplemented` instead of `Ok(())` — any caller that
-/// mistakenly invokes them before T2-3 will fail loudly. `validate-structural`
-/// does NOT call them; it uses `ContentStore` structural validators directly.
-fn run_validate_structural(cli: &Cli) -> anyhow::Result<()> {
+/// - `check_banned_terms` / `check_licensed_data` / `check_cliche` (still
+///   return `ValidationError::NotImplemented` per T1-12 honesty contract).
+/// - Content-pack manifest cohesion, mod overlay ordering.
+fn run_validate_structural(workspace: &str) -> anyhow::Result<()> {
     use fw_content::ContentStore;
-    use std::path::PathBuf;
 
-    let content_root: PathBuf = PathBuf::from(&cli.workspace).join("content");
+    let content_root: PathBuf = PathBuf::from(workspace).join("content");
     println!(
         "fw-content-baker: running STRUCTURAL validation at {}",
         content_root.display()
@@ -258,35 +327,41 @@ fn run_validate_structural(cli: &Cli) -> anyhow::Result<()> {
 
     let mut errors = Vec::<String>::new();
 
-    // Role-affinity validation (composes the methods on RoleAffinityTable
-    // landed in Tranche 2).
+    // Role-affinity validation.
+    let role_validator = RoleAffinityTableValidator::new();
     for (id, table) in &store.role_affinity_tables {
-        for (role, sum_bps) in table.invalid_roles() {
-            errors.push(format!(
-                "role-affinity {id:?}: role {role:?} weights sum to {sum_bps} bps (expected 10_000)"
-            ));
-        }
-        for (role, bad_key) in table.unknown_attribute_keys() {
-            errors.push(format!(
-                "role-affinity {id:?}: role {role:?} contains unknown / hidden attribute key {bad_key:?}"
-            ));
+        if let Err(e) = role_validator.validate(table) {
+            errors.push(format!("role-affinity {id:?}: {e}"));
         }
     }
 
-    // Player-template validation (composes
-    // PlayerAttributes::validate_unit_range landed in Tranche 2 +
-    // AbilityCeiling::validate landed in pre-T1-2b re-audit P1 fix).
+    // Player-template validation.
+    let player_validator = PlayerTemplateValidator::new();
     for (qid, template) in &store.player_templates {
-        for err in template.attributes.validate_unit_range() {
-            errors.push(format!("player {qid:?} attributes: {err}"));
+        if let Err(e) = player_validator.validate(template) {
+            errors.push(format!("player {qid:?}: {e}"));
         }
-        if let Err(err) = template.ceiling.validate() {
-            errors.push(format!("player {qid:?} ceiling: {err}"));
+    }
+
+    // Culture validation.
+    let culture_validator = CultureValidator::new();
+    for (id, culture) in &store.cultures {
+        if let Err(e) = culture_validator.validate(culture) {
+            errors.push(format!("culture {id:?}: {e}"));
+        }
+    }
+
+    // Tactical-archetype validation.
+    let archetype_validator = TacticalArchetypeValidator::new();
+    for (id, archetype) in &store.tactical_archetypes {
+        if let Err(e) = archetype_validator.validate(archetype) {
+            errors.push(format!("archetype {id:?}: {e}"));
         }
     }
 
     println!(
-        "fw-content-baker: structurally validated {} cultures, {} archetypes, {} role-affinity tables, {} player templates, {} signatures, {} managers",
+        "fw-content-baker: structurally validated {} cultures, {} archetypes, \
+         {} role-affinity tables, {} player templates, {} signatures, {} managers",
         store.cultures.len(),
         store.tactical_archetypes.len(),
         store.role_affinity_tables.len(),

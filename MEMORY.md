@@ -31,7 +31,90 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-(none — T2-2 closed 2026-05-17; `scripts/fw verify` exit 0; **canonical hashes UNCHANGED on both pins** — `fw-content` is a non-canonical-path crate; League / Fixture types live entirely off the sim's per-tick canonical state. Procedural-first per pillar #1: clubs runtime-generated from a single seed (no source RON files). Next /next picks T2-3 (`fw-content-baker` bake-time stub) per declared order + skip-DEFERRED rule. **Also**: 11 commits ahead of origin/main waiting to push.)
+(none — T2-3 closed 2026-05-17; `scripts/fw verify` exit 0; **canonical hashes UNCHANGED on both pins** — `fw-content-baker` is a non-canonical-path bin crate. Next /next picks T2-4 (`PlayerBio` generation — 500 players + phenotype labels + 22-field gene model) per declared order + skip-DEFERRED rule.)
+
+<!-- T2-3 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
+
+<!-- ORIGINAL T2-3 SPEC START — pruned 2026-05-17 — kept commented for one cycle of audit traceability per Codex Tier-2 workflow improvement
+- **id:** T2-3
+- **title:** `fw-content-baker` bake-time content-baker binary stub — validator-as-one-class refactor + offline-deterministic `bake-names` end-to-end + manifest emission
+- **started:** 2026-05-17
+- **task class:** architecture-cross-crate (bin-crate refactor + new bake module + structured error enum extension; no canonical-state touch)
+- **required subagent:** `lead-programmer` (estimated diff 300-500 LoC across `fw-content-baker/`; main-thread exception thresholds exceeded)
+
+### Acceptance criteria (falsifiable)
+
+1. **Validator-as-one-class refactor** — `validators.rs` introduces four dedicated structs (`PlayerTemplateValidator`, `RoleAffinityTableValidator`, `CultureValidator`, `TacticalArchetypeValidator`), each with `pub fn validate(&self, entity: &<Kind>) -> Result<(), ValidationError>` doing chained internal checks per FW v1 `IdentityPacketValidator.cs` carry-forward. `run_validate_structural` in `main.rs` consumes the new types (no inline rule lists).
+2. **Structured rejection per Validator** — for each of the 4 Validators above, a unit test constructs a deliberately-malformed entity that violates exactly ONE chained check + asserts the specific `ValidationError` variant + payload string contains the offending field/id.
+3. **Offline-deterministic `bake-names` end-to-end** — `cargo run -p fw-content-baker -- bake-names --culture <id> --count-per-bank 100 --output <tmpdir>` writes:
+   - one RON file `<tmpdir>/names_<culture_id>.ron` containing 100 distinct synthesized full-name entries (drawn deterministically from the cultures' existing `first_names` × `surnames` lists via seeded ChaCha8Rng);
+   - one sibling manifest `<tmpdir>/names_<culture_id>.manifest.json` containing `{ model_id, prompt_hash, seed, output_path, output_blake3, count }`.
+4. **Offline runtime sample reproduces identically** — running the same `bake-names` command twice into two different tempdirs with the same seed produces byte-identical RON output (and identical `output_blake3` in the manifest).
+5. **Existing structural-validation surface preserved** — `cargo run -p fw-content-baker -- validate-structural` continues to pass on `content/sources/`, with the new validator types replacing the inline rule lists. No regression in T1-12 `NotImplemented` honesty contract for the 3 semantic free-fns (`check_banned_terms`, `check_licensed_data`, `check_cliche` stay `NotImplemented`).
+6. **No canonical hash drift** — bin-crate work only; no `fw-match-sim` / `fw-replay` touch; both pinned hashes UNCHANGED.
+
+### AC-to-test matrix
+
+| Acceptance criterion | Exact test or visual check | Observable that proves it |
+|---|---|---|
+| AC1: validator-as-one-class refactor lands 4 dedicated types | `cargo test -p fw-content-baker --lib validators::tests::four_validators_exist_and_expose_validate_method` | All 4 `*Validator` types exist, each with `pub fn validate(&self, _) -> Result<(), ValidationError>` — verified by direct construction + method call in the test |
+| AC2: each Validator rejects malformed input with structured error | `cargo test -p fw-content-baker --lib validators::tests::{player_template,role_affinity,culture,tactical_archetype}_validator_rejects_malformed_fixture` | 4 distinct tests; each asserts `ValidationError` variant + payload string contains the malformed field name (e.g. `"role-affinity ... weights sum to 9_500 bps"`, `"player template ... attribute Q32 out of [0,1]"`) |
+| AC3: bake-names produces 100 names + manifest | `cargo test -p fw-content-baker --test bake_names_offline_test::bake_names_writes_100_entries_and_manifest_to_tempdir` | After running `BakeNamesOffline::run(...)` against tempdir: `names_<culture>.ron` parses as 100-entry `Vec<String>`; `names_<culture>.manifest.json` parses to a struct with the 6 fields above; `count == 100` |
+| AC4: same seed → byte-identical output | `cargo test -p fw-content-baker --test bake_names_offline_test::bake_names_is_deterministic_same_seed_same_bytes` | `read(tmpdir_a/names_anglo.ron) == read(tmpdir_b/names_anglo.ron)` byte-for-byte; manifest `output_blake3` strings equal |
+| AC5: validate-structural preserved | `cargo run -p fw-content-baker -- validate-structural` exits 0 + prints "STRUCTURAL validation passed" | Process exit 0 + stdout contains the pre-T2-3 success line; refactored to call `PlayerTemplateValidator::default().validate(template)` etc. |
+| AC6: no canonical hash drift | `cargo test -p fw-replay --test canonical_hash` | Both pinned hashes UNCHANGED; PRE-COMMIT canonical-hash-guard.sh exits 0 |
+
+### Files in scope
+
+- `crates/fw-content-baker/src/main.rs` (refactor `run_validate_structural` to consume new Validator types; wire bake-names subcommand to new `bake/` module)
+- `crates/fw-content-baker/src/validators.rs` (heavy refactor: add 4 dedicated Validator structs + extend `ValidationError` enum + add per-validator tests; keep existing `NotImplemented` free-fns + tests untouched per T1-12 honesty)
+- `crates/fw-content-baker/src/bake.rs` (NEW — `BakeNamesOffline` worker + manifest schema + BLAKE3 helper)
+- `crates/fw-content-baker/src/bake/mod.rs` (if `bake.rs` becomes a dir; choose flat single-file initially)
+- `crates/fw-content-baker/tests/bake_names_offline_test.rs` (NEW integration test for AC3 + AC4)
+- `crates/fw-content-baker/Cargo.toml` (add `tempfile` to dev-dependencies if not already present; verify `rand_chacha` is available via fw-core re-export or add direct dev-dep)
+
+### Files out of scope (binding; pause + escalate if needed)
+
+- `docs/DESIGN_DOC.md`, `docs/DECISIONS.md`, `CLAUDE.md`
+- `docs/MASTER_PLAN.md` (only the T2-3 status flip + done-criteria refinement allowed; no other rows)
+- `design/**.md`
+- `crates/fw-content/src/**` (runtime crate; T2-3 is baker-side only)
+- `crates/fw-match-sim/**`, `crates/fw-replay/**`, `crates/fw-save/**`, `crates/fw-memory/**`, `crates/fw-core/**` (canonical-state crates; T2-3 must not touch)
+- `crates/fw-tauri/**`, `src-tauri/**`, `frontend/**`
+- `content/sources/**` (existing committed seeds; baker reads, never mutates)
+- `content/baked/**` (gitignored output dir per Content/RULES.md §7; tests write to tempdir only)
+- `scripts/fw`, `scripts/lint-banned-terms.py`
+- `.claude/**`, `.github/**`, any `Justfile` / `rust-toolchain.toml`
+- Any pin file: `crates/fw-replay/tests/canonical_hash.rs`, fixture RON `expected_hash` fields
+- `crates/fw-content-baker/src/prompts.rs`, `src/schemas.rs`, `src/prompts/*.md` (T2-3 leaves them as staged; no `bake-names` markdown-prompt consumption in OFFLINE mode)
+
+### Intentionally NOT done in this task
+
+- Real Claude API HTTP call wiring (`reqwest` is already a Cargo dep but no live invocation; `--api` mode deferred — needs user budget approval + ANTHROPIC_API_KEY threading; T2-3 ships OFFLINE-deterministic bake only).
+- `bake-bios` / `bake-headlines` / `bake-scout-phrases` / `bake-manager-quotes` / `bake-fan-reactions` / `bake-commentary` / `bake-all` subcommands (stay as `stub_unimplemented` per existing milestone routing T2-4 / T3-3 / T3-5).
+- Mod-overlay loading + corpus_version bumping (deferred to first real `--api` bake).
+- Banned-terms / licensed-data / cliche validator implementation (stays `NotImplemented` per T1-12 + T1-20 honesty; T2-3 only adds the validator-as-one-class STRUCTURAL refactor).
+- Committed sample bake output (`content/baked/**` is gitignored by policy).
+- `validate-semantic` + `validate-content-pack` subcommand authoring (deferred per T1-20 row; T2-3 keeps the existing 3-way honesty split intact).
+
+### Plan
+
+- [ ] Chunk 1: Author `bake.rs` module — `BakeNamesOffline` worker + `BakeManifest` struct + BLAKE3 helper + ChaCha8Rng seeded sampling from `Culture.first_names × Culture.surnames`. Writes RON + manifest sibling. Pure function: takes culture-id + count + seed + output dir; returns paths.
+- [ ] Chunk 2: Extend `ValidationError` enum with new structured variants (`RoleAffinitySumMismatch`, `PlayerAttributeOutOfRange`, `CultureMissingNameBank`, `TacticalArchetypeAttributeWeightInvalid`, etc. as needed). Add 4 dedicated Validator structs (`PlayerTemplateValidator`, `RoleAffinityTableValidator`, `CultureValidator`, `TacticalArchetypeValidator`) with `Default + ::new()` constructors + `pub fn validate(&self, entity: &<Kind>) -> Result<(), ValidationError>`. Each `.validate()` chains the existing structural checks (currently scattered through `main.rs::run_validate_structural`) and returns FIRST violation.
+- [ ] Chunk 3: Refactor `main.rs::run_validate_structural` to consume the 4 new Validators. Iterate `store.role_affinity_tables` → `RoleAffinityTableValidator::default().validate(&table)`, accumulate errors, etc. Behavior preserved: same checks, same error messages, same exit code.
+- [ ] Chunk 4: Wire `BakeNames` subcommand in `main.rs` to call `BakeNamesOffline::run(...)` when `--culture` is specified + `--api` is absent (default = offline). Add new CLI args: `--output <dir>` (default `content/baked/`) + remove `--api` ambiguity (omit the flag for T2-3 — offline-only). Print summary line + exit 0.
+- [ ] Chunk 5: Per-Validator unit tests (AC2) — 4 tests, one per Validator, each constructing a malformed fixture in-test + asserting the specific `ValidationError` variant + offending-id substring.
+- [ ] Chunk 6: Integration test `tests/bake_names_offline_test.rs` (AC3 + AC4) — runs `BakeNamesOffline::run` against `TempDir` twice with the same seed, asserts: (a) RON file parses to 100-entry Vec; (b) manifest JSON parses with all 6 fields; (c) two runs produce byte-identical output. Plus a determinism-across-runs test using two distinct tempdirs.
+
+### Design references
+
+- T2-3 row in `docs/MASTER_PLAN.md` line 239 (scope + done criteria)
+- FW v1 carry-forward: `MatchSim/Content/IdentityPacketValidator.cs` per `REFERENCES.md` (validator-as-one-class pattern reference)
+- `Content/RULES.md` §3 (schema versioning), §7 (gitignored content/baked/), §8 (FW-VAL contract)
+- `crates/fw-content-baker/src/main.rs::run_validate_structural` lines 246-310 (existing inline validation rules to refactor)
+- `crates/fw-content/src/runtime.rs` `ContentStore::load_sources` (loader the validator-as-one-class refactor consumes from)
+
+ORIGINAL T2-3 SPEC END -->
 
 <!-- T2-2 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
 
@@ -633,6 +716,8 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 5. Commit atomically. Flag in commit body: **The "match-engine vertical complete" claim from T1-6/T1-7 is now ACTUALLY true** (was false at those commit times per Codex's audit). The canonical hash drift IS the proof T1-3.5 didn't actually work end-to-end. T1-8 + T1-9 are next + actually have behavior to test against now.
 
 ## Recently completed
+
+- 2026-05-17 — **T2-3 `fw-content-baker`: validator-as-one-class refactor + offline-deterministic `bake-names` end-to-end + manifest emission.** Ships 4 dedicated `<Kind>Validator` structs in `validators.rs` (`PlayerTemplateValidator` / `RoleAffinityTableValidator` / `CultureValidator` / `TacticalArchetypeValidator`) each with `Default + ::new()` + `pub fn validate(&self, &<Kind>) -> Result<(), ValidationError>` chaining private check methods (carry-forward from FW v1 `MatchSim/Content/IdentityPacketValidator.cs` per REFERENCES.md). 9 new structured `ValidationError` variants (`RoleAffinityWeightSumMismatch`, `RoleAffinityUnknownAttributeKey`, `PlayerAttributeOutOfRange`, `PlayerCeilingInvalid`, `CultureFirstNameBankTooSmall`, `CultureLastNameBankTooSmall`, `TacticalArchetypeFormationWrongSize`, `TacticalArchetypeBuildupSpeedOutOfRange`, `TacticalArchetypeDuplicateRosterSlots`). `main.rs::run_validate_structural` refactored to consume the 4 new types; existing 3 `NotImplemented` free-fns (`check_banned_terms` / `check_licensed_data` / `check_cliche`) preserved per T1-12 honesty. NEW `bake.rs` module with `BakeNamesOffline<'a>` worker (seeded ChaCha8Rng samples `Culture.first_name_bank × Culture.last_name_bank`; LF-newline RON for cross-platform byte-identity) + `BakeManifest` JSON sidecar (`model_id` / `prompt_hash` BLAKE3 hex of stable offline prompt-template / `seed` / `output_path` BARE FILENAME / `output_blake3` / `count`). `BakeNames` CLI subcommand wired end-to-end (`--culture <id>` required, `--count-per-bank N` default 50, `--output <dir>` default `content/baked/`). Real Claude API path deferred to T2-4 (`reqwest` + `tokio` deps already wired pre-T2-3 but unused this row; `model_id = "offline-v1"` for the deterministic path). NEW `src/lib.rs` re-exports `bake` + `validators` for integration-test access alongside the existing `[[bin]]` target. 22 tests green (17 unit + 5 integration). Self-review triple: silent-failure-hunter REVISE with 1 P0 + 3 P1 + 1 P1-edge — ALL fixed in-place: P0 patronymic-pattern silent substitution → fail-loud (`io::Error::other` when pattern contains `{patronymic}`; multi-component support deferred to T2-4); P1 slug-collision silent overwrite → `AlreadyExists` guard on both RON + manifest paths so concurrent bakes across pack-id namespaces (Content/RULES.md §6 mod overlays) surface the collision rather than hiding it; P1 `validate_fragment` chain fragility → returns OWN `NotImplemented{validator: "validate_fragment", defer_to: "T2-4"}` instead of chaining three identical-shape errors with a brittle ordering test; P1 CLI `--culture` `Option<String>` → `required = true` String so clap rejects missing flag at parse time; P1-edge `team_name_bank` CultureValidator doc-honesty gap → doc-comment now explicitly says T2-4 deferral. Type-design-analyzer Accept-with-revisions: 4 P2 follow-ups deferred (F1 `output_path: PathBuf` instead of String; F2 `model_id` as enum; F4 `MIN_NAME_BANK_SIZE` const dedup + runtime `minimum` field in error; F5 `Culture` invariant lives only in validator not the type — file for T2-4). Code-reviewer: 3 P1s — 2 fixed in-place (manifest `output_path` absolute-path non-determinism → bare filename; `Command::Manifest` stub milestone string `T2-3` → `T2-4`); 1 deferred as P2 (workspace-hoist `clap` / `tokio` / `reqwest` / `jsonschema` from inline version strings — requires root Cargo.toml touch which is out-of-scope for T2-3; also drop `tokio` + `reqwest` until first API consumer at T2-4). **Canonical hashes UNCHANGED on both pins** — bin-crate work; sim crates untouched; `[serde(skip)]` not involved. `scripts/fw verify` exit 0 end-to-end. Smoke `bake-names --culture fwh.core:culture.anglo --count-per-bank 100 --output /tmp/fw-bake-test` writes 100 entries; manifest `output_path = "names_anglo.ron"` (bare filename, not absolute); re-run fails with `AlreadyExists: refusing to overwrite`. Next /next picks **T2-4** (`PlayerBio` generation — 500 players + phenotype labels + 22-field gene model port from `design/player-generation.md`).
 
 - 2026-05-17 — **T2-2 `fw-content`: procedural league + double-round-robin fixture generator (`generate_league(seed, content) -> League`).** User-resolved /next ambiguity gate: clubs RUNTIME-GENERATED from a single seed per pillar #1 (no source RON files); fixture algorithm = simple double round-robin via circle method (20 × 19 = 380 matches; 38 match-days × 10 matches/day; deterministic). Also deferred T2-1d2 (utility_shoot rewire + coefficient apply) to end-of-T2 cadence per the same ambiguity gate — `personality-bias-weights.md §Re-tuning cadence` explicit "wait for BT to mature" guidance + the chicken-and-egg with the fit (post-rewire shot distribution differs from pre-rewire corpus). **Authoring**: NEW `crates/fw-content/src/league.rs` (~290 LoC) with `League` + `Fixture` types + `generate_fixtures(club_ids, _seed)` (circle method) + `generate_league(seed, content)` (loops `generate_team` 20× with per-club seed derivation via `seed_fn(career_seed, club_idx, SeedLayer::ContentBake, 0)` + culture/archetype/manager round-robin assignment from BTreeMap-ordered catalogs); NEW `crates/fw-content/tests/league_generation_test.rs` (~210 LoC) with 4 integration tests covering AC3 (count + structure), AC4 (fixture pair-coverage + per-club 19 home/19 away + per-match-day 10 fixtures + each club exactly once per day), AC5 (same-seed byte-identical via direct struct equality + serde JSON byte-equality), AC6 (different seeds → at least one club display_name differs). **Pub constants** added to lib.rs re-exports: `CLUBS_PER_LEAGUE = 20`, `MATCH_DAYS_PER_SEASON = 38`, `MATCHES_PER_SEASON = 380`. **Canonical hashes UNCHANGED on both pins** — `fw-content` is non-canonical-path; new types live entirely off the sim's per-tick canonical state. `scripts/fw verify` exit 0 (cargo fmt + clippy + cargo test --workspace + pnpm test 56 frontend + banned-terms + canonical-hash regression on both pins UNCHANGED + content-pack validate-structural + hash-pins atomicity test + cargo audit + cargo deny). Self-review triple SKIPPED per the established carve-out for content-style work (no new sim-canonical types; tests exhaustively verify load-bearing circle-method behavior; non-canonical-path crate; the quality-multiplier framing per /next Step 6 T1+ non-canonical paths). Next /next picks **T2-3** (`fw-content-baker` bake-time content-baker binary stub) per declared order.
 
