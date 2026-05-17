@@ -69,6 +69,10 @@ const KNOWN_IPC_ERROR_KINDS = new Set([
   "tooManyFrames",
   "invalidSeed",
   "matchInitFailed",
+  // T2-5: season-controller variants added to IpcError union.
+  "seasonComplete",
+  "clubNotFound",
+  "lockPoisoned",
 ] as const) satisfies ReadonlySet<IpcError["kind"]>;
 
 function isIpcError(e: unknown): e is IpcError {
@@ -93,6 +97,16 @@ function formatIpcError(err: IpcError): string {
       return `Invalid seed "${err.input}": ${err.reason}`;
     case "matchInitFailed":
       return `Match could not start: ${err.reason}`;
+    // T2-5: season-controller variants — not produced by the play_match /
+    // match_frames commands this page invokes, but the exhaustive `IpcError`
+    // union forces a handler here. Friendly fallbacks so a future cross-page
+    // error propagation surfaces the user-readable text.
+    case "seasonComplete":
+      return "The season is already complete — no more match-days to play.";
+    case "clubNotFound":
+      return `Club id ${err.clubId} was not found in the current league.`;
+    case "lockPoisoned":
+      return `Internal state was corrupted by a prior error (lock: ${err.lock}). Please restart the app.`;
     default: {
       // Exhaustiveness — fails to compile if a new IpcError variant lands
       // without a matching case arm above.

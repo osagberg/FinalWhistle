@@ -32,6 +32,8 @@
 //! [MatchResult; 10]` boundary maps to `League.fixtures.iter().filter(|f|
 //! f.match_day == target_day)`.
 
+use std::collections::BTreeMap;
+
 use fw_core::{ClubId, Seed};
 use serde::{Deserialize, Serialize};
 
@@ -336,4 +338,263 @@ pub fn generate_league(seed: Seed, content: &ContentStore) -> Result<League, Pro
         clubs,
         fixtures,
     })
+}
+
+// ---------------------------------------------------------------------------
+// SeasonState — mutable season-progress wrapper consumed by fw-tauri T2-5
+// ---------------------------------------------------------------------------
+
+/// Final score for a played fixture.
+///
+/// Stored by `SeasonState::apply_result`; read by `standings()` +
+/// `fixtures_for_club()`. Scores are `u8` matching `MatchState::home_score` /
+/// `MatchState::away_score` exactly (no widening at the data layer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MatchOutcome {
+    pub home_score: u8,
+    pub away_score: u8,
+}
+
+/// One row in the league standings table.
+///
+/// `goal_difference` is `i32` — can be negative (goals_for - goals_against).
+/// All other counts fit in `u16` (max 38 played × max 99 goals = 3762 goals,
+/// comfortably within 65535).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StandingsRow {
+    pub club_id: ClubId,
+    pub club_name: String,
+    pub played: u16,
+    pub wins: u16,
+    pub draws: u16,
+    pub losses: u16,
+    pub goals_for: u16,
+    pub goals_against: u16,
+    pub goal_difference: i32,
+    pub points: u16,
+}
+
+/// Full league table, sorted canonical order:
+/// `(points DESC, goal_difference DESC, goals_for DESC, club_id ASC)`.
+///
+/// Length is always `CLUBS_PER_LEAGUE`. Each `Standings::rows` entry
+/// corresponds to one club; the position is the 0-indexed rank.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Standings {
+    pub rows: Vec<StandingsRow>,
+}
+
+/// Active season progress: which match-days have been played and what the
+/// final scores were.
+///
+/// ## Invariants
+///
+/// - `league.clubs.len() == CLUBS_PER_LEAGUE` (enforced by `generate_league`).
+/// - `current_match_day` starts at `1` and increments by 1 per
+///   `advance_week` call. `is_complete()` returns true when
+///   `current_match_day > MATCH_DAYS_PER_SEASON`.
+/// - `results` contains exactly the fixtures already played; unplayed
+///   fixtures are absent.
+/// - `tactical_archetype_ids` has one entry per `ClubId` in `league.clubs`.
+///
+/// ## Field visibility
+///
+/// All fields are `pub` because `fw-tauri` (a different crate) must read
+/// them to orchestrate IPC commands. However, the "correct" mutation path is
+/// `apply_result()` + bumping `current_match_day` — direct field mutation
+/// bypasses the invariants above. Use the accessors.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeasonState {
+    pub league: League,
+    /// Next match-day to be played (1-indexed). Starts at 1; advances to
+    /// `MATCH_DAYS_PER_SEASON + 1` when the season is complete.
+    pub current_match_day: u16,
+    /// Results keyed by `(home, away)` `ClubId` pair — the same pair as the
+    /// `Fixture`. `BTreeMap` for deterministic iteration.
+    pub results: BTreeMap<(ClubId, ClubId), MatchOutcome>,
+    /// Per-club tactical archetype ID, derived at construction via the same
+    /// round-robin used by `generate_league`. Stored here because
+    /// `TeamTemplate` doesn't carry `tactical_archetype_id` (out of T2-5 scope
+    /// to change `team.rs`).
+    pub tactical_archetype_ids: BTreeMap<ClubId, String>,
+}
+
+impl SeasonState {
+    /// Construct a fresh season state for the given league.
+    ///
+    /// `tactical_archetype_ids` is assigned via the same round-robin as
+    /// `generate_league`: club at index `i` gets
+    /// `archetype_ids[i % archetype_ids.len()]`.
+    ///
+    /// Starts at `current_match_day = 1`; `results` is empty (no fixtures
+    /// played yet).
+    pub fn new(league: League, content: &ContentStore) -> Self {
+        // Mirror the archetype round-robin from generate_league. BTreeMap
+        // iteration order is key-sorted — same as generate_league — so the
+        // assignment is identical to what the procgen loop did.
+        let archetype_ids: Vec<&str> = content
+            .tactical_archetypes
+            .keys()
+            .map(String::as_str)
+            .collect();
+        // Invariant: `archetype_ids` is non-empty here. Reachability proof:
+        // `SeasonState::new` is only called by `AppState::new_with_career_seed`
+        // AFTER `generate_league(career_seed, content)` returned `Ok(league)`.
+        // `generate_league` itself FAILS with `ProcGenError::MissingTacticalArchetype`
+        // if `content.tactical_archetypes.is_empty()` (see league.rs:259-263).
+        // Therefore, by the time we reach here, the archetypes BTreeMap is
+        // guaranteed non-empty.
+        //
+        // Post-T2-5 silent-failure-hunter P0 fix: the prior code held a silent
+        // string-literal fallback (`"fwh.core:archetype.attacking-fullback"`)
+        // that duplicated `fw_match_sim::DEFAULT_ARCHETYPE_ID` with only a
+        // comment as sync mechanism — a latent drift footgun if DEFAULT_ARCHETYPE_ID
+        // were renamed, AND a misleading comment that claimed
+        // `ContentStore::load_sources` validates non-emptiness (it does NOT;
+        // `generate_league` is the actual gatekeeper). Both removed.
+        assert!(
+            !archetype_ids.is_empty(),
+            "SeasonState::new precondition violated: tactical_archetypes empty after \
+             successful generate_league(). This is a defect — generate_league must \
+             have returned Err(MissingTacticalArchetype) instead of Ok(_)."
+        );
+        let tactical_archetype_ids: BTreeMap<ClubId, String> = league
+            .clubs
+            .iter()
+            .enumerate()
+            .map(|(i, club)| {
+                let arch_id = archetype_ids[i % archetype_ids.len()].to_owned();
+                (club.id, arch_id)
+            })
+            .collect();
+
+        SeasonState {
+            league,
+            current_match_day: 1,
+            results: BTreeMap::new(),
+            tactical_archetype_ids,
+        }
+    }
+
+    /// Returns `true` when all `MATCH_DAYS_PER_SEASON` match-days have been
+    /// played (i.e., `current_match_day > MATCH_DAYS_PER_SEASON`).
+    pub fn is_complete(&self) -> bool {
+        self.current_match_day > MATCH_DAYS_PER_SEASON
+    }
+
+    /// Return all fixtures scheduled for `match_day`. Empty `Vec` if the
+    /// match-day is out of range.
+    pub fn fixtures_for_match_day(&self, match_day: u16) -> Vec<&Fixture> {
+        self.league
+            .fixtures
+            .iter()
+            .filter(|f| f.match_day == match_day)
+            .collect()
+    }
+
+    /// Record the outcome of a played fixture.
+    ///
+    /// Overwrites a prior result for the same `(home, away)` pair — this
+    /// permits re-running a match-day in tests without special-casing.
+    pub fn apply_result(&mut self, home: ClubId, away: ClubId, outcome: MatchOutcome) {
+        self.results.insert((home, away), outcome);
+    }
+
+    /// Compute league standings from the recorded results.
+    ///
+    /// Sort order (canonical): `(points DESC, goal_difference DESC,
+    /// goals_for DESC, club_id ASC)`.
+    pub fn standings(&self) -> Standings {
+        // Build per-club accumulators. BTreeMap so the iteration below is
+        // deterministic (required by Sim/RULES.md §2, which applies to any
+        // computation touching canonical-adjacent state).
+        let mut rows: BTreeMap<ClubId, StandingsRow> = self
+            .league
+            .clubs
+            .iter()
+            .map(|club| {
+                (
+                    club.id,
+                    StandingsRow {
+                        club_id: club.id,
+                        club_name: club.display_name.clone(),
+                        played: 0,
+                        wins: 0,
+                        draws: 0,
+                        losses: 0,
+                        goals_for: 0,
+                        goals_against: 0,
+                        goal_difference: 0,
+                        points: 0,
+                    },
+                )
+            })
+            .collect();
+
+        for ((home, away), outcome) in &self.results {
+            let hg = outcome.home_score as u16;
+            let ag = outcome.away_score as u16;
+
+            if let Some(row) = rows.get_mut(home) {
+                row.played += 1;
+                row.goals_for += hg;
+                row.goals_against += ag;
+                row.goal_difference = row.goals_for as i32 - row.goals_against as i32;
+                if hg > ag {
+                    row.wins += 1;
+                    row.points += 3;
+                } else if hg == ag {
+                    row.draws += 1;
+                    row.points += 1;
+                } else {
+                    row.losses += 1;
+                }
+            }
+
+            if let Some(row) = rows.get_mut(away) {
+                row.played += 1;
+                row.goals_for += ag;
+                row.goals_against += hg;
+                row.goal_difference = row.goals_for as i32 - row.goals_against as i32;
+                if ag > hg {
+                    row.wins += 1;
+                    row.points += 3;
+                } else if ag == hg {
+                    row.draws += 1;
+                    row.points += 1;
+                } else {
+                    row.losses += 1;
+                }
+            }
+        }
+
+        let mut sorted: Vec<StandingsRow> = rows.into_values().collect();
+        // Canonical sort: points DESC, then goal_difference DESC, then
+        // goals_for DESC, then club_id ASC (tie-break determinism).
+        sorted.sort_by(|a, b| {
+            b.points
+                .cmp(&a.points)
+                .then(b.goal_difference.cmp(&a.goal_difference))
+                .then(b.goals_for.cmp(&a.goals_for))
+                .then(a.club_id.cmp(&b.club_id))
+        });
+
+        Standings { rows: sorted }
+    }
+
+    /// Return all fixtures involving `club_id` (19 home + 19 away = 38 total),
+    /// in match-day order, each paired with its `Option<MatchOutcome>`.
+    ///
+    /// Returns an empty `Vec` if `club_id` is not in the league.
+    pub fn fixtures_for_club(&self, club_id: ClubId) -> Vec<(Fixture, Option<MatchOutcome>)> {
+        self.league
+            .fixtures
+            .iter()
+            .filter(|f| f.home == club_id || f.away == club_id)
+            .map(|f| {
+                let outcome = self.results.get(&(f.home, f.away)).copied();
+                (*f, outcome)
+            })
+            .collect()
+    }
 }

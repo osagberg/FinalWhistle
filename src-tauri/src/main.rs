@@ -28,6 +28,10 @@ fn main() {
             fw_tauri::commands::play_match,
             fw_tauri::commands::match_frames,
             fw_tauri::commands::get_backend_handshake,
+            fw_tauri::commands::advance_week,
+            fw_tauri::commands::play_fixtures,
+            fw_tauri::commands::get_standings,
+            fw_tauri::commands::get_fixtures,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

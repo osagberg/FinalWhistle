@@ -36,6 +36,39 @@ pub enum IpcError {
     /// The sim failed to initialise — typically a ContentStore problem.
     #[error("match init failed: {reason}")]
     MatchInitFailed { reason: String },
+
+    /// `advance_week` was called after the season was already complete.
+    #[error("season is already complete; cannot advance further")]
+    SeasonComplete,
+
+    /// `get_fixtures` was called with a club ID that does not exist in the
+    /// current league.
+    ///
+    /// Post-T2-5 code-reviewer P0 fix: named-field variant (was tuple
+    /// `ClubNotFound(u32)`) so the wire shape is the clean
+    /// `{ kind: "clubNotFound", clubId: N }` rather than the ugly
+    /// `{ kind: "clubNotFound", "0": N }` that serde produces for tuple
+    /// variants under `#[serde(tag = "kind")]`. The TS `IpcError` union
+    /// can pattern-match on `clubId` cleanly.
+    #[error("club id {club_id} not found in current league")]
+    ClubNotFound { club_id: u32 },
+
+    /// An internal `RwLock` / `Mutex` was poisoned by a prior writer panic.
+    ///
+    /// Post-T2-5 silent-failure-hunter P1-3 fix: prior code used
+    /// `.expect("season RwLock poisoned")` everywhere, which converted a
+    /// poisoned-lock state into a handler PANIC. Per `Tauri/RULES.md §4`
+    /// ("Never panic in a handler. Map all errors to `IpcError` variants."),
+    /// poisoning must become a structured error the frontend can surface.
+    /// `lock` names the field (e.g. `"season"`).
+    ///
+    /// `lock` is `String` not `&'static str` so `IpcError` continues to
+    /// implement `Deserialize<'de>` for any `'de` lifetime — needed by the
+    /// `round_trip_deserialize_preserves_fields` test which roundtrips
+    /// through a runtime-allocated JSON string. Callers construct with
+    /// `lock: "season".to_string()` from a static literal.
+    #[error("internal lock {lock:?} poisoned by prior panic — app restart required")]
+    LockPoisoned { lock: String },
 }
 
 impl From<ContentLoadError> for IpcError {

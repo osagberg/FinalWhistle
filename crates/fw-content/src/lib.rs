@@ -29,8 +29,8 @@ pub use commentary::{
 // (was in commentary; cyclic-import once MatchEvent::discriminant() returns it).
 pub use event::{MatchEvent, MatchEventDiscriminant, PassKind, is_shot_on_target};
 pub use league::{
-    CLUBS_PER_LEAGUE, Fixture, League, MATCH_DAYS_PER_SEASON, MATCHES_PER_SEASON,
-    generate_fixtures, generate_league,
+    CLUBS_PER_LEAGUE, Fixture, League, MATCH_DAYS_PER_SEASON, MATCHES_PER_SEASON, MatchOutcome,
+    SeasonState, Standings, StandingsRow, generate_fixtures, generate_league,
 };
 pub use manager::{
     MANAGER_ARCHETYPE_SCHEMA_VERSION, ManagerArchetype, ManagerArchetypeError, ManagerArchetypeId,

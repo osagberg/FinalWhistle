@@ -96,12 +96,23 @@ export interface MatchResult {
 //   { kind: "tooManyFrames", requested: 7201, max: 7200 }
 //   { kind: "invalidSeed", input: "0xggg", reason: "..." }
 //   { kind: "matchInitFailed", reason: "..." }
+//   { kind: "seasonComplete" }                                     (T2-5)
+//   { kind: "clubNotFound", clubId: 99999 }                        (T2-5)
+//   { kind: "lockPoisoned", lock: "season" }                       (T2-5)
+//
+// Post-T2-5 code-reviewer P0 fix: prior union omitted the three season-
+// controller variants. Any TS caller pattern-matching on `IpcError` would
+// silently fall through on those discriminants — a real coverage gap given
+// `advance_week` is called in a loop driven by checking for `seasonComplete`.
 // ---------------------------------------------------------------------------
 
 export type IpcError =
   | { kind: "tooManyFrames"; requested: number; max: number }
   | { kind: "invalidSeed"; input: string; reason: string }
-  | { kind: "matchInitFailed"; reason: string };
+  | { kind: "matchInitFailed"; reason: string }
+  | { kind: "seasonComplete" }
+  | { kind: "clubNotFound"; clubId: number }
+  | { kind: "lockPoisoned"; lock: string };
 
 // ---------------------------------------------------------------------------
 // Frame-cap constant — mirrors `fw_tauri::MAX_FRAMES_PER_REQUEST`.
@@ -113,6 +124,54 @@ export type IpcError =
 
 /** Maximum frames per `match_frames` request (= 2 min at 60 Hz). */
 export const MAX_FRAMES_PER_REQUEST = 7200 as const;
+
+// ---------------------------------------------------------------------------
+// T2-5 season controller DTOs — mirrors fw-tauri season command return types
+// ---------------------------------------------------------------------------
+
+/** Returned by `advance_week`. */
+export interface AdvanceWeekSummary {
+  matchDayPlayed: number;
+  matchesPlayed: number;
+  seasonComplete: boolean;
+}
+
+/** Returned by `play_fixtures`. */
+export interface PlayFixturesSummary {
+  matchesPlayed: number;
+  finalMatchDay: number;
+}
+
+/** One row in the league standings table, returned by `get_standings`. */
+export interface StandingsRow {
+  clubId: number;
+  clubName: string;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifference: number;
+  points: number;
+}
+
+/**
+ * One fixture entry returned by `get_fixtures(clubId)`.
+ *
+ * `homeScore` / `awayScore` are absent (not serialized) for unplayed
+ * fixtures — the Rust side uses `skip_serializing_if = "Option::is_none"`.
+ * Consumers should check `played` rather than presence of score fields.
+ */
+export interface FixtureWithResult {
+  matchDay: number;
+  opponentClubId: number;
+  opponentClubName: string;
+  isHome: boolean;
+  played: boolean;
+  homeScore?: number;
+  awayScore?: number;
+}
 
 // ---------------------------------------------------------------------------
 // T1-2a tactical board DTOs — mirrors fw-match-sim::dto (camelCase serde)

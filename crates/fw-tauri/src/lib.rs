@@ -33,9 +33,13 @@ pub mod commands;
 pub mod error;
 pub mod handshake;
 pub mod result;
+pub mod season;
 pub mod state;
 
-pub use commands::{get_backend_handshake, match_frames, play_match};
+pub use commands::{
+    advance_week, get_backend_handshake, get_fixtures, get_standings, match_frames, play_fixtures,
+    play_match,
+};
 pub use error::IpcError;
 pub use handshake::BackendHandshakeDto;
 pub use result::{MatchEventDto, MatchResult, Score};
@@ -47,6 +51,64 @@ pub use state::AppState;
 /// ticks/s = 7200 ticks). Pre-invoke validation in `TauriFrameSource` mirrors
 /// this constant — see `frontend/src/lib/types.ts:MAX_FRAMES_PER_REQUEST`.
 pub const MAX_FRAMES_PER_REQUEST: u32 = 7200;
+
+// -------------------------------------------------------------------------
+// Season DTOs (T2-5) — returned by the 4 season IPC commands
+// -------------------------------------------------------------------------
+
+/// Returned by `advance_week`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvanceWeekSummaryDto {
+    pub match_day_played: u16,
+    pub matches_played: u16,
+    pub season_complete: bool,
+}
+
+/// Returned by `play_fixtures`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayFixturesSummaryDto {
+    pub matches_played: u32,
+    pub final_match_day: u16,
+}
+
+/// One row in the standings table, returned as an element of
+/// `Vec<StandingsRowDto>` by `get_standings`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StandingsRowDto {
+    /// `ClubId.raw()` — raw u32 wire form; TS receives as `number`.
+    pub club_id: u32,
+    pub club_name: String,
+    pub played: u16,
+    pub wins: u16,
+    pub draws: u16,
+    pub losses: u16,
+    pub goals_for: u16,
+    pub goals_against: u16,
+    pub goal_difference: i32,
+    pub points: u16,
+}
+
+/// One fixture entry in the `get_fixtures(club_id)` response.
+///
+/// `homeScore` / `awayScore` are `None` for unplayed fixtures (serde omits
+/// `null` via `skip_serializing_if`; TS receives `undefined` → consumers
+/// treat absent as unplayed).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FixtureWithResultDto {
+    pub match_day: u16,
+    pub opponent_club_id: u32,
+    pub opponent_club_name: String,
+    pub is_home: bool,
+    pub played: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub home_score: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub away_score: Option<u8>,
+}
 
 // -------------------------------------------------------------------------
 // Frontend DTOs — what the SolidJS side sees

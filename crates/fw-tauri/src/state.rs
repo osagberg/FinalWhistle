@@ -6,45 +6,91 @@
 //! Command handlers receive `tauri::State<'_, AppState>` and read the
 //! pre-loaded store without touching the filesystem.
 //!
+//! T2-5 adds `career_seed: Seed` + `season: RwLock<SeasonState>`. The
+//! `RwLock` allows concurrent read-only commands (`get_standings`,
+//! `get_fixtures`) without blocking each other, while single-writer
+//! mutations (`advance_week`, `play_fixtures`) take the write lock.
+//!
 //! The `Arc<BTreeMap<...>>` for signature_definitions is extracted at
 //! construction time — Arc-clone per command avoids re-borrowing the whole
 //! ContentStore across the async command boundary.
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-use fw_content::{ContentLoadError, ContentStore, SignatureDefinition};
+use fw_content::{
+    ContentLoadError, ContentStore, SeasonState, SignatureDefinition, generate_league,
+};
+use fw_core::{Seed, SeedLayer, seed_fn};
+
+/// The default career seed used when no explicit seed is provided.
+///
+/// `0xfeed_beef_cafe_fade` is arbitrary but memorable; production saves will
+/// supply a random seed generated at career-creation time.
+const DEFAULT_CAREER_SEED: u64 = 0xfeed_beef_cafe_fade;
 
 /// Application-level state managed by Tauri.
 ///
-/// Held in a `tauri::State<'_, AppState>` behind a `Mutex` inside Tauri's
-/// state container. Command handlers borrow it read-only; the state is never
-/// mutated after construction.
+/// T2-5 shape: content store (read-only after construction) + career seed +
+/// mutable season state behind an `RwLock`.
 ///
-/// Fields are `pub(crate)` — external consumers go through the
-/// [`content`](Self::content) / [`signature_definitions`](Self::signature_definitions)
-/// accessors so the "never mutated after construction" invariant is
-/// type-enforced, not just doc'd. T1-5 type-design audit P2 (F1).
+/// Read commands (`get_standings`, `get_fixtures`) acquire a read lock.
+/// Write commands (`advance_week`, `play_fixtures`) acquire the write lock.
+///
+/// Fields are `pub(crate)` — external consumers go through the accessor
+/// methods so the invariant "season mutations go through `SeasonState` API" is
+/// doc-enforced, not just convention.
 pub struct AppState {
     pub(crate) content: ContentStore,
     /// Arc-clone of `content.signature_definitions` for cheap per-command
     /// access without re-borrowing `content` across the async boundary.
     pub(crate) signature_definitions: Arc<BTreeMap<String, SignatureDefinition>>,
+    /// The career seed used to generate the current league + fixture seeds.
+    pub(crate) career_seed: Seed,
+    /// Mutable season state. `RwLock` allows concurrent reads (standings,
+    /// fixtures) while serialising writes (advance_week, play_fixtures).
+    pub(crate) season: RwLock<SeasonState>,
 }
 
 impl AppState {
-    /// Construct `AppState` from a content root directory.
+    /// Construct `AppState` from a content root directory, using the default
+    /// career seed.
     ///
-    /// Loads the full `ContentStore` from the given path, then Arc-clones
-    /// `signature_definitions` for per-command perf-cached access. Called
-    /// once at app startup.
+    /// `generate_league` is called eagerly at construction time. It only fails
+    /// on a malformed empty `ContentStore` (missing cultures/archetypes/managers)
+    /// which `load_sources` already validated. A failure here means the
+    /// content directory is corrupted post-load, so `expect` is the right
+    /// escalation — not a fallible `Result` variant.
     pub fn new(content_root: &Path) -> Result<Self, ContentLoadError> {
+        Self::new_with_career_seed(content_root, Seed::from_u64(DEFAULT_CAREER_SEED))
+    }
+
+    /// Construct `AppState` with an explicit career seed.
+    ///
+    /// Used by integration tests to supply a known seed for determinism checks.
+    pub fn new_with_career_seed(
+        content_root: &Path,
+        career_seed: Seed,
+    ) -> Result<Self, ContentLoadError> {
         let content = ContentStore::load_sources(content_root)?;
         let signature_definitions = Arc::new(content.signature_definitions.clone());
+
+        // generate_league is a pure function of (seed, content). A failure
+        // here means missing cultures/archetypes/managers — load_sources
+        // already validated these are present, so this panic is a true
+        // post-load content corruption, not a user-visible error path.
+        let league = generate_league(career_seed, &content).expect(
+            "generate_league must succeed on a valid ContentStore; \
+             failure here means the content directory was corrupted post-load",
+        );
+        let season = SeasonState::new(league, &content);
+
         Ok(AppState {
             content,
             signature_definitions,
+            career_seed,
+            season: RwLock::new(season),
         })
     }
 
@@ -62,6 +108,70 @@ impl AppState {
     pub fn signature_definitions(&self) -> &Arc<BTreeMap<String, SignatureDefinition>> {
         &self.signature_definitions
     }
+
+    /// The career seed (T2-5). Used to derive per-fixture seeds so the same
+    /// career seed always produces the same season results.
+    pub fn career_seed(&self) -> Seed {
+        self.career_seed
+    }
+
+    /// Access to the mutable season state.
+    ///
+    /// Callers acquire read or write locks as appropriate. Post-T2-5
+    /// silent-failure-hunter P1-3 fix: do NOT `.expect()` on a poisoned
+    /// lock from inside an IPC handler (that violates Tauri/RULES.md §4
+    /// "Never panic in a handler"). Instead, map the poison error to
+    /// [`IpcError::LockPoisoned`] so the frontend can surface a structured
+    /// "internal state corrupted — restart" message:
+    ///
+    /// ```ignore
+    /// let season = state
+    ///     .season()
+    ///     .read()
+    ///     .map_err(|_| IpcError::LockPoisoned { lock: "season".to_string() })?;
+    /// ```
+    pub fn season(&self) -> &RwLock<SeasonState> {
+        &self.season
+    }
+}
+
+/// Derive a per-fixture seed from the career seed + fixture index.
+///
+/// `fixture_index` is the 0-based position of the fixture in
+/// `league.fixtures` (which is sorted deterministically by
+/// `(match_day, home_id, away_id)`). Same `(career_seed, fixture_index)`
+/// → same seed → same match outcome on every run.
+///
+/// Uses `SeedLayer::ContentBake` as the layer discriminant — this is a
+/// content-generation operation (the league schedule is baked at career-init),
+/// not a sim-tick decision. ADR-0009 §8 discriminants.
+pub fn fixture_seed(career_seed: Seed, fixture_index: u32) -> Seed {
+    Seed::from_u64(seed_fn(
+        career_seed.to_u64(),
+        fixture_index,
+        SeedLayer::ContentBake,
+        1, // site = 1 distinguishes fixture seeds from other ContentBake uses
+    ))
+}
+
+/// Find the index of a fixture in `league.fixtures`.
+///
+/// `league.fixtures` is sorted by `(match_day, home_id, away_id)` (per
+/// `generate_fixtures`'s final sort). Linear scan is acceptable — 380 items,
+/// called at most 380 times per `play_fixtures` = 144_400 comparisons total,
+/// negligible vs. 380 × 600 = 228_000 sim ticks.
+///
+/// Panics if the fixture is not found — callers supply fixtures from
+/// `SeasonState::fixtures_for_match_day` which itself reads from
+/// `league.fixtures`, so a not-found here means a logic bug in the caller.
+pub fn league_fixture_index(
+    fixtures: &[fw_content::Fixture],
+    fixture: &fw_content::Fixture,
+) -> usize {
+    fixtures
+        .iter()
+        .position(|f| f == fixture)
+        .expect("fixture must exist in league.fixtures; caller supplied a fixture from fixtures_for_match_day")
 }
 
 #[cfg(test)]
@@ -93,5 +203,62 @@ mod tests {
         let state = AppState::new(&workspace_content_path()).expect("AppState::new");
         let cloned = Arc::clone(state.signature_definitions());
         assert_eq!(cloned.len(), state.signature_definitions().len());
+    }
+
+    #[test]
+    fn new_initialises_season_state_at_match_day_one() {
+        let state = AppState::new(&workspace_content_path()).expect("AppState::new");
+        let season = state.season().read().expect("season lock");
+        assert_eq!(
+            season.current_match_day, 1,
+            "fresh season starts at match-day 1"
+        );
+        assert!(!season.is_complete(), "fresh season should not be complete");
+    }
+
+    #[test]
+    fn new_with_career_seed_is_deterministic() {
+        let content_root = workspace_content_path();
+        let seed = Seed::from_u64(0xDEAD_BEEF_CAFE_BABE);
+        let state_a = AppState::new_with_career_seed(&content_root, seed).expect("state_a");
+        let state_b = AppState::new_with_career_seed(&content_root, seed).expect("state_b");
+
+        let season_a = state_a.season().read().expect("lock a");
+        let season_b = state_b.season().read().expect("lock b");
+
+        // Same seed → same first club name in the generated league.
+        assert_eq!(
+            season_a.league.clubs[0].display_name, season_b.league.clubs[0].display_name,
+            "same career seed must produce the same league"
+        );
+    }
+
+    #[test]
+    fn fixture_seed_is_deterministic() {
+        let career_seed = Seed::from_u64(0xCAFEBABE);
+        let s0 = fixture_seed(career_seed, 0);
+        let s0b = fixture_seed(career_seed, 0);
+        assert_eq!(s0, s0b, "fixture_seed must be deterministic");
+    }
+
+    #[test]
+    fn fixture_seed_differs_by_index() {
+        let career_seed = Seed::from_u64(0xCAFEBABE);
+        let s0 = fixture_seed(career_seed, 0);
+        let s1 = fixture_seed(career_seed, 1);
+        assert_ne!(
+            s0, s1,
+            "different fixture indices must produce different seeds"
+        );
+    }
+
+    #[test]
+    fn league_fixture_index_finds_first_fixture() {
+        let content_root = workspace_content_path();
+        let state = AppState::new(&content_root).expect("AppState::new");
+        let season = state.season().read().expect("season lock");
+        let first = &season.league.fixtures[0];
+        let idx = league_fixture_index(&season.league.fixtures, first);
+        assert_eq!(idx, 0);
     }
 }
