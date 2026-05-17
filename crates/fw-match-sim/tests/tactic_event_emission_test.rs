@@ -242,12 +242,14 @@ fn setpiece_state_auto_exits_on_possession_loss_to_none() {
     // auto_exit_setpiece helper fires BallInPlay FIRST, transitioning the
     // shooter's team out of SetPiece BEFORE the PossessionLost.
 
-    let mut shooter_team_exited_setpiece = false;
+    let mut exit_observed: Option<(usize, TacticState)> = None;
     for _ in 0..600 {
         let prev_home_state = state.team_tactic_states[0].state();
         let prev_away_state = state.team_tactic_states[1].state();
         state = tick_match(state, &BTreeMap::new());
-        // Look for an exit-SetPiece transition on either team.
+        // Look for an exit-SetPiece transition on either team. Capture
+        // BOTH the team index + the post-exit state for the strengthened
+        // assertion below (Codex Tier-2 audit 2026-05-17 P2 #3).
         let home_was_setpiece = matches!(prev_home_state, TacticState::SetPiece(_));
         let home_now_not = !matches!(
             state.team_tactic_states[0].state(),
@@ -258,20 +260,187 @@ fn setpiece_state_auto_exits_on_possession_loss_to_none() {
             state.team_tactic_states[1].state(),
             TacticState::SetPiece(_)
         );
-        if (home_was_setpiece && home_now_not) || (away_was_setpiece && away_now_not) {
-            shooter_team_exited_setpiece = true;
+        if home_was_setpiece && home_now_not {
+            exit_observed = Some((0, state.team_tactic_states[0].state()));
+            break;
+        }
+        if away_was_setpiece && away_now_not {
+            exit_observed = Some((1, state.team_tactic_states[1].state()));
             break;
         }
     }
 
+    let (exited_team, post_exit_state) = exit_observed.unwrap_or_else(|| {
+        panic!(
+            "T2-1c auto-exit broken: no team transitioned out of SetPiece across 600 ticks. \
+             Either auto_exit_setpiece never fired (BallInPlay not called) OR the SetPiece \
+             state is sticky beyond what the smoke seed's possession transitions can drive. \
+             Final home state: {:?}; final away state: {:?}",
+            state.team_tactic_states[0].state(),
+            state.team_tactic_states[1].state(),
+        );
+    });
+
+    // **Codex Tier-2 audit 2026-05-17 P2 #3 strengthening**: the original
+    // assertion ("post-state is not SetPiece") would pass if the subsequent
+    // PossessionLost / BallRecovered event was dropped — auto_exit_setpiece
+    // would fire BallInPlay → MidBlock (the archetype default) + the team
+    // would be in MidBlock state, which is "not SetPiece" but ALSO not the
+    // post-PossessionLost/BallRecovered state the auto-exit pattern is
+    // supposed to enable. So strengthen: assert the post-exit state is
+    // specifically one of {HighPress, LowBlock, CounterAttack} — the only
+    // states the PossessionLost / BallRecovered apply_event arms can
+    // transition TO from MidBlock + the archetype default. MidBlock alone
+    // (the BallInPlay-set value) would indicate the subsequent event arm
+    // didn't fire — exactly the silent failure this test must protect against.
+    let post_exit_is_expected = matches!(
+        post_exit_state,
+        TacticState::HighPress | TacticState::LowBlock | TacticState::CounterAttack
+    );
     assert!(
-        shooter_team_exited_setpiece,
-        "T2-1c auto-exit broken: no team transitioned out of SetPiece across 600 ticks. \
-         Either auto_exit_setpiece never fired (BallInPlay not called) OR the SetPiece \
-         state is sticky beyond what the smoke seed's possession transitions can drive. \
-         Final home state: {:?}; final away state: {:?}",
-        state.team_tactic_states[0].state(),
-        state.team_tactic_states[1].state(),
+        post_exit_is_expected,
+        "T2-1c auto-exit + subsequent-event silent-failure regression: team {exited_team} \
+         exited SetPiece but landed in {post_exit_state:?} — expected one of \
+         (HighPress / LowBlock / CounterAttack) per the PossessionLost / \
+         BallRecovered apply_event arms at tactic_fsm.rs:411-447. If the team \
+         landed in MidBlock, the auto_exit_setpiece BallInPlay fired BUT the \
+         subsequent PossessionLost or BallRecovered event was silently dropped \
+         — that's the cross-row behavior this test is meant to protect (the \
+         whole point of the auto-exit pattern is to unblock subsequent \
+         possession events from SetPiece). See Codex Tier-2 audit P2 #3."
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Codex Tier-2 audit 2026-05-17 P1 regression test: goal-tick early-return
+// ---------------------------------------------------------------------------
+
+/// Codex Tier-2 audit T2-1 review 2026-05-17 P1: when a goal fires on a
+/// tick where the kickoff taker's decision slot is ALSO active, the
+/// post-goal dispatch step would (pre-fix) mutate possession again + the
+/// downstream `emit_possession_transition_events` would fire PossessionLost
+/// or BallRecovered, overriding the Goal arm's MidBlock reset on both
+/// teams.
+///
+/// Fix shape per Codex: skip dispatch + pickup + emit_possession_
+/// transition_events when `goal_fired_this_tick` is true. The Goal arm of
+/// `apply_event` becomes the single source of truth for goal-tick
+/// tactic-FSM transitions; subsequent ticks resume normal flow.
+///
+/// Test construction: set `state.tick` to one tick before the kickoff
+/// taker's `decision_slots[20]` value (slot 20 = away CF, the kickoff
+/// taker when home scores) — then `tick_match`'s successor() advances
+/// tick to exactly that decide value, AND the goal fires on that same
+/// tick. Without the fix, dispatch would pick an intent for slot 20
+/// (the kickoff taker has possession + an active decision slot), which
+/// would mutate possession + the downstream emit would fire PossessionLost
+/// transitioning `team_tactic_states[1]` (away team) from MidBlock to
+/// LowBlock (the recovery_likely=false fallback arm at
+/// tactic_fsm.rs:411-417). With the fix, both teams stay at MidBlock.
+///
+/// Mutation discriminator: if any of the 3 if-guards in tick_match
+/// (`if !goal_fired_this_tick { dispatch... }`, `if !goal_fired_this_tick
+/// { pickup... }`, `if !goal_fired_this_tick { emit_possession... }`)
+/// is removed, the kickoff taker's dispatch picks AttemptShot or Dribble
+/// or Pass on the goal-tick → possession mutates → emit fires
+/// PossessionLost → away team transitions away from MidBlock → assertion
+/// fails.
+#[test]
+fn goal_tick_skips_dispatch_so_kickoff_taker_decisions_dont_override_midblock() {
+    use fw_match_sim::TacticState;
+
+    // Construct fresh state + look up kickoff taker's decision slot value.
+    // home-scored kickoff taker is slot 20 (away CF; slot 11+9 offset).
+    let mut state = MatchState::initial(Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF));
+    let kickoff_slot: usize = 20;
+    let decide_value = state.decision_slots[kickoff_slot] as i64;
+
+    // Advance tick to (decide_value - 1) so tick_match's successor() lands
+    // on exactly decide_value, where slot 20 is an active decision slot.
+    // (decision_cadence::should_decide uses tick % HEARTBEAT_INTERVAL_TICKS
+    // i.e. tick % 30 == decision_slots[i]; setting tick to decide_value
+    // means tick_match starts that tick by advancing to decide_value, and
+    // the dispatch step would normally fire for slot 20.)
+    state.tick = Tick::from_raw(decide_value - 1);
+
+    // Set up goal-imminent ball state: ball just past +X goal-line, centered
+    // y, zero velocity (the goal-detection step checks pos BEFORE physics
+    // so vel doesn't matter for the check itself). last_touched_by = some
+    // home slot (e.g. 8, home CAM) so the goal is attributed to home →
+    // home_scored=true → kickoff_taker = slot 20 (away CF).
+    state.ball.pos_x = Q32::from_int(53); // past +52.5 goal line
+    state.ball.pos_y = Q32::ZERO; // centered (within goal mouth)
+    state.ball.pos_z = Q32::ZERO;
+    state.ball.vel_x = Q32::ZERO;
+    state.ball.vel_y = Q32::ZERO;
+    state.ball.vel_z = Q32::ZERO;
+    state = state.with_last_touched_by(8); // home CAM
+    // possession is pub(crate); set via the builder pattern. The test
+    // doesn't need to pre-set possession because last_touched_by is what
+    // the Goal arm reads for scorer attribution; possession before the
+    // goal can be anything (the Goal arm overrides it to the kickoff
+    // taker afterward).
+
+    // Pre-condition: both teams in initial MidBlock.
+    assert_eq!(state.team_tactic_states[0].state(), TacticState::MidBlock);
+    assert_eq!(state.team_tactic_states[1].state(), TacticState::MidBlock);
+
+    let state_after = tick_match(state, &BTreeMap::new());
+
+    // Goal must have fired (verify via MatchEvent::Goal in the event stream).
+    let goal_fired = state_after
+        .match_events()
+        .iter()
+        .any(|e| matches!(e, fw_content::MatchEvent::Goal { .. }));
+    assert!(
+        goal_fired,
+        "test construction failed: goal didn't fire on the constructed tick. \
+         The early-return regression test only works if a goal fires; verify \
+         ball.pos_x={:?} (must be past GOAL_LINE_X=52.5) + ball.pos_y={:?} \
+         (must be within GOAL_HALF_WIDTH_M) at goal-detection time.",
+        Q32::from_int(53),
+        Q32::ZERO,
+    );
+
+    // Possession must be the kickoff taker (slot 20 = away CF since home scored).
+    assert_eq!(
+        state_after.possession(),
+        Some(20),
+        "Goal arm should set possession to away CF (slot 20) for home-scored kickoff"
+    );
+
+    // **The load-bearing assertion**: both teams MUST stay at MidBlock —
+    // the Goal arm of apply_event hardcoded this; the early-return guards
+    // prevent dispatch from picking a kickoff-taker intent that would
+    // re-trigger PossessionLost/BallRecovered transitions.
+    //
+    // If any of the 3 if-guards is removed AND slot 20's BT picks an
+    // intent that mutates possession (AttemptShot → Some→None; Pass to
+    // home player → Some→Some cross-team; etc), the emit_possession_
+    // transition_events fires PossessionLost or BallRecovered →
+    // team_tactic_states[1] transitions from MidBlock to a different
+    // TacticState (LowBlock under recovery_likely=false fallback, OR
+    // CounterAttack under BallRecovered with opponent_shape_broken).
+    assert_eq!(
+        state_after.team_tactic_states[0].state(),
+        TacticState::MidBlock,
+        "P1 regression: home team's tactic state changed away from MidBlock \
+         on the goal-tick. The Goal arm of apply_event sets BOTH teams to \
+         MidBlock; the 3 if-guards (dispatch + pickup + emit_possession) \
+         in tick_match must prevent the kickoff taker's same-tick decision \
+         from triggering subsequent PossessionLost/BallRecovered transitions. \
+         decide_value for slot 20 was {decide_value}; final tick was {:?}.",
+        state_after.tick,
+    );
+    assert_eq!(
+        state_after.team_tactic_states[1].state(),
+        TacticState::MidBlock,
+        "P1 regression: away team's tactic state changed away from MidBlock \
+         on the goal-tick. See home-team assertion above for the discriminator \
+         logic. away team is the kickoff-taker's team (slot 20 = away CF) so \
+         if the early-return guards are broken, this is the assertion that \
+         fires first (slot 20's BT decision drives PossessionLost on the away \
+         team's PossessionLost arm at tactic_fsm.rs:411-417)."
     );
 }
 

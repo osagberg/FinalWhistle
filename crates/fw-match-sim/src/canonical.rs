@@ -201,12 +201,23 @@ const MAGIC: &[u8; 4] = b"FWMS";
 //        appended AFTER last_touched_by:
 //          [ home_id_len u16 LE ] [ home_id_bytes* ]
 //          [ away_id_len u16 LE ] [ away_id_bytes* ]
-//        History note (2026-05-16 T2-1a): re-baselined per ADR-0012 trigger #1
-//        (schema bump: 2 new canonical fields) + trigger #3 on the 600-tick
-//        extended seed (per-team behavior change because the test caller
-//        passes home=attacking-fullback, away=low-block-counter — meaningful
-//        per-team divergence). 60-tick smoke seed drift is schema-only (both
-//        teams default to attacking-fullback via DEFAULT_ARCHETYPE_ID).
+//        History note (2026-05-17 T2-1a + T2-1b + Codex Tier-2 P2 #1
+//        re-framing): T2-1a was ADR-0012 trigger #1 ONLY on BOTH pins —
+//        the per-team archetype divergence didn't actually fire yet at
+//        T2-1a (sole production TacticEvent consumer was Goal which
+//        hardcodes MidBlock). T2-1b shipped the PossessionLost /
+//        BallRecovered emissions that ACTUALLY consume per-team
+//        archetype_params → T2-1b is the trigger #3 behavioral-change
+//        rebaseline on the 600-tick extended seed. T2-1c BallOutOfPlay /
+//        BallInPlay wiring is canonical-hash-neutral (only fires on
+//        OOB, which neither pinned seed exercises). T2-1d-infra adds
+//        telemetry sidecar fields via #[serde(skip)] — also canonical-
+//        hash-neutral. See `crates/fw-replay/tests/canonical_hash.rs`
+//        + the fixture .ron files for the per-pin re-baseline history
+//        blocks; the historical sequence is T2-1a (trigger #1 schema-
+//        only) → T2-1b (trigger #3 BEHAVIORAL on 600-tick; 60-tick
+//        UNCHANGED through T2-1b) → T2-1c (UNCHANGED both pins) →
+//        T2-1d-infra (UNCHANGED both pins).
 const VERSION: u16 = 9;
 
 /// Streaming canonical encoder. Append bytes as values are emitted; call

@@ -646,13 +646,35 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   5-seed envelope re-verified: pinned seed in [2, 5] per T1 exit-gate
 ///   Bullet 1 strict; 4 sanity seeds all in [0, 7] per the broader
 ///   safety net. Authorized by the T2-1b spec in MEMORY.md.
+/// - 2026-05-17 (T2-1-codex-fix per Codex Tier-2 audit P1 #1) —
+///   **re-baselined to `aa7efe9b…5ae`** per ADR-0012 trigger #3 sim
+///   behavior change with documented intent. Codex's Tier-2 audit on the
+///   T2-1 split flagged a real bug: when a goal fires on a tick where the
+///   kickoff taker's decision slot is ALSO active, the post-goal dispatch
+///   step would mutate possession again + the downstream
+///   `emit_possession_transition_events` would fire PossessionLost or
+///   BallRecovered → overriding the Goal arm's MidBlock reset on both
+///   teams. Fix: 3 if-guards in `lib.rs::tick_match` skip dispatch +
+///   pickup + emit_possession_transition_events when
+///   `goal_fired_this_tick` is true (the Goal arm of `apply_event`
+///   becomes single source of truth for goal-tick tactic-FSM transitions).
+///   Football reality: clock briefly pauses + players reset positions
+///   before kickoff; "skip 1 tick of decisions" matches the intent.
+///   Regression test `goal_tick_skips_dispatch_so_kickoff_taker_decisions_
+///   dont_override_midblock` in `tactic_event_emission_test.rs` pins the
+///   discriminator (kickoff taker slot 20 active on goal-tick → both
+///   teams stay MidBlock). 5-seed envelope re-verified pre-rebaseline:
+///   pinned strict [2, 5]; 4 sanity seeds [0, 7]. **60-tick smoke pin
+///   UNCHANGED** — smoke seed doesn't score in 60 ticks so the fix has
+///   no observable effect there. Authorized by user direction after
+///   Codex Tier-2 verdict REVISE 2026-05-17.
 ///
 /// Re-baselining: update this constant AND the `expected_hash` field of
 /// `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron` in the same commit,
 /// per `docs/specs/determinism-gate.md` §9 — the same protocol that
 /// governs PINNED_60_TICK above.
 const PINNED_600_TICK: [u8; 32] =
-    hex!("5716e86877c2d9973a713be0a49ab400fa1d4d8356bfebe9985bf5758aa619e3");
+    hex!("aa7efe9b2a567d5e87d12c7da6a4ea928271429729884f38819baed85c3be5ae");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

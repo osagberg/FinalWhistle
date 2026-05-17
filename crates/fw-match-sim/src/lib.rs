@@ -1425,7 +1425,27 @@ pub fn tick_match(
     // real definitions when the caller has a ContentStore. Passing
     // &BTreeMap::new() (the prior hardcoded value) is still valid for
     // callers without content — no signatures fire in that case.
-    state = dispatch::dispatch_tick(state, sig_definitions);
+    //
+    // **Codex Tier-2 audit 2026-05-17 P1 (T2-1 split review)**: skip dispatch
+    // on goal-tick. Without this guard, the kickoff taker's decision slot
+    // can fire on the same tick as the goal (~27% probability per the 30-
+    // slot decision-cadence stagger across 22 players: any given tick has
+    // ≈22/30 of slots active, and the kickoff taker is 1-of-22 of those —
+    // ≈1/30 chance of being active on any specific tick × the 600-tick
+    // budget = several goal-tick decisions across a match). A post-goal
+    // Pass/Shot/Dribble would mutate possession AGAIN; the downstream
+    // `emit_possession_transition_events` would then fire PossessionLost
+    // or BallRecovered → overriding the post-goal MidBlock reset the Goal
+    // arm of `apply_event` just established. Football reality: clock
+    // briefly pauses + players reset positions before the kickoff resumes;
+    // modeling that as "skip 1 tick of decisions" matches the intent. The
+    // kickoff taker's next decision fires on tick (goal_tick + 1) onward;
+    // possession transitions resume normal flow from then. Velocity
+    // integration + heartbeat + separation + FullTime emission still run
+    // unconditionally — those are not possession-mutating.
+    if !goal_fired_this_tick {
+        state = dispatch::dispatch_tick(state, sig_definitions);
+    }
 
     // Step 7: integrate player velocity into position.
     let dt = ball_physics::dt_per_tick();
@@ -1435,6 +1455,13 @@ pub fn tick_match(
     }
 
     // Step 7b (T1-15): loose-ball pickup.
+    //
+    // **Codex Tier-2 audit 2026-05-17 P1**: pickup is also gated on
+    // `!goal_fired_this_tick`. The Goal block already set possession to
+    // kick_off_taker so the inner `state.possession.is_none()` guard would
+    // short-circuit anyway, but the outer explicit skip documents the
+    // "post-goal tick = no possession mutation" invariant alongside the
+    // dispatch + emit_possession_transition_events guards above/below.
     //
     // When possession is None (ball loose after a shot or free kick), check
     // whether any outfield player is within PICKUP_RADIUS_M of the ball.
@@ -1477,7 +1504,7 @@ pub fn tick_match(
     const PICKUP_MAX_SPEED_MPS: Q32 = Q32::from_raw(8_i64 << 32); // 8 m/s threshold
     let ball_speed_sq = state.ball.vel_x * state.ball.vel_x + state.ball.vel_y * state.ball.vel_y;
     let pickup_speed_sq = PICKUP_MAX_SPEED_MPS * PICKUP_MAX_SPEED_MPS;
-    if state.possession.is_none() && ball_speed_sq < pickup_speed_sq {
+    if !goal_fired_this_tick && state.possession.is_none() && ball_speed_sq < pickup_speed_sq {
         let bx = state.ball.pos_x;
         let by = state.ball.pos_y;
         let mut best_slot: Option<u8> = None;
@@ -1537,7 +1564,17 @@ pub fn tick_match(
     // claims a settled loose ball). Compares `state.possession` against
     // `possession_before_dispatch` captured above (just after the Goal block).
     // See `emit_possession_transition_events` for the transition taxonomy.
-    emit_possession_transition_events(&mut state, possession_before_dispatch);
+    //
+    // **Codex Tier-2 audit 2026-05-17 P1**: also skipped on goal_fired_
+    // this_tick (same rationale as the dispatch + pickup guards above:
+    // the Goal arm of `apply_event` is the single source of truth for
+    // goal-tick tactic transitions; running emit_possession_transition_
+    // events on the goal-tick would re-transition both teams via
+    // PossessionLost / BallRecovered, overriding the post-goal MidBlock
+    // reset).
+    if !goal_fired_this_tick {
+        emit_possession_transition_events(&mut state, possession_before_dispatch);
+    }
 
     // Step 8 (T1-2b-iii-d): player-separation positional correction.
     separation::apply_player_separation(&mut state);

@@ -4,11 +4,11 @@
 
 ## Phase
 
-**T2 in progress. T2-1a + T2-1b + T2-1c + T2-1d-infra all closed 2026-05-17.** T2-1 split parent now 4/4 sub-rows DONE (per the SPLIT framing). T2-1d shipped as INFRASTRUCTURE-ONLY (calibrate binary + telemetry types + smoke tests + design-doc blocks) after implementation-discovery #2 revealed `utility_shoot` uses a hand-tuned stub instead of `xg_utility(ShotContext)` — applying fitted β/K constants now would be decorative. T2-1d2 follow-up row (to be authored) wires `utility_shoot` to the xG model + applies the fitted values atomically.
+**T2 in progress. T2-1 split (a/b/c/d-infra) closed 2026-05-17 + Codex Tier-2 review + 2 P1 + 2 P2 fixes shipped at T2-1-codex-fix.** Codex Tier-2 audit verdict REVISE found a real goal-tick + dispatch race: when a goal fires on a tick where the kickoff taker's decision slot is ALSO active, the post-goal dispatch step could mutate possession again + emit_possession_transition_events would override the Goal arm's MidBlock reset. Fix: 3 if-guards in `lib.rs::tick_match` skip dispatch + pickup + emit_possession on `goal_fired_this_tick`. Also authored T2-1d2 MASTER_PLAN row (was implicit in T2-1d-infra closure docs); cleaned T2-1d done criteria; fixed canonical.rs:204 history-comment drift; strengthened the auto-exit AC5 test to assert post-event state (not just `!SetPiece`). **600-tick canonical pin rebaselined** per ADR-0012 trigger #3; 60-tick UNCHANGED (smoke seed doesn't score in 60 ticks).
 
 ## Active task
 
-(none — T2-1d-infra closed at this commit; `scripts/fw verify` exit 0; **canonical hashes UNCHANGED on both pins** — `#[serde(skip)]` telemetry-buffer fields don't reach the canonical encoder. Next `/next` picks **T2-2** (procedural clubs — `fw-content`: 20 procedural clubs in a fantasy second-tier league) per declared order + skip-DEFERRED rule. T2-1d2 (utility_shoot rewire + apply fitted coefficients) needs to be authored as a new MASTER_PLAN row before it can be picked.)
+(none — T2-1-codex-fix closed at this commit; `scripts/fw verify` exit 0; **600-tick canonical pin rebaselined per ADR-0012 trigger #3** (`5716e868…19e3` → `aa7efe9b…5ae`); 60-tick UNCHANGED. Next `/next` picks **T2-2** (procedural clubs) per declared order + skip-DEFERRED rule. T2-1d2 row now authored in MASTER_PLAN; can be picked anytime ahead of T2-2 if user prefers the xG-model-wiring-first sequencing.)
 
 ## Phase pointer
 
@@ -27,4 +27,4 @@ None.
 
 `blake3:eaf842ac3d19651d38dc7ce45d0763cc62b4d571ce2c2a5d56f1ee3c6ddead46` (60-tick smoke seed; UNCHANGED from T2-1b rebaseline — T2-1d-infra is a strict superset; `#[serde(skip)]` telemetry fields don't reach the canonical encoder).
 
-**Second corpus pin:** `blake3:5716e86877c2d9973a713be0a49ab400fa1d4d8356bfebe9985bf5758aa619e3` (600-tick extended seed; UNCHANGED from T2-1b rebaseline — same rationale).
+**Second corpus pin:** `blake3:aa7efe9b2a567d5e87d12c7da6a4ea928271429729884f38819baed85c3be5ae` (600-tick extended seed; REBASELINED at T2-1-codex-fix from `5716e868…19e3` per ADR-0012 trigger #3 — Codex Tier-2 audit P1 #1 goal-tick early-return correctness fix: 3 if-guards in tick_match skip dispatch + pickup + emit_possession on goal_fired_this_tick so kickoff taker's same-tick decision can't override Goal arm's MidBlock reset).

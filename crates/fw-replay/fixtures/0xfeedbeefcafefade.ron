@@ -84,6 +84,24 @@
 //                       sanity seeds all in [0, 7] (broader safety net
 //                       against single-pinned-seed coincidence).
 //                       Authorized by the T2-1b spec in MEMORY.md.
+//   2026-05-17 (T2-1-codex-fix per Codex Tier-2 audit P1 #1) —
+//                       `aa7efe9b...e5ae` per ADR-0012 trigger #3 sim
+//                       behavior change. Goal-tick early-return guard:
+//                       when a goal fires on a tick where the kickoff
+//                       taker's decision slot is ALSO active, the
+//                       post-goal dispatch step (pre-fix) could mutate
+//                       possession again + `emit_possession_transition_
+//                       events` would fire PossessionLost / BallRecovered
+//                       → overriding the Goal arm's MidBlock reset. Fix:
+//                       3 if-guards in `lib.rs::tick_match` skip
+//                       dispatch + pickup + emit_possession on
+//                       goal_fired_this_tick. The Goal arm of
+//                       `apply_event` becomes single source of truth for
+//                       goal-tick tactic-FSM transitions. Regression
+//                       test in `tactic_event_emission_test.rs`. 5-seed
+//                       envelope re-verified pre-rebaseline. 60-tick
+//                       smoke pin UNCHANGED (doesn't score in 60 ticks).
+//                       Authorized by user after Codex Tier-2 REVISE.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_600_TICK`
@@ -96,10 +114,10 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:5716e86877c2d9973a713be0a49ab400fa1d4d8356bfebe9985bf5758aa619e3",
+    expected_hash: "blake3:aa7efe9b2a567d5e87d12c7da6a4ea928271429729884f38819baed85c3be5ae",
     metadata: (
-        description: "T2-1b per-team archetype BEHAVIORAL divergence (home=attacking-fullback, away=low-block-counter). Content-loaded 600-tick run. PossessionLost + BallRecovered TacticEvents now fire from tick_match + consult per-team archetype_params, producing per-team TacticState evolution divergence across the match (vs T2-1a where both teams sat in MidBlock from kickoff to FullTime).",
+        description: "T2-1-codex-fix per-team archetype BEHAVIORAL divergence with goal-tick early-return correctness guard (home=attacking-fullback, away=low-block-counter). Content-loaded 600-tick run. PossessionLost + BallRecovered TacticEvents fire from tick_match + consult per-team archetype_params. Goal-tick early-return: 3 if-guards in tick_match skip dispatch + pickup + emit_possession on goal_fired_this_tick so the kickoff taker's same-tick decision can't override the Goal arm's MidBlock reset.",
         generated_at: "2026-05-17",
-        notes: "Re-pinned at T2-1b (ADR-0012 trigger #3 — sim behavior change). Prior hash 81098579...d999 was T2-1a schema-only baseline (encoder VERSION 8→9 added the 2 archetype_id String fields). MatchState::initial_with_content(seed, &content, DEFAULT_ARCHETYPE_ID, \"fwh.core:archetype.low-block-counter\") + tick_match for 600 iterations. Goal envelope re-verified in [2, 5] across 5-seed sweep (pinned strict + 4 sanity in [0, 7]).",
+        notes: "Re-pinned at T2-1-codex-fix (ADR-0012 trigger #3 — sim behavior change: goal-tick early-return correctness guard per Codex Tier-2 audit P1 #1). Prior hash 5716e868...19e3 was T2-1b baseline (PossessionLost/BallRecovered emissions wired). Goal envelope re-verified in [2, 5] across 5-seed sweep (pinned strict + 4 sanity in [0, 7]).",
     ),
 )
