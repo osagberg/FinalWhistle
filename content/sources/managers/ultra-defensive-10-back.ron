@@ -1,0 +1,26 @@
+// Ultra-Defensive (10 Back) manager archetype — hand-authored, NOT LLM-baked.
+//
+// Extreme edge-case defensive tactician. Even deeper than park-the-bus
+// (back-line at -44 vs -42); lone narrow striker as hopeful counter
+// outlet. Catalog-min risk appetite (0.10) — protecting a slim lead is
+// the only acceptable game state; conceding is the failure mode.
+// Catalog-min possession preference (0.15) — possession is a hot potato
+// that exposes us to turnovers; hoof + reset is the default.
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.10 × 2^32 = 429_496_729.6 → 429_496_730
+//   possession_preference: 0.15 × 2^32 = 644_245_094.4 → 644_245_094
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   ultra-defensive-10-back.ron  (validated at load time by ContentStore).
+//
+// Authored 2026-05-17 (T2-1c).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.ultra-defensive-10-back",
+    display_name: "Ultra-Defensive (10 Back)",
+    tactical_archetype_id: "fwh.core:archetype.ultra-defensive-10-back",
+    risk_appetite: (bits: 429496730),
+    possession_preference: (bits: 644245094),
+)

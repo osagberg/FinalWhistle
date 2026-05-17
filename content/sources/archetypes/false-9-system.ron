@@ -1,0 +1,42 @@
+// False-9-system tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior.
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//
+// Tactical philosophy: modern positional hybrid. 4-3-3 nominal shape, BUT
+// the nominal CF position is dropped deep into midfield (+8 instead of
+// +22) — a "false 9" who pulls the opposing CB out of position. Wide
+// forwards then make underlapping runs into the vacated space the false
+// 9 created. RCM / LCM push higher than usual to support the false-9
+// + provide secondary scoring threat. CDM holds. Press radius 30m;
+// buildup 0.75 (patient — false-9 system requires possession control
+// to manufacture the central-defender disorganization). Bridge bucket:
+// High press / Default counter / MidBlock.
+//
+// Authored 2026-05-17 (T2-1c).
+
+TacticalArchetype(
+    id: "fwh.core:archetype.false-9-system",
+    formation: [
+        // Goalkeeper
+        FormationSlot(roster_slot:  1, role: "GK",  x: -45, z:   0),
+        // Back four — conventional 4-3-3 depth
+        FormationSlot(roster_slot:  2, role: "RB",  x: -25, z:  20),
+        FormationSlot(roster_slot:  3, role: "RCB", x: -30, z:   8),
+        FormationSlot(roster_slot:  4, role: "LCB", x: -30, z:  -8),
+        FormationSlot(roster_slot:  5, role: "LB",  x: -25, z: -20),
+        // Midfield three — RCM/LCM pushed up to support the false 9
+        FormationSlot(roster_slot:  6, role: "RCM", x:   2, z:  10),
+        FormationSlot(roster_slot:  7, role: "CDM", x: -14, z:   0),
+        FormationSlot(roster_slot:  8, role: "LCM", x:   2, z: -10),
+        // Front three — RW/LW pinned wide+high; FALSE 9 dropped deep
+        FormationSlot(roster_slot:  9, role: "RW",  x:  20, z:  20),
+        FormationSlot(roster_slot: 10, role: "F9",  x:   8, z:   0),
+        FormationSlot(roster_slot: 11, role: "LW",  x:  20, z: -20),
+    ],
+    press_radius_metres: 30,
+    buildup_speed_factor_bps: 7500,
+)

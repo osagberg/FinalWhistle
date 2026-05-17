@@ -1,0 +1,24 @@
+// Lopsided-Left-Overload manager archetype — hand-authored, NOT LLM-baked.
+//
+// Mirror of lopsided-right-overload. Asymmetric tactician building 3-on-2
+// overloads in the left channel via LB + LCM + LW combinations. Same
+// risk/possession profile as the right-mirror — what differs is the
+// formation Z-axis layout, not the tactical preference numbers.
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.65 × 2^32 = 2_791_728_742.4 → 2_791_728_742
+//   possession_preference: 0.70 × 2^32 = 3_006_477_107.2 → 3_006_477_107
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   lopsided-left-overload.ron  (validated at load time by ContentStore).
+//
+// Authored 2026-05-17 (T2-1c).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.lopsided-left-overload",
+    display_name: "Lopsided Left Overload",
+    tactical_archetype_id: "fwh.core:archetype.lopsided-left-overload",
+    risk_appetite: (bits: 2791728742),
+    possession_preference: (bits: 3006477107),
+)

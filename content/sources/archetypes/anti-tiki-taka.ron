@@ -1,0 +1,42 @@
+// Anti-tiki-taka tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior.
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//
+// Tactical philosophy: specialist counter to possession-rotation systems.
+// Two central midfielders MAN-MARK opposition #6/#8 with tight aggression;
+// wide midfielders drop deeper than usual to deny half-space penetration;
+// strikers paired narrow as press-triggers + counter-outlets. The 4-4-2
+// banks-of-four shape compresses the central channel where tiki-taka
+// systems try to circulate. Press radius 32m (above-average; specifically
+// to close the half-spaces where the #10 / dropping-CF receives). Buildup
+// 0.90 — quick vertical balls on turnover before opponent reorganizes.
+// Bridge bucket: High press / Default counter / MidBlock.
+//
+// Authored 2026-05-17 (T2-1c).
+
+TacticalArchetype(
+    id: "fwh.core:archetype.anti-tiki-taka",
+    formation: [
+        // Goalkeeper
+        FormationSlot(roster_slot:  1, role: "GK",  x: -45, z:   0),
+        // Back four — conventional 4-4-2 depth
+        FormationSlot(roster_slot:  2, role: "RB",  x: -25, z:  18),
+        FormationSlot(roster_slot:  3, role: "RCB", x: -30, z:   8),
+        FormationSlot(roster_slot:  4, role: "LCB", x: -30, z:  -8),
+        FormationSlot(roster_slot:  5, role: "LB",  x: -25, z: -18),
+        // Midfield four — central CMs man-mark; wide M's tucked deeper
+        FormationSlot(roster_slot:  6, role: "RM",  x: -14, z:  16),
+        FormationSlot(roster_slot:  7, role: "RCM", x: -10, z:   5),
+        FormationSlot(roster_slot:  8, role: "LCM", x: -10, z:  -5),
+        FormationSlot(roster_slot:  9, role: "LM",  x: -14, z: -16),
+        // Two strikers paired narrow as press-triggers + counter outlets
+        FormationSlot(roster_slot: 10, role: "RST", x:  20, z:   6),
+        FormationSlot(roster_slot: 11, role: "LST", x:  20, z:  -6),
+    ],
+    press_radius_metres: 32,
+    buildup_speed_factor_bps: 9000,
+)

@@ -1,0 +1,26 @@
+// Lopsided-Right-Overload manager archetype — hand-authored, NOT LLM-baked.
+//
+// An asymmetric tactician who manufactures 3-on-2 overloads in the right
+// channel via RB + RCM + RW combinations, accepting the structural risk
+// of an underloaded left flank. Moderately-high risk appetite (0.65) +
+// moderately-high possession preference (0.70) — wants the ball to
+// trigger the right-side rotations; happy to commit RB forward + leave
+// LB tucked centrally.
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.65 × 2^32 = 2_791_728_742.4 → 2_791_728_742
+//   possession_preference: 0.70 × 2^32 = 3_006_477_107.2 → 3_006_477_107
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   lopsided-right-overload.ron  (validated at load time by ContentStore).
+//
+// Authored 2026-05-17 (T2-1c).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.lopsided-right-overload",
+    display_name: "Lopsided Right Overload",
+    tactical_archetype_id: "fwh.core:archetype.lopsided-right-overload",
+    risk_appetite: (bits: 2791728742),
+    possession_preference: (bits: 3006477107),
+)

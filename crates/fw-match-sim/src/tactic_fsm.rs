@@ -1029,7 +1029,7 @@ mod tests {
     /// `press_radius_metres > 20` → `>= 20`), at least one row would
     /// flip its bucket + the assertion would fail.
     #[test]
-    fn archetype_params_for_t2_1b_archetypes_yield_expected_buckets() {
+    fn archetype_params_for_t2_1b_and_t2_1c_archetypes_yield_expected_buckets() {
         use fw_content::ContentStore;
         use std::path::PathBuf;
 
@@ -1077,11 +1077,62 @@ mod tests {
                 CounterIntent::High,
                 TacticState::LowBlock,
             ),
+            // T2-1c rows below (8 mixed-category archetypes added 2026-05-17):
+            (
+                "fwh.core:archetype.lopsided-right-overload",
+                PressIntensity::High,
+                CounterIntent::Default,
+                TacticState::MidBlock,
+            ),
+            (
+                "fwh.core:archetype.lopsided-left-overload",
+                PressIntensity::High,
+                CounterIntent::Default,
+                TacticState::MidBlock,
+            ),
+            (
+                "fwh.core:archetype.anti-tiki-taka",
+                PressIntensity::High,
+                CounterIntent::Default,
+                TacticState::MidBlock,
+            ),
+            // anti-high-press introduces the NEW (High, High, MidBlock)
+            // bucket combination — first archetype to populate it.
+            (
+                "fwh.core:archetype.anti-high-press",
+                PressIntensity::High,
+                CounterIntent::High,
+                TacticState::MidBlock,
+            ),
+            (
+                "fwh.core:archetype.ultra-attacking-no-cb",
+                PressIntensity::High,
+                CounterIntent::Default,
+                TacticState::MidBlock,
+            ),
+            (
+                "fwh.core:archetype.ultra-defensive-10-back",
+                PressIntensity::None,
+                CounterIntent::High,
+                TacticState::LowBlock,
+            ),
+            (
+                "fwh.core:archetype.false-9-system",
+                PressIntensity::High,
+                CounterIntent::Default,
+                TacticState::MidBlock,
+            ),
+            (
+                "fwh.core:archetype.inverted-fullback-3-2-5",
+                PressIntensity::High,
+                CounterIntent::Default,
+                TacticState::MidBlock,
+            ),
         ];
 
         for &(id, expected_press, expected_counter, expected_state) in expectations {
             let arch = store.tactical_archetypes.get(id).unwrap_or_else(|| {
-                panic!("T2-1b archetype {id:?} missing from loaded content store")
+                panic!("T2-1b/T2-1c archetype {id:?} missing from loaded content store")
             });
             let params = archetype_params_for(arch);
             assert_eq!(
@@ -1098,13 +1149,16 @@ mod tests {
             );
         }
 
-        // Spread check: across the 8 archetypes total (6 T2-1b + 2 existing)
-        // we expect at least 2 distinct (press, counter, default_state)
-        // buckets. If they collapsed into 1 bucket, the catalog wouldn't
-        // exercise the per-team-divergence path at all. `PressIntensity` /
-        // `CounterIntent` / `TacticState` don't derive Ord (used for
-        // BTreeSet) so dedup via linear-scan Vec — small N + sim-crate
-        // BTreeMap-only discipline.
+        // Spread check: across the 16 archetypes total (2 existing + 6 T2-1b
+        // + 8 T2-1c) we expect at least 3 distinct (press, counter,
+        // default_state) buckets. T2-1c's `anti-high-press` archetype
+        // introduces the NEW `(High, High, MidBlock)` combination not present
+        // in the prior 8 archetypes — verifying this asserts the catalog
+        // exercises the previously-empty corner of the bridge surface.
+        //
+        // `PressIntensity` / `CounterIntent` / `TacticState` don't derive Ord
+        // (used for BTreeSet) so dedup via linear-scan Vec — small N +
+        // sim-crate BTreeMap-only discipline.
         let mut buckets: Vec<(PressIntensity, CounterIntent, TacticState)> = Vec::new();
         for arch in store.tactical_archetypes.values() {
             let p = archetype_params_for(arch);
@@ -1118,9 +1172,12 @@ mod tests {
             }
         }
         assert!(
-            buckets.len() >= 2,
+            buckets.len() >= 3,
             "Bridge buckets collapsed: {} distinct (press, counter, default_state) tuples \
-             across {} archetypes — divergence path can't fire",
+             across {} archetypes — T2-1c's anti-high-press archetype was \
+             supposed to introduce a third bucket (High/High/MidBlock); \
+             verify the archetype RON loads + the bridge thresholds haven't \
+             drifted",
             buckets.len(),
             store.tactical_archetypes.len()
         );

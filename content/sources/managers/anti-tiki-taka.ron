@@ -1,0 +1,27 @@
+// Anti-Tiki-Taka manager archetype — hand-authored, NOT LLM-baked.
+//
+// A specialist counter-tactician designed to neutralize possession-rotation
+// systems. Two central midfielders man-mark opposition #6/#8 with tight
+// aggression. Moderate risk appetite (0.55) — committed to the man-mark
+// + counter scheme but doesn't gamble beyond it. LOW possession
+// preference (0.40) — the goal is to deny the opponent their possession
+// game, not to play one of our own; turnover-driven attacks are the
+// primary scoring mode.
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.55 × 2^32 = 2_362_232_012.8 → 2_362_232_013
+//   possession_preference: 0.40 × 2^32 = 1_717_986_918.4 → 1_717_986_918
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   anti-tiki-taka.ron  (validated at load time by ContentStore).
+//
+// Authored 2026-05-17 (T2-1c).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.anti-tiki-taka",
+    display_name: "Anti-Tiki-Taka",
+    tactical_archetype_id: "fwh.core:archetype.anti-tiki-taka",
+    risk_appetite: (bits: 2362232013),
+    possession_preference: (bits: 1717986918),
+)

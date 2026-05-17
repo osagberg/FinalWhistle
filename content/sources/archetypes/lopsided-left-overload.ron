@@ -1,0 +1,42 @@
+// Lopsided-left-overload tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior. A one-coordinate drift
+// in any formation slot would shift the pinned canonical-state hash; the
+// pinned-hash regression corpus would fail across the CI matrix.
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//
+// Tactical philosophy: mirror of `lopsided-right-overload`. 4-3-3 with
+// deliberate ASYMMETRY toward the LEFT flank. LB and LW play higher and
+// wider; RB tucks central. LCM drifts wide-left; RCM holds. Net effect:
+// 3-on-2 left channel + spare-central-defender risk on right counters.
+// Same bridge bucket as the right-mirror (High / Default / MidBlock); the
+// asymmetric Z-axis layout is what makes the two archetypes distinct
+// behavior-driven content even though they share the bridge bucket.
+//
+// Authored 2026-05-17 (T2-1c).
+
+TacticalArchetype(
+    id: "fwh.core:archetype.lopsided-left-overload",
+    formation: [
+        // Goalkeeper
+        FormationSlot(roster_slot:  1, role: "GK",  x: -45, z:   0),
+        // Back four — asymmetric mirror: LB high+wide, RB tucked central
+        FormationSlot(roster_slot:  2, role: "RB",  x: -28, z:  12),
+        FormationSlot(roster_slot:  3, role: "RCB", x: -30, z:   8),
+        FormationSlot(roster_slot:  4, role: "LCB", x: -30, z: -10),
+        FormationSlot(roster_slot:  5, role: "LB",  x: -18, z: -24),
+        // Midfield three — LCM drifts wide-left; RCM holds
+        FormationSlot(roster_slot:  6, role: "RCM", x: -10, z:   8),
+        FormationSlot(roster_slot:  7, role: "CDM", x: -14, z:   0),
+        FormationSlot(roster_slot:  8, role: "LCM", x:  -8, z: -18),
+        // Front three — LW pinned highest + widest; RW underloaded
+        FormationSlot(roster_slot:  9, role: "RW",  x:  16, z:  14),
+        FormationSlot(roster_slot: 10, role: "CF",  x:  20, z:  -2),
+        FormationSlot(roster_slot: 11, role: "LW",  x:  22, z: -24),
+    ],
+    press_radius_metres: 28,
+    buildup_speed_factor_bps: 9000,
+)

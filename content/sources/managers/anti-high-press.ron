@@ -1,0 +1,27 @@
+// Anti-High-Press manager archetype — hand-authored, NOT LLM-baked.
+//
+// A specialist counter-tactician designed to break opposing high-press
+// systems. Center-backs split wide for keeper short-distribution outlets;
+// CAM positioned as long-ball target for press-break verticals. Moderately-
+// high risk appetite (0.70) — happy to play through the press rather than
+// boot it long; vertical commitment on every press-break. LOW possession
+// preference (0.35) — the goal is to play THROUGH or OVER the press, not
+// to hold; rapid vertical transitions are the scoring mode.
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.70 × 2^32 = 3_006_477_107.2 → 3_006_477_107
+//   possession_preference: 0.35 × 2^32 = 1_503_238_553.6 → 1_503_238_554
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   anti-high-press.ron  (validated at load time by ContentStore).
+//
+// Authored 2026-05-17 (T2-1c).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.anti-high-press",
+    display_name: "Anti-High-Press",
+    tactical_archetype_id: "fwh.core:archetype.anti-high-press",
+    risk_appetite: (bits: 3006477107),
+    possession_preference: (bits: 1503238554),
+)

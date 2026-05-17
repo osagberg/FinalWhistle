@@ -684,6 +684,118 @@ impl MatchState {
 // updates atomic).
 
 // -------------------------------------------------------------------------
+// T2-1c helpers: BallOutOfPlay SetPieceKind assignment + BallInPlay auto-exit
+// -------------------------------------------------------------------------
+
+/// Determine the per-team `SetPieceKind` to emit alongside a `BallOutOfPlay`
+/// TacticEvent on the tick the OOB-clamp triggers (T2-1c).
+///
+/// Returns `(home_kind, away_kind)` — the kinds are PER-TEAM and reciprocal:
+/// when one team gets `ThrowInFor`, the other gets `ThrowInAgainst`; one's
+/// `CornerFor` is the other's `CornerAgainst`; etc.
+///
+/// `bx_bits` is `state.ball.pos_x.to_bits()` at the moment of OOB detection
+/// (sign indicates which goal-line was crossed when `past_non_goal_line`).
+/// `last_team_idx` is `Some(0)` if home last touched, `Some(1)` if away,
+/// `None` if no prior touch.
+///
+/// The None case is structurally impossible during normal play:
+/// `MatchState::initial` sets `last_touched_by = Some(9)` at construction,
+/// and every `apply_intent` ball-touch arm assigns Some(...). The defensive
+/// fallback to `ThrowInFor` / `ThrowInFor` if `None` avoids silent slot-0
+/// misattribution per the existing Codex 2026-05-16 audit silent-failure
+/// P0-1 pattern.
+///
+/// When BOTH `past_sideline` AND `past_non_goal_line` are true (corner-flag
+/// edge case), the non-goal-line kind wins (the ball is closer to the
+/// goal-line geometrically; treating it as a corner/goal-kick matches
+/// real-football refereeing — the goal-line decision takes priority over
+/// the sideline decision because the ball had to cross the goal-line to
+/// reach the corner flag).
+//
+// `past_sideline` is intentionally not a parameter: the caller only invokes
+// this helper when at least one of the two boundary flags is true, and the
+// past_non_goal_line=false branch is the past_sideline-only case
+// (callsite-enforced precondition).
+#[inline]
+fn setpiece_kind_for(
+    past_non_goal_line: bool,
+    bx_bits: i64,
+    last_team_idx: Option<usize>,
+) -> (tactic_fsm::SetPieceKind, tactic_fsm::SetPieceKind) {
+    use tactic_fsm::SetPieceKind;
+
+    if past_non_goal_line {
+        // Determine which goal-line was crossed + which team was attacking.
+        // bx_bits > 0 → ball past away's goal-line (positive x) → home was attacking.
+        // bx_bits < 0 → ball past home's goal-line (negative x) → away was attacking.
+        let home_attacking = bx_bits > 0;
+        // last_team_idx == Some(0) = home last touched, Some(1) = away, None = unattributed.
+        match (home_attacking, last_team_idx) {
+            (true, Some(0)) | (true, None) => {
+                // Home attacking + home last touched (or None defensive default):
+                // home gets CornerFor; away gets CornerAgainst.
+                (SetPieceKind::CornerFor, SetPieceKind::CornerAgainst)
+            }
+            (true, Some(1)) => {
+                // Home attacking + away last touched:
+                // away kicks off the goal-kick + home gets the opponent variant.
+                (SetPieceKind::GoalKickOpponent, SetPieceKind::GoalKick)
+            }
+            (false, Some(1)) | (false, None) => {
+                // Away attacking + away last touched (or None defensive default):
+                // away gets CornerFor; home gets CornerAgainst.
+                (SetPieceKind::CornerAgainst, SetPieceKind::CornerFor)
+            }
+            (false, Some(0)) => {
+                // Away attacking + home last touched:
+                // home kicks off the goal-kick + away gets the opponent variant.
+                (SetPieceKind::GoalKick, SetPieceKind::GoalKickOpponent)
+            }
+            (_, Some(other)) => {
+                // Defensive guard against future team-index expansion (e.g. neutral
+                // referee touches per drop-ball scenarios). Today team_of returns
+                // only 0 or 1 so this arm is unreachable, but the panic-fail-loud
+                // discipline per the established Codex 2026-05-16 audit P0-1 pattern
+                // surfaces any future invariant violation at the violation site.
+                panic!(
+                    "setpiece_kind_for: unexpected last_team_idx {other} \
+                     (team_of must return 0 or 1)"
+                );
+            }
+        }
+    } else {
+        // past_sideline only (no goal-line cross). Throw-in: the team that
+        // DIDN'T last touch the ball takes the throw-in.
+        match last_team_idx {
+            Some(0) => {
+                // Home last touched → away throws in.
+                (SetPieceKind::ThrowInAgainst, SetPieceKind::ThrowInFor)
+            }
+            Some(1) => {
+                // Away last touched → home throws in.
+                (SetPieceKind::ThrowInFor, SetPieceKind::ThrowInAgainst)
+            }
+            None => {
+                // Unattributed (structurally unreachable; defensive default).
+                // Home gets the throw — matches `MatchState::initial`'s
+                // possession-with-home convention.
+                (SetPieceKind::ThrowInFor, SetPieceKind::ThrowInAgainst)
+            }
+            Some(other) => {
+                panic!(
+                    "setpiece_kind_for: unexpected last_team_idx {other} \
+                     (team_of must return 0 or 1)"
+                );
+            }
+        }
+    }
+    // Note: past_sideline + past_non_goal_line both true (corner-flag edge case)
+    // is handled by the past_non_goal_line branch winning — the goal-line
+    // decision takes priority per the doc-comment above.
+}
+
+// -------------------------------------------------------------------------
 // T2-1b helpers: per-team archetype-driven TacticEvent emission
 // -------------------------------------------------------------------------
 
@@ -787,6 +899,7 @@ fn emit_possession_transition_events(
         (Some(a), None) => {
             // Release without pickup this tick: PossessionLost only.
             let team_lost = team_of(a);
+            auto_exit_setpiece(state, team_lost);
             let arch = team_arch_params(state, team_lost);
             state.team_tactic_states[team_lost] = tactic_fsm::apply_event(
                 state.team_tactic_states[team_lost],
@@ -809,6 +922,8 @@ fn emit_possession_transition_events(
             // for b's team. recovery_likely=true because the opponent immediately
             // claimed the ball this same tick — the contest was decided in their
             // favor + the losing team is structurally still "in the press window".
+            auto_exit_setpiece(state, team_lost);
+            auto_exit_setpiece(state, team_gained);
             let shape_broken = compute_opponent_shape_broken(state, team_gained);
             let arch_lost = team_arch_params(state, team_lost);
             state.team_tactic_states[team_lost] = tactic_fsm::apply_event(
@@ -833,6 +948,7 @@ fn emit_possession_transition_events(
             // Loose-ball pickup (the prior tick's release already fired
             // PossessionLost; this tick the ball was claimed by `b`).
             let team_gained = team_of(b);
+            auto_exit_setpiece(state, team_gained);
             let shape_broken = compute_opponent_shape_broken(state, team_gained);
             let arch = team_arch_params(state, team_gained);
             state.team_tactic_states[team_gained] = tactic_fsm::apply_event(
@@ -847,6 +963,44 @@ fn emit_possession_transition_events(
         (None, None) => {
             // Ball stayed loose. No event.
         }
+    }
+}
+
+/// T2-1c: auto-exit `TacticState::SetPiece(_)` for the named team by firing
+/// `apply_event(BallInPlay)` before any other possession-transition event.
+///
+/// Rationale: the `PossessionLost` + `BallRecovered` apply_event arms at
+/// `tactic_fsm.rs:395+` only match `MidBlock | LowBlock | HighPress |
+/// CounterAttack` — they're no-ops when the team is in `SetPiece(_)`. So
+/// firing them while the team is stuck in SetPiece silently drops the
+/// per-team divergence T2-1b delivered. The T2-1c minimum-viable
+/// interpretation: on the next possession transition after a SetPiece
+/// entry, auto-fire BallInPlay to transition back to the archetype's
+/// default_in_defence_state — then the PossessionLost/BallRecovered
+/// transitions can fire normally.
+///
+/// This is NOT the same as a true set-piece restart timing mechanic
+/// (5-tick countdown, ball reposition to thrower's feet, possession to
+/// thrower's slot — all deferred to T2-1d/T2-2). The simplification
+/// "auto-exit on next possession transition" is acceptable because today
+/// the OOB-clamp doesn't reset possession or ball position to a
+/// thrower-equivalent setup — the ball just sits at the sideline + the
+/// last carrier still nominally has possession. So "next possession
+/// transition" is effectively "first BT-driven Dribble/Pass intent that
+/// moves the ball off the boundary."
+///
+/// No-op if the team is NOT currently in SetPiece (most ticks).
+#[inline]
+fn auto_exit_setpiece(state: &mut MatchState, team: usize) {
+    let current = state.team_tactic_states[team];
+    if matches!(current.state(), tactic_fsm::TacticState::SetPiece(_)) {
+        let arch = team_arch_params(state, team);
+        state.team_tactic_states[team] = tactic_fsm::apply_event(
+            current,
+            &arch,
+            tactic_fsm::TacticEvent::BallInPlay,
+            state.tick,
+        );
     }
 }
 
@@ -1057,6 +1211,48 @@ pub fn tick_match(
                     state.ball.pos_x = GOAL_LINE_X;
                 }
             }
+
+            // T2-1c: emit `TacticEvent::BallOutOfPlay` per-team with the
+            // correct `SetPieceKind`. Each team's apply_event arm
+            // (`tactic_fsm.rs:379-381`) transitions to
+            // `TacticState::SetPiece(kind)` — a per-team-distinct kind
+            // because home + away are on opposite sides of the same OOB
+            // event (one team gets ThrowInFor, the other ThrowInAgainst;
+            // one gets CornerFor, the other CornerAgainst; etc.).
+            //
+            // SetPieceKind taxonomy per the T2-1c MEMORY spec design table:
+            //   past_sideline:           home → ThrowInFor iff last_touched_by is away else ThrowInAgainst
+            //                            away mirror.
+            //   past_non_goal_line:      determined by which goal-line
+            //                            (bx_bits > 0 → away's goal-line = home attacking)
+            //                            crossed it + last_touched_by:
+            //     home attacking + home last_touched → home CornerFor / away CornerAgainst
+            //     home attacking + away last_touched → away GoalKick   / home GoalKickOpponent
+            //     away attacking is the symmetric mirror.
+            //
+            // BallOutOfPlay arm doesn't read archetype_params (matches the
+            // BallOutOfPlay enum variant unconditionally + transitions to
+            // SetPiece) but we still pass the per-team sidecar for
+            // signature consistency + future-compat (if a later spec
+            // change makes BallOutOfPlay archetype-dependent, the call
+            // site already has the right param).
+            let last_team_idx = state.last_touched_by.map(team_of);
+            let (home_kind, away_kind) =
+                setpiece_kind_for(past_non_goal_line, bx_bits, last_team_idx);
+            let home_arch = state.home_archetype_params;
+            state.team_tactic_states[0] = tactic_fsm::apply_event(
+                state.team_tactic_states[0],
+                &home_arch,
+                tactic_fsm::TacticEvent::BallOutOfPlay { kind: home_kind },
+                state.tick,
+            );
+            let away_arch = state.away_archetype_params;
+            state.team_tactic_states[1] = tactic_fsm::apply_event(
+                state.team_tactic_states[1],
+                &away_arch,
+                tactic_fsm::TacticEvent::BallOutOfPlay { kind: away_kind },
+                state.tick,
+            );
         }
     }
 

@@ -1,0 +1,27 @@
+// False-9 System manager archetype — hand-authored, NOT LLM-baked.
+//
+// Modern positional tactician using a false 9 to pull opposing CBs out of
+// shape. CF drops into midfield; wide forwards make underlapping runs
+// into the vacated central channel. Moderate risk appetite (0.55) — the
+// false 9 needs space + time to manufacture the CB-disorganization +
+// commits midfield numbers forward to support. HIGH possession preference
+// (0.80) — possession control is the mechanism that makes the false-9
+// pull effective; without it the system collapses to a striker-less attack.
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.55 × 2^32 = 2_362_232_012.8 → 2_362_232_013
+//   possession_preference: 0.80 × 2^32 = 3_435_973_836.8 → 3_435_973_837
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   false-9-system.ron  (validated at load time by ContentStore).
+//
+// Authored 2026-05-17 (T2-1c).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.false-9-system",
+    display_name: "False-9 System",
+    tactical_archetype_id: "fwh.core:archetype.false-9-system",
+    risk_appetite: (bits: 2362232013),
+    possession_preference: (bits: 3435973837),
+)

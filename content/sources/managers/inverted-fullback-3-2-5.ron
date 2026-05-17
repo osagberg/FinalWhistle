@@ -1,0 +1,27 @@
+// Inverted-Fullback 3-2-5 manager archetype — hand-authored, NOT LLM-baked.
+//
+// Guardiola-school modern hybrid. Fullbacks invert into the double-pivot
+// zone when in possession, allowing the team to attack with a 3-2-5
+// shape (3 CBs + 2 inverted FBs + 5 attackers). Moderate risk appetite
+// (0.60) — system depends on coordinated FB inversions which take time
+// to execute + leave wide channels exposed mid-rotation. CATALOG-HIGH
+// possession preference (0.85) — possession is the engine that drives
+// the inverted-FB advances; without it the 3-2-5 shape never materializes.
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.60 × 2^32 = 2_576_980_377.6 → 2_576_980_378
+//   possession_preference: 0.85 × 2^32 = 3_650_722_201.6 → 3_650_722_202
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   inverted-fullback-3-2-5.ron  (validated at load time by ContentStore).
+//
+// Authored 2026-05-17 (T2-1c).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.inverted-fullback-3-2-5",
+    display_name: "Inverted-Fullback 3-2-5",
+    tactical_archetype_id: "fwh.core:archetype.inverted-fullback-3-2-5",
+    risk_appetite: (bits: 2576980378),
+    possession_preference: (bits: 3650722202),
+)

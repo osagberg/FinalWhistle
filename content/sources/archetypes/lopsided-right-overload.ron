@@ -1,0 +1,47 @@
+// Lopsided-right-overload tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior. A one-coordinate drift
+// in any formation slot would shift the pinned canonical-state hash; the
+// pinned-hash regression corpus would fail across the CI matrix. They are
+// reviewed + committed by hand, never regenerated.
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//
+// Tactical philosophy: 4-3-3 with deliberate ASYMMETRY toward the right flank.
+// RB and RW play higher and wider than their LB / LW counterparts; LB tucks
+// in centrally to cover the structural risk. RCM drifts wide to maintain
+// the overload triangle (RB / RCM / RW); LCM holds defensively. Net effect:
+// 3-on-2 in the right channel + 2-on-1 spare central defender risk on
+// left-side counters. Press radius moderate (28m); buildup slow-ish (0.90)
+// for ball-circulation that triggers the right-side overload. Bridge
+// bucket: High press / Default counter / MidBlock.
+//
+// Authored 2026-05-17 (T2-1c: 8 mixed-category archetypes). Content-pack-
+// qualified ID per Content/RULES.md §2.
+
+TacticalArchetype(
+    id: "fwh.core:archetype.lopsided-right-overload",
+    formation: [
+        // Goalkeeper
+        FormationSlot(roster_slot:  1, role: "GK",  x: -45, z:   0),
+        // Back four — asymmetric: RB high+wide, LB tucked central
+        FormationSlot(roster_slot:  2, role: "RB",  x: -18, z:  24),
+        FormationSlot(roster_slot:  3, role: "RCB", x: -30, z:  10),
+        FormationSlot(roster_slot:  4, role: "LCB", x: -30, z:  -8),
+        FormationSlot(roster_slot:  5, role: "LB",  x: -28, z: -12),
+        // Midfield three — RCM drifts wide-right; LCM holds
+        FormationSlot(roster_slot:  6, role: "RCM", x:  -8, z:  18),
+        FormationSlot(roster_slot:  7, role: "CDM", x: -14, z:   0),
+        FormationSlot(roster_slot:  8, role: "LCM", x: -10, z:  -8),
+        // Front three — RW pinned highest + widest; LW underloaded
+        FormationSlot(roster_slot:  9, role: "RW",  x:  22, z:  24),
+        FormationSlot(roster_slot: 10, role: "CF",  x:  20, z:   2),
+        FormationSlot(roster_slot: 11, role: "LW",  x:  16, z: -14),
+    ],
+    press_radius_metres: 28,
+    // 9_000 bps == 0.90 in normalized form (patient circulation that triggers
+    // the right-side overload). Codex Imp #3 (T1-1): integer-only, no f32.
+    buildup_speed_factor_bps: 9000,
+)

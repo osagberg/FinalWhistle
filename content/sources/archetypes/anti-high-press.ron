@@ -1,0 +1,52 @@
+// Anti-high-press tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior.
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//
+// Tactical philosophy: specialist counter to opposition high-press systems.
+// 4-2-3-1 with center-backs SPLIT WIDE (Z: ±14 vs traditional ±8) to
+// give the keeper short-distribution outlets that bypass the front-press
+// line. CAM positioned high (+16) as a long-ball target when the keeper
+// goes direct. Double pivot screens the central channel where press-
+// breaking lay-offs happen. Press radius MODERATE (22m — not zero, but
+// well below gegen-press's 40m); we'd rather sit + invite the press
+// + break it than chase a press of our own. Buildup speed FAST (1.20)
+// — vertical commitment on every press-break opportunity.
+//
+// Bridge bucket: High press (22 > 20) / High counter (12000 >= 11000) /
+// MidBlock (22 > 20). This is a NEW bucket combination not present in
+// the existing 8 archetypes — anti-high-press is the first archetype
+// authored with both High press AND High counter. Exercises a bridge
+// surface previously empty.
+//
+// Authored 2026-05-17 (T2-1c).
+
+TacticalArchetype(
+    id: "fwh.core:archetype.anti-high-press",
+    formation: [
+        // Goalkeeper — slightly higher (sweeper-distributor stance)
+        FormationSlot(roster_slot:  1, role: "GK",  x: -44, z:   0),
+        // Back four — center-backs SPLIT WIDE for short distribution outlets
+        FormationSlot(roster_slot:  2, role: "RB",  x: -22, z:  20),
+        FormationSlot(roster_slot:  3, role: "RCB", x: -32, z:  14),
+        FormationSlot(roster_slot:  4, role: "LCB", x: -32, z: -14),
+        FormationSlot(roster_slot:  5, role: "LB",  x: -22, z: -20),
+        // Double pivot — screens central press-break lay-offs
+        FormationSlot(roster_slot:  6, role: "RDM", x: -10, z:   6),
+        FormationSlot(roster_slot:  7, role: "LDM", x: -10, z:  -6),
+        // Attacking three behind lone striker — CAM high as long-ball target
+        FormationSlot(roster_slot:  8, role: "RAM", x:  10, z:  12),
+        FormationSlot(roster_slot:  9, role: "CAM", x:  16, z:   0),
+        FormationSlot(roster_slot: 10, role: "LAM", x:  10, z: -12),
+        // Lone striker — pinned to stretch press line
+        FormationSlot(roster_slot: 11, role: "ST",  x:  24, z:   0),
+    ],
+    press_radius_metres: 22,
+    // 12_000 bps == 1.20 in normalized form (fast vertical commitment on
+    // press-break opportunities). u16 ceiling 65_535; values >10_000
+    // express above-baseline buildup. Codex Imp #3 (T1-1): integer-only.
+    buildup_speed_factor_bps: 12000,
+)

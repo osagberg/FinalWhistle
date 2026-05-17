@@ -1,0 +1,44 @@
+// Ultra-defensive-10-back tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior.
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//
+// Tactical philosophy: extreme edge-case defensive setup. 5-4-1 with the
+// entire team behind the ball at all times — even deeper than the
+// park-the-bus archetype (back-line at -44 vs park-the-bus's -42). Lone
+// striker positioned NARROW + LOW (+8) as a hopeful counter outlet
+// rather than a real attacking threat. Press radius CATALOG-MIN (10m —
+// even below park-the-bus's 12m); the team simply does not press,
+// preferring to absorb pressure + concede possession. Buildup speed
+// MAXIMUM-ISH (14000 = 1.40) — when possession is won, the ball goes
+// vertical to the lone striker IMMEDIATELY (route-one style on
+// turnover). Use case: protecting a slim lead against a stronger
+// opponent. Bridge bucket: None press / High counter / LowBlock.
+//
+// Authored 2026-05-17 (T2-1c).
+
+TacticalArchetype(
+    id: "fwh.core:archetype.ultra-defensive-10-back",
+    formation: [
+        // Goalkeeper — deepest position
+        FormationSlot(roster_slot:  1, role: "GK",  x: -48, z:   0),
+        // Back five — deeper than park-the-bus
+        FormationSlot(roster_slot:  2, role: "RWB", x: -38, z:  16),
+        FormationSlot(roster_slot:  3, role: "RCB", x: -44, z:   8),
+        FormationSlot(roster_slot:  4, role: "CCB", x: -44, z:   0),
+        FormationSlot(roster_slot:  5, role: "LCB", x: -44, z:  -8),
+        FormationSlot(roster_slot:  6, role: "LWB", x: -38, z: -16),
+        // Compact mid-third midfield four
+        FormationSlot(roster_slot:  7, role: "RM",  x: -24, z:  14),
+        FormationSlot(roster_slot:  8, role: "RCM", x: -22, z:   4),
+        FormationSlot(roster_slot:  9, role: "LCM", x: -22, z:  -4),
+        FormationSlot(roster_slot: 10, role: "LM",  x: -24, z: -14),
+        // Lone narrow striker — counter outlet on turnover
+        FormationSlot(roster_slot: 11, role: "ST",  x:   8, z:   0),
+    ],
+    press_radius_metres: 10,
+    buildup_speed_factor_bps: 14000,
+)

@@ -1,0 +1,43 @@
+// Ultra-attacking-no-cb tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior.
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//
+// Tactical philosophy: extreme edge-case all-in attack. 3-3-4 nominal —
+// sweeper-keeper plays as the 4th defender (advanced GK position at -36
+// not -45); only TWO traditional center-backs hold any kind of defensive
+// shape; the formation commits 3 in midfield + 4 in attack with deliberate
+// disregard for transition risk. Use case: chasing a multi-goal deficit
+// late in a match; full-tournament-mode bias toward goals over points.
+// Press radius CATALOG-MAX-ISH (35m); buildup 0.85 (patient enough to
+// let the 4-man frontline get into position before vertical). Bridge
+// bucket: High press / Default counter / MidBlock.
+//
+// Authored 2026-05-17 (T2-1c).
+
+TacticalArchetype(
+    id: "fwh.core:archetype.ultra-attacking-no-cb",
+    formation: [
+        // Sweeper-keeper — pushed up to act as the 4th defender
+        FormationSlot(roster_slot:  1, role: "SK",  x: -36, z:   0),
+        // Back two — only two true center-backs
+        FormationSlot(roster_slot:  2, role: "RCB", x: -28, z:   6),
+        FormationSlot(roster_slot:  3, role: "LCB", x: -28, z:  -6),
+        // Wing-back / supporting outer-defenders pushed higher
+        FormationSlot(roster_slot:  4, role: "RWB", x: -15, z:  18),
+        FormationSlot(roster_slot:  5, role: "LWB", x: -15, z: -18),
+        // Midfield three — push up to support the front four
+        FormationSlot(roster_slot:  6, role: "RCM", x:   0, z:  10),
+        FormationSlot(roster_slot:  7, role: "CM",  x:  -2, z:   0),
+        FormationSlot(roster_slot:  8, role: "LCM", x:   0, z: -10),
+        // Front four — gambling all-in attack
+        FormationSlot(roster_slot:  9, role: "RW",  x:  18, z:  18),
+        FormationSlot(roster_slot: 10, role: "CF",  x:  22, z:   0),
+        FormationSlot(roster_slot: 11, role: "LW",  x:  18, z: -18),
+    ],
+    press_radius_metres: 35,
+    buildup_speed_factor_bps: 8500,
+)

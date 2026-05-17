@@ -1,0 +1,47 @@
+// Inverted-fullback-3-2-5 tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior.
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//
+// Tactical philosophy: Guardiola-school modern hybrid. NOMINAL 4-3-3 out
+// of possession (fullbacks wide as you'd expect) — but IN possession, the
+// fullbacks INVERT into the double-pivot zone (tucked centrally beside
+// the CDM), and the team adopts a 3-2-5 attacking shape with 3 CBs +
+// 2 inverted FBs + 5 attackers across the front line. The formation
+// positions encoded here represent the IN-POSSESSION shape (3-2-5):
+// 3 spread CBs + 2 inverted FBs as the double pivot + 3-band attacking
+// 5 (2 wide forwards, 2 inverted #8/#10 types, 1 striker). This is the
+// canonical-state representation; the OUT-OF-POSSESSION reshape to 4-3-3
+// is dynamic + handled by the BT runner consuming archetype + tactic-FSM
+// state. Press radius 26m (moderate — possession is the press); buildup
+// 0.85 (patient circulation that triggers the inverted-FB advances).
+// Bridge bucket: High press / Default counter / MidBlock.
+//
+// Authored 2026-05-17 (T2-1c).
+
+TacticalArchetype(
+    id: "fwh.core:archetype.inverted-fullback-3-2-5",
+    formation: [
+        // Goalkeeper
+        FormationSlot(roster_slot:  1, role: "GK",  x: -45, z:   0),
+        // Back THREE (in-possession shape) — spread wide for build-up
+        FormationSlot(roster_slot:  2, role: "RCB", x: -30, z:  16),
+        FormationSlot(roster_slot:  3, role: "CCB", x: -34, z:   0),
+        FormationSlot(roster_slot:  4, role: "LCB", x: -30, z: -16),
+        // Inverted FBs as the double pivot
+        FormationSlot(roster_slot:  5, role: "IRB", x: -10, z:   5),
+        FormationSlot(roster_slot:  6, role: "ILB", x: -10, z:  -5),
+        // Inverted #8 / #10s — central creators
+        FormationSlot(roster_slot:  7, role: "RAM", x:  10, z:   8),
+        FormationSlot(roster_slot:  8, role: "LAM", x:  10, z:  -8),
+        // Wide forwards + striker — 3-band front 5
+        FormationSlot(roster_slot:  9, role: "RW",  x:  18, z:  22),
+        FormationSlot(roster_slot: 10, role: "CF",  x:  22, z:   0),
+        FormationSlot(roster_slot: 11, role: "LW",  x:  18, z: -22),
+    ],
+    press_radius_metres: 26,
+    buildup_speed_factor_bps: 8500,
+)

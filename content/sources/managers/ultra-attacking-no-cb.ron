@@ -1,0 +1,27 @@
+// Ultra-Attacking (No CB) manager archetype — hand-authored, NOT LLM-baked.
+//
+// Extreme edge-case all-in attacking tactician. Sweeper-keeper plays as the
+// 4th defender; only 2 true center-backs hold any defensive shape; 4-man
+// front line. Catalog-max risk appetite (0.95) — gambling on goals over
+// points; transition risk is acceptable price. Moderate possession
+// preference (0.55) — possession matters to set up the front-4
+// combinations but not as a defensive scheme (we have no defensive
+// scheme). Use case: chasing a multi-goal deficit late.
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.95 × 2^32 = 4_080_218_931.2 → 4_080_218_931
+//   possession_preference: 0.55 × 2^32 = 2_362_232_012.8 → 2_362_232_013
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   ultra-attacking-no-cb.ron  (validated at load time by ContentStore).
+//
+// Authored 2026-05-17 (T2-1c).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.ultra-attacking-no-cb",
+    display_name: "Ultra-Attacking (No CB)",
+    tactical_archetype_id: "fwh.core:archetype.ultra-attacking-no-cb",
+    risk_appetite: (bits: 4080218931),
+    possession_preference: (bits: 2362232013),
+)
