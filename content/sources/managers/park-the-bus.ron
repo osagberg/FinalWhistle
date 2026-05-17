@@ -1,0 +1,27 @@
+// Park-the-Bus manager archetype — hand-authored, NOT LLM-baked.
+//
+// The deepest defensive philosophy in the catalog. Sets up a 5-4-1 block
+// within 10m of own goal-line; barely presses; relies on a lone target
+// striker to convert hopeful clearances into chances. Very low risk
+// appetite (catalog-low: 0.15) — would rather draw 0-0 than concede 1-0;
+// no commitment forward beyond the lone striker. Very low possession
+// preference (catalog-low: 0.20) — possession is incidental; the goal is
+// to deny the opponent their possession game.
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.15 × 2^32 = 644_245_094.4 → 644_245_094
+//   possession_preference: 0.20 × 2^32 = 858_993_459.2 → 858_993_459
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   park-the-bus.ron  (validated at load time by ContentStore).
+//
+// Authored 2026-05-17 (T2-1b).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.park-the-bus",
+    display_name: "Park the Bus",
+    tactical_archetype_id: "fwh.core:archetype.park-the-bus",
+    risk_appetite: (bits: 644245094),
+    possession_preference: (bits: 858993459),
+)

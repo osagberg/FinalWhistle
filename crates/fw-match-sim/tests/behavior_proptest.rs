@@ -633,17 +633,30 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
-    /// T2-1a schema-bump observable: per-team archetype IDs round-trip
-    /// through canonical encoding and changing the away ID produces a
-    /// different canonical-state byte stream at tick 0 (no sim advance
-    /// required — the IDs ARE the canonical-state delta).
+    /// T2-1b behavioral observable: changing the away-team archetype
+    /// produces a DIFFERENT canonical-state byte stream after 60 ticks
+    /// of sim (not just at tick 0 — the schema-only test was the T2-1a
+    /// version, now superseded by this behavioral version).
     ///
-    /// Mutation pre-check (per /next Step 6): if a future change drops
-    /// the two archetype ID fields from the canonical encoder or
-    /// silently aliases them to a single shared ID, this test fails
-    /// because the two byte streams would become equal.
+    /// Per the T2-1b self-review MEDIUM-1 framing: T2-1a's
+    /// `per_team_archetype_ids_round_trip_canonically` only tested that
+    /// the two String id fields ARE encoded — it would pass even if the
+    /// per-team `archetype_params` sidecars were never read by any
+    /// `apply_event` arm (which was the case at T2-1a per CRITICAL-1).
+    /// T2-1b makes the per-team `archetype_params` actually drive sim
+    /// behavior via `PossessionLost` / `BallRecovered` emissions in
+    /// `tick_match` → `emit_possession_transition_events`. This test
+    /// proves the wiring works by running 60 ticks of sim with the same
+    /// home id + two different away ids and asserting the post-tick-60
+    /// canonical bytes diverge.
+    ///
+    /// Mutation pre-check: if either emission site is dropped from
+    /// `emit_possession_transition_events`, OR if both teams' apply_event
+    /// calls were hardcoded to receive `home_archetype_params` (bug
+    /// pattern from the T2-1a CRITICAL-2 audit), the two 60-tick byte
+    /// streams would converge + this test would fail.
     #[test]
-    fn per_team_archetype_ids_round_trip_canonically(seed_u64 in arb_seed()) {
+    fn per_team_archetypes_diverge_canonical_state_after_60_ticks(seed_u64 in arb_seed()) {
         use fw_content::ContentStore;
         use std::path::PathBuf;
 
@@ -652,48 +665,61 @@ proptest! {
         let content = ContentStore::load_sources(&content_root)
             .expect("content/sources should load");
         let seed = Seed::from_u64(seed_u64);
+        let sig_defs = content.signature_definitions.clone();
 
-        // Baseline: both teams default archetype.
-        let s_both_default = MatchState::initial_with_content(
+        // Baseline run: away = default archetype (= home archetype).
+        let mut s_both_default = MatchState::initial_with_content(
             seed,
             &content,
             fw_match_sim::DEFAULT_ARCHETYPE_ID,
             fw_match_sim::DEFAULT_ARCHETYPE_ID,
         ).expect("initial_with_content default+default");
 
-        // Variant: away team swapped to low-block-counter.
-        let s_away_lbc = MatchState::initial_with_content(
+        // Variant run: away swapped to park-the-bus (None press / High counter /
+        // LowBlock default — far end of the bridge bucket space from
+        // attacking-fullback's High press / Default counter / MidBlock).
+        // park-the-bus is the strongest divergence candidate against the
+        // DEFAULT_ARCHETYPE_ID — gives the test the most behavioral signal
+        // across 60 ticks even on shorter sweeps.
+        let mut s_away_ptb = MatchState::initial_with_content(
             seed,
             &content,
             fw_match_sim::DEFAULT_ARCHETYPE_ID,
-            "fwh.core:archetype.low-block-counter",
-        ).expect("initial_with_content default+low-block-counter");
+            "fwh.core:archetype.park-the-bus",
+        ).expect("initial_with_content default+park-the-bus");
 
-        // The accessor surface MUST reflect the construction args.
+        // Sanity: accessor surface reflects construction args.
         prop_assert_eq!(s_both_default.home_archetype_id(), fw_match_sim::DEFAULT_ARCHETYPE_ID);
         prop_assert_eq!(s_both_default.away_archetype_id(), fw_match_sim::DEFAULT_ARCHETYPE_ID);
-        prop_assert_eq!(s_away_lbc.home_archetype_id(), fw_match_sim::DEFAULT_ARCHETYPE_ID);
-        prop_assert_eq!(s_away_lbc.away_archetype_id(), "fwh.core:archetype.low-block-counter");
+        prop_assert_eq!(s_away_ptb.home_archetype_id(), fw_match_sim::DEFAULT_ARCHETYPE_ID);
+        prop_assert_eq!(s_away_ptb.away_archetype_id(), "fwh.core:archetype.park-the-bus");
 
-        // Canonical bytes MUST differ — same seed, same home id, different
-        // away id. If they're equal the schema-bump observable is broken
-        // (either the encoder doesn't append the away id or both teams
-        // were silently aliased to the same value).
+        // Tick BOTH 60 times through the SAME signature definitions.
+        for _ in 0..60 {
+            s_both_default = tick_match(s_both_default, &sig_defs);
+            s_away_ptb = tick_match(s_away_ptb, &sig_defs);
+        }
+
+        // POST-60-tick canonical bytes MUST differ. If they don't, the
+        // per-team archetype_params sidecar is being ignored somewhere
+        // along the apply_event call chain (CRITICAL-2 / divergence-not-
+        // wired regression).
         let bytes_default = s_both_default.encode_canonical();
-        let bytes_lbc = s_away_lbc.encode_canonical();
+        let bytes_ptb = s_away_ptb.encode_canonical();
         prop_assert_ne!(
-            &bytes_default, &bytes_lbc,
-            "T2-1a schema-bump observable broken: away id change \
-             (default → low-block-counter) produced identical canonical bytes. \
-             Either the canonical encoder doesn't append away_archetype_id, \
-             or initial_with_content silently overwrote it. Seed: {:#018x}",
+            &bytes_default, &bytes_ptb,
+            "T2-1b behavioral observable broken: 60-tick sim with same home id but \
+             different away id (default vs park-the-bus) produced identical canonical \
+             bytes. Either PossessionLost/BallRecovered emissions don't fire, or \
+             apply_event isn't actually consulting per-team archetype_params, or \
+             both teams were silently passed the same params. Seed: {:#018x}",
             seed_u64
         );
 
         // Round-trip determinism: encoding the same state twice must
         // produce identical bytes (caught by an earlier intra-process
         // determinism test but pinned here too to make this proptest
-        // self-contained for the per-team-id property).
+        // self-contained for the divergence property).
         prop_assert_eq!(
             &bytes_default, &s_both_default.encode_canonical(),
             "encode_canonical non-deterministic for default+default on seed {:#018x}",

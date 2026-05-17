@@ -684,6 +684,173 @@ impl MatchState {
 // updates atomic).
 
 // -------------------------------------------------------------------------
+// T2-1b helpers: per-team archetype-driven TacticEvent emission
+// -------------------------------------------------------------------------
+
+/// Map a `PlayerSlot` to its team index (0 = home, 1 = away).
+///
+/// Slot convention (locked at T1-2b-iii-a): slots 0..11 home, 11..22 away.
+#[inline]
+fn team_of(slot: PlayerSlot) -> usize {
+    if (slot as usize) < PLAYERS_PER_TEAM {
+        0
+    } else {
+        1
+    }
+}
+
+/// Read the archetype params for the named team (T2-1b).
+///
+/// Returns `Copy` because `ArchetypeParams` derives `Copy`; avoids a borrow
+/// of `state` overlapping with subsequent writes to `state.team_tactic_states`.
+#[inline]
+fn team_arch_params(state: &MatchState, team: usize) -> tactic_fsm::ArchetypeParams {
+    if team == 0 {
+        state.home_archetype_params
+    } else {
+        state.away_archetype_params
+    }
+}
+
+/// Bauer-and-Anzer "opponent shape broken" heuristic (T2-1b).
+///
+/// `opponent_shape_broken == true` when the opposing team's MEAN x-position
+/// has crossed halfway into the recovering team's defensive third — i.e.
+/// the opponent committed numbers forward + the recovery now creates a
+/// transition-opportunity. Drives the `BallRecovered` apply_event arm at
+/// `tactic_fsm.rs:430` toward `CounterAttack`.
+///
+/// Coordinate convention: home defends -X, away defends +X.
+///   - recovering_team == 0 (home) → opponent = away (slots 11..22).
+///     opponent shape broken iff away mean_x < 0 (away players in home's half).
+///   - recovering_team == 1 (away) → opponent = home (slots 0..11).
+///     opponent shape broken iff home mean_x > 0 (home players in away's half).
+///
+/// Mean is computed in Q32 raw-bits space + divided by 11 (integer divide).
+/// `PLAYERS_PER_TEAM` is the divisor source — re-uses the constant rather
+/// than hard-coding 11.
+fn compute_opponent_shape_broken(state: &MatchState, recovering_team: usize) -> bool {
+    let (opp_start, opp_end) = if recovering_team == 0 {
+        (PLAYERS_PER_TEAM, TOTAL_PLAYERS)
+    } else {
+        (0, PLAYERS_PER_TEAM)
+    };
+    let n = (opp_end - opp_start) as i64;
+    let mut sum_bits: i64 = 0;
+    for s in opp_start..opp_end {
+        sum_bits = sum_bits.wrapping_add(state.players[s].pos_x.to_bits());
+    }
+    let mean_bits = sum_bits / n;
+    if recovering_team == 0 {
+        mean_bits < 0
+    } else {
+        mean_bits > 0
+    }
+}
+
+/// Emit `TacticEvent::PossessionLost` / `TacticEvent::BallRecovered` based
+/// on the tick's possession transition (T2-1b).
+///
+/// Called once per tick AFTER all possession-mutating steps (dispatch_tick
+/// fires shot/pass intents → mutates possession; the loose-ball pickup
+/// block runs after dispatch + may convert None → Some). Compare
+/// `state.possession` against the `possession_before` snapshot captured
+/// before dispatch_tick.
+///
+/// Transition taxonomy (per the T2-1b MEMORY spec AC5):
+///
+/// - `Some(a) → None` — ball released (shot, OOB clearance, settled-loose
+///   before pickup). PossessionLost(recovery_likely=false) for a's team;
+///   no BallRecovered (nobody picked up this tick).
+/// - `Some(a) → Some(b)` same team — within-team pass. NO events (possession
+///   stayed with the team; no FSM transition needed).
+/// - `Some(a) → Some(b)` cross-team — contested-pass interception / dribble-
+///   on-opponent. PossessionLost(recovery_likely=true) for a's team +
+///   BallRecovered(opponent_shape_broken=computed) for b's team.
+/// - `None → Some(b)` — loose-ball pickup (mid-tick after a prior tick's
+///   release). BallRecovered(opponent_shape_broken=computed) for b's team;
+///   no PossessionLost (the prior PossessionLost fired on the release tick).
+/// - `None → None` — no possession change. No events.
+///
+/// Each emission feeds the existing `tactic_fsm::apply_event` arm with the
+/// affected team's OWN `archetype_params` sidecar (T2-1a), so transitions
+/// are archetype-driven per team. Pre-T2-1b this code path didn't exist —
+/// PossessionLost / BallRecovered never fired in production despite their
+/// apply_event arms being implemented (the gap T2-1a's CRITICAL-1 review
+/// identified + deferred to this row).
+fn emit_possession_transition_events(
+    state: &mut MatchState,
+    possession_before: Option<PlayerSlot>,
+) {
+    let possession_after = state.possession;
+    match (possession_before, possession_after) {
+        (Some(a), None) => {
+            // Release without pickup this tick: PossessionLost only.
+            let team_lost = team_of(a);
+            let arch = team_arch_params(state, team_lost);
+            state.team_tactic_states[team_lost] = tactic_fsm::apply_event(
+                state.team_tactic_states[team_lost],
+                &arch,
+                tactic_fsm::TacticEvent::PossessionLost {
+                    recovery_likely: false,
+                },
+                state.tick,
+            );
+        }
+        (Some(a), Some(b)) => {
+            let team_lost = team_of(a);
+            let team_gained = team_of(b);
+            if team_lost == team_gained {
+                // Within-team transfer (pass to teammate / dribble continuation):
+                // no FSM-level event.
+                return;
+            }
+            // Cross-team transition: PossessionLost for a's team + BallRecovered
+            // for b's team. recovery_likely=true because the opponent immediately
+            // claimed the ball this same tick — the contest was decided in their
+            // favor + the losing team is structurally still "in the press window".
+            let shape_broken = compute_opponent_shape_broken(state, team_gained);
+            let arch_lost = team_arch_params(state, team_lost);
+            state.team_tactic_states[team_lost] = tactic_fsm::apply_event(
+                state.team_tactic_states[team_lost],
+                &arch_lost,
+                tactic_fsm::TacticEvent::PossessionLost {
+                    recovery_likely: true,
+                },
+                state.tick,
+            );
+            let arch_gained = team_arch_params(state, team_gained);
+            state.team_tactic_states[team_gained] = tactic_fsm::apply_event(
+                state.team_tactic_states[team_gained],
+                &arch_gained,
+                tactic_fsm::TacticEvent::BallRecovered {
+                    opponent_shape_broken: shape_broken,
+                },
+                state.tick,
+            );
+        }
+        (None, Some(b)) => {
+            // Loose-ball pickup (the prior tick's release already fired
+            // PossessionLost; this tick the ball was claimed by `b`).
+            let team_gained = team_of(b);
+            let shape_broken = compute_opponent_shape_broken(state, team_gained);
+            let arch = team_arch_params(state, team_gained);
+            state.team_tactic_states[team_gained] = tactic_fsm::apply_event(
+                state.team_tactic_states[team_gained],
+                &arch,
+                tactic_fsm::TacticEvent::BallRecovered {
+                    opponent_shape_broken: shape_broken,
+                },
+                state.tick,
+            );
+        }
+        (None, None) => {
+            // Ball stayed loose. No event.
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
 // tick_match — the canonical advance function
 // -------------------------------------------------------------------------
 
@@ -893,6 +1060,22 @@ pub fn tick_match(
         }
     }
 
+    // T2-1b: snapshot possession BEFORE the dispatch + pickup steps that
+    // mutate it. Compared at the end (after step 7b pickup) by
+    // `emit_possession_transition_events` to fire `PossessionLost` /
+    // `BallRecovered` TacticEvents per the affected team's archetype_params.
+    //
+    // Snapshot lives AFTER the Goal block (step 2) intentionally: the Goal
+    // block already fires `apply_event(Goal)` for both teams + resets
+    // possession to the conceding team's CF deterministically. Treating
+    // that as a separate PossessionLost/BallRecovered emission would
+    // double-apply the FSM transition (Goal hardcodes both teams to
+    // MidBlock; a subsequent BallRecovered transition on the same tick
+    // would conflict with the Goal-reset intent). The Goal arm is the
+    // single source of truth for goal-driven tactic-FSM transitions; the
+    // snapshot starts AFTER it to skip the kickoff-possession change.
+    let possession_before_dispatch = state.possession;
+
     // Step 4 (was step 2): advance ball physics AFTER goal detection + OOB clamp.
     state.ball = ball_physics::ball_step(&state.ball, &ball_physics::phase1_seeds());
 
@@ -1020,6 +1203,15 @@ pub fn tick_match(
             state.ball.vel_z = Q32::ZERO;
         }
     }
+
+    // T2-1b: emit per-team PossessionLost / BallRecovered TacticEvents
+    // based on the tick's possession transition. Runs AFTER all possession-
+    // mutating steps (dispatch_tick fires shot/pass intents that mutate
+    // possession; the pickup block above converts None → Some when a player
+    // claims a settled loose ball). Compares `state.possession` against
+    // `possession_before_dispatch` captured above (just after the Goal block).
+    // See `emit_possession_transition_events` for the transition taxonomy.
+    emit_possession_transition_events(&mut state, possession_before_dispatch);
 
     // Step 8 (T1-2b-iii-d): player-separation positional correction.
     separation::apply_player_separation(&mut state);

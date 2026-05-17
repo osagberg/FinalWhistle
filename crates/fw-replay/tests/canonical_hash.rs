@@ -235,6 +235,25 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   that archetype. The 60-tick smoke doesn't score, so the Goal-event
 ///   archetype apply at lib.rs:781 is unreachable here; no per-tick
 ///   behavior delta on this pin. Authorized by the T2-1a spec in MEMORY.md.
+/// - 2026-05-17 (T2-1b per-team archetype BEHAVIORAL divergence) —
+///   **re-baselined to `eaf842ac…ad46`** per ADR-0012 trigger #3 (sim
+///   behavior change with documented intent). T2-1b wired the
+///   `PossessionLost` + `BallRecovered` `TacticEvent` emissions in
+///   `tick_match` (via the new `emit_possession_transition_events` helper)
+///   that consult per-team `archetype_params` via the T2-1a sidecar
+///   `home_archetype_params` / `away_archetype_params`. On this 60-tick
+///   smoke pin both teams default to attacking-fullback (High press /
+///   Default counter / MidBlock); the HighPress transition is gated by a
+///   600-tick re-entry cooldown (doesn't fire within 60 ticks), but
+///   PossessionLost(recovery_likely=false) on shot-release fires the
+///   MidBlock → LowBlock fallback per the apply_event arm at
+///   `tactic_fsm.rs:411`, AND BallRecovered with `opponent_shape_broken`
+///   computed from per-tick opponent mean-x fires CounterAttack
+///   transitions on possession-recovery ticks. The canonical bytes shift
+///   because `team_tactic_states[0/1]` now evolve within the 60-tick
+///   window instead of staying at `MidBlock@Tick::ZERO` from kickoff. This
+///   is the ADR-0012 trigger #3 behavioral delta T2-1a CRITICAL-1
+///   deferred + T2-1b delivered. Authorized by the T2-1b spec in MEMORY.md.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -243,7 +262,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("e0312069b901e16cd6caf190a7ca21401ffdd8be9d0bd18cc80280a2612f3696");
+    hex!("eaf842ac3d19651d38dc7ce45d0763cc62b4d571ce2c2a5d56f1ee3c6ddead46");
 
 /// Read `env_var` as the number of fresh runs for an intra-process determinism
 /// test, falling back to `default` when the env var is absent or unparseable.
@@ -611,13 +630,29 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   per the codified
 ///   `extended_seed_600_tick_goal_count_in_t1_exit_gate_envelope` test
 ///   below. Authorized by the T2-1a spec in MEMORY.md.
+/// - 2026-05-17 (T2-1b per-team archetype BEHAVIORAL divergence) —
+///   **re-baselined to `5716e868…19e3`** per ADR-0012 trigger #3 sim
+///   behavior change with documented intent. T2-1b shipped what T2-1a
+///   CRITICAL-1 deferred: `PossessionLost` and `BallRecovered`
+///   `TacticEvent` emissions in `tick_match` via the new
+///   `emit_possession_transition_events` helper that consult per-team
+///   `archetype_params`. On this 600-tick extended pin the home team
+///   attacking-fullback archetype bucket is High press / Default counter /
+///   MidBlock-default; away team low-block-counter archetype bucket is
+///   None press / High counter / LowBlock-default. Their `TeamTacticState`
+///   evolution now diverges across the run because the apply_event arms
+///   for PossessionLost and BallRecovered consult ITS OWN team's
+///   archetype_params, where press_intensity and counter_intent differ.
+///   5-seed envelope re-verified: pinned seed in [2, 5] per T1 exit-gate
+///   Bullet 1 strict; 4 sanity seeds all in [0, 7] per the broader
+///   safety net. Authorized by the T2-1b spec in MEMORY.md.
 ///
 /// Re-baselining: update this constant AND the `expected_hash` field of
 /// `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron` in the same commit,
 /// per `docs/specs/determinism-gate.md` §9 — the same protocol that
 /// governs PINNED_60_TICK above.
 const PINNED_600_TICK: [u8; 32] =
-    hex!("8109857942e1ee2a8c429a43e89bfa5eac4582fb70ef59f1a3a04f26765ad999");
+    hex!("5716e86877c2d9973a713be0a49ab400fa1d4d8356bfebe9985bf5758aa619e3");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

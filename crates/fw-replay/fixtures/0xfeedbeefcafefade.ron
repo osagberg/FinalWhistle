@@ -62,6 +62,28 @@
 //                       `extended_seed_600_tick_goal_count_in_t1_exit_gate_envelope`
 //                       test in canonical_hash.rs. Authorized by the
 //                       T2-1a spec in MEMORY.md.
+//   2026-05-17 (T2-1b) — `5716e868...19e3` per ADR-0012 trigger #3
+//                       (BEHAVIORAL change — per-team archetype divergence
+//                       NOW actually fires). T2-1b wired the
+//                       `PossessionLost` + `BallRecovered` `TacticEvent`
+//                       emissions in `tick_match` that consult per-team
+//                       `archetype_params` via the
+//                       `emit_possession_transition_events` helper.
+//                       Effect on this 600-tick run (home=attacking-fullback
+//                       MidBlock-leaning, away=low-block-counter LowBlock-
+//                       leaning): the two teams' tactic-FSMs now transition
+//                       on cross-team possession changes per ITS OWN
+//                       archetype's `press_intensity` + `counter_intent` —
+//                       producing different `TeamTacticState` evolution
+//                       across 600 ticks vs the pre-T2-1b run where both
+//                       teams sat in MidBlock from kickoff to FullTime.
+//                       This is the ADR-0012 trigger #3 behavioral
+//                       divergence T2-1a CRITICAL-1 deferred + T2-1b
+//                       delivered. 5-seed envelope re-verified: pinned
+//                       seed in [2, 5] (strict T1 exit-gate Bullet 1); 4
+//                       sanity seeds all in [0, 7] (broader safety net
+//                       against single-pinned-seed coincidence).
+//                       Authorized by the T2-1b spec in MEMORY.md.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_600_TICK`
@@ -74,10 +96,10 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:8109857942e1ee2a8c429a43e89bfa5eac4582fb70ef59f1a3a04f26765ad999",
+    expected_hash: "blake3:5716e86877c2d9973a713be0a49ab400fa1d4d8356bfebe9985bf5758aa619e3",
     metadata: (
-        description: "T2-1a per-team archetypes infrastructure (home=attacking-fullback, away=low-block-counter passed in at init). Content-loaded 600-tick run. Schema bump only — per-team archetype params do not yet diverge sim behavior because the sole production TacticEvent emission (`Goal`) hardcodes `MidBlock`. Per-team divergence lands at T2-1b/c.",
+        description: "T2-1b per-team archetype BEHAVIORAL divergence (home=attacking-fullback, away=low-block-counter). Content-loaded 600-tick run. PossessionLost + BallRecovered TacticEvents now fire from tick_match + consult per-team archetype_params, producing per-team TacticState evolution divergence across the match (vs T2-1a where both teams sat in MidBlock from kickoff to FullTime).",
         generated_at: "2026-05-17",
-        notes: "Re-pinned at T2-1a (ADR-0012 trigger #1 ONLY — schema bump: 2 new String fields appended after last_touched_by). NOT trigger #3 — see canonical_hash.rs::PINNED_600_TICK history block for the silent-failure-hunter CRITICAL-1 corrected framing. Prior hash 9353bd25...47eb was T1-16 shoot-utility contract. MatchState::initial_with_content(seed, &content, DEFAULT_ARCHETYPE_ID, \"fwh.core:archetype.low-block-counter\") + tick_match for 600 iterations. Goal envelope verified in [2, 5].",
+        notes: "Re-pinned at T2-1b (ADR-0012 trigger #3 — sim behavior change). Prior hash 81098579...d999 was T2-1a schema-only baseline (encoder VERSION 8→9 added the 2 archetype_id String fields). MatchState::initial_with_content(seed, &content, DEFAULT_ARCHETYPE_ID, \"fwh.core:archetype.low-block-counter\") + tick_match for 600 iterations. Goal envelope re-verified in [2, 5] across 5-seed sweep (pinned strict + 4 sanity in [0, 7]).",
     ),
 )

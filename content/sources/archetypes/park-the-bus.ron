@@ -1,0 +1,48 @@
+// Park-the-bus tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior. A one-coordinate drift
+// in any formation slot would shift the pinned canonical-state hash; the
+// pinned-hash regression corpus would fail across the CI matrix. They are
+// reviewed + committed by hand, never regenerated.
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//
+// Tactical philosophy: 5-4-1 deepest defensive block in the catalog.
+// Back five hangs at -42 to -44 (within 10m of own goal-line); wing-backs
+// tuck into central defenders rather than supporting forward. Midfield
+// four sits at -20 ish (compact mid-third block). Lone ST positioned at
+// just +8 — a target for vertical clearances rather than a true forward.
+// Press radius 12m (catalog min) — defenders barely leave shape; press is
+// reactive within the box only. Buildup speed 1.30 — when possession is
+// won, the ball goes vertical FAST (counter-attack via the lone target).
+// Bridge bucket: None press / High counter / LowBlock.
+//
+// Authored 2026-05-17 (T2-1b). Content-pack-qualified ID per Content/RULES.md §2.
+
+TacticalArchetype(
+    id: "fwh.core:archetype.park-the-bus",
+    formation: [
+        // Goalkeeper, deepest
+        FormationSlot(roster_slot:  1, role: "GK",  x: -48, z:   0),
+        // Back five — deeper than low-block-counter; wing-backs tucked
+        FormationSlot(roster_slot:  2, role: "RWB", x: -36, z:  18),
+        FormationSlot(roster_slot:  3, role: "RCB", x: -42, z:   8),
+        FormationSlot(roster_slot:  4, role: "CCB", x: -44, z:   0),
+        FormationSlot(roster_slot:  5, role: "LCB", x: -42, z:  -8),
+        FormationSlot(roster_slot:  6, role: "LWB", x: -36, z: -18),
+        // Compact mid-third midfield four
+        FormationSlot(roster_slot:  7, role: "RM",  x: -22, z:  16),
+        FormationSlot(roster_slot:  8, role: "RCM", x: -20, z:   5),
+        FormationSlot(roster_slot:  9, role: "LCM", x: -20, z:  -5),
+        FormationSlot(roster_slot: 10, role: "LM",  x: -22, z: -16),
+        // Lone target striker — sits low to receive vertical clearances
+        FormationSlot(roster_slot: 11, role: "ST",  x:   8, z:   0),
+    ],
+    press_radius_metres: 12,
+    // 13_000 bps == 1.30 in normalized form (fast vertical counter-release).
+    // Codex Imp #3 (T1-1): integer-only. u16 ceiling is 65_535 so values
+    // above baseline (10_000) remain expressible without saturation.
+    buildup_speed_factor_bps: 13000,
+)

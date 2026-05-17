@@ -1,0 +1,26 @@
+// Wing-Overload manager archetype — hand-authored, NOT LLM-baked.
+//
+// A flank-oriented tactician who manufactures 3-on-2 + 4-on-3 overloads in
+// the wide channels by pulling wide forwards deeper to combine with full-
+// backs + wide midfielders. Risk appetite slightly above neutral (will
+// commit wide players forward); possession preference slightly above
+// neutral (likes ball circulation but ultimately to manufacture wide
+// overload, not to keep for keeping's sake).
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.65 × 2^32 = 2_791_728_742.4 → 2_791_728_742
+//   possession_preference: 0.60 × 2^32 = 2_576_980_377.6 → 2_576_980_378
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   wing-overload.ron  (validated at load time by ContentStore).
+//
+// Authored 2026-05-17 (T2-1b).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.wing-overload",
+    display_name: "Wing Overload",
+    tactical_archetype_id: "fwh.core:archetype.wing-overload",
+    risk_appetite: (bits: 2791728742),
+    possession_preference: (bits: 2576980378),
+)

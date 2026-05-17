@@ -1,0 +1,47 @@
+// Gegen-press tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior. A one-coordinate drift
+// in any formation slot would shift the pinned canonical-state hash; the
+// pinned-hash regression corpus would fail across the CI matrix. They are
+// reviewed + committed by hand, never regenerated.
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//
+// Tactical philosophy: 4-2-3-1 with maximum-aggression counter-press —
+// hunt the ball within seconds of loss in the opponent's half. Back four
+// pushed highest in the archetype catalog (-22) to support the press;
+// double pivot screens; CAM3 floats high to win second balls; lone ST
+// pinned at the highest forward position (+22). Press radius 40m is the
+// catalog max — the whole pitch is press territory. Buildup speed 0.75
+// (slowest in catalog) — possession spent grinding territory rather than
+// risking vertical balls. Bridge bucket: High press / Default counter / MidBlock.
+//
+// Authored 2026-05-17 (T2-1b). Content-pack-qualified ID per Content/RULES.md §2.
+
+TacticalArchetype(
+    id: "fwh.core:archetype.gegen-press",
+    formation: [
+        // Goalkeeper
+        FormationSlot(roster_slot:  1, role: "GK",  x: -45, z:   0),
+        // Back four — highest in catalog at -22
+        FormationSlot(roster_slot:  2, role: "RB",  x: -22, z:  18),
+        FormationSlot(roster_slot:  3, role: "RCB", x: -28, z:   8),
+        FormationSlot(roster_slot:  4, role: "LCB", x: -28, z:  -8),
+        FormationSlot(roster_slot:  5, role: "LB",  x: -22, z: -18),
+        // Double pivot
+        FormationSlot(roster_slot:  6, role: "RDM", x:  -8, z:   6),
+        FormationSlot(roster_slot:  7, role: "LDM", x:  -8, z:  -6),
+        // Attacking three behind the lone striker
+        FormationSlot(roster_slot:  8, role: "RAM", x:  12, z:  14),
+        FormationSlot(roster_slot:  9, role: "CAM", x:  14, z:   0),
+        FormationSlot(roster_slot: 10, role: "LAM", x:  12, z: -14),
+        // Lone striker pinned high
+        FormationSlot(roster_slot: 11, role: "ST",  x:  22, z:   0),
+    ],
+    press_radius_metres: 40,
+    // 7_500 bps == 0.75 in normalized form (slowest buildup in catalog).
+    // Codex Imp #3 (T1-1): integer-only, no f32 in the content layer.
+    buildup_speed_factor_bps: 7500,
+)

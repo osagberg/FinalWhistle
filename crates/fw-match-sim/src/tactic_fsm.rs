@@ -1018,6 +1018,114 @@ mod tests {
         assert_eq!(p.default_in_defence_state, TacticState::MidBlock);
     }
 
+    /// T2-1b: each of the 6 football-canonical archetypes authored at
+    /// T2-1b must bridge to the expected `(press_intensity,
+    /// counter_intent, default_in_defence_state)` tuple per the tactical-
+    /// shape parameter design table in the T2-1b MEMORY spec. Table-driven
+    /// so a single tuple flip surfaces as a single row failure (not a
+    /// whole-test failure).
+    ///
+    /// Mutation discriminator: if the bridge thresholds drifted (e.g.
+    /// `press_radius_metres > 20` → `>= 20`), at least one row would
+    /// flip its bucket + the assertion would fail.
+    #[test]
+    fn archetype_params_for_t2_1b_archetypes_yield_expected_buckets() {
+        use fw_content::ContentStore;
+        use std::path::PathBuf;
+
+        let content_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("content");
+        let store = ContentStore::load_sources(&content_root).expect("ContentStore load failed");
+
+        // (archetype_id, expected_press, expected_counter, expected_default_state)
+        let expectations: &[(&str, PressIntensity, CounterIntent, TacticState)] = &[
+            (
+                "fwh.core:archetype.high-press-possession",
+                PressIntensity::High,
+                CounterIntent::Default,
+                TacticState::MidBlock,
+            ),
+            (
+                "fwh.core:archetype.wing-overload",
+                PressIntensity::High,
+                CounterIntent::Default,
+                TacticState::MidBlock,
+            ),
+            (
+                "fwh.core:archetype.gegen-press",
+                PressIntensity::High,
+                CounterIntent::Default,
+                TacticState::MidBlock,
+            ),
+            (
+                "fwh.core:archetype.park-the-bus",
+                PressIntensity::None,
+                CounterIntent::High,
+                TacticState::LowBlock,
+            ),
+            (
+                "fwh.core:archetype.tiki-taka",
+                PressIntensity::High,
+                CounterIntent::Default,
+                TacticState::MidBlock,
+            ),
+            (
+                "fwh.core:archetype.route-one",
+                PressIntensity::None,
+                CounterIntent::High,
+                TacticState::LowBlock,
+            ),
+        ];
+
+        for &(id, expected_press, expected_counter, expected_state) in expectations {
+            let arch = store.tactical_archetypes.get(id).unwrap_or_else(|| {
+                panic!("T2-1b archetype {id:?} missing from loaded content store")
+            });
+            let params = archetype_params_for(arch);
+            assert_eq!(
+                params.press_intensity, expected_press,
+                "{id}: press_intensity bucket changed"
+            );
+            assert_eq!(
+                params.counter_intent, expected_counter,
+                "{id}: counter_intent bucket changed"
+            );
+            assert_eq!(
+                params.default_in_defence_state, expected_state,
+                "{id}: default_in_defence_state bucket changed"
+            );
+        }
+
+        // Spread check: across the 8 archetypes total (6 T2-1b + 2 existing)
+        // we expect at least 2 distinct (press, counter, default_state)
+        // buckets. If they collapsed into 1 bucket, the catalog wouldn't
+        // exercise the per-team-divergence path at all. `PressIntensity` /
+        // `CounterIntent` / `TacticState` don't derive Ord (used for
+        // BTreeSet) so dedup via linear-scan Vec — small N + sim-crate
+        // BTreeMap-only discipline.
+        let mut buckets: Vec<(PressIntensity, CounterIntent, TacticState)> = Vec::new();
+        for arch in store.tactical_archetypes.values() {
+            let p = archetype_params_for(arch);
+            let key = (
+                p.press_intensity,
+                p.counter_intent,
+                p.default_in_defence_state,
+            );
+            if !buckets.contains(&key) {
+                buckets.push(key);
+            }
+        }
+        assert!(
+            buckets.len() >= 2,
+            "Bridge buckets collapsed: {} distinct (press, counter, default_state) tuples \
+             across {} archetypes — divergence path can't fire",
+            buckets.len(),
+            store.tactical_archetypes.len()
+        );
+    }
+
     /// Threshold-boundary test: buildup_speed_factor_bps == 11000 exactly
     /// yields High counter (the ≥ threshold). 10999 yields Default.
     #[test]

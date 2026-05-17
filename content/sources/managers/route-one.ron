@@ -1,0 +1,26 @@
+// Route-One manager archetype — hand-authored, NOT LLM-baked.
+//
+// Direct football. Long balls over the top from defenders to forwards;
+// minimal midfield circulation. High risk appetite (0.75) — happy to
+// concede possession on the way to chasing the second ball; long-ball
+// turnovers are the primary attacking mode. Low possession preference
+// (0.25) — possession for its own sake is wasted ticks; goal is to win
+// territory + create chaos in the opposition box as fast as possible.
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.75 × 2^32 = 3_221_225_472.0 → 3_221_225_472
+//   possession_preference: 0.25 × 2^32 = 1_073_741_824.0 → 1_073_741_824
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   route-one.ron  (validated at load time by ContentStore).
+//
+// Authored 2026-05-17 (T2-1b).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.route-one",
+    display_name: "Route One",
+    tactical_archetype_id: "fwh.core:archetype.route-one",
+    risk_appetite: (bits: 3221225472),
+    possession_preference: (bits: 1073741824),
+)

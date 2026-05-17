@@ -1,0 +1,29 @@
+// Attacking-Fullback manager archetype — hand-authored, NOT LLM-baked.
+//
+// Catch-up manager RON for the previously-orphaned attacking-fullback
+// archetype (T1-1's only existing tactical archetype before T2-1b; had no
+// matching manager RON file). Modern positional-attack school that pushes
+// fullbacks high + wide as the primary creative outlets while the lone
+// striker drops into the half-spaces. Moderate-high risk appetite (0.70)
+// — fullback overlaps leave the wide channels exposed on transitions but
+// the gains outweigh the costs. Moderate-high possession preference
+// (0.65) — possession is the mechanism that allows fullbacks to time
+// their underlaps + overlaps.
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.70 × 2^32 = 3_006_477_107.2 → 3_006_477_107
+//   possession_preference: 0.65 × 2^32 = 2_791_728_742.4 → 2_791_728_742
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   attacking-fullback.ron  (validated at load time by ContentStore).
+//
+// Authored 2026-05-17 (T2-1b, catch-up scope per row spec).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.attacking-fullback",
+    display_name: "Attacking-Fullback",
+    tactical_archetype_id: "fwh.core:archetype.attacking-fullback",
+    risk_appetite: (bits: 3006477107),
+    possession_preference: (bits: 2791728742),
+)

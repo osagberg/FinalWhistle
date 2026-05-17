@@ -166,6 +166,33 @@
 //                               doesn't score so the Goal-event archetype
 //                               apply at lib.rs:781 is unreachable here).
 //                               Authorized by the T2-1a spec in MEMORY.md.
+//   2026-05-17 (T2-1b per-team archetype BEHAVIORAL divergence) —
+//                               `eaf842ac...ad46` per ADR-0012 trigger #3.
+//                               T2-1b wired the `PossessionLost` +
+//                               `BallRecovered` `TacticEvent` emissions in
+//                               `tick_match` (via the new
+//                               `emit_possession_transition_events` helper).
+//                               These apply_event arms consult per-team
+//                               `archetype_params` + drive real
+//                               `TeamTacticState` transitions on cross-team
+//                               possession changes. Effect on this 60-tick
+//                               smoke pin: both teams default to
+//                               attacking-fullback bridge bucket (High press
+//                               / Default counter / MidBlock) so the
+//                               PossessionLost(recovery_likely=true)
+//                               transition to HighPress is gated by the
+//                               600-tick cooldown (never fires within 60
+//                               ticks); but Some→None release transitions
+//                               (PossessionLost recovery_likely=false) fire
+//                               from MidBlock → LowBlock per the apply_event
+//                               arm at tactic_fsm.rs:411, AND BallRecovered
+//                               on None→Some / Some→Some(opponent) fires
+//                               opponent-shape-broken transitions to
+//                               CounterAttack. The canonical bytes shift
+//                               because team_tactic_states[0/1] now evolve
+//                               within the 60-tick run instead of staying
+//                               at the MidBlock@0 init values. Authorized
+//                               by the T2-1b spec in MEMORY.md.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -177,10 +204,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:e0312069b901e16cd6caf190a7ca21401ffdd8be9d0bd18cc80280a2612f3696",
+    expected_hash: "blake3:eaf842ac3d19651d38dc7ce45d0763cc62b4d571ce2c2a5d56f1ee3c6ddead46",
     metadata: (
-        description: "T2-1a per-team archetypes. MatchState gained home_archetype_id + away_archetype_id String fields (canonical encoder VERSION 8->9); both default to attacking-fullback on the bare-init path so smoke-seed drift is schema-only. Per-team archetype params consumed by the Goal-event apply at lib.rs:781.",
-        generated_at: "2026-05-16",
-        notes: "Re-pinned at T2-1a (ADR-0012 trigger #1; schema bump). Prior hash fcccb840...a751 was T1-16 shoot-utility contract.",
+        description: "T2-1b per-team archetype BEHAVIORAL divergence on the 60-tick smoke seed. PossessionLost + BallRecovered TacticEvents fire from tick_match + drive team_tactic_states[0/1] transitions within the 60-tick window (MidBlock→LowBlock on shot release; HighPress gated by 600-tick cooldown so doesn't fire here but PossessionLost fallback transitions DO). Both teams default to attacking-fullback ArchetypeParams on this bare-init path.",
+        generated_at: "2026-05-17",
+        notes: "Re-pinned at T2-1b (ADR-0012 trigger #3; sim behavior change). Prior hash e0312069...3696 was T2-1a schema-only baseline.",
     ),
 )

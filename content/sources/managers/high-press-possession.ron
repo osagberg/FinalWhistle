@@ -1,0 +1,28 @@
+// High-Press Possession manager archetype — hand-authored, NOT LLM-baked.
+//
+// A high-energy, possession-minded tactician who closes space across the
+// whole pitch out of possession + circulates patiently in possession.
+// Moderate-to-high risk appetite (will commit numbers forward into the
+// press) + high possession preference (would rather hold the ball than
+// risk vertical balls).
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.60 × 2^32 = 2_576_980_377.6 → 2_576_980_378
+//   possession_preference: 0.75 × 2^32 = 3_221_225_472.0 → 3_221_225_472
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   high-press-possession.ron  (validated at load time by ContentStore).
+//
+// Content-pack-qualified ID format per Content/RULES.md §2 (hand-authored
+// dotted form): fwh.core:manager.<slug>.
+//
+// Authored 2026-05-17 (T2-1b).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.high-press-possession",
+    display_name: "High-Press Possession",
+    tactical_archetype_id: "fwh.core:archetype.high-press-possession",
+    risk_appetite: (bits: 2576980378),
+    possession_preference: (bits: 3221225472),
+)

@@ -1,0 +1,48 @@
+// Tiki-taka tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior. A one-coordinate drift
+// in any formation slot would shift the pinned canonical-state hash; the
+// pinned-hash regression corpus would fail across the CI matrix. They are
+// reviewed + committed by hand, never regenerated.
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//
+// Tactical philosophy: 3-4-3 possession-rotation system. Back three with a
+// libero CCB swept deep (-36) to receive in build-up; wing-backs pushed
+// extreme-wide and high (-10, ±20) to maintain width while the back three
+// covers central transitions. Midfield four diamond — two CMs sit narrow,
+// wing-backs supply width. Front three pull narrow (z: ±10) to interchange
+// with the CAM-equivalent space. Press radius 28m — moderate-aggressive but
+// not pressing for pressing's sake (ball-keeping IS the press). Buildup
+// 0.70 (most patient in catalog — even slower than gegen-press) — short
+// passes, ball-circulation, no vertical commitment until the right moment.
+// Bridge bucket: High press / Default counter / MidBlock.
+//
+// Authored 2026-05-17 (T2-1b). Content-pack-qualified ID per Content/RULES.md §2.
+
+TacticalArchetype(
+    id: "fwh.core:archetype.tiki-taka",
+    formation: [
+        // Goalkeeper
+        FormationSlot(roster_slot:  1, role: "GK",  x: -45, z:   0),
+        // Back three — libero CCB swept deep
+        FormationSlot(roster_slot:  2, role: "RCB", x: -32, z:  12),
+        FormationSlot(roster_slot:  3, role: "CCB", x: -36, z:   0),
+        FormationSlot(roster_slot:  4, role: "LCB", x: -32, z: -12),
+        // Midfield four — narrow CMs + extreme-wide WBs
+        FormationSlot(roster_slot:  5, role: "RWB", x: -10, z:  20),
+        FormationSlot(roster_slot:  6, role: "RCM", x:  -8, z:   6),
+        FormationSlot(roster_slot:  7, role: "LCM", x:  -8, z:  -6),
+        FormationSlot(roster_slot:  8, role: "LWB", x: -10, z: -20),
+        // Front three narrow — interchange-friendly
+        FormationSlot(roster_slot:  9, role: "RF",  x:  18, z:  10),
+        FormationSlot(roster_slot: 10, role: "CF",  x:  20, z:   0),
+        FormationSlot(roster_slot: 11, role: "LF",  x:  18, z: -10),
+    ],
+    press_radius_metres: 28,
+    // 7_000 bps == 0.70 in normalized form (most patient buildup in catalog —
+    // even slower than gegen-press's 7500). Codex Imp #3 (T1-1): integer-only.
+    buildup_speed_factor_bps: 7000,
+)

@@ -1,0 +1,26 @@
+// Tiki-Taka manager archetype — hand-authored, NOT LLM-baked.
+//
+// The possession-rotation philosophy. Short passes, ball-circulation, no
+// vertical commitment until the right moment. Moderate risk appetite
+// (0.50) — patient but not allergic to risk; will play through midfield
+// when the angles open. Maximum possession preference (catalog-high: 0.90)
+// — ball-keeping IS the defensive scheme; you can't lose if you don't
+// concede possession.
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.50 × 2^32 = 2_147_483_648.0 → 2_147_483_648
+//   possession_preference: 0.90 × 2^32 = 3_865_470_566.4 → 3_865_470_566
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   tiki-taka.ron  (validated at load time by ContentStore).
+//
+// Authored 2026-05-17 (T2-1b).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.tiki-taka",
+    display_name: "Tiki-Taka",
+    tactical_archetype_id: "fwh.core:archetype.tiki-taka",
+    risk_appetite: (bits: 2147483648),
+    possession_preference: (bits: 3865470566),
+)

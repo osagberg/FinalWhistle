@@ -1,0 +1,47 @@
+// High-press-possession tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior. A one-coordinate drift
+// in any formation slot would shift the pinned canonical-state hash; the
+// pinned-hash regression corpus would fail across the CI matrix. They are
+// reviewed + committed by hand, never regenerated.
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//   BehaviorTreeRunner mirrors X for Away usage.
+//
+// Tactical philosophy: 4-3-3 with a high back line and patient build-up.
+// Press radius is wide (35m) — closing space across the whole pitch when
+// out of possession. Buildup speed deliberately slow (0.80 normalized) so
+// possession is held in the middle third before vertical commitment. Press
+// + possession = pin the opponent in their half through both ball-hunting
+// + ball-keeping. Bridge bucket: High press / Default counter / MidBlock.
+//
+// Authored 2026-05-17 (T2-1b: 6 football-canonical archetypes + TacticEvent
+// emission wiring). Content-pack-qualified ID per Content/RULES.md §2.
+
+TacticalArchetype(
+    id: "fwh.core:archetype.high-press-possession",
+    formation: [
+        // Goalkeeper
+        FormationSlot(roster_slot:  1, role: "GK",  x: -45, z:   0),
+        // High back four — flat at -28 (5m higher than traditional)
+        FormationSlot(roster_slot:  2, role: "RB",  x: -28, z:  18),
+        FormationSlot(roster_slot:  3, role: "RCB", x: -32, z:   8),
+        FormationSlot(roster_slot:  4, role: "LCB", x: -32, z:  -8),
+        FormationSlot(roster_slot:  5, role: "LB",  x: -28, z: -18),
+        // Compact midfield three
+        FormationSlot(roster_slot:  6, role: "RCM", x: -10, z:  10),
+        FormationSlot(roster_slot:  7, role: "CDM", x: -14, z:   0),
+        FormationSlot(roster_slot:  8, role: "LCM", x: -10, z: -10),
+        // Front three pinned high
+        FormationSlot(roster_slot:  9, role: "RW",  x:  18, z:  18),
+        FormationSlot(roster_slot: 10, role: "CF",  x:  22, z:   0),
+        FormationSlot(roster_slot: 11, role: "LW",  x:  18, z: -18),
+    ],
+    press_radius_metres: 35,
+    // 8_000 bps == 0.80 in normalized form (patient build-up).
+    // Codex Imp #3 (T1-1): integer-only sampling, no f32 in the content layer
+    // (Sim/RULES.md §1).
+    buildup_speed_factor_bps: 8000,
+)

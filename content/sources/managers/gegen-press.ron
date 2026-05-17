@@ -1,0 +1,27 @@
+// Gegen-Press manager archetype — hand-authored, NOT LLM-baked.
+//
+// A maximum-aggression counter-pressing tactician. Hunts the ball within
+// seconds of losing it in the opponent's half + commits maximum numbers
+// forward into the press trigger. High risk appetite (catalog-max-ish:
+// 0.85) — accepts open back-line moments as the price of relentless
+// pressing. Slightly-above-neutral possession preference (0.65) — pressing
+// IS ball-keeping in disguise; turnovers in the opponent's third are the
+// primary attacking move, not slow circulation.
+//
+// Q32 raw-bits computation (BAKE-TIME math; never in canonical paths):
+//   risk_appetite:         0.85 × 2^32 = 3_650_722_201.6 → 3_650_722_202
+//   possession_preference: 0.65 × 2^32 = 2_791_728_742.4 → 2_791_728_742
+//
+// Tactical archetype reference resolves to content/sources/archetypes/
+//   gegen-press.ron  (validated at load time by ContentStore).
+//
+// Authored 2026-05-17 (T2-1b).
+
+ManagerArchetype(
+    schema_version: 1,
+    id: "fwh.core:manager.gegen-press",
+    display_name: "Gegen-Press",
+    tactical_archetype_id: "fwh.core:archetype.gegen-press",
+    risk_appetite: (bits: 3650722202),
+    possession_preference: (bits: 2791728742),
+)

@@ -1,0 +1,44 @@
+// Wing-overload tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior. A one-coordinate drift
+// in any formation slot would shift the pinned canonical-state hash; the
+// pinned-hash regression corpus would fail across the CI matrix. They are
+// reviewed + committed by hand, never regenerated.
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//
+// Tactical philosophy: 4-3-3 with wide forwards pulled deeper to create
+// 3-on-2 + 4-on-3 overloads in the wide channels. Wide midfielders push
+// up to support the lowered wingers; central midfielder sits to cover.
+// Press radius moderate (25m) — selective rather than total. Buildup
+// speed 0.95 — slightly below baseline; possession through wide rotations
+// rather than central penetration. Bridge bucket: High press / Default
+// counter / MidBlock.
+//
+// Authored 2026-05-17 (T2-1b). Content-pack-qualified ID per Content/RULES.md §2.
+
+TacticalArchetype(
+    id: "fwh.core:archetype.wing-overload",
+    formation: [
+        // Goalkeeper
+        FormationSlot(roster_slot:  1, role: "GK",  x: -45, z:   0),
+        // Back four — traditional depth
+        FormationSlot(roster_slot:  2, role: "RB",  x: -25, z:  20),
+        FormationSlot(roster_slot:  3, role: "RCB", x: -30, z:   8),
+        FormationSlot(roster_slot:  4, role: "LCB", x: -30, z:  -8),
+        FormationSlot(roster_slot:  5, role: "LB",  x: -25, z: -20),
+        // Midfield three — wide supports + central anchor
+        FormationSlot(roster_slot:  6, role: "RM",  x: -15, z:  18),
+        FormationSlot(roster_slot:  7, role: "CM",  x: -10, z:   0),
+        FormationSlot(roster_slot:  8, role: "LM",  x: -15, z: -18),
+        // Front three — wide forwards lowered toward midfield for overload
+        FormationSlot(roster_slot:  9, role: "RW",  x:   5, z:  22),
+        FormationSlot(roster_slot: 10, role: "CF",  x:  20, z:   0),
+        FormationSlot(roster_slot: 11, role: "LW",  x:   5, z: -22),
+    ],
+    press_radius_metres: 25,
+    // 9_500 bps == 0.95 in normalized form. Codex Imp #3 (T1-1): integer-only.
+    buildup_speed_factor_bps: 9500,
+)

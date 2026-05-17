@@ -1,0 +1,50 @@
+// Route-one tactical archetype — hand-authored, NOT LLM-baked.
+//
+// Tactical archetypes drive canonical sim behavior. A one-coordinate drift
+// in any formation slot would shift the pinned canonical-state hash; the
+// pinned-hash regression corpus would fail across the CI matrix. They are
+// reviewed + committed by hand, never regenerated.
+//
+// Coordinate convention (per design/match-engine.md, carry-forward):
+//   HOME orientation. Own goal at X = -52.5; opponent goal at X = +52.5.
+//   Z axis is touchline-to-touchline (positive Z = "right side").
+//
+// Tactical philosophy: classic 4-4-2 direct football. Back four conventional
+// depth; flat midfield four with wide mids stretching the pitch; two
+// strikers paired (target-man + runner — abstracted at this layer as two
+// equivalent STs at +22). The system depends on long vertical balls over
+// the top — not gegen-press hunting, not tiki-taka rotation, just direct
+// transfer from defence to attack. Press radius 18m — defenders hold shape
+// rather than chase. Buildup 1.40 — fastest in catalog; the moment a ball
+// is recovered it's hit long. Bridge bucket: None press / High counter /
+// LowBlock. Note: route-one + park-the-bus share the same bridge bucket but
+// differ on formation depth + the role of the front line (park-the-bus's
+// lone ST is a target for clearances; route-one's two STs are vertical
+// outlets for ground passes).
+//
+// Authored 2026-05-17 (T2-1b). Content-pack-qualified ID per Content/RULES.md §2.
+
+TacticalArchetype(
+    id: "fwh.core:archetype.route-one",
+    formation: [
+        // Goalkeeper
+        FormationSlot(roster_slot:  1, role: "GK",  x: -46, z:   0),
+        // Back four — conventional depth
+        FormationSlot(roster_slot:  2, role: "RB",  x: -25, z:  18),
+        FormationSlot(roster_slot:  3, role: "RCB", x: -30, z:   8),
+        FormationSlot(roster_slot:  4, role: "LCB", x: -30, z:  -8),
+        FormationSlot(roster_slot:  5, role: "LB",  x: -25, z: -18),
+        // Flat midfield four — wide mids stretch the pitch
+        FormationSlot(roster_slot:  6, role: "RM",  x: -10, z:  18),
+        FormationSlot(roster_slot:  7, role: "RCM", x: -12, z:   6),
+        FormationSlot(roster_slot:  8, role: "LCM", x: -12, z:  -6),
+        FormationSlot(roster_slot:  9, role: "LM",  x: -10, z: -18),
+        // Two strikers — target + runner partnership
+        FormationSlot(roster_slot: 10, role: "RST", x:  22, z:   8),
+        FormationSlot(roster_slot: 11, role: "LST", x:  22, z:  -8),
+    ],
+    press_radius_metres: 18,
+    // 14_000 bps == 1.40 in normalized form (fastest buildup in catalog).
+    // Codex Imp #3 (T1-1): integer-only. u16 ceiling is 65_535.
+    buildup_speed_factor_bps: 14000,
+)
