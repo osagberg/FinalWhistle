@@ -383,6 +383,98 @@ pub struct MatchState {
 
     /// Resolved `ArchetypeParams` for the away team — see `home_archetype_params`.
     pub(crate) away_archetype_params: tactic_fsm::ArchetypeParams,
+
+    // ---- T2-1d telemetry buffers (NON-canonical; #[serde(skip)]) ----
+    //
+    // Two off-canonical-path Vec sidecars that the `calibrate` binary reads
+    // post-match to collect per-shot + per-dribble feature/personality
+    // samples for the xG β + personality K_i calibration fits per
+    // `docs/design/xg-coefficients.md §Calibration loop (T2-1)` +
+    // `docs/design/personality-bias-weights.md §Re-tuning cadence`.
+    //
+    // Both fields use `#[serde(skip)]` so they:
+    //   - Don't appear in the canonical-state byte stream (encoder reads
+    //     specific fields explicitly; `#[serde(skip)]` is belt-and-braces).
+    //   - Don't appear in IPC DTO serializations (frontend never reads them).
+    //   - Default to empty `Vec::new()` on `MatchState::initial` /
+    //     `initial_with_content` construction + serde-deserialize round-trips
+    //     (the `Default` impl backs the skip).
+    //
+    // Per-shot push happens in `dispatch::apply_intent::AttemptShot` arm;
+    // per-dribble push happens in the `Dribble` arm. `became_goal` flag is
+    // back-filled post-match by the calibrate binary walking
+    // `state.match_events` for `MatchEvent::Goal` events and correlating
+    // by `(shooter_slot, tick)` within a small look-ahead window.
+    //
+    // The push-on-intent pattern slightly costs per-tick (one Vec push for
+    // every shot or dribble intent the dispatch picks). Realistic match
+    // shot count is ~20-30, dribble count ~50-100, so the Vec growth is
+    // bounded + the alloc cost is negligible vs the per-tick BT runner
+    // cost. No `#[cfg(...)]` gating: keeping the field always-on means
+    // the calibrate binary doesn't need a special build profile, and
+    // production code (Tauri / frontend) just never reads the field.
+    /// Per-shot telemetry buffer for T2-1d xG calibration (NON-canonical).
+    #[serde(skip)]
+    pub(crate) shot_telemetry: Vec<ShotTelemetryRecord>,
+
+    /// Per-dribble telemetry buffer for T2-1d personality K_i calibration (NON-canonical).
+    #[serde(skip)]
+    pub(crate) dribble_telemetry: Vec<DribbleTelemetryRecord>,
+}
+
+// ---- T2-1d telemetry record types ----
+
+/// Per-shot calibration sample captured at the moment `AttemptShot` fires
+/// (T2-1d). NON-canonical; lives in the `MatchState::shot_telemetry` sidecar
+/// Vec; consumed by the `calibrate` binary's xG β fit pass.
+///
+/// All Q32 features stored as raw `i64` bits so the calibrate binary can
+/// dump them to JSON via `serde_json` (which serializes `i64` natively).
+/// `became_goal` is `None` at push time + back-filled post-match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShotTelemetryRecord {
+    /// Tick at which the shot fired.
+    pub shot_tick: u32,
+    /// Player slot of the shooter (0..22; <11 home, ≥11 away).
+    pub shooter_slot: u8,
+    /// xG model feature: distance-inverted Q32 in [0, 1]. `1 - clamp(d_m / 35, 0, 1)`.
+    pub distance_q32_raw: i64,
+    /// xG model feature: angle Q32 in [0, 1].
+    pub angle_q32_raw: i64,
+    /// xG model feature: defender pressure Q32 in [0, 1].
+    pub pressure_q32_raw: i64,
+    /// xG model feature: shot type Q32 (T1: always 1.0 = footed; placeholder).
+    pub shot_type_q32_raw: i64,
+    /// xG model feature: assist kind Q32 (T1: always 1.0 = solo; placeholder).
+    pub assist_kind_q32_raw: i64,
+    /// xG model feature: shooter quality Q32 (finishing × 0.55 + composure × 0.25 + technique × 0.20).
+    pub shooter_quality_q32_raw: i64,
+    /// Personality feature: shooter's `mental.flair` Q32 (for K_1 SHOOT_FLAIR fit).
+    pub shooter_flair_q32_raw: i64,
+    /// Personality feature: shooter's `mental.composure` Q32 (for K_2 SHOOT_COMPOSURE fit).
+    pub shooter_composure_q32_raw: i64,
+    /// Personality feature: shooter's `personality.risk_appetite` Q32 (for K_18 SHOOT_RISK fit).
+    pub shooter_risk_appetite_q32_raw: i64,
+    /// Post-match goal correlation: `Some(true)` if a `MatchEvent::Goal`
+    /// with this shooter_slot fired within ~120 ticks of the shot;
+    /// `Some(false)` if no matching goal; `None` at push-time (back-filled
+    /// by the calibrate binary's `attribute_goals` pass).
+    pub became_goal: Option<bool>,
+}
+
+/// Per-dribble calibration sample captured at the moment `Dribble` fires
+/// (T2-1d). NON-canonical; lives in `MatchState::dribble_telemetry`;
+/// consumed by the calibrate binary's personality K_7 / K_8 fit pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DribbleTelemetryRecord {
+    /// Tick at which the dribble fired.
+    pub dribble_tick: u32,
+    /// Player slot of the dribbler.
+    pub dribbler_slot: u8,
+    /// Personality feature: dribbler's `mental.flair` Q32 (for K_7 DRIBBLE_FLAIR fit).
+    pub dribbler_flair_q32_raw: i64,
+    /// Personality feature: dribbler's `personality.aggression` Q32 (for K_8 DRIBBLE_AGG fit).
+    pub dribbler_aggression_q32_raw: i64,
 }
 
 impl MatchState {
@@ -480,6 +572,10 @@ impl MatchState {
             away_archetype_id: DEFAULT_ARCHETYPE_ID.to_string(),
             home_archetype_params: tactic_fsm::ArchetypeParams::direct_pressing(),
             away_archetype_params: tactic_fsm::ArchetypeParams::direct_pressing(),
+            // T2-1d telemetry buffers — empty at init; populated per-tick
+            // by apply_intent. NON-canonical (#[serde(skip)]).
+            shot_telemetry: Vec::new(),
+            dribble_telemetry: Vec::new(),
         }
     }
 
@@ -616,6 +712,40 @@ impl MatchState {
     /// [`home_archetype_id`](Self::home_archetype_id).
     pub fn away_archetype_id(&self) -> &str {
         &self.away_archetype_id
+    }
+
+    /// Drain the shot-telemetry sidecar buffer (T2-1d).
+    ///
+    /// The calibrate binary calls this post-match to consume the captured
+    /// `ShotTelemetryRecord` entries pushed by `dispatch::apply_intent`'s
+    /// `AttemptShot` arm. NOT canonical state — the underlying field is
+    /// `#[serde(skip)]` so the canonical encoder ignores it.
+    ///
+    /// `drain` semantics (move + clear) ensure the post-call buffer is empty
+    /// so the same `MatchState` can be re-ticked for a fresh telemetry
+    /// window without double-counting. Callers that want a copy without
+    /// clearing should call `shot_telemetry_len()` first + index instead.
+    pub fn drain_shot_telemetry(&mut self) -> Vec<ShotTelemetryRecord> {
+        std::mem::take(&mut self.shot_telemetry)
+    }
+
+    /// Mirror of [`drain_shot_telemetry`](Self::drain_shot_telemetry) for
+    /// the dribble-telemetry sidecar buffer (T2-1d).
+    pub fn drain_dribble_telemetry(&mut self) -> Vec<DribbleTelemetryRecord> {
+        std::mem::take(&mut self.dribble_telemetry)
+    }
+
+    /// Read-only count of pending shot-telemetry records (T2-1d). Useful for
+    /// tests that want to assert at least N shots were captured without
+    /// consuming the buffer.
+    pub fn shot_telemetry_len(&self) -> usize {
+        self.shot_telemetry.len()
+    }
+
+    /// Mirror of [`shot_telemetry_len`](Self::shot_telemetry_len) for
+    /// dribble telemetry (T2-1d).
+    pub fn dribble_telemetry_len(&self) -> usize {
+        self.dribble_telemetry.len()
     }
 
     /// Builder: set `last_touched_by` and return `self` (T1-3.5).

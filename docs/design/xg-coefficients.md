@@ -116,6 +116,59 @@ Sanity checks against the same three football-empirical reference points:
 3. Pin the post-fit values here in a **2026-MM-DD T2-1 re-fit** block; do NOT delete the Phase-1 seeds (audit trail).
 4. New test gate confirms mean xG/shot ≈ 0.10 + sigmoid(penalty_features) ≈ 0.76 over 100 matches.
 
+#### 2026-05-17 T2-1d-infra block — calibration tooling exists; coefficients NOT YET re-fit
+
+T2-1d shipped the calibration INFRASTRUCTURE (not the re-fit itself). New
+`crates/fw-match-sim/src/bin/calibrate.rs` binary provides:
+
+- `calibrate run --matches N` — multi-match runner across deterministic
+  seed × archetype-pair sweep; dumps `target/calibration-corpus.json` with
+  per-shot telemetry (6 features + `became_goal` flag back-filled via
+  `MatchEvent::Goal` correlation within 120-tick lookahead).
+- `calibrate fit-xg PATH` — in-process Newton-Raphson logistic regression
+  (ridge-regularized λ=0.01 to handle constant features) on the corpus;
+  outputs PROPOSED Q32 raw-bits for BETA_0..BETA_6 to stdout in
+  paste-ready format + writes `target/xg-fit-result.json` provenance.
+- `calibrate fit-personality PATH` — empirical decision-frequency curve
+  extraction per personality dimension; outputs PROPOSED Q32 raw-bits
+  for K_1, K_2, K_7, K_8, K_18 to stdout + `target/k-fit-result.json`.
+
+**Coefficients NOT YET applied to source.** T2-1d-infra defers the
+const updates to T2-1d2 follow-up row because `bt/on_ball.rs::utility_shoot`
+currently uses a hand-tuned stub (`finishing × long_shots × composure ×
+decisions` + secondary mults + spatial proximity boost) rather than
+calling `xg_utility(ShotContext)` with extracted features. Until T2-1d2
+rewires `utility_shoot` to use the xG model, fitting + applying β values
+would be decorative — the fitted constants wouldn't affect any shot
+decision the BT runner makes.
+
+**3-match smoke run observation** (target/calibration-smoke.json from
+2026-05-17 build): 17 shots captured, mean xG/shot pre-fit = 0.194
+(above the [0.09, 0.12] design target), empirical goal rate = 0.529.
+The high goal rate reflects T1 sim's tendency toward close-range shots
+once the BT runner picks AttemptShot — without proper xG-utility scoring
+gating the shot decision against distance/angle/pressure, low-xG shots
+aren't suppressed. T2-1d2's `utility_shoot` rewiring will gate shots
+through `xg_utility(ctx)` so the BT only picks AttemptShot when the
+xG score is competitive vs Pass/Dribble alternatives, producing a more
+realistic shot distribution.
+
+The Phase-1 BETA values remain canonical:
+
+```rust
+pub const BETA_0: Q32 = Q32::from_raw(-23_622_320_128_i64); // ≈ -5.5
+pub const BETA_1: Q32 = Q32::from_raw( 20_615_843_020_i64); // ≈ +4.8
+pub const BETA_2: Q32 = Q32::from_raw(  7_730_941_132_i64); // ≈ +1.8
+pub const BETA_3: Q32 = Q32::from_raw(-12_884_901_888_i64); // ≈ -3.0
+pub const BETA_4: Q32 = Q32::from_raw(  1_932_735_283_i64); // ≈ +0.45
+pub const BETA_5: Q32 = Q32::from_raw(  2_362_232_012_i64); // ≈ +0.55
+pub const BETA_6: Q32 = Q32::from_raw(  2_147_483_648_i64); // ≈ +0.5
+```
+
+T2-1d2 will re-run `calibrate run --matches 100` AFTER `utility_shoot`
+rewiring + commit the post-fit BETA block under a "**2026-MM-DD T2-1d2
+re-fit**" header per this section's step-3 audit-trail discipline.
+
 ### Distance feature inversion
 
 Note `β₁ > 0` even though "closer = higher xG". The feature `distance_q32` is INVERTED at extraction time:

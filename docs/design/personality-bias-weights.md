@@ -109,6 +109,51 @@ Phase-1 seeds (above) are hand-tuned for "feel" — they MUST be re-fit during T
 
 The re-fit happens at the END of T2 (after the BT runner has matured), NOT continuously.
 
+### 2026-05-17 T2-1d-infra block — calibration tooling exists; K_i NOT YET re-fit
+
+T2-1d shipped the calibration INFRASTRUCTURE (not the K_i re-fit itself).
+The new `crates/fw-match-sim/src/bin/calibrate.rs` binary provides the
+`fit-personality` subcommand that reads the `target/calibration-corpus.json`
+dumped by `calibrate run --matches N` and outputs PROPOSED Q32 raw-bits
+for the 5 most-load-bearing shoot+dribble-bias K constants (K_1
+SHOOT_FLAIR, K_2 SHOOT_COMPOSURE, K_7 DRIBBLE_FLAIR, K_8 DRIBBLE_AGG,
+K_18 SHOOT_RISK). The other 16 K constants remain Phase-1 seeds per
+this doc's explicit "wait for BT to mature" caveat — they'll be re-fit
+at T2-1d3 / end-of-T2 in a dedicated row once T2-2/T2-3/T2-4/T2-5
+mature the BT runner + content corpus.
+
+**K_i NOT YET applied to source.** T2-1d-infra defers the const updates
+to T2-1d2 follow-up row for the same reason xG β values are deferred:
+`bt/on_ball.rs::utility_shoot` currently uses a hand-tuned stub instead
+of `xg_utility(ShotContext)`, so the personality-bias multipliers also
+feed into a stub that doesn't yet use the calibrated bias semantics.
+Once T2-1d2 rewires `utility_shoot` to use the xG model, the K_i fit
+becomes meaningful + can be applied atomically.
+
+Empirical fit method (Rust-only; no sklearn dep): for each of the 5
+in-scope K constants, the `fit-personality` subcommand computes top-
+quartile vs bottom-quartile attribute means from the corpus +
+analytically solves for K such that the action-frequency ratio
+(top/bottom) meets the design-doc target of ≥1.40. If the corpus
+sample size is insufficient (<8 records) OR the denominator is
+degenerate (top_mean ≤ target_ratio × bot_mean), the subcommand
+holds the current Phase-1 K value + flags this in the
+`target/k-fit-result.json` provenance record.
+
+The Phase-1 K values remain canonical:
+
+```rust
+pub const K_1_SHOOT_FLAIR:      Q32 = Q32::from_raw(1_288_490_188); // ≈ 0.30
+pub const K_2_SHOOT_COMPOSURE:  Q32 = Q32::from_raw(1_717_986_918); // ≈ 0.40
+pub const K_7_DRIBBLE_FLAIR:    Q32 = Q32::from_raw(1_717_986_918); // ≈ 0.40
+pub const K_8_DRIBBLE_AGG:      Q32 = Q32::from_raw(1_073_741_824); // ≈ 0.25
+pub const K_18_SHOOT_RISK:      Q32 = Q32::from_raw(1_717_986_918); // ≈ 0.40
+```
+
+T2-1d2 will re-run `calibrate fit-personality` AFTER `utility_shoot`
+rewiring + commit the post-fit K block under a "**2026-MM-DD T2-1d2
+re-fit**" header per this section's step-4 audit-trail discipline.
+
 ---
 
 ## Test contract

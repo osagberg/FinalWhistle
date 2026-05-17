@@ -176,6 +176,19 @@ FULLY_EXEMPT_FILES: set[Path] = {
     # nothing reads it back into the sim. Has #![allow(clippy::float_arithmetic)]
     # at the module head.
     Path("crates/fw-match-sim/src/dto.rs"),
+    # T2-1d (per docs/design/xg-coefficients.md §Calibration loop + the
+    # T2-1d MEMORY task-spec): the `calibrate` binary is BAKE-TIME tooling
+    # off the sim ring per Sim/RULES.md §1. It runs the deterministic sim
+    # for the corpus-collection pass (using Q32 throughout per the sim's
+    # own discipline) + then performs OFFLINE Newton-Raphson logistic
+    # regression in f64. The fitted coefficients are emitted as Q32 raw-bits
+    # on stdout for manual paste-into-source; no f64 ever flows back into
+    # the canonical-state code path. Per-function `#[allow(clippy::
+    # float_arithmetic)]` already declared on the fit fns; this exemption
+    # tells the determinism-audit script the binary as a whole is opt-in
+    # to f64 (otherwise the type-mention scan still trips on the let
+    # bindings + closure signatures even with the clippy allow).
+    Path("crates/fw-match-sim/src/bin/calibrate.rs"),
 }
 
 

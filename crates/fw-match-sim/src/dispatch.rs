@@ -142,6 +142,109 @@ const PASS_PEAK_BONUS_MPS: Q32 = Q32::from_raw(10_i64 << 32);
 ///
 /// Formula: `SHOT_BASE_SPEED_MPS + SHOT_PEAK_BONUS_MPS × (strength × finishing)`
 ///
+/// T2-1d shot-feature extraction helpers (off-canonical-path; consumed by
+/// the calibrate binary via the `ShotTelemetryRecord` sidecar Vec). The
+/// 6 features mirror the `xg::ShotContext` field semantics so the offline
+/// fit produces β coefficients compatible with `xg_utility(ctx)`.
+///
+/// Distance feature: `1 - clamp(distance_m / 35, 0, 1)` per
+/// `docs/design/xg-coefficients.md §Distance feature inversion`. The
+/// shooter's distance to the OPPONENT goal-line is the input; orientation
+/// flips based on home/away slot (home attacks +X; away attacks -X).
+/// Q32-only arithmetic (sim crate; no f64 here per Sim/RULES.md §1).
+fn shot_distance_feature_q32(shooter_pos_x: Q32, shooter_slot: u8) -> Q32 {
+    // Distance to opponent goal in metres.
+    let goal_x = if (shooter_slot as usize) < crate::PLAYERS_PER_TEAM {
+        fw_core::GOAL_LINE_X
+    } else {
+        -fw_core::GOAL_LINE_X
+    };
+    let dx = goal_x - shooter_pos_x;
+    // Absolute value via two's-complement check (Q32 is fixed-point signed).
+    let dx_abs_bits = dx.to_bits().unsigned_abs();
+    // Threshold 35m = 35 * 2^32 raw bits = 150_323_855_360 unsigned.
+    const THRESHOLD_BITS: u64 = 35_u64 << 32;
+    if dx_abs_bits >= THRESHOLD_BITS {
+        Q32::ZERO
+    } else {
+        // distance_q32 = 1 - clamp(d_m / 35, 0, 1)
+        // = 1 - (d_m / 35)
+        // Compute (d_m / 35) in Q32 then subtract from ONE.
+        let normalized = Q32::from_raw(dx_abs_bits as i64) / Q32::from_int(35);
+        Q32::ONE - normalized
+    }
+}
+
+/// Angle feature: half-angle of goal cone from shooter normalized to [0, 1].
+/// Pragmatic approximation: `1 - clamp(|pos_y| / 25, 0, 1)`. More central
+/// (pos_y near 0) = higher angle = higher xG. Wider pos_y = lower angle.
+/// The 25m threshold approximates the pitch-width zone where the angle
+/// becomes degenerate (extreme wide-angle shots have near-zero xG).
+fn shot_angle_feature_q32(shooter_pos_y: Q32) -> Q32 {
+    let py_abs_bits = shooter_pos_y.to_bits().unsigned_abs();
+    const THRESHOLD_BITS: u64 = 25_u64 << 32;
+    if py_abs_bits >= THRESHOLD_BITS {
+        Q32::ZERO
+    } else {
+        let normalized = Q32::from_raw(py_abs_bits as i64) / Q32::from_int(25);
+        Q32::ONE - normalized
+    }
+}
+
+/// Defender-pressure feature: `1 - exp_q32(-sum_inv_dist)` per the
+/// `docs/design/xg-coefficients.md` formula. Sum inverse distance over
+/// opposing players within 15m. Approximated for T2-1d telemetry purposes
+/// using `1 - 1/(1 + sum_inv_dist)` (sigmoid-like; avoids the cordic exp
+/// dependency in the sim hot path). Acceptable since this is OFFLINE
+/// telemetry data going into a fitter — fitter learns β₃ against whatever
+/// pressure proxy we feed it.
+fn shot_pressure_feature_q32(players: &[crate::player::PlayerState], shooter_idx: usize) -> Q32 {
+    let shooter = &players[shooter_idx];
+    let shooter_team_is_home = (shooter.slot as usize) < crate::PLAYERS_PER_TEAM;
+    let opponent_range = if shooter_team_is_home {
+        crate::PLAYERS_PER_TEAM..crate::TOTAL_PLAYERS
+    } else {
+        0..crate::PLAYERS_PER_TEAM
+    };
+    // Sum 1/(distance + epsilon) for opponents within 15m; cap at a
+    // saturation point so a perfect-stack of 11 defenders doesn't blow up.
+    const RADIUS_BITS: u64 = 15_u64 << 32; // 15m
+    let mut sum_inv = Q32::ZERO;
+    let epsilon = Q32::from_raw(1 << 28); // ~0.0625m floor to avoid divide-by-zero
+    for opp_idx in opponent_range {
+        let opp = &players[opp_idx];
+        let dx = opp.pos_x - shooter.pos_x;
+        let dy = opp.pos_y - shooter.pos_y;
+        let dist_sq = dx * dx + dy * dy;
+        let dist_sq_abs = dist_sq.to_bits().unsigned_abs();
+        // Coarse radius gate via squared distance: 15^2 = 225 → 225 * 2^32.
+        const RADIUS_SQ_BITS: u64 = (15_u64 * 15_u64) << 32;
+        if dist_sq_abs >= RADIUS_SQ_BITS {
+            continue;
+        }
+        // Q32::sqrt for the actual distance, then 1/(d + ε).
+        let dist = dist_sq.sqrt();
+        let inv = Q32::ONE / (dist + epsilon);
+        sum_inv += inv;
+    }
+    // Approximation: 1 - 1/(1 + sum_inv). Bounded [0, 1); approaches 1 as
+    // sum_inv grows. The RADIUS_BITS const above is unused after the
+    // dist_sq gate refactor — keep the comment for future tightening.
+    let _ = RADIUS_BITS;
+    Q32::ONE - (Q32::ONE / (Q32::ONE + sum_inv))
+}
+
+/// Shooter quality feature: `finishing × 0.55 + composure × 0.25 + technique × 0.20`
+/// per `docs/design/xg-coefficients.md §The 6 features`.
+fn shot_quality_feature_q32(attrs: &fw_core::PlayerAttributes) -> Q32 {
+    let w_finishing = Q32::from_raw(2_362_232_012_i64); // ≈ 0.55
+    let w_composure = Q32::from_raw(1_073_741_824_i64); // ≈ 0.25
+    let w_technique = Q32::from_raw(858_993_459_i64); // ≈ 0.20
+    attrs.technical.finishing * w_finishing
+        + attrs.mental.composure * w_composure
+        + attrs.technical.technique * w_technique
+}
+
 /// Both `strength` and `finishing` are Q32 values in `[0, 1]`. Their product
 /// is also in `[0, 1]` (multiplication of two sub-unit Q32 values).
 ///
@@ -558,6 +661,29 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 target_y: *target_y,
                 on_target,
             });
+            // T2-1d telemetry capture (NON-canonical; #[serde(skip)] field on
+            // MatchState). Push a ShotTelemetryRecord with features extracted
+            // post-hoc for the offline xG β / personality K_i fits per
+            // `docs/design/xg-coefficients.md §Calibration loop (T2-1)`. The
+            // record's `became_goal` field is None at push time; the calibrate
+            // binary back-fills it post-match via MatchEvent::Goal correlation.
+            let shooter = &state.players[slot_idx];
+            let shooter_attrs = shooter.attributes();
+            let shot_telem = crate::ShotTelemetryRecord {
+                shot_tick: state.tick.to_raw() as u32,
+                shooter_slot,
+                distance_q32_raw: shot_distance_feature_q32(shooter.pos_x, shooter_slot).to_bits(),
+                angle_q32_raw: shot_angle_feature_q32(shooter.pos_y).to_bits(),
+                pressure_q32_raw: shot_pressure_feature_q32(&state.players, slot_idx).to_bits(),
+                shot_type_q32_raw: fw_core::Q32::ONE.to_bits(), // T1: always footed
+                assist_kind_q32_raw: fw_core::Q32::ONE.to_bits(), // T1: always solo
+                shooter_quality_q32_raw: shot_quality_feature_q32(shooter_attrs).to_bits(),
+                shooter_flair_q32_raw: shooter_attrs.mental.flair.to_bits(),
+                shooter_composure_q32_raw: shooter_attrs.mental.composure.to_bits(),
+                shooter_risk_appetite_q32_raw: shooter_attrs.personality.risk_appetite.to_bits(),
+                became_goal: None,
+            };
+            state.shot_telemetry.push(shot_telem);
             // T1-15: snap ball to shooter's feet before kicking. Without this
             // the ball starts from its last physical position (often center
             // spot after kick-off) rather than the shooter's feet, causing
@@ -688,6 +814,17 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
             // The player's vel_x/vel_y is still set by the velocity-update
             // match below so the player navigates toward the dribble target.
             let dribbler_slot = state.players[slot_idx].slot;
+            // T2-1d telemetry capture for personality K_7 / K_8 fit (DRIBBLE_FLAIR
+            // / DRIBBLE_AGG). NON-canonical; #[serde(skip)] field. See AttemptShot
+            // arm above for the parallel shot-telemetry pattern + design-doc ref.
+            let dribbler_attrs = state.players[slot_idx].attributes();
+            let dribble_telem = crate::DribbleTelemetryRecord {
+                dribble_tick: state.tick.to_raw() as u32,
+                dribbler_slot,
+                dribbler_flair_q32_raw: dribbler_attrs.mental.flair.to_bits(),
+                dribbler_aggression_q32_raw: dribbler_attrs.personality.aggression.to_bits(),
+            };
+            state.dribble_telemetry.push(dribble_telem);
             state.ball.pos_x = state.players[slot_idx].pos_x;
             state.ball.pos_y = state.players[slot_idx].pos_y;
             state.ball.vel_x = Q32::ZERO;
