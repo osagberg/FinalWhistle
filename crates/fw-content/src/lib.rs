@@ -11,6 +11,7 @@
 pub mod archetype;
 pub mod commentary;
 pub mod event;
+pub mod league;
 pub mod manager;
 pub mod markov;
 pub mod player;
@@ -27,6 +28,10 @@ pub use commentary::{
 // MatchEventDiscriminant moved to event module at T1-11 type-design P1 fix-pass
 // (was in commentary; cyclic-import once MatchEvent::discriminant() returns it).
 pub use event::{MatchEvent, MatchEventDiscriminant, PassKind, is_shot_on_target};
+pub use league::{
+    CLUBS_PER_LEAGUE, Fixture, League, MATCH_DAYS_PER_SEASON, MATCHES_PER_SEASON,
+    generate_fixtures, generate_league,
+};
 pub use manager::{
     MANAGER_ARCHETYPE_SCHEMA_VERSION, ManagerArchetype, ManagerArchetypeError, ManagerArchetypeId,
     ManagerArchetypeIdError,
