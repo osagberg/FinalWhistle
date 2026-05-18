@@ -85,11 +85,23 @@ fn load_commentary_grammars(
     let mut raw: BTreeMap<MatchEventDiscriminant, BTreeMap<String, Vec<String>>> = BTreeMap::new();
 
     for path in walk_files_with_ext(commentary_dir, ".tracery.json")? {
-        let stem = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(|n| n.trim_end_matches(".tracery.json"))
-            .unwrap_or("");
+        // T2-R-C5 (post-T2 ultimate-review Track C-5): the prior
+        // `unwrap_or("")` silently mapped non-UTF8 file names or
+        // missing-file-name (impossible-but-possible in principle) to
+        // empty-stem, which fell into the `other` arm + silently
+        // `continue`d. Replaced with explicit failure: non-UTF8 paths
+        // are author-error and must surface, not become invisible.
+        let stem = match path.file_name().and_then(|n| n.to_str()) {
+            Some(s) => s.trim_end_matches(".tracery.json"),
+            None => {
+                return Err(ContentLoadError::Io {
+                    path: path.clone(),
+                    source: std::io::Error::other(
+                        "non-UTF8 file name in commentary/ directory",
+                    ),
+                });
+            }
+        };
 
         let disc = match stem {
             "kickoff" => MatchEventDiscriminant::KickOff,
@@ -99,10 +111,22 @@ fn load_commentary_grammars(
             "pass" => MatchEventDiscriminant::Pass,
             "signature_first_fired" => MatchEventDiscriminant::SignatureFirstFired,
             other => {
-                // Unknown filename — log and skip. This is not a hard error;
-                // narrative-director may add helper-grammar files in the future.
-                // The missing-discriminant check below catches the load gap.
-                let _ = other;
+                // T2-R-C5 (post-T2 ultimate-review Track C-5): the prior
+                // shape claimed "log and skip" in the comment but never
+                // logged — the `let _ = other; continue;` was a silent
+                // drop. Replaced with an explicit eprintln! so operator-
+                // observable diagnostic exists when (e.g.) an editor
+                // backup file `kickoff.tracery.json.bak` is misread as
+                // `kickoff.tracery.json.bak` stem. The downstream
+                // missing-discriminant check at the bottom of this fn
+                // still catches the load-gap fail-loud; this is the
+                // diagnostic that names the cause.
+                eprintln!(
+                    "fw-content: skipping unknown commentary grammar filename: \
+                     {} (stem {:?} not in known discriminants)",
+                    path.display(),
+                    other
+                );
                 continue;
             }
         };

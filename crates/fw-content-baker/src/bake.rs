@@ -193,10 +193,33 @@ impl<'a> BakeNamesOffline<'a> {
         // contract documented on the `BakeManifest` type. The filename is
         // sufficient: the manifest sidecar lives next to the RON in the same
         // directory, so the relative reference is unambiguous.
+        // T2-R-C7 (post-T2 ultimate-review Track C-7): the prior shape
+        // was `file_name().map(|n| n.to_string_lossy().into_owned())
+        // .unwrap_or_else(|| format!("names_{slug}.ron"))`. Two silent
+        // surfaces:
+        //   (a) `to_string_lossy()` substitutes U+FFFD for non-UTF8
+        //       bytes — for an author-controlled output path this is a
+        //       programmer error, not a silent substitution.
+        //   (b) the `unwrap_or_else` reconstructed the filename from
+        //       `slug` — but `ron_path` was JUST built by `output_dir
+        //       .join(format!("names_{slug}.ron"))`, so `file_name()`
+        //       returning None is impossible. The fallback masked any
+        //       future ron_path-construction change as a successful
+        //       bake while writing a manifest that no longer matches
+        //       the on-disk filename, undermining the BakeManifest's
+        //       reproducibility-audit guarantee.
+        // Both surfaces collapsed to a single `.expect()` that names
+        // the impossibility.
         let output_filename = ron_path
             .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| format!("names_{slug}.ron"));
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string())
+            .expect(
+                "ron_path was just constructed from \
+                 output_dir.join(format!(\"names_{slug}.ron\")); file_name + UTF-8 \
+                 must succeed (T2-R-C7 — if this panics, the ron_path construction \
+                 above was changed without updating this expect)",
+            );
 
         let manifest = BakeManifest {
             model_id: "offline-v1".to_string(),

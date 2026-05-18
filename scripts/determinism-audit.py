@@ -199,8 +199,20 @@ def audit_file(path: Path, crate_dir: str, per_rule_exempt: set[str]) -> list[tu
     """
     try:
         text = path.read_text(encoding="utf-8")
-    except (UnicodeDecodeError, OSError):
-        return []
+    except (UnicodeDecodeError, OSError) as e:
+        # T2-R-C8 (post-T2 ultimate-review Track C-8): the prior shape
+        # `except ...: return []` silently treated unreadable / non-UTF8
+        # files as having zero violations. determinism-audit is the
+        # LAST line of defense for Sim/RULES.md's HashMap / clock /
+        # RNG / float bans — silent skip-on-unreadable lets a banned
+        # pattern slip into a file that briefly errored during walk.
+        # Fail-loud + exit 1 so the operator + CI both surface the
+        # cause rather than passing a partial-walk audit as clean.
+        print(
+            f"ERROR: determinism-audit cannot read {path}: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     # Strip cfg(test) blocks first (test helpers may use f64 literals — that
     # is allowed and does not touch canonical state).  Then strip comments so
     # rule-doc prose mentioning banned terms doesn't false-positive.

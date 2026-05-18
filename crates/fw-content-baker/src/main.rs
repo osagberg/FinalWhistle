@@ -341,6 +341,44 @@ fn run_validate_structural(workspace: &str) -> anyhow::Result<()> {
     let store = ContentStore::load_sources(&content_root)
         .map_err(|e| anyhow::anyhow!("content load failed: {e}"))?;
 
+    // T2-R-C4 (post-T2 ultimate-review Track C-4): fail-loud on an
+    // empty corpus. `ContentStore::load_sources` silently skips missing
+    // directories, so a freshly-cloned repo (or a malformed pack with
+    // no archetypes) would otherwise iterate zero entities through
+    // each validator + print "STRUCTURAL validation passed" — a false-
+    // positive that the operator only discovers far away at
+    // `AppState::new`'s `generate_league` panic.
+    //
+    // Today the production pack ships ≥1 in every required category;
+    // this guard catches "operator deleted content/sources/cultures/"
+    // and similar corruption at the validation site, where the
+    // diagnostic still names the missing category.
+    let mut empty_categories: Vec<&'static str> = Vec::new();
+    if store.cultures.is_empty() {
+        empty_categories.push("cultures");
+    }
+    if store.tactical_archetypes.is_empty() {
+        empty_categories.push("tactical_archetypes");
+    }
+    if store.player_templates.is_empty() {
+        empty_categories.push("player_templates");
+    }
+    if store.managers.is_empty() {
+        empty_categories.push("managers");
+    }
+    if store.role_affinity_tables.is_empty() {
+        empty_categories.push("role_affinity_tables");
+    }
+    if !empty_categories.is_empty() {
+        anyhow::bail!(
+            "content corpus is empty in one or more required categories: {:?}. \
+             content/sources/{{cultures,archetypes,players,managers,role-affinities}}/ \
+             must each contain >=1 entity. Did content/sources/ get partially deleted \
+             or was the workspace cloned without LFS-fetched RON files?",
+            empty_categories
+        );
+    }
+
     let mut errors = Vec::<String>::new();
 
     // Role-affinity validation.

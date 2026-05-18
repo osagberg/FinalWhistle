@@ -496,7 +496,33 @@ impl SeasonState {
     ///
     /// Overwrites a prior result for the same `(home, away)` pair — this
     /// permits re-running a match-day in tests without special-casing.
+    ///
+    /// # Panics
+    ///
+    /// T2-R-C6 (post-T2 ultimate-review Track C-6): panics if `home`
+    /// or `away` is not a member of `self.league.clubs`. The current
+    /// call path (`advance_week_inner` / `play_fixtures_inner` in
+    /// fw-tauri) always passes clubs sourced from
+    /// `self.fixtures_for_match_day`, so this is structurally
+    /// unreachable today. But `apply_result` accepts arbitrary
+    /// `ClubId`s, and `Season::standings`'s aggregator silently drops
+    /// any result whose ids are not in `league.clubs` (the
+    /// `rows.get_mut(...)` returns None and the goals vanish from the
+    /// standings). Guarding here at write time so a future caller
+    /// (test fixture / mod overlay / save-load round-trip) that
+    /// fabricates a stale ClubId fails loudly at the write site
+    /// rather than producing invisible-scoreline corruption.
     pub fn apply_result(&mut self, home: ClubId, away: ClubId, outcome: MatchOutcome) {
+        assert!(
+            self.league.clubs.iter().any(|c| c.id == home),
+            "Season::apply_result: home ClubId {home:?} not in league.clubs (would silently \
+             drop the result from standings — see T2-R-C6)"
+        );
+        assert!(
+            self.league.clubs.iter().any(|c| c.id == away),
+            "Season::apply_result: away ClubId {away:?} not in league.clubs (would silently \
+             drop the result from standings — see T2-R-C6)"
+        );
         self.results.insert((home, away), outcome);
     }
 

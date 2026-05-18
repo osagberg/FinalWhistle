@@ -295,8 +295,20 @@ def strip_sentinel_blocks(lines: list[str], *, honor_sentinels: bool = True) -> 
 def lint_file(path: Path, report: Report, root: Path) -> None:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return
+    except OSError as e:
+        # T2-R-C8 (post-T2 ultimate-review Track C-8): the prior shape
+        # `except OSError: return` silently treated unreadable files as
+        # having zero violations. The banned-terms lint is the LAST line
+        # of defense for the football-native-vocabulary rule per
+        # Sim/RULES.md + Content/RULES.md §5 — silent skip-on-unreadable
+        # undermines that role. Fail-loud + exit 1 so a permission /
+        # partial-write / deleted-mid-walk race surfaces in CI rather
+        # than passing as a clean lint.
+        print(
+            f"ERROR: lint-banned-terms cannot read {path}: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     lines = text.splitlines()
     honor_sentinels = sentinel_scope_allows(path, root)
     active_lines = strip_sentinel_blocks(lines, honor_sentinels=honor_sentinels)
