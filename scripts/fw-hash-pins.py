@@ -224,11 +224,11 @@ def preflight_pin(
     text = abs_path.read_bytes().decode("utf-8")
     m = loc.pattern.search(text)
     if not m:
-        return False, True, f"PATTERN NOT MATCHED in {loc.file} — pin location regex out of date?", None
+        return False, True, f"PATTERN NOT MATCHED in {loc.file} - pin location regex out of date?", None
 
     current = read_pin(loc)
     if current == new_hash:
-        return False, False, f"already at {new_hash[:8]}… (no-op)", None
+        return False, False, f"already at {new_hash[:8]}... (no-op)", None
 
     if loc.form == "byte_array":
         new_text = _replace_byte_array(text, loc.pattern, new_hash)
@@ -237,9 +237,14 @@ def preflight_pin(
     elif loc.form == "ron":
         new_text = _replace_ron(text, loc.pattern, new_hash)
     else:
-        return False, True, f"unknown form {loc.form!r} — registry bug", None
+        return False, True, f"unknown form {loc.form!r} - registry bug", None
 
-    msg = f"would update {current[:8] if current else '?'}… → {new_hash[:8]}…"
+    # Post-T2-close CI fix: ASCII-only message — Windows console default
+    # encoding (cp1252) cannot encode U+2192 (→) or U+2026 (…) and raises
+    # UnicodeEncodeError when this string is printed via stdlib `print`,
+    # which then masks the real "would have failed" / "ATOMICITY GUARANTEE"
+    # stderr the test fixtures search for. Use `->` + `...` instead.
+    msg = f"would update {current[:8] if current else '?'}... -> {new_hash[:8]}..."
     return True, False, msg, (abs_path, new_text)
 
 
@@ -310,19 +315,19 @@ def list_mode() -> int:
             rows.append((loc.seed_label, loc.file, loc.form, current))
             seeds_seen.setdefault(loc.seed_label, set()).add(current)
 
-    print("fw-hash-pins — canonical-state pin registry")
+    print("fw-hash-pins - canonical-state pin registry")
     print(f"({len(PIN_LOCATIONS)} pin locations across {len(seeds_seen)} corpus seed(s))")
     print()
     print(f"{'seed':<22} {'form':<11} {'hash':<70} location")
     print("-" * 130)
     for seed, file, form, hash_val in rows:
-        short_hash = f"{hash_val[:16]}…{hash_val[-8:]}" if len(hash_val) == 64 else hash_val
+        short_hash = f"{hash_val[:16]}...{hash_val[-8:]}" if len(hash_val) == 64 else hash_val
         print(f"{seed:<22} {form:<11} {short_hash:<70} {file}")
     print()
 
     inconsistencies = [(s, h) for s, h in seeds_seen.items() if len(h) > 1]
     if inconsistencies:
-        print("INCONSISTENCY DETECTED — sibling locations disagree on the pinned hash:")
+        print("INCONSISTENCY DETECTED - sibling locations disagree on the pinned hash:")
         for seed, hashes in inconsistencies:
             print(f"  seed {seed} pins {len(hashes)} distinct hashes: {sorted(hashes)}")
         print()
@@ -367,7 +372,7 @@ def update_mode(new_hash: str, seed: str, dry_run: bool) -> int:
         print(f"Known seeds: {known_seeds}", file=sys.stderr)
         return 2
 
-    print(f"fw-hash-pins {'--dry-run ' if dry_run else ''}--update {new_hash[:8]}… --seed {seed}")
+    print(f"fw-hash-pins {'--dry-run ' if dry_run else ''}--update {new_hash[:8]}... --seed {seed}")
     print(f"({len(matching_locs)} pin location(s) match this seed)")
     print()
 
@@ -387,15 +392,15 @@ def update_mode(new_hash: str, seed: str, dry_run: bool) -> int:
     prepared_writes: list[tuple[Path, str]] = []
     for loc, did_change, is_failure, msg, prepared in preflight_results:
         if is_failure:
-            symbol = "✗"
+            symbol = "X"  # post-T2-close CI fix: ASCII-only for Windows cp1252
             failures += 1
         elif did_change:
-            symbol = "•"
+            symbol = "*"  # post-T2-close CI fix: ASCII-only for Windows cp1252
             changed += 1
             assert prepared is not None, "did_change=True must yield a prepared write"
             prepared_writes.append(prepared)
         else:
-            symbol = "·"  # benign no-op
+            symbol = "."  # benign no-op (post-T2-close CI fix: ASCII for Windows)
         print(f"  {symbol} {loc.file:<55} {msg}")
     print()
 
@@ -407,7 +412,7 @@ def update_mode(new_hash: str, seed: str, dry_run: bool) -> int:
     if failures:
         verb = "would have failed" if dry_run else "FAILED preflight"
         print(
-            f"{failures} location(s) {verb} — registry regex likely drifted or "
+            f"{failures} location(s) {verb} - registry regex likely drifted or "
             f"pin file moved.",
             file=sys.stderr,
         )
@@ -444,7 +449,7 @@ def update_mode(new_hash: str, seed: str, dry_run: bool) -> int:
             print(f"Dry-run complete. {changed} location(s) would be updated.")
             print("Re-run without --dry-run to apply.")
         else:
-            print(f"Dry-run no-op: all {len(matching_locs)} location(s) already at {new_hash[:8]}…")
+            print(f"Dry-run no-op: all {len(matching_locs)} location(s) already at {new_hash[:8]}...")
     else:
         if changed:
             print(f"Update complete. {changed} location(s) modified atomically.")
@@ -456,7 +461,7 @@ def update_mode(new_hash: str, seed: str, dry_run: bool) -> int:
             print("  3. Commit with `canonical hash: REBASELINED (trigger: ...)` marker per")
             print("     `validate-commit.sh`'s hook expectations.")
         else:
-            print(f"No-op: all {len(matching_locs)} location(s) already pin {new_hash[:8]}…")
+            print(f"No-op: all {len(matching_locs)} location(s) already pin {new_hash[:8]}...")
     return 0
 
 
