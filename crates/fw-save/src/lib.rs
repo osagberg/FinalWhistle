@@ -2,24 +2,30 @@
 //!
 //! ## T2-9: V1 schema lock + V0→V1 migration discipline established
 //!
-//! V1 is now the LOCKED first real schema (`SaveV1 { career_seed,
-//! content_pack_version, ledger }`). V0 is a fictional pre-T2-9 placeholder
-//! representing what a minimal-schema save would have looked like
-//! (`SaveV0 { career_seed }`). V0 exists to exercise the four-test
-//! migration discipline that T3-7 will apply to every future v(N) → v(N+1)
-//! bump per `design/specs/save-migration-fixtures.md` (referenced from
-//! `docs/specs/determinism-gate.md` line 37):
+//! V1 is the LOCKED first real schema (`SaveV1 { career_seed,
+//! content_pack_version, ledger }`). V0 is a fictional pre-T2-9 placeholder.
+//! Both are PRESERVED FOREVER — old saves must remain loadable.
+//!
+//! ## T3-1: V2 schema — rich MemoryLedger (ADR-0005 schema port)
+//!
+//! V2 carries the ADR-0005 `MemoryLedger` (real `MemoryEvent` schema,
+//! EventId-indexed, BTreeMap-backed). V1's placeholder `MemoryEvent::Placeholder`
+//! events had no real semantics; `migrate_v1_to_v2` translates any V1 ledger
+//! to an EMPTY V2 ledger.
+//!
+//! Migration chain: V0 → migrate_v0_to_v1 → V1 → migrate_v1_to_v2 → V2.
+//!
+//! Four-test migration discipline (per `design/specs/save-migration-fixtures.md`):
 //!
 //!   1. forward-migration         — V(N) bytes load + emerge as V(N+1)
 //!   2. callback-preservation     — every V(N) field maps to V(N+1) (no drops)
 //!   3. forward-incompat-failure  — unknown-future-discriminant FAILS LOUDLY
 //!   4. round-trip-byte-identical — encode(decode(x))) bytes ≡ original
 //!
-//! `load_envelope(bytes) -> Result<SaveV1, SaveError>` is the production
-//! load entry point: it decodes the envelope, runs V0→V1 migration on the
-//! fly if needed, and returns the V1 payload directly. Unknown discriminants
-//! surface as `SaveError::Decode` (bincode's `DecodeError::UnexpectedVariant`
-//! is the structured fail-loud signal).
+//! `load_envelope(bytes) -> Result<SaveV2, SaveError>` is the production
+//! load entry point. It decodes the envelope, runs the full migration chain,
+//! calls `MemoryLedger::restore_transient_state()` on the decoded ledger, and
+//! returns the V2 payload. Unknown discriminants surface as `SaveError::Decode`.
 //!
 //! ## Format
 //!
@@ -74,8 +80,13 @@ pub enum SaveEnvelope {
     /// so the V0→V1 migration test path stays live + green as the schema
     /// chain grows.
     V0(SaveV0) = 0,
-    /// Schema v1 — T2-9-locked first real schema.
+    /// Schema v1 — T2-9-locked first real schema. PRESERVED FOREVER.
     V1(SaveV1) = 1,
+    /// Schema v2 — T3-1. Carries the ADR-0005 `MemoryLedger` (rich
+    /// `MemoryEvent` schema). First variant with a real event ledger.
+    ///
+    /// Wire tag `0x02` is pinned by `smoke::v2_envelope_wire_first_byte_is_locked_at_0x02`.
+    V2(SaveV2) = 2,
 }
 
 /// Schema v0 payload — the fictional pre-T2-9 stub. Carries only the
@@ -98,6 +109,28 @@ pub struct SaveV1 {
 
     /// The career ledger. Replays produce the rest of the world state on
     /// demand from this + the seed.
+    pub ledger: MemoryLedger,
+}
+
+/// Schema v2 payload — T3-1 (ADR-0005 memory ledger).
+///
+/// Structurally identical to V1 except the `ledger` now carries the rich
+/// `MemoryEvent` schema (EventId, Q32 stakes/salience, 30-variant EventClass,
+/// BTreeMap indexes). V1's placeholder events are discarded on migration.
+///
+/// V2 is the CURRENT production schema. All new saves are V2.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveV2 {
+    /// The career's deterministic seed.
+    pub career_seed: Seed,
+
+    /// Content-pack version this save was authored against.
+    pub content_pack_version: u32,
+
+    /// The career ledger — rich `MemoryEvent` rows per ADR-0005.
+    /// `MemoryLedger::restore_transient_state()` is called by
+    /// `load_envelope` after deserialisation to rebuild the `next_id`
+    /// counter and mark indexes dirty.
     pub ledger: MemoryLedger,
 }
 
@@ -128,6 +161,7 @@ pub enum SaveError {
 }
 
 /// Encode a save envelope to bincode bytes.
+#[must_use = "encoded bytes are discarded; did you mean to persist via std::fs::write?"]
 pub fn encode(envelope: &SaveEnvelope) -> Result<Vec<u8>, SaveError> {
     let cfg = bincode::config::standard();
     Ok(bincode::serde::encode_to_vec(envelope, cfg)?)
@@ -143,6 +177,7 @@ pub fn encode(envelope: &SaveEnvelope) -> Result<Vec<u8>, SaveError> {
 /// would get a working-but-wrong career with no diagnostic. Format ships
 /// FOREVER — silent-on-corruption is exactly the failure mode banned by
 /// CLAUDE.md §10 + the four-test migration discipline.
+#[must_use = "the decoded envelope is discarded; did you mean to match on it or pass through load_envelope?"]
 pub fn decode(bytes: &[u8]) -> Result<SaveEnvelope, SaveError> {
     let cfg = bincode::config::standard();
     let (envelope, consumed) = bincode::serde::decode_from_slice(bytes, cfg)?;
@@ -173,27 +208,52 @@ pub fn migrate_v0_to_v1(v0: SaveV0) -> SaveV1 {
     }
 }
 
-/// Production load entry point. Decode bytes → handle every known variant
-/// → return the latest-schema payload (currently `SaveV1`).
+/// Forward-migrate a `SaveV1` payload to the `SaveV2` schema.
+///
+/// V1 ledgers in the wild have no real events — the V1 `MemoryEvent` type
+/// existed only as a pre-T3 placeholder stub (deleted from `fw-memory` at
+/// T3-1 alongside the ADR-0005 schema port). `migrate_v1_to_v2` therefore
+/// produces an EMPTY V2 ledger rather than attempting to translate the
+/// (now-non-existent) placeholder rows into ADR-0005 records.
+///
+/// Preserves `career_seed` and `content_pack_version` exactly.
+///
+/// Pure function: same V1 input always produces the same V2 output.
+pub fn migrate_v1_to_v2(v1: SaveV1) -> SaveV2 {
+    SaveV2 {
+        career_seed: v1.career_seed,
+        content_pack_version: v1.content_pack_version,
+        ledger: MemoryLedger::new(),
+    }
+}
+
+/// Production load entry point. Decode bytes → run the full migration chain
+/// → return the latest-schema payload (`SaveV2`).
 ///
 /// Variant dispatch:
-///   - `SaveEnvelope::V0(v0)` → `migrate_v0_to_v1(v0)`
-///   - `SaveEnvelope::V1(v1)` → returned as-is
+///   - `V0(v0)` → `migrate_v0_to_v1(v0)` → `migrate_v1_to_v2(...)`
+///   - `V1(v1)` → `migrate_v1_to_v2(v1)`
+///   - `V2(v2)` → returned as-is (after `restore_transient_state`)
 ///   - unknown discriminant → `SaveError::Decode(...)` (bincode's
-///     `DecodeError::UnexpectedVariant` carries the variant info). This IS
-///     the four-test-discipline "forward-incompat-failure" path: a future
-///     V99 save loaded by an older binary FAILS LOUDLY rather than silently
-///     defaulting or panicking.
+///     `DecodeError::UnexpectedVariant`). This IS the four-test-discipline
+///     "forward-incompat-failure" path: a future V99 save loaded by an
+///     older binary FAILS LOUDLY.
+///
+/// `MemoryLedger::restore_transient_state()` is called on the final payload's
+/// ledger so the `next_id` counter and dirty flag are correctly initialised
+/// before the caller appends any new events.
 ///
 /// Callers that need to introspect WHICH variant a save was authored as
-/// (e.g. for a migration audit log) should call `decode()` directly + match
-/// the envelope. This function is the right entry for "I want a usable
-/// payload regardless of source schema version."
-pub fn load_envelope(bytes: &[u8]) -> Result<SaveV1, SaveError> {
-    match decode(bytes)? {
-        SaveEnvelope::V0(v0) => Ok(migrate_v0_to_v1(v0)),
-        SaveEnvelope::V1(v1) => Ok(v1),
-    }
+/// should call `decode()` directly and match the envelope.
+#[must_use = "the loaded SaveV2 is discarded; load_envelope is the only path that runs the V0→V1→V2 migration chain"]
+pub fn load_envelope(bytes: &[u8]) -> Result<SaveV2, SaveError> {
+    let mut v2 = match decode(bytes)? {
+        SaveEnvelope::V0(v0) => migrate_v1_to_v2(migrate_v0_to_v1(v0)),
+        SaveEnvelope::V1(v1) => migrate_v1_to_v2(v1),
+        SaveEnvelope::V2(v2) => v2,
+    };
+    v2.ledger.restore_transient_state();
+    Ok(v2)
 }
 
 // -------------------------------------------------------------------------
@@ -305,6 +365,70 @@ mod smoke {
             "encode(decode(encode(x))) must be byte-identical to encode(x)"
         );
     }
+
+    // ----- T3-1: AC7 — V2 variant constructs + round-trips -----
+
+    /// AC7 — `SaveEnvelope::V2` compiles, encodes, and decodes back to itself.
+    #[test]
+    fn v2_variant_constructs_and_round_trips() {
+        let env = SaveEnvelope::V2(SaveV2 {
+            career_seed: Seed::from_u64(0xBEEF_CAFE_DEAD_F00D),
+            content_pack_version: 2,
+            ledger: MemoryLedger::new(),
+        });
+        let bytes = encode(&env).expect("encode v2");
+        let decoded = decode(&bytes).expect("decode v2");
+        assert_eq!(decoded, env, "V2 must round-trip through encode/decode");
+    }
+
+    // ----- T3-1: AC10 — V2 wire-byte regression -----
+
+    /// AC10 — Pin the EXACT first byte of an encoded V2 envelope at `0x02`.
+    /// Re-ordering SaveEnvelope variants or changing bincode's varint encoding
+    /// for discriminant 2 will fail this test.
+    ///
+    /// Schema is locked FOREVER; the wire bytes are part of the lock.
+    #[test]
+    fn v2_envelope_wire_first_byte_is_locked_at_0x02() {
+        let env = SaveEnvelope::V2(SaveV2 {
+            career_seed: Seed::from_u64(0),
+            content_pack_version: 1,
+            ledger: MemoryLedger::new(),
+        });
+        let bytes = encode(&env).expect("encode v2");
+        assert_eq!(
+            bytes[0], 0x02,
+            "V2 wire tag is LOCKED at 0x02 — schema-lock invariant"
+        );
+    }
+
+    /// AC10-extension — V0/V1/V2 all produce DIFFERENT first bytes, proving
+    /// three-way variant distinction at the wire level.
+    #[test]
+    fn v0_v1_v2_wire_first_bytes_are_all_distinct() {
+        let b0 = encode(&SaveEnvelope::V0(SaveV0 {
+            career_seed: Seed::from_u64(0),
+        }))
+        .expect("encode v0")[0];
+        let b1 = encode(&SaveEnvelope::V1(SaveV1 {
+            career_seed: Seed::from_u64(0),
+            content_pack_version: 1,
+            ledger: MemoryLedger::new(),
+        }))
+        .expect("encode v1")[0];
+        let b2 = encode(&SaveEnvelope::V2(SaveV2 {
+            career_seed: Seed::from_u64(0),
+            content_pack_version: 1,
+            ledger: MemoryLedger::new(),
+        }))
+        .expect("encode v2")[0];
+        assert_ne!(b0, b1, "V0 and V1 must have distinct wire tags");
+        assert_ne!(b1, b2, "V1 and V2 must have distinct wire tags");
+        assert_ne!(b0, b2, "V0 and V2 must have distinct wire tags");
+        assert_eq!(b0, 0x00);
+        assert_eq!(b1, 0x01);
+        assert_eq!(b2, 0x02);
+    }
 }
 
 #[cfg(test)]
@@ -339,30 +463,26 @@ mod migration {
         );
     }
 
-    // ----- T2-9: AC3 + AC4a — load_envelope auto-migrates V0 bytes to V1 -----
+    // ----- T2-9: AC3 + AC4a — load_envelope auto-migrates V0 bytes -----
+    // Updated at T3-1: load_envelope now returns SaveV2.
 
-    /// AC3 + AC4a — `load_envelope` decodes V0 bytes and emerges with the
-    /// migrated V1 payload, AND returns V1 bytes as-is.
+    /// AC3 + AC4a (T3-1 update) — `load_envelope` decodes V0 bytes and
+    /// emerges with the migrated V2 payload; same for V1 bytes; V2 bytes
+    /// return as-is.
+    ///
+    /// Now covered by the dedicated `load_envelope_returns_v2_via_full_chain`
+    /// test in the v1_to_v2 migration suite; this test retained for the V0
+    /// path (keeping the existing V0→chain coverage alive).
     #[test]
-    fn load_envelope_returns_v1_for_v0_bytes_and_v1_bytes() {
-        // V0 bytes → migrated V1 payload.
+    fn load_envelope_returns_v2_for_v0_bytes() {
         let seed = Seed::from_u64(0x0F0F_0F0F_0F0F_0F0F);
         let v0_env = SaveEnvelope::V0(SaveV0 { career_seed: seed });
         let v0_bytes = encode(&v0_env).expect("encode v0");
-        let loaded_from_v0 = load_envelope(&v0_bytes).expect("load v0");
-        assert_eq!(loaded_from_v0.career_seed, seed);
-        assert_eq!(loaded_from_v0.content_pack_version, 1);
-
-        // V1 bytes → V1 payload returned as-is (no migration).
-        let v1 = SaveV1 {
-            career_seed: Seed::from_u64(0x1111_2222_3333_4444),
-            content_pack_version: 1,
-            ledger: MemoryLedger::new(),
-        };
-        let v1_env = SaveEnvelope::V1(v1.clone());
-        let v1_bytes = encode(&v1_env).expect("encode v1");
-        let loaded_from_v1 = load_envelope(&v1_bytes).expect("load v1");
-        assert_eq!(loaded_from_v1, v1);
+        let loaded = load_envelope(&v0_bytes).expect("load v0");
+        // V0→V1→V2 chain: seed preserved, pack version defaulted to 1, ledger empty.
+        assert_eq!(loaded.career_seed, seed);
+        assert_eq!(loaded.content_pack_version, 1);
+        assert!(loaded.ledger.is_empty());
     }
 
     // ----- T2-9: AC4b — callback-preservation -----
@@ -415,10 +535,9 @@ mod migration {
     fn load_envelope_rejects_unsupported_future_version() {
         // Empirical bincode-2 behavior note (post-T2-9 fix-pass): bincode 2's
         // SERDE-layer rejection of an unknown variant index produces
-        // `DecodeError::OtherString("invalid value: integer ` + "`99`" +
-        // `, expected variant index 0 <= i < 2")` — NOT the structured
-        // `UnexpectedVariant` variant (which bincode reserves for its native
-        // non-serde decoder path). The initial silent-failure-hunter
+        // `DecodeError::OtherString("invalid value: integer `99`, expected
+        // variant index 0 <= i < N")` where N is the current variant count.
+        // At T3-1, N = 3 (V0/V1/V2). The initial silent-failure-hunter
         // recommendation to pattern-match `UnexpectedVariant { found }` was
         // structurally exact but bincode-2-with-serde does not produce that
         // variant. We assert on the outer `SaveError::Decode` PLUS a
@@ -439,6 +558,125 @@ mod migration {
         }
     }
 
+    // ----- T3-1: AC8 — V1→V2 forward migration -----
+
+    /// AC8 — `migrate_v1_to_v2` preserves `career_seed` + `content_pack_version`
+    /// exactly and produces an EMPTY V2 ledger (V1 placeholder events have no
+    /// real semantics and are discarded).
+    #[test]
+    fn v1_to_v2_preserves_seed_and_pack_version_drops_placeholder_ledger() {
+        // Build a V1 with a non-default seed and pack version.
+        let seed = Seed::from_u64(0xC0FF_EE00_DEAD_BEEF);
+        let v1 = SaveV1 {
+            career_seed: seed,
+            content_pack_version: 42,
+            ledger: MemoryLedger::new(), // placeholder ledger (was MemoryEvent::Placeholder)
+        };
+        let v2 = migrate_v1_to_v2(v1);
+
+        assert_eq!(
+            v2.career_seed, seed,
+            "career_seed must round-trip through V1→V2 migration"
+        );
+        assert_eq!(
+            v2.content_pack_version, 42,
+            "content_pack_version must round-trip through V1→V2 migration"
+        );
+        assert!(
+            v2.ledger.is_empty(),
+            "V2 ledger must be empty after migrating V1 placeholder events"
+        );
+    }
+
+    // ----- T3-1: AC9 — full migration chain via load_envelope -----
+
+    /// AC9 — `load_envelope` returns `SaveV2` for V0 bytes (V0→V1→V2 chain),
+    /// V1 bytes (V1→V2 chain), and V2 bytes (as-is). All three paths preserve
+    /// `career_seed`.
+    #[test]
+    fn load_envelope_returns_v2_via_full_chain() {
+        let seed = Seed::from_u64(0x1234_5678);
+
+        // V0 → V1 → V2
+        let v0_bytes = encode(&SaveEnvelope::V0(SaveV0 { career_seed: seed })).expect("encode v0");
+        let from_v0 = load_envelope(&v0_bytes).expect("load v0");
+        assert_eq!(from_v0.career_seed, seed);
+        assert!(from_v0.ledger.is_empty());
+
+        // V1 → V2
+        let v1_bytes = encode(&SaveEnvelope::V1(SaveV1 {
+            career_seed: seed,
+            content_pack_version: 7,
+            ledger: MemoryLedger::new(),
+        }))
+        .expect("encode v1");
+        let from_v1 = load_envelope(&v1_bytes).expect("load v1");
+        assert_eq!(from_v1.career_seed, seed);
+        assert_eq!(from_v1.content_pack_version, 7);
+        assert!(from_v1.ledger.is_empty());
+
+        // V2 as-is
+        let v2_bytes = encode(&SaveEnvelope::V2(SaveV2 {
+            career_seed: seed,
+            content_pack_version: 3,
+            ledger: MemoryLedger::new(),
+        }))
+        .expect("encode v2");
+        let from_v2 = load_envelope(&v2_bytes).expect("load v2");
+        assert_eq!(from_v2.career_seed, seed);
+        assert_eq!(from_v2.content_pack_version, 3);
+    }
+
+    // ----- T3-1: AC11 — V1→V2 callback-preservation -----
+
+    /// AC11 callback-preservation — `career_seed` survives V1→V2 migration
+    /// BIT-EXACT across all 64 bits.
+    #[test]
+    fn v1_to_v2_callback_preservation_seed_bit_exact() {
+        let seed_raw: u64 = 0xDE_AD_CA_FE_BA_BE_F0_0D;
+        let v1 = SaveV1 {
+            career_seed: Seed::from_u64(seed_raw),
+            content_pack_version: 99,
+            ledger: MemoryLedger::new(),
+        };
+        let v2 = migrate_v1_to_v2(v1);
+        assert_eq!(
+            v2.career_seed.to_u64(),
+            seed_raw,
+            "V1.career_seed must reach V2 BIT-EXACT (callback-preservation)"
+        );
+        assert_eq!(
+            v2.content_pack_version, 99,
+            "content_pack_version must survive migration bit-exact"
+        );
+    }
+
+    // ----- T3-1: AC11 — V2 round-trip-byte-identical -----
+
+    /// AC11 round-trip-byte-identical — `encode(decode(encode(V2(x))))` bytes
+    /// are identical to `encode(V2(x))`. Mutation removing serde determinism
+    /// would fail this.
+    #[test]
+    fn v2_encode_decode_reencode_produces_identical_bytes() {
+        let env = SaveEnvelope::V2(SaveV2 {
+            career_seed: Seed::from_u64(0xAB_CD_EF_01_23_45_67_89),
+            content_pack_version: 1,
+            ledger: MemoryLedger::new(),
+        });
+        let bytes_1 = encode(&env).expect("encode 1");
+        let decoded = decode(&bytes_1).expect("decode");
+        let bytes_2 = encode(&decoded).expect("encode 2");
+        assert_eq!(
+            bytes_1, bytes_2,
+            "encode(decode(encode(V2(x)))) must be byte-identical"
+        );
+    }
+
+    // ----- AC4c (shared path) — forward-incompat-failure unchanged -----
+    // The existing `load_envelope_rejects_unsupported_future_version` test
+    // already covers this path; it uses discriminant 99 which is still
+    // unknown. No duplicate needed here.
+
     /// AC4-extension (post-T2-9 silent-failure-hunter P1 fix): trailing
     /// bytes past the end of a valid envelope encoding must FAIL LOUDLY
     /// via `SaveError::TrailingBytes` — NOT silently truncate to the
@@ -447,7 +685,7 @@ mod migration {
     /// load-time error, not as a working-but-wrong career.
     #[test]
     fn load_envelope_rejects_trailing_bytes_past_valid_encoding() {
-        let env = SaveEnvelope::V1(SaveV1 {
+        let env = SaveEnvelope::V2(SaveV2 {
             career_seed: Seed::from_u64(0xFEED_BEEF),
             content_pack_version: 1,
             ledger: MemoryLedger::new(),

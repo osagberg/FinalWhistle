@@ -1,82 +1,36 @@
 //! `fw-memory` — event-sourced career ledger.
 //!
-//! Phase-0 scope: `MemoryEvent` enum stub + the ledger type. T3 fills in
-//! the salience + reader-callback machinery per DESIGN_DOC §3 (Pillar 2)
-//! and `design/memory.md` (owed Phase-3).
+//! The memory ledger is the structural carrier of pillar 2 ("Careers That
+//! Remember") and pillar 3 ("Breakthrough-Driven Development") per
+//! `docs/DESIGN_DOC.md` §3. Schema locked at T3-1 per ADR-0005 (accepted
+//! 2026-05-18).
+//!
+//! ## Public surface
+//!
+//! - `MemoryEvent` — the canonical immutable row. See `event` module.
+//! - `MemoryLedger` — the append-only `Vec`-backed ledger with O(log n)
+//!   `BTreeMap` indexes. See `ledger` module.
 //!
 //! ## Determinism contract
 //!
 //! The ledger is append-only and replays bit-exactly given a seeded sim.
-//! Floats forbidden; `BTreeMap`/`BTreeSet` only; no clocks; no async.
+//! - Floats forbidden; `stakes` + `salience` are `Q32`.
+//! - `BTreeMap`/`BTreeSet` only — no `HashMap`/`HashSet`.
+//! - No clocks (`std::time::Instant` / `SystemTime`).
+//! - No async / tokio.
+//!
+//! See `.claude/rules/Sim/RULES.md` §1-§5 for the binding contract.
 
-use fw_core::{MatchId, PlayerId, Tick};
-use serde::{Deserialize, Serialize};
-
-/// Minimal `MemoryEvent` placeholder. T3 expands into the full
-/// match-result / transfer / breakthrough / rivalry / press-quote union.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MemoryEvent {
-    /// Stand-in event so the enum has a non-empty variant set; replaced in
-    /// T3 with the real catalog. Carries enough fields for tests to round-
-    /// trip the type through serde.
-    Placeholder {
-        match_id: MatchId,
-        actor: PlayerId,
-        tick: Tick,
-    },
-}
-
-/// The append-only ledger.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MemoryLedger {
-    /// Events in insertion order. `Vec` is canonical-encoding stable
-    /// because the index *is* the chronological key.
-    pub events: Vec<MemoryEvent>,
-}
-
-impl MemoryLedger {
-    /// Fresh empty ledger.
-    pub fn new() -> MemoryLedger {
-        MemoryLedger { events: Vec::new() }
-    }
-
-    /// Append. T3 introduces salience-scored insertion + reader-callback
-    /// indexing; T0 just pushes.
-    pub fn push(&mut self, event: MemoryEvent) {
-        self.events.push(event);
-    }
-
-    pub fn len(&self) -> usize {
-        self.events.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.events.is_empty()
-    }
-}
+pub mod event;
+pub mod ledger;
 
 // -------------------------------------------------------------------------
-// Smoke
+// Flat re-exports for convenience
 // -------------------------------------------------------------------------
 
-#[cfg(test)]
-mod smoke {
-    use super::*;
-
-    #[test]
-    fn smoke() {
-        assert_eq!(2 + 2, 4);
-    }
-
-    #[test]
-    fn ledger_round_trips() {
-        let mut l = MemoryLedger::new();
-        assert!(l.is_empty());
-        l.push(MemoryEvent::Placeholder {
-            match_id: MatchId::default(),
-            actor: PlayerId::default(),
-            tick: Tick::ZERO,
-        });
-        assert_eq!(l.len(), 1);
-    }
-}
+pub use event::{
+    CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter, EmitterKind, Emotion,
+    EntityRef, EventClass, EventId, MemoryEvent, ModEventTag, Participant, ParticipantRole,
+    SeasonNumber, SourceId,
+};
+pub use ledger::MemoryLedger;

@@ -4,6 +4,12 @@ Append-only human-readable ship log. One line per shipped MASTER_PLAN task. Phas
 
 ---
 
+## Phase T3: Career + Memory — IN PROGRESS
+
+- 2026-05-18 — **T3-1** `fw-memory` ADR-0005 schema port + `fw-save` SaveV2 alongside V1 (Codex Tier-3 constraint) — MemoryEvent struct + 14 supporting types (EventClass with 30 ADR-locked variants + UnknownEventClass via `#[repr(u32)]` explicit discriminants); append-only MemoryLedger with EventId allocator + 3 lazy BTreeMap indexes; SaveEnvelope::V2(SaveV2)=2 added without mutating V0/V1; migrate_v1_to_v2 + V0→V1→V2 load_envelope chain; v2 wire-byte locked at 0x02; 4-test V1→V2 migration discipline; 1000-event round-trip <100ms; ADR-0005 Status: Proposed→Accepted. 38 new tests. Canonical match-state hashes UNCHANGED.
+
+---
+
 ## Phase T2: League + Season — CLOSED 2026-05-18 (Codex Tier-3 ACCEPTED)
 
 **Codex Tier-3 phase-boundary review verdict**: REVISE-but-narrow → phase ACCEPTED with ONE T3-1 constraint. Posted to issue #1 comment 4475889012. T2 itself ships; the constraint is on how T3-1 sequences the SaveV1 → SaveV2 transition (must add V2 alongside V1; never mutate V1 in place). T2-10 marked DONE; tag `v0.2.0-season` finalized at commit `a0c03d5f` (CI green on all 5 jobs; full-season perf test: 380 matches / 0.358s release).

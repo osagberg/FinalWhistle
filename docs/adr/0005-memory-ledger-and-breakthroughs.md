@@ -1,6 +1,6 @@
 # ADR-0005 — Memory ledger event model + breakthrough triggers
 
-**Status:** Proposed (amended 2026-05-13 per Codex full-project audit P2)
+**Status:** Accepted (2026-05-18 by T3-1 schema port; amended 2026-05-13 per Codex full-project audit P2)
 
 **Date:** 2026-05-13 (amended same-day)
 

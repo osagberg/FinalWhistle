@@ -171,6 +171,12 @@ PER_RULE_EXEMPT: dict[Path, set[str]] = {
     # regeneration source on the current toolchain. f64 is intentional +
     # bake-time-only; `#[ignore]`-gated.
     Path("crates/fw-core/tests/print_luts_oneshot.rs"): {FLOAT_RULE_NAME},
+    # T3-1: perf_test.rs is the single documented exception to Sim/RULES.md §3
+    # (no clocks). `Instant::now()` is the explicit purpose of the test —
+    # measuring wall-clock elapsed for a 1000-event encode+decode round-trip.
+    # fw-save tests are non-sim, non-canonical-state. `#[ignore]`-gated so it
+    # never runs on the default `cargo test` sweep.
+    Path("crates/fw-save/tests/perf_test.rs"): {"Sim/RULES.md §3 — Instant::now / SystemTime::now"},
 }
 
 # Fully-exempt files: ALL rules are suppressed. Reserved for renderer-side
