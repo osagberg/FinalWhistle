@@ -34,3 +34,7 @@ blake3       = { workspace = true }
 # T1-12 fix-pass: TempDir for tests that need filesystem fixtures (auto-cleanup
 # avoids the pid-only-uniqueness CI-retry collision called out by code-reviewer).
 tempfile     = { workspace = true }
+# T2-R7(e) post-T2 ultimate-review Track D: proptest for fixture-schedule
+# pair-coverage symmetry across seed-space (existing AC4 test only covered
+# seed 0xC0FFEE; D-Survey-3 flagged the gap).
+proptest     = { workspace = true }

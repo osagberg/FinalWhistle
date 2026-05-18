@@ -1353,6 +1353,7 @@ dependencies = [
  "fw-core",
  "fw-match-sim",
  "insta",
+ "proptest",
  "rand 0.8.6",
  "rand_chacha 0.3.1",
  "ron 0.8.1",
@@ -1438,6 +1439,7 @@ dependencies = [
  "fw-match-sim",
  "hex-literal",
  "insta",
+ "proptest",
  "ron 0.8.1",
  "serde",
  "thiserror 2.0.18",
@@ -1450,6 +1452,7 @@ dependencies = [
  "bincode 2.0.1",
  "fw-core",
  "fw-memory",
+ "proptest",
  "serde",
  "thiserror 2.0.18",
 ]

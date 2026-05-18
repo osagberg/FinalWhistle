@@ -19,3 +19,11 @@ fw-memory = { workspace = true }
 serde     = { workspace = true }
 bincode   = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+# T2-R7(e) post-T2 ultimate-review Track D: proptest for SaveV1
+# encode → decode → re-encode byte identity across seed-space + payload
+# variation. Existing AC4d test pins ONE payload (0x12345678...DEF0);
+# D-Survey-3 flagged the gap — round-trip-byte-identical is a property
+# of the codec, not of any single payload.
+proptest = { workspace = true }

@@ -34,3 +34,8 @@ ron         = { workspace = true }
 # only — production fw-replay (replay-from-canonical-bytes) stays
 # content-independent.
 fw-content  = { workspace = true }
+# T2-R7(e) post-T2 ultimate-review Track A-M3: proptest for encoder
+# field-order + length stability across seed-space. Existing canonical-hash
+# test exercises ONE seed; this catches a new-conditional-field-write bug
+# class that single-seed tests cannot.
+proptest    = { workspace = true }
