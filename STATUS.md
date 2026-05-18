@@ -12,7 +12,7 @@
 
 ## Blockers
 
-- **T2-4 + T2-7** still BLOCKED (rolled to T3 as `DEFERRED-ROLLED-TO-T3`); awaits `design/player-generation.md` authorship via `/log-decision` ADR. T3-5 (scout-uncertainty) + T3-6 (Player detail with memory callbacks) transitively block.
+- **T2-4 + T2-7 + T3-5 BLOCKER RESOLVED 2026-05-18** — `design/player-generation.md` authored via FW v1 carry-forward port (see `docs/DECISIONS.md` 2026-05-18 entry). Rows stay `DEFERRED-ROLLED-TO-T3` per the earlier /done roll-forward but are PROMOTABLE at any /next cycle. T3-5 dep cleared transitively.
 - **T2-1d2** rolled to T3 as `DEFERRED-ROLLED-TO-T3`; promote at T3 midpoint after BT-runner matures per `personality-bias-weights.md` cadence.
 - 9 pre-T3 cleanup rows (R1-R9) advised in the ultimate-review audit file; not phase-blockers but recommended before T3-1's first `/next`.
 
