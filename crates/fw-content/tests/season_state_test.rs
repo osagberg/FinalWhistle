@@ -100,14 +100,19 @@ fn season_is_not_complete_at_last_match_day() {
 
 #[test]
 fn fixtures_for_match_day_returns_ten_per_day() {
+    // T2-R-A2 sanity pin: assert against LITERAL 10, not the
+    // derived `CLUBS_PER_LEAGUE / 2`. Without this pin, mutating
+    // CLUBS_PER_LEAGUE 20→16 would shift both sides of the assert
+    // below to 8==8 and the test would silently pass against a
+    // broken constant.
+    assert_eq!(CLUBS_PER_LEAGUE / 2, 10, "fixtures-per-match-day pinned at 10");
     let (state, _) = make_season(0xC0FFEE);
     for day in 1..=MATCH_DAYS_PER_SEASON {
         let day_fixtures = state.fixtures_for_match_day(day);
         assert_eq!(
             day_fixtures.len(),
-            CLUBS_PER_LEAGUE / 2,
-            "match-day {day} should have {} fixtures; got {}",
-            CLUBS_PER_LEAGUE / 2,
+            10,
+            "match-day {day} should have 10 fixtures; got {}",
             day_fixtures.len()
         );
     }

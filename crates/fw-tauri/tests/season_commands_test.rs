@@ -65,10 +65,16 @@ fn advance_week_increments_current_match_day() {
 
 #[test]
 fn advance_week_returns_season_complete_after_final_day() {
+    // T2-R-A4 sanity pin: assert MATCH_DAYS_PER_SEASON == 38 as a
+    // LITERAL. Without this pin, mutating the constant 38→16 would
+    // shift both the loop bound AND the final-day assert + the
+    // `is_complete()` check, so the test would pass against a broken
+    // constant. Pin makes the constant load-bearing.
+    assert_eq!(MATCH_DAYS_PER_SEASON, 38, "MATCH_DAYS_PER_SEASON pinned at 38");
     let state = test_state();
     // Fast-forward all 38 days by calling advance_week in a loop.
     let mut last_summary = None;
-    for _ in 0..MATCH_DAYS_PER_SEASON {
+    for _ in 0..38 {
         last_summary = Some(advance_week_inner(&state).expect("advance_week"));
     }
     let summary = last_summary.expect("at least one advance");
@@ -76,7 +82,7 @@ fn advance_week_returns_season_complete_after_final_day() {
         summary.season_complete,
         "season_complete must be true after match-day 38"
     );
-    assert_eq!(summary.match_day_played, MATCH_DAYS_PER_SEASON);
+    assert_eq!(summary.match_day_played, 38);
 }
 
 #[test]
@@ -250,16 +256,17 @@ fn get_standings_sort_order_points_desc() {
 
 #[test]
 fn get_fixtures_returns_38_for_valid_club() {
+    // T2-R-A3 sanity pin: assert against LITERAL 38, not the
+    // derived `(CLUBS_PER_LEAGUE - 1) * 2`. Without this pin, mutating
+    // CLUBS_PER_LEAGUE 20→16 would shift both sides of the assert below
+    // to 30==30 and the test would pass against a broken constant.
+    assert_eq!((CLUBS_PER_LEAGUE - 1) * 2, 38, "fixtures-per-club pinned at 38");
     let state = test_state();
     let first_club_id = state.season().read().expect("lock").league.clubs[0]
         .id
         .raw();
     let fixtures = get_fixtures_inner(first_club_id, &state).expect("get_fixtures");
-    assert_eq!(
-        fixtures.len(),
-        (CLUBS_PER_LEAGUE - 1) * 2,
-        "each club should have 38 fixtures"
-    );
+    assert_eq!(fixtures.len(), 38, "each club should have 38 fixtures");
 }
 
 #[test]

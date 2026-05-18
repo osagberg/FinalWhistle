@@ -34,6 +34,21 @@ fn generate_league_produces_20_clubs_and_380_fixtures() {
     let content = load_content();
     let league = generate_league(Seed::from_u64(0xC0FFEE), &content).expect("generate_league");
 
+    // T2-R-A1 sanity pins: assert against LITERALS, not the named
+    // constants the production code reads. Without these pins,
+    // mutating CLUBS_PER_LEAGUE 20→16 would shift both sides of the
+    // assert below in lockstep, and the test would pass against a
+    // broken constant. With the literal pins, the constant is locked
+    // at this discovered value FOREVER (or the test names a deliberate
+    // change). 20 / 380 / 38 are the production-spec football season
+    // counts (Premier League shape).
+    assert_eq!(CLUBS_PER_LEAGUE, 20, "CLUBS_PER_LEAGUE pinned at 20");
+    assert_eq!(MATCHES_PER_SEASON, 380, "MATCHES_PER_SEASON pinned at 380");
+    assert_eq!(
+        MATCH_DAYS_PER_SEASON, 38,
+        "MATCH_DAYS_PER_SEASON pinned at 38"
+    );
+
     assert_eq!(
         league.clubs.len(),
         CLUBS_PER_LEAGUE,

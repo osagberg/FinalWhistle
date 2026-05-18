@@ -95,11 +95,19 @@ fn calibrate_smoke_5_matches_capture_telemetry_and_backfill_goals() {
         total_backfilled += shots.iter().filter(|s| s.became_goal.is_some()).count() as u32;
     }
 
+    // T2-R-A6: tightened from `>= 1` to `>= 10`. The prior bound was
+    // trivially-weak for a 5×600-tick run — 5 matches firing >= 1 shot
+    // total proved very little. Real-world expectation for 5 league
+    // matches at the current calibration is dozens of shots; 10 is a
+    // conservative floor that still catches "shooting machinery is
+    // entirely broken" while not over-fitting to a specific seed's
+    // shot count.
     assert!(
-        total_shots >= 1,
-        "T2-1d telemetry: expected ≥1 shot captured across 5 matches; \
+        total_shots >= 10,
+        "T2-1d telemetry: expected >= 10 shots captured across 5 matches; \
          got {total_shots}. Either apply_intent::AttemptShot's push site \
-         was dropped OR the BT runner stopped emitting shots in this seed range."
+         was dropped OR the BT runner stopped emitting shots in this seed range \
+         OR the shot rate dropped catastrophically."
     );
     assert_eq!(
         total_shots, total_backfilled,
