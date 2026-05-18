@@ -4,7 +4,9 @@ Append-only human-readable ship log. One line per shipped MASTER_PLAN task. Phas
 
 ---
 
-## Phase T2: League + Season — CLOSED 2026-05-18
+## Phase T2: League + Season — CLOSED 2026-05-18 (Codex Tier-3 ACCEPTED)
+
+**Codex Tier-3 phase-boundary review verdict**: REVISE-but-narrow → phase ACCEPTED with ONE T3-1 constraint. Posted to issue #1 comment 4475889012. T2 itself ships; the constraint is on how T3-1 sequences the SaveV1 → SaveV2 transition (must add V2 alongside V1; never mutate V1 in place). T2-10 marked DONE; tag `v0.2.0-season` finalized at commit `a0c03d5f` (CI green on all 5 jobs; full-season perf test: 380 matches / 0.358s release).
 
 **Summary**: 10 commits over 2 days; +9844 / -276 LoC across 77 files. 10 of 10 declared T2 MVP rows landed (T2-1a/b/c/d-infra + T2-1-codex-fix + T2-2 + T2-3 + T2-5 + T2-6 + T2-8 + T2-9). 3 rows rolled to T3 (T2-4 PlayerBio + T2-7 Squad page — both blocked on missing `design/player-generation.md`; T2-1d2 utility_shoot rewire — deferred per `personality-bias-weights.md §Re-tuning cadence` "wait for BT to mature").
 
