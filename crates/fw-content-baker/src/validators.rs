@@ -227,6 +227,21 @@ impl PlayerTemplateValidator {
 /// reviewers reading "Structural validator for `Culture` fixtures" don't
 /// reasonably assume all banks are checked.
 /// Post-T2-3 silent-failure-hunter P1-edge honesty fix.
+///
+/// **STRUCTURAL ONLY — NOT semantic** (T2-R7(b) honesty, post-T2 Codex Track
+/// E-2). The chained checks above verify the bank sizes meet the
+/// doc-declared minimum. They do NOT sample composed name output and lint
+/// it for banned terms / licensed-data collisions / cliché overlap.
+/// Specifically: a `Culture` with 20 first_names all "Man" + 20 last_names
+/// all "chester" + `naming_pattern: "{first}{last}"` passes this validator
+/// AND deterministically generates the banned place-name "Manchester" at
+/// bake time. The semantic validator that samples composed output + runs
+/// `scripts/lint-banned-terms.py` against the generated strings lands at
+/// T2-4 alongside `PlayerBioValidator` (which has the same shape: chained
+/// structural checks here; composed-output sampling at T2-4 when the real
+/// bake pipeline ships). Until then, treat `CultureValidator::validate`
+/// output as a NECESSARY but NOT SUFFICIENT check before publishing a
+/// content pack.
 #[derive(Debug, Default)]
 pub struct CultureValidator;
 

@@ -142,8 +142,16 @@ enum Command {
     /// **NOT** a full content-pack validation — `banned_terms`,
     /// `licensed_data`, and `cliche` validators return
     /// `ValidationError::NotImplemented` per T1-12 hardening. The future
-    /// `validate-semantic` + `validate-content-pack` subcommands ship at T2-3
-    /// per Codex workflow improvement #4's 3-way honesty split.
+    /// `validate-semantic` + `validate-content-pack` subcommands ship at T2-4
+    /// alongside the real bake pipeline (rolled forward from T2 per Codex
+    /// Tier-3 verdict; see `docs/MASTER_PLAN.md` T2-4).
+    ///
+    /// **STRUCTURAL ONLY — does NOT prove the content pack is safe to ship.**
+    /// Composed-name output (e.g. `first_name × last_name` concatenation) is
+    /// NOT sampled or linted. A `Culture` whose banks deterministically
+    /// concatenate into a banned place-name (Codex Track E-2 "Manchester"
+    /// exploit) PASSES this subcommand. Treat green output here as a
+    /// necessary but NOT sufficient gate before publishing.
     ///
     /// T1-20 (post-T1-close ultimate-review Track E #1): renamed from
     /// `validate` so the CLI surface stops promising "all validators passed"
@@ -308,11 +316,19 @@ fn run_bake_names(
 /// - `TacticalArchetypeValidator`: formation size + buildup-speed range +
 ///   roster-slot permutation.
 ///
-/// What's NOT in scope (deferred to T2-3 `validate-semantic` +
+/// What's NOT in scope (deferred to T3+ `validate-semantic` +
 /// `validate-content-pack`):
 /// - `check_banned_terms` / `check_licensed_data` / `check_cliche` (still
 ///   return `ValidationError::NotImplemented` per T1-12 honesty contract).
 /// - Content-pack manifest cohesion, mod overlay ordering.
+/// - **Composed-output sampling.** Structural bank-size checks pass for a
+///   `Culture` whose `first_name_bank` × `last_name_bank` deterministically
+///   composes into a banned place-name (Codex Track E-2 "Manchester" exploit:
+///   20× "Man" + 20× "chester" + `naming_pattern: "{first}{last}"`). The
+///   semantic validator that samples generated names + lints them against
+///   `scripts/lint-banned-terms.py` lands at T2-4 alongside the real
+///   `BakeNames` consumer (rolled forward from T2 close per Codex Tier-3
+///   verdict; see `docs/MASTER_PLAN.md` T2-4 row).
 fn run_validate_structural(workspace: &str) -> anyhow::Result<()> {
     use fw_content::ContentStore;
 
@@ -378,8 +394,12 @@ fn run_validate_structural(workspace: &str) -> anyhow::Result<()> {
     }
 
     println!(
-        "fw-content-baker: STRUCTURAL validation passed \
-         (semantic + content-pack validators land at T2-3)."
+        "fw-content-baker: STRUCTURAL validation passed. \
+         NOTE: structural != semantic. Bank-size + range checks succeeded \
+         but composed-name output (e.g. first×last concatenation) was NOT \
+         linted for banned terms / licensed-data collisions. Semantic \
+         validator lands at T2-4 alongside the real bake pipeline. \
+         Do NOT publish a content pack on the basis of this exit code alone."
     );
     Ok(())
 }
