@@ -170,8 +170,8 @@ pub const K_21_HOLD_FORM_PROF: Q32 = Q32::from_raw(1_503_238_553);
 ///
 /// All Q32 in `[0, 1]`. Returns Q32.
 pub fn apply_shoot_bias(raw: Q32, attrs: &PlayerAttributes, pressure: DefenderPressure) -> Q32 {
-    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
-    debug_assert!(
+    assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    assert!(
         pressure.0 >= Q32::ZERO && pressure.0 <= Q32::ONE,
         "DefenderPressure must be in [0,1]"
     );
@@ -191,7 +191,7 @@ pub fn apply_shoot_bias(raw: Q32, attrs: &PlayerAttributes, pressure: DefenderPr
 /// Per spec §"Cross" bias: WorkRate (personality.work_rate), FlairBias (mental.flair).
 /// Replaces the former safe-pass proxy bias for cross (P1-5 fix).
 pub fn apply_cross_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
-    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
     let work_rate = attrs.personality.work_rate;
     let flair = attrs.mental.flair;
     let factor1 = Q32::ONE + K_15_CROSS_WR * work_rate;
@@ -206,7 +206,7 @@ pub fn apply_cross_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
 /// Per spec §"Lay-off / one-touch return" bias: Selflessness ONLY.
 /// Replaces the former safe-pass proxy bias (which also consumed risk_appetite — P1-5 fix).
 pub fn apply_lay_off_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
-    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
     let selflessness = attrs.personality.selflessness;
     let factor = Q32::ONE + K_17_LAY_OFF_SELF * selflessness;
     raw * factor
@@ -219,7 +219,7 @@ pub fn apply_lay_off_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
 /// Per spec §"Mark — close marker" bias: Determination ONLY.
 /// Replaces the former cover_bias proxy (which also consumed work_rate — P1-5 fix).
 pub fn apply_mark_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
-    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
     let determination = attrs.personality.determination;
     let factor = Q32::ONE + K_19_MARK_DET * determination;
     raw * factor
@@ -233,7 +233,7 @@ pub fn apply_mark_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
 /// Replaces the former press_bias proxy (which consumed aggression instead of
 /// risk_appetite — P1-5 fix).
 pub fn apply_run_off_ball_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
-    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
     let work_rate = attrs.personality.work_rate;
     let risk = attrs.personality.risk_appetite;
     let factor1 = Q32::ONE + K_10_PRESS_WR * work_rate;
@@ -249,7 +249,7 @@ pub fn apply_run_off_ball_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
 /// Replaces the former cover_bias proxy (which consumed work_rate instead of
 /// professionalism — P1-5 fix).
 pub fn apply_hold_formation_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
-    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
     let professionalism = attrs.personality.professionalism;
     let determination = attrs.personality.determination;
     let factor1 = Q32::ONE + K_21_HOLD_FORM_PROF * professionalism;
@@ -264,8 +264,8 @@ pub fn apply_hold_formation_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
 /// where `is_progressive` is `Q32::ONE` if the pass moves toward goal,
 /// `Q32::ZERO` otherwise.
 pub fn apply_long_pass_bias(raw: Q32, attrs: &PlayerAttributes, progressive: IsProgressive) -> Q32 {
-    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
-    debug_assert!(
+    assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    assert!(
         progressive.0 >= Q32::ZERO && progressive.0 <= Q32::ONE,
         "IsProgressive must be in [0,1]"
     );
@@ -281,7 +281,7 @@ pub fn apply_long_pass_bias(raw: Q32, attrs: &PlayerAttributes, progressive: IsP
 ///
 /// Form: `raw · (1 + k₅·(1−risk)) · (1 + k₆·selflessness)`
 pub fn apply_safe_pass_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
-    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
     let risk_inv = Q32::ONE - attrs.personality.risk_appetite;
     let selflessness = attrs.personality.selflessness;
     let factor1 = Q32::ONE + K_5_SAFE_PASS_RISK_INV * risk_inv;
@@ -293,7 +293,7 @@ pub fn apply_safe_pass_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
 ///
 /// Form: `raw · (1 + k₇·flair) · (1 + k₈·aggression)`
 pub fn apply_dribble_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
-    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
     let flair = attrs.mental.flair;
     let aggression = attrs.personality.aggression;
     let factor1 = Q32::ONE + K_7_DRIBBLE_FLAIR * flair;
@@ -308,7 +308,7 @@ pub fn apply_dribble_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
 /// Note: `work_rate` is `personality.work_rate`, NOT `mental.work_rate`
 /// (see `docs/specs/bt-attribute-binding.md` field-path note).
 pub fn apply_press_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
-    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
     let aggression = attrs.personality.aggression;
     let work_rate = attrs.personality.work_rate;
     let factor1 = Q32::ONE + K_9_PRESS_AGG * aggression;
@@ -320,7 +320,7 @@ pub fn apply_press_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
 ///
 /// Form: `raw · (1 + k₁₁·determination) · (1 + k₁₂·work_rate)`
 pub fn apply_cover_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
-    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
     let determination = attrs.personality.determination;
     let work_rate = attrs.personality.work_rate;
     let factor1 = Q32::ONE + K_11_COVER_DET * determination;
@@ -332,7 +332,7 @@ pub fn apply_cover_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
 ///
 /// Form: `raw · (1 + k₁₃·(1−aggression)) · (1 + k₁₄·pressure_tolerance)`
 pub fn apply_hold_bias(raw: Q32, attrs: &PlayerAttributes) -> Q32 {
-    debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
+    assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");
     let agg_inv = Q32::ONE - attrs.personality.aggression;
     let pt = attrs.personality.pressure_tolerance;
     let factor1 = Q32::ONE + K_13_HOLD_AGG_INV * agg_inv;

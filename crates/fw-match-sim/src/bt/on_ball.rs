@@ -222,7 +222,10 @@ pub fn utility_shoot(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q3
     //       football-shaped trigger than "shoot from midfield".
     //   (b) Clamp `raw * proximity_mul` to `Q32::ONE` post-multiplier (literal
     //       Codex fix: "Clamp or normalize after proximity"). Restores the
-    //       [0, 1] contract that `apply_shoot_bias::debug_assert!` expects,
+    //       [0, 1] contract that `apply_shoot_bias::assert!` enforces (T2-R3
+    //       promotion: debug_assert → assert per Sim/RULES.md §11; release
+    //       builds now panic on out-of-range raw rather than silently
+    //       corrupting canonical-state-bearing utilities),
     //       then clamp the personality-biased return value before it enters
     //       the softmax candidate set. Without this, peak-attribute shots
     //       inside the 4× zone produce raw=2.0+ and personality-biased values
