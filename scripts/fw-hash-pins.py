@@ -151,7 +151,11 @@ def read_pin(loc: PinLocation) -> str | None:
     abs_path = loc.absolute_path()
     if not abs_path.exists():
         return None
-    text = abs_path.read_text(encoding="utf-8", newline="")
+    # Post-T2-close CI fix: `Path.read_text(newline=...)` is Python 3.13+;
+    # CI runs older Python. `read_bytes().decode()` is byte-exact (no
+    # universal-newline translation) + works on Python 3.6+ — same semantic
+    # guarantee we wanted from `newline=""`.
+    text = abs_path.read_bytes().decode("utf-8")
     m = loc.pattern.search(text)
     if not m:
         return None
@@ -213,7 +217,11 @@ def preflight_pin(
     # `newline=""` preserves on-disk byte sequence (no LF↔CRLF translation
     # on Windows). T1-24 silent-failure-hunter P2 — Windows CI must not
     # introduce line-ending drift via the read/write round-trip.
-    text = abs_path.read_text(encoding="utf-8", newline="")
+    # Post-T2-close CI fix: `Path.read_text(newline=...)` is Python 3.13+;
+    # CI runs older Python. `read_bytes().decode()` is byte-exact (no
+    # universal-newline translation) + works on Python 3.6+ — same semantic
+    # guarantee we wanted from `newline=""`.
+    text = abs_path.read_bytes().decode("utf-8")
     m = loc.pattern.search(text)
     if not m:
         return False, True, f"PATTERN NOT MATCHED in {loc.file} — pin location regex out of date?", None

@@ -137,7 +137,10 @@ class T1_24_GenuineAtomicity(unittest.TestCase):
         # newline="" preserves on-disk byte sequence — see T1-24 silent-failure
         # P2: Python's default universal-newlines translation can break
         # SHA-256 byte-equality on Windows by silently rewriting LF↔CRLF.
-        original_text = target_path.read_text(encoding="utf-8", newline="")
+        # Post-T2-close CI fix: `Path.read_text(newline=)` is Python 3.13+;
+        # CI runs older Python. `read_bytes().decode()` is byte-exact (no
+        # universal-newline translation) + works on Python 3.6+.
+        original_text = target_path.read_bytes().decode("utf-8")
         broken_text = original_text.replace(
             "const EXPECTED:", "const EXPECTED_DELIBERATELY_RENAMED:", 1,
         )
@@ -223,7 +226,10 @@ class T1_24_GenuineAtomicity(unittest.TestCase):
 
         target_path = REPO_ROOT / "crates/fw-content/tests/fixtures_load.rs"
         self.assertTrue(target_path.exists(), f"setup error: {target_path} not found")
-        original_text = target_path.read_text(encoding="utf-8", newline="")
+        # Post-T2-close CI fix: `Path.read_text(newline=)` is Python 3.13+;
+        # CI runs older Python. `read_bytes().decode()` is byte-exact (no
+        # universal-newline translation) + works on Python 3.6+.
+        original_text = target_path.read_bytes().decode("utf-8")
         broken_text = original_text.replace(
             "const EXPECTED:", "const EXPECTED_DELIBERATELY_RENAMED:", 1,
         )
