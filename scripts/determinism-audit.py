@@ -151,6 +151,13 @@ PER_RULE_EXEMPT: dict[Path, set[str]] = {
     # promoted to `pub` for integration-test drift detection; called ONLY at
     # bake time, never on canonical paths). Exempt from the f64 rule ONLY.
     Path("crates/fw-core/src/q32.rs"): {FLOAT_RULE_NAME},
+    # T2-R7(c) — post-T2 Codex Track E-4 fix: calibrate binary moved from
+    # FULLY_EXEMPT_FILES to per-rule float-only exemption. The corpus
+    # runner (in this same file) MUST stay covered by the HashMap / time /
+    # RNG bans so a future edit can't silently add SystemTime::now() or
+    # thread_rng() to the corpus-collection path without tripping the
+    # audit. Only the offline Newton-Raphson f64 fit is rule-exempted.
+    Path("crates/fw-match-sim/src/bin/calibrate.rs"): {FLOAT_RULE_NAME},
     # T1-10: integration test that re-bakes the math LUTs via f64 + asserts
     # equality with the committed const tables in src/math_luts.rs. f64 is
     # intentional + bake-time-only; the test is `#[ignore]`-gated so it
@@ -176,19 +183,12 @@ FULLY_EXEMPT_FILES: set[Path] = {
     # nothing reads it back into the sim. Has #![allow(clippy::float_arithmetic)]
     # at the module head.
     Path("crates/fw-match-sim/src/dto.rs"),
-    # T2-1d (per docs/design/xg-coefficients.md §Calibration loop + the
-    # T2-1d MEMORY task-spec): the `calibrate` binary is BAKE-TIME tooling
-    # off the sim ring per Sim/RULES.md §1. It runs the deterministic sim
-    # for the corpus-collection pass (using Q32 throughout per the sim's
-    # own discipline) + then performs OFFLINE Newton-Raphson logistic
-    # regression in f64. The fitted coefficients are emitted as Q32 raw-bits
-    # on stdout for manual paste-into-source; no f64 ever flows back into
-    # the canonical-state code path. Per-function `#[allow(clippy::
-    # float_arithmetic)]` already declared on the fit fns; this exemption
-    # tells the determinism-audit script the binary as a whole is opt-in
-    # to f64 (otherwise the type-mention scan still trips on the let
-    # bindings + closure signatures even with the clippy allow).
-    Path("crates/fw-match-sim/src/bin/calibrate.rs"),
+    # T2-R7(c) note: calibrate.rs was here originally (T2-1d) as a
+    # full-file exemption. Codex Track E-4 of the post-T2 ultimate-review
+    # caught that as an audit blind-spot: a future edit could add
+    # SystemTime::now() or HashMap to the corpus-collection path + the
+    # script would still report clean. Moved to PER_RULE_EXEMPT above with
+    # FLOAT_RULE_NAME only; HashMap / time / RNG bans stay active.
 }
 
 
