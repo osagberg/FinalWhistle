@@ -292,8 +292,8 @@ Verdict: **concerning**. No test is broken. The canonical-hash regression layer 
 3. **Malicious mod overlay** — author a mod-pack RON that exploits the load order / overlay rules per `Content/RULES.md §6` to inject banned terms / licensed data / dangling refs.
 4. **Find a determinism leak** — identify a Rust pattern in the T2 diff that introduces non-determinism (hidden HashMap iteration, `Instant::now()`, OS-time read, thread-RNG, etc.) that the existing clippy bans don't catch.
 
-**Owner:** Codex CLI (separate parallel session — paste prompt below)
-**Status:** _(pending — user pastes prompt into Codex CLI)_
+**Owner:** Codex CLI
+**Status:** Complete — 2026-05-18
 
 ### Codex CLI prompt (copy-paste verbatim into Codex)
 
@@ -327,7 +327,102 @@ Write your findings into `docs/audits/post-t2-ultimate-review-2026-05-18.md` und
 
 ### Findings
 
-_To be filled by Codex CLI when the user runs the prompt above._
+### Summary
+
+4 attack goals exercised. Findings: **0 gate-blockers**, **3 pre-T3**, **1 doc-only negative result**.
+
+The core sim determinism path looks clean: no active `HashMap` / `HashSet` /
+wall-clock / system-RNG / rayon leak was found in the T2 production path. The
+red-team value is narrower: the canonical corpus still misses one newly-live
+T2 state family (`SetPieceKind`), structural validation can be semantically
+poisoned by composed banned terms, and the determinism audit has an overly broad
+file-level exemption on the calibration binary.
+
+- **E-1** (severity: pre-T3) — attack goal: canonical-hash bypass
+  - File: `crates/fw-match-sim/src/canonical.rs:775-788`,
+    `crates/fw-match-sim/src/canonical.rs:904-924`,
+    `crates/fw-replay/tests/canonical_hash.rs:680-726`
+  - Exploit: swap two `SetPieceKind` tags in `set_piece_kind_tag` — for example
+    `CornerFor => 3` and `ThrowInFor => 7`. The existing two pinned canonical
+    seeds do not enter a `SetPiece` state, so the pinned BLAKE3 tests still pass.
+    The local unit test `setpiece_encoding_includes_kind_tag` only asserts that
+    two different set-piece variants encode differently; a tag swap preserves
+    that property and still changes replay wire semantics for any future OOB
+    fixture.
+  - Minimal change to demonstrate:
+    ```rust
+    // crates/fw-match-sim/src/canonical.rs
+    SetPieceKind::CornerFor => 7,
+    SetPieceKind::ThrowInFor => 3,
+    ```
+  - Suggested fix: add exact discriminant tests for all 11 `SetPieceKind`
+    variants OR add a third canonical fixture that intentionally reaches
+    `BallOutOfPlay -> SetPiece` and pins its hash. Exact tag tests are cheaper;
+    the third fixture gives better end-to-end protection.
+
+- **E-2** (severity: pre-T3) — attack goal: content-pack semantic poisoning
+  - File: `crates/fw-content-baker/src/validators.rs:238-242`,
+    `crates/fw-content/src/runtime.rs:767-773`
+  - Exploit: a `Culture` with 20 first names all `"Man"`, 20 last names all
+    `"chester"`, and `naming_pattern: "{first}{last}"` passes
+    `fw-content-baker validate-structural` but deterministically generates the
+    banned place-name `"Manchester"` at runtime/bake time. I verified this using
+    a temp content copy at `/tmp/fw-poison.*`: `validate-structural` exited 0 and
+    reported 3 cultures validated. The structural validator checks only first
+    and last bank lengths; it does not sample or lint composed outputs.
+  - Minimal fixture:
+    ```ron
+    Culture(
+        id: "fwh.test:culture.manchester-composed",
+        name: "Composed Poison",
+        first_name_bank: ["Man", "Man", "Man", "Man", "Man", "Man", "Man", "Man", "Man", "Man", "Man", "Man", "Man", "Man", "Man", "Man", "Man", "Man", "Man", "Man"],
+        last_name_bank: ["chester", "chester", "chester", "chester", "chester", "chester", "chester", "chester", "chester", "chester", "chester", "chester", "chester", "chester", "chester", "chester", "chester", "chester", "chester", "chester"],
+        team_name_bank: [],
+        naming_pattern: "{first}{last}",
+        weights: (first_alpha_diversity_bps: 0, compound_last_chance_bps: 0),
+    )
+    ```
+  - Suggested fix: add a semantic content validator that samples a deterministic
+    corpus from every `Culture` and runs `scripts/lint-banned-terms.py` against
+    the generated strings. Until then, `validate-structural` should continue to
+    say clearly that it is not a semantic content-pack validator.
+
+- **E-3** (severity: doc-only negative result) — attack goal: malicious mod overlay
+  - File: `.claude/rules/Content/RULES.md:66-77`,
+    `crates/fw-content/src/runtime.rs:546-755`,
+    `scripts/lint-banned-terms.py:230-268`
+  - Result: no current exploit was found because mod overlays are not implemented.
+    `ContentStore::load_sources` reads only `content/sources/**`; `load_baked`
+    still delegates to `load_sources`; no current RON type has an `overrides`
+    field. A malicious `content/mods/<id>/...` pack is ignored rather than
+    merged, so override-based banned-term injection and dangling-reference
+    attacks cannot execute today.
+  - Sentinel side-channel: the sentinel restriction appears correctly anchored
+    at root-relative prefixes. Paths like `frontend/src/docs/legacy/x.ts` and
+    `content/sources/scripts/x.ron` are covered by regression tests and do not
+    honor sentinel blocks.
+  - Suggested fix: change the wording in Content/RULES.md §6 from "Mods live..."
+    to "Future mod overlays will live..." until the loader exists, or add a
+    MASTER_PLAN row for the real mod-overlay loader + post-merge validation.
+
+- **E-4** (severity: pre-T3) — attack goal: determinism leak
+  - File: `scripts/determinism-audit.py:169-192`,
+    `crates/fw-match-sim/src/bin/calibrate.rs:1-10`
+  - Exploit surface: `crates/fw-match-sim/src/bin/calibrate.rs` is in
+    `FULLY_EXEMPT_FILES`, which suppresses every determinism-audit rule, not
+    just float arithmetic. A future edit could add `SystemTime::now()`,
+    `HashMap`, or `thread_rng()` to the corpus collection path and
+    `scripts/determinism-audit.py` would still report clean. I did not find an
+    active leak in the current file; the issue is that the guardrail is blind on
+    the one T2 tool whose output is intended to become source constants later.
+  - Minimal change that would bypass the script:
+    ```rust
+    // crates/fw-match-sim/src/bin/calibrate.rs
+    let stamp = std::time::SystemTime::now();
+    ```
+  - Suggested fix: replace the full-file exemption with a per-rule float
+    exemption, or split the f64 fit routines into a separate exempt module while
+    keeping the corpus runner covered by the normal HashMap/time/RNG bans.
 
 ---
 
@@ -335,8 +430,8 @@ _To be filled by Codex CLI when the user runs the prompt above._
 
 *Lens: bump PROPTEST_CASES from default 256 → 10,000 on key invariants; bump intra-process determinism count; run for ~15-20 min wall-clock.*
 
-**Owner:** Codex CLI (separate parallel session — paste prompt below)
-**Status:** _(pending — user pastes prompt into Codex CLI)_
+**Owner:** Codex CLI
+**Status:** Complete — 2026-05-18
 
 ### Codex CLI prompt (copy-paste verbatim into Codex)
 
@@ -376,17 +471,85 @@ Write findings into `docs/audits/post-t2-ultimate-review-2026-05-18.md` under "T
 
 ### Findings
 
-_To be filled by Codex CLI when the user runs the prompt above._
+### Summary
+
+Commands run:
+- `scripts/fw verify` — green.
+- `PROPTEST_CASES=10000` on the existing `fw-match-sim` proptest targets:
+  `dispatch_proptest`, `behavior_proptest`, `decision_cadence_proptest`,
+  `tactic_fsm_proptest`, `utility_proptest`, `separation_proptest`,
+  `ball_physics_proptest`, `ball_mutation_proptest`, `bt_runner_proptest`,
+  `signature_dispatcher_proptest`, `match_event_proptest`.
+- `FW_DETERMINISM_SMOKE_RUNS=100 FW_DETERMINISM_EXTENDED_RUNS=100 cargo test -p fw-replay --release --test canonical_hash -- smoke_seed_runs_100_times_produce_one_hash extended_seed_runs_10_times_produce_one_hash` — green.
+- `cargo test -p fw-content --release --test league_generation_test fixture_schedule_covers_all_pairs_home_and_away` — green.
+- `cargo test -p fw-save --release -- smoke::v1_encode_decode_reencode_produces_identical_bytes migration::callback_preservation_v0_seed_survives_migration_bit_exact` — green.
+
+Findings: **0 gate-blockers**, **2 pre-T3**, **1 opportunistic**. The notable
+result is that the 10k sweep found one real rare-seed behavioral invariant
+failure and one proptest generator that cannot survive 10k cases because it
+rejects too much.
+
+- **F-1** (severity: pre-T3) — `fw-match-sim` / `behavior_proptest::team_width_when_in_possession_within_band`
+  - Cases: surfaced at `PROPTEST_CASES=10000`.
+  - Minimal shrunk case: `seed_u64 = 7611787884383819691`
+    (`0x69a280c07a51d7ab`). Proptest generated regression key:
+    `cc 73c326c21cd6974a51aca6d3f0e08414ead7709c41734933b09606fec23e644a`.
+  - Expected vs actual: at tick 252, outfield-carry width was
+    `Q32(24.9463570719)` with carrier slot 20; the invariant requires
+    `[Q32(25), Q32(70)]`. This is barely below the lower band, but it is a real
+    failure of the football-shape width invariant at deeper case count.
+  - File: `crates/fw-match-sim/tests/behavior_proptest.rs:455-463`
+  - Suggested fix: decide whether the lower band should include a small Q32
+    tolerance (for example 24.75m) or whether the sim needs a small formation
+    width correction for this seed. If the behavior is accepted, check in the
+    regression seed with the updated bound so the edge case stays visible.
+
+- **F-2** (severity: opportunistic) — `fw-match-sim` / `tactic_fsm_proptest`
+  - Cases: surfaced at `PROPTEST_CASES=10000`.
+  - Minimal case: none; the run aborts because three tests exceed proptest's
+    global reject cap, not because a semantic counterexample shrinks.
+  - Expected vs actual: `transition_is_deterministic`, `apply_event_is_pure`,
+    and `heartbeat_check_is_pure` all use
+    `prop_assume!(now_tick >= current.entry_tick())`. At 10k cases they abort
+    after roughly 2.7k successes and 1024 global rejects.
+  - File: `crates/fw-match-sim/tests/tactic_fsm_proptest.rs:122-164`
+  - Suggested fix: generate `now_tick` from `entry_tick..entry_tick + N`
+    instead of drawing an independent `0..10000` and rejecting invalid pairs.
+    The invariant is likely fine; the generator is just too wasteful for
+    audit-time property explosion.
+
+- **F-3** (severity: pre-T3) — requested high-value proptests do not exist in three crates
+  - `fw-content`: no proptest exists for fixture pair coverage / 19h+19a; only
+    unit/integration tests exercise the shape.
+  - `fw-replay`: no proptest exists for encoder field-order stability or
+    roundtrip; pinned-hash and exact unit tests carry that burden.
+  - `fw-save`: no random `SaveV1` encode → decode → re-encode proptest exists;
+    the byte-identical check is a fixed unit test.
+  - Scope note: I did not author a new test because this audit was read-only
+    except this shared file.
+  - Suggested fix: add one focused proptest per crate before T3-1: fixture
+    schedule coverage over generated seed corpus, canonical encoder mutation /
+    field-order probe, and random `SaveV1` byte-identical roundtrip. This is
+    test-substrate hardening, not a phase blocker by itself.
+
+### Negative results
+
+At `PROPTEST_CASES=10000`, these existing `fw-match-sim` targets passed:
+`dispatch_proptest`, `decision_cadence_proptest`, `utility_proptest`,
+`separation_proptest`, `ball_physics_proptest`, `ball_mutation_proptest`,
+`bt_runner_proptest`, `signature_dispatcher_proptest`, and
+`match_event_proptest`. The replay intra-process hash rerun also stayed stable
+with both smoke and extended run counts set to 100.
 
 ---
 
 ## Consolidated verdict
 
-**Status:** Complete — 2026-05-18 (4 of 6 tracks landed; Tracks E + F deferred to user-driven Codex CLI session post-PR-open per user direction)
+**Status:** Complete — 2026-05-18 (all 6 of 6 tracks landed)
 
 ### Headline
 
-**Verdict: ACCEPT-WITH-FIXES.** 3 gate-blockers found across Tracks C + D, **all 3 fixed in-place pre-PR** at commit `d573161`. 12 pre-T3 findings + 8 opportunistic findings consolidated below for MASTER_PLAN promotion before T3-1 dispatches. No findings warrant phase REJECT.
+**Verdict: ACCEPT-WITH-FIXES.** 3 gate-blockers found across Tracks C + D, **all 3 fixed in-place pre-PR** at commit `d573161`. Codex Tracks E + F added 0 new gate-blockers. **Phase totals: 3 gate-blockers (all fixed), 17 pre-T3 findings, 9 opportunistic.** No findings warrant phase REJECT.
 
 ### Track-by-track summary
 
@@ -396,8 +559,8 @@ _To be filled by Codex CLI when the user runs the prompt above._
 | B — arch drift | Claude code-reviewer | 8 | 0 | 3 | 5 | concerning |
 | C — silent-failure sweep | Claude silent-failure-hunter | 8 | 2 (fixed) | 3 | 3 | concerning |
 | D — test-the-tests | Claude qa-lead | 8 | 1 (fixed) | 4 | 3 | concerning |
-| E — adversarial red-team | Codex CLI | _deferred (user-side)_ | _pending_ | _pending_ | _pending_ | _pending_ |
-| F — property explosion | Codex CLI | _deferred (user-side)_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| E — adversarial red-team | Codex CLI | 4 | 0 | 3 | 0 (1 doc-only negative) | accept (narrow value) |
+| F — property explosion | Codex CLI | 3 | 0 | 2 | 1 | accept (1 real rare-seed find) |
 
 ### Gate-blockers (all 3 fixed in-place at commit `d573161`)
 
@@ -425,14 +588,32 @@ _To be filled by Codex CLI when the user runs the prompt above._
 
 **Doc-only row R6 — Track D-5 NotImplemented validator tests**: mark with `TODO(T2-4)` comments so the next phase that touches `validators.rs` knows to delete them.
 
+**Pre-T3 row R7 — Codex Track E + F follow-ups** (~2h total): (a) `SetPieceKind` canonical-tag pinning — add exact discriminant tests for all 11 variants OR a third canonical fixture that reaches `BallOutOfPlay -> SetPiece` and pins its hash (E-1). (b) Semantic content validator authored that samples each `Culture`'s composed name output + runs `scripts/lint-banned-terms.py` against the generated strings; until then `validate-structural` docs/CLI must explicitly say "structural only, NOT semantic" (E-2). (c) Replace the full-file `FULLY_EXEMPT_FILES` entry for `calibrate.rs` in `scripts/determinism-audit.py` with per-rule float-only exemption — the corpus runner must stay covered by HashMap/time/RNG bans (E-4). (d) Investigate + resolve the F-1 rare-seed behavioral failure (`team_width_when_in_possession_within_band` at seed `0x69a280c07a51d7ab`, tick 252, width `Q32(24.9463)` vs band `[Q32(25), Q32(70)]`) — either widen tolerance OR fix the formation-width drift; check in the regression seed either way. (e) Author 3 missing high-value proptests (fw-content fixture pair-coverage; fw-replay encoder field-order; fw-save random `SaveV1` roundtrip byte-identity) per F-3.
+
+**Opportunistic row R8 — `tactic_fsm_proptest` generator narrowing** (~30 min): the 3 affected tests draw `now_tick` from `0..10000` then `prop_assume!(now_tick >= entry_tick)` — at PROPTEST_CASES=10000 the global reject cap fires at ~2.7k successes. Generate `now_tick` directly from `entry_tick..entry_tick + N` instead. Addresses F-2.
+
+**Doc-only row R9 — Content/RULES.md §6 mod-overlay future-tense fix**: change "Mods live in `content/mods/<mod-id>/`..." to "Future mod overlays will live in..." until the loader exists. Per E-3 the malicious-overlay attack goal returned a negative result because the overlay loader isn't implemented; the spec presently reads as if it is. Honesty fix.
+
 ### Deferred to T3 phase (rolled-rows context)
 
 T2-4 (PlayerBio) + T2-7 (Squad) + T2-1d2 (utility_shoot rewire) were all rolled to T3 per user direction (`docs/MASTER_PLAN.md` rows now carry `DEFERRED-ROLLED-TO-T3` status). T2-4 + T2-7 promote upon `design/player-generation.md` authorship; T2-1d2 promotes after T3 BT-runner maturation per `personality-bias-weights.md §Re-tuning cadence`.
 
-### Tracks E + F deferral note
+### Tracks E + F resolution
 
-Per user direction (`/done` invoked before user-side Codex CLI run), Tracks E (adversarial red-team — 4 attack goals: canonical-hash bypass, content-pack semantic poisoning, malicious mod overlay, determinism leak) + Track F (property explosion — PROPTEST_CASES 256 → 10,000) are DEFERRED to a post-PR-open user-driven session. Prompts remain in this file ready to copy-paste. If either surfaces gate-blockers post-PR-merge, address via a `T2-codex-followup` row before T3-1.
+Codex CLI ran both tracks in a user-driven session post-`/done` invocation. Both completed with **0 new gate-blockers** + 5 pre-T3 findings + 1 opportunistic. E-3 returned a doc-only NEGATIVE RESULT (the mod-overlay loader isn't implemented yet — Content/RULES.md §6 reads as if it is; fix is doc-honesty-only, captured as R9). All 5 actionable findings are folded into rows R7 + R8 + R9 above for landing before T3-1.
+
+### Codex consolidation
+
+Codex Tracks E + F add **0 new gate-blockers**, but they strengthen two existing
+Claude-track patterns and add one new category. Convergence: E-2 supports
+Track C's "structural validation is not semantic validation" concern; F-3
+supports Tracks A/D on missing high-value property coverage; E-4 is the same
+guardrail-blind-spot class as earlier determinism-audit exemption findings.
+New category: F-1 found a rare-seed football-shape invariant failure that the
+default 256-case run misses. Recommended before T3-1: add a small
+`T2-codex-followup` cleanup row covering E-1/E-2/E-4/F-1/F-2/F-3, or fold those
+items into the existing pre-T3 rows if the main thread wants fewer plan rows.
 
 ### Verdict
 
-**ACCEPT-WITH-FIXES.** Phase T2 ships. The 3 gate-blockers were fixable in <100 LoC total; all 4 Claude tracks confirm the deeper architectural + correctness invariants are intact. The 12 pre-T3 findings warrant 4 small docs-and-test cleanup rows before T3-1 dispatches. Tag `v0.2.0-season` per T2 exit gate Bullet 5.
+**ACCEPT-WITH-FIXES.** Phase T2 ships. The 3 gate-blockers were fixable in <100 LoC total; all 6 tracks (4 Claude + 2 Codex) confirm the deeper architectural + correctness invariants are intact. The 17 pre-T3 findings warrant 6 small cleanup rows (R1-R4 + R7 + R9 substantive; R5 + R6 + R8 opportunistic) before T3-1 dispatches. Tag `v0.2.0-season` per T2 exit gate Bullet 5.
