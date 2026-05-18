@@ -924,6 +924,60 @@ mod tests {
         );
     }
 
+    /// T2-R7(a) — post-T2 Codex Track E-1 fix: lock the EXACT canonical
+    /// tag byte for every `SetPieceKind` variant. The existing
+    /// `setpiece_encoding_includes_kind_tag` test asserts only that two
+    /// variants encode differently — a tag swap (e.g.
+    /// `CornerFor => 7; ThrowInFor => 3`) preserves that property and
+    /// silently changes the replay wire semantics for any future fixture
+    /// that reaches `BallOutOfPlay -> SetPiece`. The two pinned canonical
+    /// seeds (60-tick smoke + 600-tick extended) do not enter `SetPiece`,
+    /// so the pinned BLAKE3 hashes give zero protection on this surface.
+    ///
+    /// This table is the canonical-tag SOURCE OF TRUTH for replay wire
+    /// compatibility. Any reorder fails this test loudly. Adding a 12th
+    /// `SetPieceKind` variant lands here as a new arm with the next
+    /// integer tag; **never reuse a tag, never re-number an existing tag.**
+    #[test]
+    fn setpiece_kind_canonical_tags_are_locked_forever() {
+        use crate::tactic_fsm::SetPieceKind;
+
+        // (variant, expected tag byte) — see canonical.rs::set_piece_kind_tag.
+        // Comment block at top of canonical.rs lines 129-145 also
+        // declares these tags; keep in sync.
+        let expected: &[(SetPieceKind, u8)] = &[
+            (SetPieceKind::KickOff, 0),
+            (SetPieceKind::GoalKick, 1),
+            (SetPieceKind::GoalKickOpponent, 2),
+            (SetPieceKind::CornerFor, 3),
+            (SetPieceKind::CornerAgainst, 4),
+            (SetPieceKind::FreeKickFor, 5),
+            (SetPieceKind::FreeKickAgainst, 6),
+            (SetPieceKind::ThrowInFor, 7),
+            (SetPieceKind::ThrowInAgainst, 8),
+            (SetPieceKind::PenaltyFor, 9),
+            (SetPieceKind::PenaltyAgainst, 10),
+        ];
+
+        // Defensive: any future variant addition fails the count check
+        // first (forcing this table + the encoder to be updated together).
+        assert_eq!(
+            expected.len(),
+            11,
+            "SetPieceKind has 11 variants; if you added a 12th, add it here \
+             AND in set_piece_kind_tag with the next integer tag"
+        );
+
+        for (kind, want_tag) in expected {
+            assert_eq!(
+                super::set_piece_kind_tag(*kind),
+                *want_tag,
+                "SetPieceKind::{kind:?} canonical tag must be {want_tag} forever \
+                 (replay wire compatibility — see canonical.rs lines 129-145)"
+            );
+        }
+    }
+
     /// T1-2b-iv: signature_cooldowns block is present in encoding.
     #[test]
     fn encoding_reflects_signature_cooldowns() {
