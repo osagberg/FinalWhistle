@@ -30,21 +30,28 @@ The remaining 11 PersonalityVector elements carry over into longer-tail systems 
 
 ---
 
-## The 7 × 8 mapping table (Phase-1 seeds)
+## The 12-consideration mapping table (Phase-1 seeds + T2-R1 long-tail visibility)
 
-Each consideration carries a primary + secondary bias. Some carry a third (RiskAppetite inverse form). Coefficients k₁..k₁₄ apply multiplicatively as `utility · (1 + k_i · bias_value)`.
+**T2-R1 docs-honesty pass (2026-05-18)**: this table previously listed only the 7 primary considerations (Shoot / Long pass / Safe pass / Dribble / Press / Cover / Hold position) with coefficients k₁..k₁₄. The live `personality_bias.rs` source has shipped **21 K constants** since the T1-2b-fix spec-drift corrections — k₁₅..k₂₁ cover 5 additional per-site considerations (Cross / Lay-off / Mark / Run off ball / Hold formation) + k₁₈ adds the RiskAppetite tertiary tilt on Shoot. All 21 are now table-visible so the design-doc-driven re-tuning cadence + `calibrate fit-personality` audit-trail can land them coherently. The old "7 × 8" framing was the gap Track B-4 of the post-T2 ultimate-review flagged.
+
+Each consideration carries a primary + (often) a secondary bias; Shoot now carries a third (`RiskAppetite`-driven audacious-shot tilt). Coefficients k₁..k₂₁ apply multiplicatively as `utility · (1 + k_i · bias_value)`.
 
 Bias values are Q32 in `[0, 1]` (or `[-1, 0]` via the "1 − bias" inverse form on RiskAppetite for safe-pass / hold considerations).
 
 | Consideration | Primary bias | k_primary | Secondary bias | k_secondary | Tertiary bias | k_tertiary | Form |
 |---|---|---|---|---|---|---|---|
-| **Shoot (xG)** | FlairBias | k₁ = 0.30 | Composure (under pressure) | k₂ = 0.40 | — | — | `xg · (1 + 0.30·FlairBias) · (1 + 0.40·Composure·defender_pressure)` |
+| **Shoot (xG)** | FlairBias | k₁ = 0.30 | Composure (under pressure) | k₂ = 0.40 | RiskAppetite (audacious-shot tilt) | k₁₈ = 0.40 | `xg · (1 + 0.30·FlairBias) · (1 + 0.40·Composure·defender_pressure) · (1 + 0.40·RiskAppetite)` |
 | **Long pass / through ball** | RiskAppetite | k₃ = 0.45 | FlairBias | k₄ = 0.25 | — | — | `xt_delta · (1 + 0.45·RiskAppetite) + 0.25·FlairBias·is_progressive` |
 | **Safe pass** | (1 − RiskAppetite) (inverse) | k₅ = 0.35 | Selflessness | k₆ = 0.30 | — | — | `xt_delta · (1 + 0.35·(1−RiskAppetite)) · (1 + 0.30·Selflessness)` |
 | **Dribble** | FlairBias | k₇ = 0.40 | Aggression | k₈ = 0.25 | — | — | `dribble_value · (1 + 0.40·FlairBias) · (1 + 0.25·Aggression)` |
 | **Press (counter or sustained)** | Aggression | k₉ = 0.45 | WorkRate | k₁₀ = 0.35 | — | — | `press_value · (1 + 0.45·Aggression) · (1 + 0.35·WorkRate)` |
 | **Defensive cover / track-back** | Determination | k₁₁ = 0.40 | WorkRate | k₁₂ = 0.35 | — | — | `cover_value · (1 + 0.40·Determination) · (1 + 0.35·WorkRate)` |
 | **Hold position** | (1 − Aggression) (inverse) | k₁₃ = 0.35 | PressureTolerance | k₁₄ = 0.30 | — | — | `hold_value · (1 + 0.35·(1−Aggression)) · (1 + 0.30·PressureTolerance)` |
+| **Cross** | WorkRate | k₁₅ = 0.35 | FlairBias | k₁₆ = 0.30 | — | — | `cross_value · (1 + 0.35·WorkRate) · (1 + 0.30·FlairBias)` |
+| **Lay-off** | Selflessness | k₁₇ = 0.35 | — | — | — | — | `lay_off_value · (1 + 0.35·Selflessness)` |
+| **Mark player** | Determination | k₁₉ = 0.40 | — | — | — | — | `mark_value · (1 + 0.40·Determination)` |
+| **Run off ball** | RiskAppetite | k₂₀ = 0.35 | — | — | — | — | `run_off_value · (1 + 0.35·RiskAppetite)` |
+| **Hold formation** | Professionalism | k₂₁ = 0.35 | — | — | — | — | `hold_form_value · (1 + 0.35·Professionalism)` |
 
 ### Why values in [0.25, 0.45]
 

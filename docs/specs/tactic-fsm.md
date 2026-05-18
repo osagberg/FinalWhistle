@@ -72,18 +72,26 @@ Five states (with `SetPiece` carrying a sub-discriminant). The named states are 
 
 Event-driven transitions fire on the listed event class. Each transition is `(from_state, event, to_state, guard_predicate?)`.
 
+> **⚠ Deferred-to-T3 transitions (post-T2-close docs-honesty pass T2-R1, 2026-05-18).** The 3 rows tagged `[DEFERRED-T3]` below describe transitions whose `MatchEvent` variants are NOT YET EMITTED by any production code in the T2 codebase. Specifically:
+>
+> - `MatchEvent::PressTimeoutExpired` — no emission site exists; HighPress only exits today via the 2 Hz heartbeat's `>600 ticks (10s)` drift check (see §"2 Hz heartbeat" below), NOT the spec-promised 5s Bauer-and-Anzer timer. Anyone tuning the spec-line "5s" will tune the wrong knob until the real timer-emission ships.
+> - `MatchEvent::CounterWindowClosed` — same shape; `CounterAttack` is entered via `BallRecovered` but only exits when the NEXT `BallOutOfPlay` / `Goal` fires (the latter of which doesn't exist either; see next bullet).
+> - `MatchEvent::HalfTime` — does NOT exist in the `MatchEvent` enum at all (verify: `grep -rn "HalfTime" crates/fw-content/src/event.rs` returns the `tactic_fsm::TacticEvent::HalfTime` variant only; no upstream emission path). Match-time isn't tracked relative to half boundaries; sim runs N ticks regardless.
+>
+> The `tactic_fsm.rs:294-300` TODO comment already names this deferral; this caveat block surfaces it at the spec level so spec-driven contributors don't tune phantom timers. **Promotion path:** T3 work that adds match-time-clock semantics + the 3 emission sites flips these 3 rows from `[DEFERRED-T3]` to `[live]`. Until then, the rows below are forward-looking design intent, not current behavior.
+
 | From | Event | To | Guard |
 |---|---|---|---|
 | any → | `MatchEvent::BallOutOfPlay { kind }` | `SetPiece(set_piece_for_kind(kind))` | always |
 | `SetPiece(_)` | `MatchEvent::BallInPlay` | (resume per archetype default) | always |
 | `MidBlock`, `LowBlock` | `MatchEvent::PossessionLost { recovery_likely: bool }` | `HighPress` | `recovery_likely == true AND press_intensity ≥ High AND tick_now - state_entry_tick > 600` (prevent thrashing) |
 | `MidBlock` | `MatchEvent::PossessionLost { recovery_likely: false }` OR scoreline-trailing in-second-half | `LowBlock` | conservative trigger; archetype param |
-| `HighPress` | `MatchEvent::PressTimeoutExpired` (`5s` after entry — Bauer-and-Anzer) | `MidBlock` | always (press windows close) |
+| `HighPress` | **[DEFERRED-T3]** `MatchEvent::PressTimeoutExpired` (`5s` after entry — Bauer-and-Anzer) | `MidBlock` | always (press windows close) |
 | `HighPress` | `MatchEvent::BallRecovered { mean_opponent_x > halfway }` | `CounterAttack` | always |
 | `MidBlock`, `LowBlock` | `MatchEvent::BallRecovered { mean_opponent_x > halfway }` | `CounterAttack` | tactic param `counter_intent ≥ Default` |
-| `CounterAttack` | `MatchEvent::CounterWindowClosed` (`4s` after entry OR shot taken) | (resume archetype default) | always |
+| `CounterAttack` | **[DEFERRED-T3]** `MatchEvent::CounterWindowClosed` (`4s` after entry OR shot taken) | (resume archetype default) | always |
 | any | `MatchEvent::Goal { ... }` | `MidBlock` | reset on goal (kick-off restart is structural) |
-| any | `MatchEvent::HalfTime` | `MidBlock` | always (state resets at the break) |
+| any | **[DEFERRED-T3]** `MatchEvent::HalfTime` | `MidBlock` | always (state resets at the break) |
 
 **Default state per archetype.** Each `TacticalArchetype` declares its `default_in_defence_state: TacticState` (e.g. `direct-pressing` defaults to `MidBlock`; `low-block-counter` defaults to `LowBlock`). When no transition matches, the FSM idles in the archetype's default.
 
