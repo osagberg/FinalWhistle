@@ -448,6 +448,20 @@ mod tests {
     };
 
     // --- T1-12 NotImplemented tests (DO NOT CHANGE) -------------------------
+    //
+    // T2-R-D5 (post-T2 ultimate-review Track D-5 honesty): the FOUR
+    // tests below verify that stub functions return
+    // `Err(ValidationError::NotImplemented { .. })`. They exercise the
+    // STUB contract only, not production validation logic. When T2-4 /
+    // T3-1 ships the real implementations:
+    //   - `check_banned_terms`     → wired against `scripts/lint-banned-terms.py`
+    //   - `check_licensed_data`    → wired against the licensed-data corpus
+    //   - `check_cliche`           → wired against the cliché-detection pass
+    //   - `validate_fragment`      → composes the three above + structural checks
+    // these four tests MUST be REMOVED OR REWRITTEN into happy-path +
+    // rejection-path pairs (mirror the CultureValidator / PlayerTemplateValidator
+    // test shape above). Until then, treat their PASSING status as
+    // "the stub contract holds" — NOT as "semantic validation is covered."
 
     #[test]
     fn check_banned_terms_returns_not_implemented_with_correct_fields() {

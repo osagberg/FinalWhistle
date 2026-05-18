@@ -1,0 +1,4778 @@
+---
+source: crates/fw-replay/tests/canonical_hash.rs
+expression: state
+---
+MatchState {
+    seed: Seed(
+        16045690984833335023,
+    ),
+    tick: Tick(
+        60,
+    ),
+    players: [
+        PlayerState {
+            slot: 0,
+            pos_x: Q32(
+                -45,
+            ),
+            pos_y: Q32(
+                0,
+            ),
+            vel_x: Q32(
+                0,
+            ),
+            vel_y: Q32(
+                0,
+            ),
+            scalars: {},
+            role_state: Goalkeeper(
+                InBoxPositioning,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 1,
+            pos_x: Q32(
+                -27.466666676,
+            ),
+            pos_y: Q32(
+                -20,
+            ),
+            vel_x: Q32(
+                8,
+            ),
+            vel_y: Q32(
+                0,
+            ),
+            scalars: {},
+            role_state: Defender(
+                Defending,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 2,
+            pos_x: Q32(
+                -27.3000000066,
+            ),
+            pos_y: Q32(
+                -9.6999999983,
+            ),
+            vel_x: Q32(
+                -2.9999999923,
+            ),
+            vel_y: Q32(
+                2.9999999958,
+            ),
+            scalars: {},
+            role_state: Defender(
+                Defending,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 3,
+            pos_x: Q32(
+                -29.156250005,
+            ),
+            pos_y: Q32(
+                6.1562499944,
+            ),
+            vel_x: Q32(
+                -1.1249999958,
+            ),
+            vel_y: Q32(
+                1.1250000028,
+            ),
+            scalars: {},
+            role_state: Defender(
+                Defending,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 4,
+            pos_x: Q32(
+                -30,
+            ),
+            pos_y: Q32(
+                20,
+            ),
+            vel_x: Q32(
+                0,
+            ),
+            vel_y: Q32(
+                0,
+            ),
+            scalars: {},
+            role_state: Defender(
+                Defending,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 5,
+            pos_x: Q32(
+                -7.6335538786,
+            ),
+            pos_y: Q32(
+                -16.3748445779,
+            ),
+            vel_x: Q32(
+                8,
+            ),
+            vel_y: Q32(
+                -4.2648887297,
+            ),
+            scalars: {},
+            role_state: Midfielder(
+                Defending,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 6,
+            pos_x: Q32(
+                -10.3163110896,
+            ),
+            pos_y: Q32(
+                -1.8326999706,
+            ),
+            vel_x: Q32(
+                0.3580880254,
+            ),
+            vel_y: Q32(
+                2.0747546817,
+            ),
+            scalars: {},
+            role_state: Midfielder(
+                Defending,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 7,
+            pos_x: Q32(
+                -9.7054985336,
+            ),
+            pos_y: Q32(
+                14.6122607482,
+            ),
+            vel_x: Q32(
+                8,
+            ),
+            vel_y: Q32(
+                -8,
+            ),
+            scalars: {},
+            role_state: Midfielder(
+                Defending,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 8,
+            pos_x: Q32(
+                13.4139110176,
+            ),
+            pos_y: Q32(
+                -11.3597147067,
+            ),
+            vel_x: Q32(
+                8,
+            ),
+            vel_y: Q32(
+                8,
+            ),
+            scalars: {},
+            role_state: Forward(
+                RunningOffBall,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 9,
+            pos_x: Q32(
+                14.8334699336,
+            ),
+            pos_y: Q32(
+                3.5227326674,
+            ),
+            vel_x: Q32(
+                6.6244572932,
+            ),
+            vel_y: Q32(
+                8,
+            ),
+            scalars: {},
+            role_state: Forward(
+                RunningOffBall,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 10,
+            pos_x: Q32(
+                15.4901405969,
+            ),
+            pos_y: Q32(
+                12.911623403,
+            ),
+            vel_x: Q32(
+                7.1885301613,
+            ),
+            vel_y: Q32(
+                -1.7765004437,
+            ),
+            scalars: {},
+            role_state: Forward(
+                RunningOffBall,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 11,
+            pos_x: Q32(
+                40.1312500122,
+            ),
+            pos_y: Q32(
+                3.7637029542,
+            ),
+            vel_x: Q32(
+                -5.0625000102,
+            ),
+            vel_y: Q32(
+                3.1340194545,
+            ),
+            scalars: {},
+            role_state: Goalkeeper(
+                SweeperKeeperRush,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 12,
+            pos_x: Q32(
+                25.3000000115,
+            ),
+            pos_y: Q32(
+                -20,
+            ),
+            vel_x: Q32(
+                5.9999999776,
+            ),
+            vel_y: Q32(
+                0,
+            ),
+            scalars: {},
+            role_state: Defender(
+                Defending,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 13,
+            pos_x: Q32(
+                28.9124999968,
+            ),
+            pos_y: Q32(
+                -8.0875000032,
+            ),
+            vel_x: Q32(
+                1.1250000028,
+            ),
+            vel_y: Q32(
+                1.1250000028,
+            ),
+            scalars: {},
+            role_state: Defender(
+                Defending,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 14,
+            pos_x: Q32(
+                28.6999999995,
+            ),
+            pos_y: Q32(
+                5.6999999995,
+            ),
+            vel_x: Q32(
+                1.499999998,
+            ),
+            vel_y: Q32(
+                1.499999998,
+            ),
+            scalars: {},
+            role_state: Defender(
+                Defending,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 15,
+            pos_x: Q32(
+                25.9543585333,
+            ),
+            pos_y: Q32(
+                16.54705604,
+            ),
+            vel_x: Q32(
+                -2.7384888963,
+            ),
+            vel_y: Q32(
+                -5.8063602871,
+            ),
+            scalars: {},
+            role_state: Defender(
+                Defending,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 16,
+            pos_x: Q32(
+                9.2022431004,
+            ),
+            pos_y: Q32(
+                -15.611115821,
+            ),
+            vel_x: Q32(
+                0.9573082775,
+            ),
+            vel_y: Q32(
+                0.733338982,
+            ),
+            scalars: {},
+            role_state: Midfielder(
+                Defending,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 17,
+            pos_x: Q32(
+                10.0659546403,
+            ),
+            pos_y: Q32(
+                -0.0551315837,
+            ),
+            vel_x: Q32(
+                -0.0670725156,
+            ),
+            vel_y: Q32(
+                0.0560660171,
+            ),
+            scalars: {},
+            role_state: Midfielder(
+                Defending,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 18,
+            pos_x: Q32(
+                11.805895729,
+            ),
+            pos_y: Q32(
+                13.3701688147,
+            ),
+            vel_x: Q32(
+                8,
+            ),
+            vel_y: Q32(
+                -1.2219804088,
+            ),
+            scalars: {},
+            role_state: Midfielder(
+                Defending,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 19,
+            pos_x: Q32(
+                -14.9219281597,
+            ),
+            pos_y: Q32(
+                -10.0764688766,
+            ),
+            vel_x: Q32(
+                -8,
+            ),
+            vel_y: Q32(
+                8,
+            ),
+            scalars: {},
+            role_state: Forward(
+                RunningOffBall,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 20,
+            pos_x: Q32(
+                -14.7419119626,
+            ),
+            pos_y: Q32(
+                0.0598037487,
+            ),
+            vel_x: Q32(
+                -8,
+            ),
+            vel_y: Q32(
+                -0.0747546891,
+            ),
+            scalars: {},
+            role_state: Forward(
+                RunningOffBall,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+        PlayerState {
+            slot: 21,
+            pos_x: Q32(
+                -14.5041113596,
+            ),
+            pos_y: Q32(
+                10.2772343706,
+            ),
+            vel_x: Q32(
+                5.7499293878,
+            ),
+            vel_y: Q32(
+                6.0290624972,
+            ),
+            scalars: {},
+            role_state: Forward(
+                RunningOffBall,
+            ),
+            local_decision_counter: 4,
+            attributes: PlayerAttributes {
+                technical: TechnicalAttributes {
+                    finishing: Q32(
+                        0.5,
+                    ),
+                    long_shots: Q32(
+                        0.5,
+                    ),
+                    passing: Q32(
+                        0.5,
+                    ),
+                    crossing: Q32(
+                        0.5,
+                    ),
+                    first_touch: Q32(
+                        0.5,
+                    ),
+                    technique: Q32(
+                        0.5,
+                    ),
+                    dribbling: Q32(
+                        0.5,
+                    ),
+                    heading: Q32(
+                        0.5,
+                    ),
+                    tackling: Q32(
+                        0.5,
+                    ),
+                    marking: Q32(
+                        0.5,
+                    ),
+                    free_kicks: Q32(
+                        0.5,
+                    ),
+                    penalty_taking: Q32(
+                        0.5,
+                    ),
+                    corners: Q32(
+                        0.5,
+                    ),
+                    long_throws: Q32(
+                        0.5,
+                    ),
+                },
+                mental: MentalAttributes {
+                    anticipation: Q32(
+                        0.5,
+                    ),
+                    composure: Q32(
+                        0.5,
+                    ),
+                    decisions: Q32(
+                        0.5,
+                    ),
+                    vision: Q32(
+                        0.5,
+                    ),
+                    off_the_ball: Q32(
+                        0.5,
+                    ),
+                    positioning: Q32(
+                        0.5,
+                    ),
+                    concentration: Q32(
+                        0.5,
+                    ),
+                    bravery: Q32(
+                        0.5,
+                    ),
+                    teamwork: Q32(
+                        0.5,
+                    ),
+                    flair: Q32(
+                        0.5,
+                    ),
+                },
+                physical: PhysicalAttributes {
+                    pace: Q32(
+                        0.5,
+                    ),
+                    acceleration: Q32(
+                        0.5,
+                    ),
+                    stamina: Q32(
+                        0.5,
+                    ),
+                    strength: Q32(
+                        0.5,
+                    ),
+                    agility: Q32(
+                        0.5,
+                    ),
+                    balance: Q32(
+                        0.5,
+                    ),
+                    jumping_reach: Q32(
+                        0.5,
+                    ),
+                    natural_fitness: Q32(
+                        0.5,
+                    ),
+                },
+                goalkeeper: GoalkeeperAttributes {
+                    handling: Q32(
+                        0.5,
+                    ),
+                    reflexes: Q32(
+                        0.5,
+                    ),
+                    one_on_ones: Q32(
+                        0.5,
+                    ),
+                    aerial_reach: Q32(
+                        0.5,
+                    ),
+                    command_of_area: Q32(
+                        0.5,
+                    ),
+                    kicking: Q32(
+                        0.5,
+                    ),
+                },
+                personality: PersonalityVector {
+                    determination: Q32(
+                        0.5,
+                    ),
+                    work_rate: Q32(
+                        0.5,
+                    ),
+                    ambition: Q32(
+                        0.5,
+                    ),
+                    professionalism: Q32(
+                        0.5,
+                    ),
+                    loyalty: Q32(
+                        0.5,
+                    ),
+                    temperament: Q32(
+                        0.5,
+                    ),
+                    pressure_tolerance: Q32(
+                        0.5,
+                    ),
+                    big_match_appetite: Q32(
+                        0.5,
+                    ),
+                    adaptability: Q32(
+                        0.5,
+                    ),
+                    aggression: Q32(
+                        0.5,
+                    ),
+                    risk_appetite: Q32(
+                        0.5,
+                    ),
+                    selflessness: Q32(
+                        0.5,
+                    ),
+                    consistency: Q32(
+                        0.5,
+                    ),
+                    versatility: Q32(
+                        0.5,
+                    ),
+                },
+                durability: DurabilityProfile {
+                    injury_proneness: Q32(
+                        0.5,
+                    ),
+                    recovery_rate: Q32(
+                        0.5,
+                    ),
+                    dirtiness: Q32(
+                        0.5,
+                    ),
+                },
+            },
+            signature_candidates: [],
+        },
+    ],
+    ball: BallState {
+        pos_x: Q32(
+            23.2615111186,
+        ),
+        pos_y: Q32(
+            10.837468424,
+        ),
+        pos_z: Q32(
+            0,
+        ),
+        vel_x: Q32(
+            17.5070886486,
+        ),
+        vel_y: Q32(
+            -6.602035395,
+        ),
+        vel_z: Q32(
+            0,
+        ),
+        spin_x: Q32(
+            0,
+        ),
+        spin_y: Q32(
+            0,
+        ),
+        spin_z: Q32(
+            0,
+        ),
+    },
+    home_score: 0,
+    away_score: 0,
+    decision_slots: [
+        5,
+        12,
+        10,
+        1,
+        6,
+        7,
+        9,
+        13,
+        4,
+        5,
+        11,
+        2,
+        3,
+        14,
+        8,
+        0,
+        6,
+        0,
+        1,
+        2,
+        4,
+        3,
+    ],
+    interrupt_cooldown_until: [
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+        Tick(
+            0,
+        ),
+    ],
+    team_tactic_states: [
+        TeamTacticState {
+            state: LowBlock,
+            entry_tick: Tick(
+                26,
+            ),
+        },
+        TeamTacticState {
+            state: MidBlock,
+            entry_tick: Tick(
+                0,
+            ),
+        },
+    ],
+    signature_cooldowns: {},
+    signature_firing: [
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+        [
+            None,
+            None,
+            None,
+            None,
+        ],
+    ],
+    signature_first_fired_seen: {},
+    possession: None,
+    last_touched_by: Some(
+        10,
+    ),
+    match_end_tick: Tick(
+        60,
+    ),
+    match_events: [
+        KickOff {
+            tick: Tick(
+                0,
+            ),
+            is_second_half: false,
+        },
+        Pass {
+            from_slot: 9,
+            to_slot: 10,
+            tick: Tick(
+                5,
+            ),
+            kind: Cross,
+            completed: true,
+        },
+        Pass {
+            from_slot: 10,
+            to_slot: 9,
+            tick: Tick(
+                11,
+            ),
+            kind: Long,
+            completed: true,
+        },
+        Pass {
+            from_slot: 9,
+            to_slot: 10,
+            tick: Tick(
+                20,
+            ),
+            kind: Long,
+            completed: true,
+        },
+        Shot {
+            shooter_slot: 10,
+            tick: Tick(
+                26,
+            ),
+            target_x: Q32(
+                52,
+            ),
+            target_y: Q32(
+                0,
+            ),
+            on_target: true,
+        },
+        FullTime {
+            tick: Tick(
+                60,
+            ),
+            home_score: 0,
+            away_score: 0,
+        },
+    ],
+    home_archetype_id: "fwh.core:archetype.attacking-fullback",
+    away_archetype_id: "fwh.core:archetype.attacking-fullback",
+    home_archetype_params: ArchetypeParams {
+        default_in_defence_state: MidBlock,
+        press_intensity: High,
+        counter_intent: Default,
+    },
+    away_archetype_params: ArchetypeParams {
+        default_in_defence_state: MidBlock,
+        press_intensity: High,
+        counter_intent: Default,
+    },
+    shot_telemetry: [
+        ShotTelemetryRecord {
+            shot_tick: 26,
+            shooter_slot: 10,
+            distance_q32_raw: 0,
+            angle_q32_raw: 1708354851,
+            pressure_q32_raw: 815876609,
+            shot_type_q32_raw: 4294967296,
+            assist_kind_q32_raw: 4294967296,
+            shooter_quality_q32_raw: 2147483647,
+            shooter_flair_q32_raw: 2147483648,
+            shooter_composure_q32_raw: 2147483648,
+            shooter_risk_appetite_q32_raw: 2147483648,
+            became_goal: None,
+        },
+    ],
+    dribble_telemetry: [],
+}

@@ -324,12 +324,33 @@ fn apply_result_overwrites_prior_result() {
         home_row.points, 0,
         "overwritten result: home should have 0 pts"
     );
+    // T2-R-D7: GD overwrite verification. The prior result (home 2-0)
+    // contributed +2/-2 to home/away GD; if `apply_result` accumulates
+    // GD without first rolling back the prior result, GD would double-
+    // count and the away row would show +3 (not +1) and home -3 (not -1).
+    // Pinning the GD signals the overwrite rolled back the prior result
+    // before recording the new one.
+    assert_eq!(
+        home_row.goal_difference, -1,
+        "overwritten result: home GD should be -1 (lost 0-1, not -3 from double-count)"
+    );
+    assert_eq!(
+        away_row.goal_difference, 1,
+        "overwritten result: away GD should be +1 (won 1-0, not +3 from double-count)"
+    );
     // Only one match recorded (not duplicated).
     assert_eq!(home_row.played, 1);
 }
 
+/// T2-R-D2 rename: the original name promised four-key sort coverage
+/// (points DESC, GD DESC, GF DESC, club_id ASC) but the body injects
+/// uniform 1-0 home wins, giving every winning club identical GD (+1)
+/// and identical GF (1). The GD + GF tie-break arms are NEVER
+/// exercised — this test only proves the (points, club_id) tie-break
+/// pair. Renamed accordingly; the two new tests below exercise the
+/// missing tie-break arms.
 #[test]
-fn standings_sort_order_is_points_desc_then_gd_desc_then_gf_desc_then_club_id_asc() {
+fn standings_sort_by_points_then_club_id_tiebreak() {
     let (mut state, _) = make_season(0xC0FFEE);
     // Play exactly match-day 1 (10 matches). Inject known results so we can
     // assert sort order without depending on the sim.
@@ -368,6 +389,96 @@ fn standings_sort_order_is_points_desc_then_gd_desc_then_gf_desc_then_club_id_as
         top_ids, sorted_ids,
         "top half should be sorted by club_id ASC as the final tie-break"
     );
+}
+
+/// T2-R-D2: target the GD tie-break arm. Two clubs with equal points
+/// but different goal differences — the higher-GD club must rank
+/// above the lower-GD club. Mutating
+/// `b.goal_difference.cmp(&a.goal_difference)` to
+/// `a.goal_difference.cmp(&b.goal_difference)` (reversed sort
+/// direction) in `league.rs::standings` would flip the ranks here.
+#[test]
+fn standings_break_ties_on_goal_difference_when_points_equal() {
+    let (mut state, _) = make_season(0xC0FFEE);
+    let day1: Vec<Fixture> = state
+        .fixtures_for_match_day(1)
+        .into_iter()
+        .copied()
+        .collect();
+    // Each home-side club wins, but the FIRST home club wins 5-0 (GD +5)
+    // while the rest win 1-0 (GD +1). All home clubs have 3 pts;
+    // big-win club must rank top of the top half.
+    let big_win_club = day1[0].home;
+    for (i, f) in day1.iter().enumerate() {
+        let outcome = if i == 0 {
+            MatchOutcome {
+                home_score: 5,
+                away_score: 0,
+            }
+        } else {
+            MatchOutcome {
+                home_score: 1,
+                away_score: 0,
+            }
+        };
+        state.apply_result(f.home, f.away, outcome);
+    }
+    let standings = state.standings();
+    // Top row must be the big-win club, regardless of its club_id.
+    assert_eq!(
+        standings.rows[0].club_id, big_win_club,
+        "club with GD +5 must rank above clubs with GD +1 at equal points"
+    );
+    assert_eq!(standings.rows[0].goal_difference, 5);
+    assert_eq!(standings.rows[0].points, 3);
+}
+
+/// T2-R-D2: target the GF tie-break arm. Three clubs with equal
+/// points and equal goal difference but different goals_for —
+/// higher GF must rank above lower GF. Mutating
+/// `b.goals_for.cmp(&a.goals_for)` to the reversed form in
+/// `league.rs::standings` would flip the ranks here.
+#[test]
+fn standings_break_ties_on_goals_for_when_points_and_gd_equal() {
+    let (mut state, _) = make_season(0xC0FFEE);
+    let day1: Vec<Fixture> = state
+        .fixtures_for_match_day(1)
+        .into_iter()
+        .copied()
+        .collect();
+    // First two home clubs: high-scoring 4-3 wins (GD +1, GF 4).
+    // Remaining eight home clubs: 1-0 wins (GD +1, GF 1).
+    // Same points (3) + same GD (+1) for all 10 winners; GF
+    // discriminates the first two from the rest.
+    let hi_gf_club_a = day1[0].home;
+    let hi_gf_club_b = day1[1].home;
+    for (i, f) in day1.iter().enumerate() {
+        let outcome = if i < 2 {
+            MatchOutcome {
+                home_score: 4,
+                away_score: 3,
+            }
+        } else {
+            MatchOutcome {
+                home_score: 1,
+                away_score: 0,
+            }
+        };
+        state.apply_result(f.home, f.away, outcome);
+    }
+    let standings = state.standings();
+    // Top 2 rows: the two GF-4 clubs (sort by club_id ASC within them).
+    let top_two_ids: Vec<_> = standings.rows[..2].iter().map(|r| r.club_id).collect();
+    let mut expected = vec![hi_gf_club_a, hi_gf_club_b];
+    expected.sort_by_key(|c| c.raw());
+    assert_eq!(
+        top_two_ids, expected,
+        "two GF=4 clubs must rank above GF=1 clubs at equal points + GD"
+    );
+    // GF must be 4 for the top two, 1 for the next eight winners.
+    assert_eq!(standings.rows[0].goals_for, 4);
+    assert_eq!(standings.rows[1].goals_for, 4);
+    assert_eq!(standings.rows[2].goals_for, 1);
 }
 
 // ---------------------------------------------------------------------------

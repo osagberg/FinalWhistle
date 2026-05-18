@@ -36,8 +36,14 @@ fn test_app_state() -> fw_tauri::AppState {
 /// Invoke `play_match_inner` with seed `0xDEADBEEFDEADBEEF` + 60 ticks.
 /// Parse the returned `MatchResult` and assert `canonical_hash` matches the
 /// hash produced by independently running the sim and calling `blake3::hash`.
+///
+/// T2-R-D8 (renamed from `play_match_round_trip_canonical_hash_matches`):
+/// the prior name implied stronger external-auditor validation than
+/// this test actually performs. The authoritative external canonical-
+/// hash pin lives at `crates/fw-replay/tests/canonical_hash.rs`. This
+/// test proves IPC-path equivalence to a direct sim-call only.
 #[test]
-fn play_match_round_trip_canonical_hash_matches() {
+fn play_match_ipc_path_matches_direct_sim_call() {
     let state = test_app_state();
 
     // IPC inner path.

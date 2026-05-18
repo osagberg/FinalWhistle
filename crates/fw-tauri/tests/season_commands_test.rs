@@ -162,18 +162,18 @@ fn play_fixtures_is_deterministic_same_seed() {
     play_fixtures_inner(&state_a).expect("play_fixtures a");
     play_fixtures_inner(&state_b).expect("play_fixtures b");
 
-    let standings_a = get_standings_inner(&state_a).expect("standings a");
-    let standings_b = get_standings_inner(&state_b).expect("standings b");
-
-    // Compare the top-two points to confirm reproducibility without needing
-    // full DTO equality (avoids fragility on field additions).
+    // T2-R-D3: the prior shape only compared `standings_a[0]` (the
+    // league leader) — a bug that scrambled positions 2..20 while
+    // leaving position 1 stable would pass. `Season.results` is a
+    // BTreeMap<(ClubId, ClubId), MatchOutcome> — field-order stable
+    // and the right discriminator for full-season determinism. Mirror
+    // the pattern from `advance_week_is_deterministic_same_seed` in
+    // this same file.
+    let results_a = state_a.season().read().expect("lock a").results.clone();
+    let results_b = state_b.season().read().expect("lock b").results.clone();
     assert_eq!(
-        standings_a[0].points, standings_b[0].points,
-        "same career seed must produce same top-of-table points"
-    );
-    assert_eq!(
-        standings_a[0].club_id, standings_b[0].club_id,
-        "same career seed must produce same top-of-table club"
+        results_a, results_b,
+        "same career seed must produce identical full-season results BTreeMap"
     );
 }
 

@@ -210,17 +210,14 @@ mod smoke {
     // future migration reviews rely on.
     use super::*;
 
-    #[test]
-    fn encode_decode_round_trip() {
-        let env = SaveEnvelope::V1(SaveV1 {
-            career_seed: Seed::from_u64(0xCAFEBABE),
-            content_pack_version: 1,
-            ledger: MemoryLedger::new(),
-        });
-        let bytes = encode(&env).expect("encode");
-        let restored = decode(&bytes).expect("decode");
-        assert_eq!(env, restored);
-    }
+    // T2-R-D6: deleted redundant `encode_decode_round_trip` test.
+    // It encoded SaveEnvelope::V1 and asserted decode equality — the
+    // immediately-following `v0_and_v1_variants_construct_and_round_trip`
+    // test does the same V1 encode+decode+equality-check AND adds V0
+    // round-trip + the first-byte-divergence guard, fully subsuming
+    // the deleted test. Combined with the prior `smoke()` removal
+    // (T2-R-D1), fw-save tests drop from 11 → 9 with zero loss of
+    // mutation-detection coverage.
 
     // ----- T2-9: AC1 — both variants construct + round-trip cleanly -----
 

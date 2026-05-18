@@ -547,8 +547,15 @@ fn bedrock_pinned_test_is_not_ignored() {
 // Snapshot — human-diffable change detection
 // -------------------------------------------------------------------------
 
+/// T2-R-D4: removed `#[ignore]` attribute. Per the post-T2 ultimate-
+/// review Track D-4: the canonical_hash pin has gone through 18+ re-
+/// baselines since T0-7 and this human-diffable snapshot was never
+/// activated, leaving behavior-preserving regressions (positions
+/// changed but hash equal — possible in principle via a no-op swap)
+/// without any human-readable diff signal. The snapshot is NOT a
+/// correctness gate — it is a PR-review surface. Activating it as of
+/// T2-R-D4.
 #[test]
-#[ignore = "snapshot baseline created alongside first CI green hash"]
 fn smoke_seed_final_state_snapshot() {
     // `insta` produces a textual snapshot of the final state. Drift
     // surfaces in PR as a readable diff (positions changed, score
