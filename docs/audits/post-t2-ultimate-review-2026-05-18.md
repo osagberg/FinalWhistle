@@ -24,11 +24,33 @@
 *Lens: "If I mutated the constants / flipped the team / removed the guard / always returned default, would a test fail?" Identify MUTATION SURVIVORS across the T2 diff.*
 
 **Owner:** Claude `feature-dev:code-explorer`
-**Status:** _(pending — track populated by subagent on dispatch)_
+**Status:** Complete — 2026-05-18
+
+### Summary
+
+Tests reviewed: ~65 test functions across 9 new T2 test files + inline `#[cfg(test)]` modules in `fw-save`, `fw-content-baker/validators`, `fw-tauri/commands`. Mutation survivors found: **6**.
+
+**Worst pattern**: vacuous named-constant assertions — the constant is read on BOTH sides of the assert at test time, so mutating the constant in production keeps both sides equal and the test passes silently. Found across `league_generation_test.rs`, `season_state_test.rs`, `season_commands_test.rs`. The `total_fixture_count_in_league_is_three_hundred_eighty` test pins `MATCHES_PER_SEASON == 380` as a hard literal, but equivalent pins are MISSING for 10/day + 38/club.
+
+**Verdict: concerning in T2-2 / T2-5 test suites; clean in sim, save, and frontend.** Sim tests (tactic_event_emission, calibrate_smoke, goal-tick regression) are among the strongest in the codebase. Vacuous-constant pattern is T2-2/T2-5 specific and warrants a pre-T3 cleanup row.
 
 ### Findings
 
-_To be filled by Track A subagent._
+- **A-1** (severity: pre-T3) — `crates/fw-content/tests/league_generation_test.rs:37–48` `generate_league_produces_20_clubs_and_380_fixtures` — mutation: `CLUBS_PER_LEAGUE` 20→N, both sides shift together. Fix: `assert_eq!(CLUBS_PER_LEAGUE, 20, "sanity pin");` + pin `MATCH_DAYS_PER_SEASON` to 38.
+- **A-2** (severity: pre-T3) — `crates/fw-content/tests/season_state_test.rs:102–113` `fixtures_for_match_day_returns_ten_per_day` — mutation: `CLUBS_PER_LEAGUE` 20→16 → 8/day; assert checks 8==8. Fix: `assert_eq!(CLUBS_PER_LEAGUE / 2, 10, "sanity pin");`
+- **A-3** (severity: pre-T3) — `crates/fw-tauri/tests/season_commands_test.rs:258–263` `get_fixtures_returns_38_for_valid_club` — same shift-together pattern. Fix: replace `(CLUBS_PER_LEAGUE-1)*2` with literal `38`. (The hard-coded `19` mirror asserts at lines 338–339 ARE non-vacuous.)
+- **A-4** (severity: pre-T3) — `crates/fw-tauri/tests/season_commands_test.rs:67–80` `advance_week_returns_season_complete_after_final_day` — `MATCH_DAYS_PER_SEASON` shift-together across loop bound + assert + `is_complete()`. Fix: direct literal `assert_eq!(MATCH_DAYS_PER_SEASON, 38, "sanity pin");`
+- **A-5** (severity: opportunistic) — `crates/fw-tauri/tests/season_commands_test.rs:210–215` `get_standings_points_tally_after_full_season` — range `[760, 1140]` too permissive; off-by-one scoring (win=2) survives. Unit tests in `season_state_test.rs` (win_awards_three_points / draw_awards_one_point_each) are the strong discriminators.
+- **A-6** (severity: opportunistic) — `crates/fw-match-sim/tests/calibrate_smoke_test.rs:98–103` — `assert total_shots >= 1` trivially weak for 5×600-tick run. Fix: bump to `>= 10`.
+
+### Tests that ARE genuinely non-vacuous (notable strengths)
+
+- `ball_past_sideline_with_home_last_touched_emits_throw_in_for_away` + mirror — full team-side discriminator coverage.
+- `goal_tick_skips_dispatch_so_kickoff_taker_decisions_dont_override_midblock` — targets 3 specific if-guards with named test doc.
+- `v0_envelope_wire_first_byte_is_locked_at_0x00` + `v1_..._0x01` — exact wire bytes pinned.
+- `transfer-window.test.ts` boundary tests — days 0/1/18/19/20/21/38/39 + 4 RangeError guards.
+- `standings_sort_order_is_points_desc_then_gd_desc_then_gf_desc_then_club_id_asc` — full tiebreaker-chain exercise.
+- `forward-incompat-failure` — pattern-matches BOTH "99" AND "variant" (correctly tight).
 
 ---
 
@@ -37,11 +59,89 @@ _To be filled by Track A subagent._
 *Lens: docs vs code, both directions. Where does code drift from the design doc that authored it? Where does a design doc lie about what the code actually does? Where does a comment claim an invariant the code doesn't enforce?*
 
 **Owner:** Claude `pr-review-toolkit:code-reviewer`
-**Status:** _(pending — track populated by subagent on dispatch)_
+**Status:** complete
+
+### Summary
+
+8 drifts found across the T2 commit range, broken down by class:
+
+| Class | Count | Worst |
+|---|---|---|
+| doc-vs-code (doc lies about what code does) | 4 | B-1, B-2 |
+| code-vs-doc (code extended past spec without doc update) | 3 | B-4 |
+| cross-rule (CLAUDE.md / RULES.md inconsistency) | 1 | B-5 |
+| adr-non-honor | 0 | — |
+
+**Worst pattern:** the `docs/specs/tactic-fsm.md` transition table promises three event-driven transitions (`PressTimeoutExpired`, `CounterWindowClosed`, `HalfTime`) that **no production call site ever emits**. The implementation (`tactic_fsm.rs`) carries internal-only TODO comments acknowledging this, but the spec presents them as live transitions with concrete time-budgets ("5s after entry", "4s after entry") that don't fire. Anyone reading the spec to understand what tactic-FSM behaviour to expect will be misled. T2-1b shipped `PossessionLost` / `BallRecovered` / `BallOutOfPlay` / `BallInPlay` emissions; the three timer-derived events stayed deferred without the spec being updated to call that out.
+
+**Verdict: concerning.** No gate-blockers — every drift is recoverable by an honesty patch to the doc OR a code wire-up. The pattern is "design docs promise more than the implementation delivers"; left un-addressed, this erodes the spec-as-contract discipline that makes ADR + design-doc review meaningful at phase boundaries. Three findings (B-1, B-2, B-4) are pre-T3 priority because they touch surfaces the next phase will extend; the remaining five are opportunistic.
 
 ### Findings
 
-_To be filled by Track B subagent._
+- **B-1** (severity: pre-T3) — drift type: doc-vs-code
+  - Where: `docs/specs/tactic-fsm.md:81-84` + `crates/fw-match-sim/src/lib.rs` (production tick_match — no emission sites)
+  - What the code does: `TacticEvent::PressTimeoutExpired` and `TacticEvent::CounterWindowClosed` are only referenced inside `crates/fw-match-sim/src/tactic_fsm.rs::tests` (lines 758-784). No production code in `lib.rs`, `dispatch.rs`, or elsewhere emits these events. The `apply_event` arms exist (lines 450-465) but are dead-code in production.
+  - What the doc says: The transition table in `tactic-fsm.md:81-82` lists `PressTimeoutExpired` as the canonical exit from HighPress after `5s` and `CounterWindowClosed` as the canonical exit from CounterAttack after `4s OR shot taken`. The spec presents these as live behavior the FSM exhibits.
+  - Severity rationale: The HighPress state is real (T2-1b wired `PossessionLost` → HighPress transitions), but it can ONLY exit via the heartbeat-timeout drift check at >600 ticks (10 seconds), NOT the spec-promised 5s. Anyone reading the spec to tune HighPress duration will tune the wrong knob. The CounterAttack state is reachable via `BallRecovered`, never exits until the next `BallOutOfPlay` / `Goal` / `HalfTime` (which also never fires). The deferral is documented inside `tactic_fsm.rs:294-300` as a "T1-4 reconciliation TODO" but the spec was never updated to mark these transitions deferred.
+  - Suggested fix: add a "Deferred to T3" caveat block in `tactic-fsm.md` ahead of the transition table, listing the three deferred event classes + linking the `tactic_fsm.rs:294-300` TODO. Same fix or implementation row gets the timer events wired.
+
+- **B-2** (severity: pre-T3) — drift type: doc-vs-code
+  - Where: `docs/specs/tactic-fsm.md:85` + `crates/fw-match-sim/src/lib.rs` (no HalfTime emission)
+  - What the code does: `MatchEvent::HalfTime` does not exist in `crates/fw-content/src/event.rs` (no enum variant). `TacticEvent::HalfTime` exists in `tactic_fsm.rs:335` and the `apply_event` arm at line 471 resets to MidBlock — but nothing ever emits it in production. Match-time is not even tracked relative to half-time (sim runs N ticks regardless of half boundary).
+  - What the doc says: Spec line 85 lists `MatchEvent::HalfTime` → `MidBlock` (always) as a top-level transition. Spec also says "state resets at the break" as if break-time has semantics.
+  - Severity rationale: There is no half-time semantic in the sim at all. The spec wires half-time-reset into the tactic FSM, but the upstream MatchEvent doesn't exist. T3+ work on match-time clock will need this; today the spec promises behavior the codebase has no representation for.
+  - Suggested fix: same as B-1 — mark "Deferred to T3" in tactic-fsm.md, AND note that `MatchEvent::HalfTime` itself doesn't exist yet so this is a two-level deferral. Cross-link the deferred MatchEvent → tactic event chain.
+
+- **B-3** (severity: pre-T3) — drift type: doc-vs-code
+  - Where: `docs/specs/tactic-fsm.md:96-131` (heartbeat drift rules) + `crates/fw-match-sim/src/tactic_fsm.rs:497-509` (heartbeat_check)
+  - What the code does: `heartbeat_check` implements ONLY the "HighPress > 600 ticks → MidBlock" rule. Other rules in the spec (MidBlock + scoreline-lead-2 + own_mean_x < 30 → LowBlock; archetype-conditioned drift rules) are absent.
+  - What the doc says: Lines 109-129 present TWO concrete drift rules (HighPress timeout + MidBlock-deep-with-lead → LowBlock), plus "... archetype-conditioned drift rules, authored in `docs/design/tactic-fsm-heartbeat-rules.md` (Phase 1 tuning doc)".
+  - Severity rationale: The referenced `docs/design/tactic-fsm-heartbeat-rules.md` does not exist in the repo. The spatial drift rule (`own_mean_x < 30`) is in the spec as if implemented. The implementation explicitly says "T1-2b-ii implements only the HighPress-timeout-10s rule. Spatial drift rules ... defer to T1-2b-iii when spatial state is available" — but spatial state exists now (T1-2b-iii-a landed `PlayerState.pos_x` reads everywhere) and the rule still isn't wired.
+  - Suggested fix: Either author `docs/design/tactic-fsm-heartbeat-rules.md` + implement the rules, OR update the spec to say "spatial drift rules deferred indefinitely; only HighPress timeout fires today." The undocumented gap is the drift.
+
+- **B-4** (severity: pre-T3) — drift type: code-vs-doc
+  - Where: `crates/fw-match-sim/src/bt/personality_bias.rs:104-152` (K_1..K_21 constants) + `docs/design/personality-bias-weights.md:32-47` (7×8 mapping table)
+  - What the code does: Defines K_1 through K_21 (21 multiplicative coefficient constants) across the 7 considerations. K_15..K_21 are real match-tick bias factors used by `apply_cross_bias`, `apply_lay_off_bias`, `apply_mark_bias`, `apply_run_off_ball_bias`, `apply_hold_formation_bias`, and the audacious-shot `K_18` for Shoot.
+  - What the doc says: Lists "k₁..k₁₄" only in the heading + section §3 ("7 × 8 mapping table"). Only the 2026-05-17 T2-1d-infra block mentions K_18 in passing as one of "5 most-load-bearing shoot+dribble-bias K constants". K_15, K_16, K_17, K_19, K_20, K_21 are not listed anywhere in the design doc, despite being live coefficients in the sim.
+  - Severity rationale: Anyone tuning personality biases from this doc will miss 6 of the 21 actual coefficient sites. T1-2b-fix added K_15..K_21 to fix bt-attribute-binding drift but the design-doc tuning surface didn't update — so the doc undersells the actual coefficient surface by ~30%. The T2-1d calibration tooling proposes fits for K_18 (in scope) but the other 5 unlisted constants stay invisible to the design-doc-driven re-fit cadence.
+  - Suggested fix: Extend the §3 mapping table to a full 7 × 11+ shape covering K_15..K_21, or add a §3a "Per-site P1-5 helpers" subsection mirroring the inline doc comment at `personality_bias.rs:90-97`. Make the doc the source-of-truth surface a re-fit author would consult.
+
+- **B-5** (severity: opportunistic) — drift type: cross-rule
+  - Where: `crates/fw-tauri/src/commands.rs:134` + `crates/fw-tauri/src/commands.rs:325` (`debug_assert!` usage) + `.claude/rules/Sim/RULES.md §11` (debug_assert ban for invariants)
+  - What the code does: Two `debug_assert!` calls in `commands.rs` — one pinning `tick_count <= MAX_FRAMES_PER_REQUEST` after the loud guard (line 134), one pinning `current >= 1` after the loop (line 325). Both have inline comments justifying their use as "sanity checks after the real guard already fired."
+  - What the rule says: Sim/RULES.md §11 explicitly bans `debug_assert!` for canonical-state OR gameplay-truth invariants. These two sites are in `fw-tauri` (NOT a sim crate per the rule's path list), and the comments are honest about the rationale ("guarantee" already enforced by the explicit guard above). Strictly the rule doesn't bind here.
+  - Severity rationale: This is opportunistic only — the use is legitimate per the letter of the rule. But the precedent is risky: silent-failure-hunter sweeps will likely flag this, and the next reviewer who applies the rule strictly across the workspace (rather than respecting the path scope) could get confused. A one-line comment per site noting "fw-tauri is outside Sim/RULES.md §11's path scope; debug_assert OK here because the guard above provides the load-bearing check" would close the loophole.
+  - Suggested fix: Either add the explicit "outside Sim/RULES.md scope" justification to both debug_assert call sites, or promote them to `assert!` for consistency across the workspace.
+
+- **B-6** (severity: opportunistic) — drift type: doc-vs-code
+  - Where: `crates/fw-tauri/src/season.rs:22-28` (`SEASON_MATCH_TICK_BUDGET = 600`) + `docs/DESIGN_DOC.md §5` (match engine integration)
+  - What the code does: Each season match runs `tick_match` for exactly 600 ticks. At the 60 Hz integration rate (per `docs/specs/decision-cadence-stagger.md:19`), 600 ticks = 10 seconds of in-match time. The code's inline comment is honest: "Real 90-minute match realism is deferred to later work."
+  - What the doc says: Nothing in `docs/DESIGN_DOC.md` or `docs/MASTER_PLAN.md` mentions that season matches are 10-second proxies for full matches. The T2-5 row in MASTER_PLAN says "season-controller IPC + SeasonState + fast-forward perf" — implying full match simulation. Standings tables, fixture lists, and the "Advance Week" UI surface in T2-6 imply players are watching a full season simulate.
+  - Severity rationale: The implementation comment is candid, but the architectural surface (Tauri commands, DTOs, frontend League page) presents the result as a full simulated season. A reviewer reading MASTER_PLAN T2-5 + the league.tsx UI without diving into `season.rs:28` will believe more is happening than is. The 10-second-per-match shortcut is a load-bearing simplification that earns a top-level note in DESIGN_DOC §5 OR MASTER_PLAN T2-5 "Intentionally deferred" block.
+  - Suggested fix: One-line note in `docs/MASTER_PLAN.md` T2-5 description: "Per-match tick budget is 600 (10s @ 60 Hz); full 90-minute match-time scaling deferred to T3+." Same note as a known-shortcut callout in DESIGN_DOC §5's match-engine paragraph.
+
+- **B-7** (severity: opportunistic) — drift type: doc-vs-code
+  - Where: `crates/fw-content/src/league.rs:128-222` (`generate_fixtures`) + `docs/specs/determinism-gate.md` (canonical iteration discipline)
+  - What the code does: `generate_fixtures` takes a `_seed: Seed` parameter that is unused (prefixed with underscore). Comment says "reserved for future fixture-order randomization (e.g. shuffling match-day order while preserving the pair-coverage invariant); for T2-2 MVP the schedule is fixed by the circle-method algorithm alone."
+  - What the doc says: No design doc covers the fixture generation algorithm. ADR-0009 SeedLayer enumeration includes `ContentBake` as the layer for any content-generation operation; the unused seed in `generate_fixtures` is correctly reserved against that layer per `state.rs:148-155`.
+  - Severity rationale: Minor — an unused parameter with a clear comment explaining its reservation isn't a drift per se, but it's the kind of "TODO baked into the API" that earns either a tracking task or an explicit "yes this stays unused indefinitely" note. If the season schedule never shuffles (e.g. real football is fixed by FA fixture computer; only EPL kickoff times shuffle), the seed should be removed; if it'll be wired in T3, this becomes documented. Today it's neither.
+  - Suggested fix: Either remove the `_seed` parameter (callers already supply it and removal is a 3-line change) OR add a tracked row to MASTER_PLAN's T3 section for "Wire fixture-shuffle to ContentBake seed (lite anti-replay defense)".
+
+- **B-8** (severity: opportunistic) — drift type: doc-vs-code
+  - Where: `crates/fw-content/src/league.rs:308` (`format!("fwh.core:club_{:05}", ...)`) + `.claude/rules/Content/RULES.md §2` (ID format rules)
+  - What the code does: Procedurally-generated club IDs use the underscore-with-5-digit pattern (`fwh.core:club_00001`). Per the Content/RULES.md §2 carve-out, this is the correct "default form for procedural / generated entities" — distinct from the dotted-slug form (`fwh.core:culture.anglo`) used for hand-authored entities.
+  - What the doc says: Content/RULES.md §2 lists `player`, `club`, `culture`, `archetype`, `competition` as the valid entity-type prefixes. The 5-digit zero-padded form is explicitly described as the default. The procedural club generation correctly follows this.
+  - Severity rationale: Not actually a drift — this finding is a NULL result for the lens. Including for completeness. The club ID format complies with Content/RULES.md §2; the dotted form used for hand-authored archetypes also complies via the explicit carve-out at the bottom of §2. Both forms coexist correctly.
+  - Suggested fix: None — this is honesty noise. Removed from the headline drift count above.
+
+### Negative results (lenses checked, no drift found)
+
+- **DTO camelCase compliance (Tauri/RULES.md §3):** all 7 T2-5 / T2-6 / T2-8 DTOs in `crates/fw-tauri/src/lib.rs` carry `#[serde(rename_all = "camelCase")]`. IpcError uses `#[serde(tag = "kind", rename_all = "camelCase")]`. Frontend `types.ts` mirrors with camelCase fields. No drift.
+- **Sim/RULES.md §1 (no f32/f64 in canonical state):** zero hits for `f32` / `f64` in `crates/fw-content/src/league.rs`, `crates/fw-content-baker/src/bake.rs`, `crates/fw-match-sim/src/tactic_fsm.rs`. The calibrate binary (`crates/fw-match-sim/src/bin/calibrate.rs`) uses f64 for the Newton-Raphson fit — explicitly allowed via the bin-target opt-out, with the rationale documented at line 138.
+- **Sim/RULES.md §2 (no HashMap):** zero hits for `HashMap` / `HashSet` in T2-touched sim/content code. `SeasonState.results` is `BTreeMap<(ClubId, ClubId), MatchOutcome>` (deterministic iteration).
+- **ADR-0009 (SeedLayer):** `fixture_seed` (`state.rs:148-155`) uses `SeedLayer::ContentBake` with `site = 1` to distinguish from other ContentBake uses. Disambiguator naming is undocumented (no `rng-seed-sites.md` entry for `site = 1`), but the discriminant is non-overlapping per ADR-0009's "non-overlapping layers" contract. Compliant.
+- **ADR-0012 (rebaseline triggers):** the 4 T2 rebaselines (T2-1a schema, T2-1b behavior, T2-1-codex-fix behavior, T2-9 save schema not a canonical hash) all carry explicit trigger-N citations in the canonical_hash.rs comment block AND the commit body markers. Rebaseline discipline holds.
+- **Tauri/RULES.md §2 (UI never drives canonical state):** the `advance_week_inner` + `play_fixtures_inner` mutate `SeasonState.results` + `current_match_day`, NOT canonical match state. Each match generates a fresh `MatchState` via `MatchState::initial_with_content`. The `RwLock<SeasonState>` is on the IPC side of the boundary; canonical sim state stays immutable per tick. Compliant.
 
 ---
 
@@ -50,11 +150,80 @@ _To be filled by Track B subagent._
 *Lens: NOT commit-diff-scoped — walk the whole codebase looking for silent-failure surfaces, including ones that existed pre-T2 but weren't caught. Especially: `unwrap_or_default`, `if let Err(_) {}`, `Result` swallowing, `saturating_*` on sim-bearing fields without justification, `debug_assert!` for canonical invariants.*
 
 **Owner:** Claude `pr-review-toolkit:silent-failure-hunter`
-**Status:** _(pending — track populated by subagent on dispatch)_
+**Status:** complete
+
+### Summary
+
+**Total findings: 8.** Severity breakdown: 2 gate-blocker, 3 pre-T3-recommended, 3 opportunistic.
+
+**Top 3 most concerning patterns:**
+
+1. **Match.tsx still ships the runtime-garbage `return _exhaustive` pattern at three sites** — League.tsx fixed its single occurrence at T2-6 (throws on a future variant drift); Match.tsx's three sister sites still evaluate the `never`-typed binding at runtime and return it from `formatIpcError` / `eventLabel` / `badgeClass`. The compile-time guard is meaningful but the runtime fallback is literally the silent-failure pattern this entire `_exhaustive: never` ritual was designed to prevent. T2-6's deferred P1 has now hardened into a recurring debt; it must land before T3.
+2. **All four T2-5 season IPC commands bypass `safeInvoke` / runtime shape validation** — `advanceWeek`, `playFixtures`, `getStandings`, `getFixtures` in `frontend/src/lib/api/season.ts` call raw `invoke<T>()`, casting the response to the TS DTO type without checking. This is the exact regression the T1-3.6 `runtime-validators.ts` landed to prevent: backend wire-shape drift on any of these four DTOs will silently land in TS and NPE deep in League.tsx / Transfers.tsx. The implicit contract from T1-3.6 was "every new DTO requires a guard update"; the four T2-5 DTOs have no guards at all.
+3. **`debug_assert!` for gameplay-bearing invariants in `bt/personality_bias.rs`** — 13 sites assert `raw ∈ [0,1]` / `pressure ∈ [0,1]` preconditions on functions that multiply raw utility by personality factors and feed the result into utility-scored BT leaves (canonical-decision-bearing). Release builds skip the assert; out-of-range raw passes through silently as a polluted Q32 utility. Sibling `signature/bias_apply.rs:88` uses `assert!` (release-active) for the same invariant class — proving the project knows the pattern; personality_bias.rs is the outlier. Exactly the Sim/RULES.md §11 P2 pattern from the T1 ultimate-review.
+
+**Verdict: concerning.** The Match.tsx P1 deferral has now hardened into a recurring gap (League.tsx fixed it, Match.tsx didn't). The season-IPC runtime-validation skip undoes the T1-3.6 audit response one phase later. The personality_bias.rs `debug_assert!` issue mirrors the exact pattern that drove Sim/RULES.md §11's authoring six weeks ago. Three independent surfaces that "the project already knew" — each one a silent-failure surface in production-load-bearing code. Track this as a process-discipline signal, not just three bugs.
 
 ### Findings
 
-_To be filled by Track C subagent._
+- **C-1** (severity: gate-blocker) — silent-failure class: runtime-garbage-return-on-exhaustive-default
+  - File: `frontend/src/routes/Match.tsx:113-114`, `161-163`, `183-185`
+  - Pattern: `default: { const _exhaustive: never = err; return _exhaustive; }`
+  - Why silent: TypeScript's `never` is a compile-time-only erasure. At runtime, `_exhaustive` IS the original `err` / `kind` value. If a future IpcError variant lands and the runtime guard's `KNOWN_IPC_ERROR_KINDS` is updated but the switch isn't (the compile guard fires), one is caught. BUT in `eventLabel` / `badgeClass` the input is `MatchEventKind` from a typed payload — if the backend sends an unknown kind that runtime-validators is updated to accept but the switch isn't, the function returns the raw kind string from `eventLabel` (rendered as a JSX child — works but skips the friendly label) and returns the raw kind string from `badgeClass` (used as a CSS class — silently breaks the badge styling). For `formatIpcError`, `describeError` then concatenates the returned object into a template literal yielding `[object Object]` in the user-facing `errorMsg` signal. League.tsx already fixed this exact pattern at T2-6 (`frontend/src/routes/League.tsx:104-115`): it throws with a structured diagnostic message. Match.tsx's three sister sites carry the same defect Match.tsx self-review flagged as "T2-6 silent-failure-hunter P1 deferred"; the deferral has now persisted across a phase boundary.
+  - Suggested fix: Replace each `return _exhaustive` with `throw new Error(\`<fn>: unhandled <Type> variant — drift in KNOWN_*_KINDS / <fn>. value=${JSON.stringify(_exhaustive)}\`);` — mirror League.tsx:111-114 verbatim. Three sites, one PR.
+
+- **C-2** (severity: gate-blocker / pre-T3) — silent-failure class: missing runtime shape validation on IPC boundary
+  - File: `frontend/src/lib/api/season.ts:28-68` (all four functions: `advanceWeek`, `playFixtures`, `getStandings`, `getFixtures`)
+  - Pattern: `return invoke<DTOType>("cmd_name", args);` — direct cast of `invoke`'s `unknown` result to `DTOType` with no runtime check.
+  - Why silent: The T1-3.6 audit response (`frontend/src/lib/runtime-validators.ts:4-12` doc comment) explicitly notes that `invoke<T>()` casts without runtime validation, and that backend wire-shape drift silently lands in TS + propagates as a `T`-shaped `any` until it NPEs deep in the render path. The fix at T1-3.6 was `safeInvoke(...)` + per-DTO guards. `playMatch` / `getBackendHandshake` / `matchFrames` are wrapped; the four season commands added at T2-5 are NOT (confirmed via grep on `invoke<` across `frontend/src/`). A Rust-side rename of `StandingsRowDto::club_name` → `clubName` (or a `Vec<>` → `BTreeMap<>` swap, or the addition of a `seasonComplete` discriminator that the frontend doesn't expect) would land silently in `getStandings()` and then NPE inside League.tsx's row renderer with no indication of the IPC boundary as the failure site.
+  - Suggested fix: Add `isStandingsRow`, `isFixtureWithResult`, `isAdvanceWeekSummary`, `isPlayFixturesSummary` guards in `runtime-validators.ts`; wrap all four season IPC calls in `safeInvoke`. Mirror the existing pattern at `runtime-validators.ts:213-219` (BackendHandshake). One PR; the test scaffolding in `runtime-validators.test.ts` already covers the pattern.
+
+- **C-3** (severity: pre-T3-recommended) — silent-failure class: debug_assert-on-canonical-bearing-invariant
+  - File: `crates/fw-match-sim/src/bt/personality_bias.rs:173, 174, 194, 209, 222, 236, 252, 267, 268, 284, 296, 311, 323, 335` (13 sites)
+  - Pattern: `debug_assert!(raw >= Q32::ZERO && raw <= Q32::ONE, "raw must be in [0,1]");` at the top of every `apply_*_bias` function.
+  - Why silent: These functions multiply a raw utility Q32 by personality factors (`factor1 * factor2 * ...`) and the result feeds back into utility-scored BT leaves — i.e. they are canonical-decision-bearing. Release builds skip `debug_assert!` per Sim/RULES.md §11. If `raw` is outside [0,1] (caller bug: e.g. an unclamped utility somewhere upstream in `bt/on_ball.rs`), the function still multiplies happily and produces a polluted Q32 that propagates into softmax selection, changes the decision, changes canonical state, and changes the canonical hash. The proof this is a known pattern: sibling `crates/fw-match-sim/src/signature/bias_apply.rs:88-91` uses `assert!` (release-active) for the same "biased_utility >= ZERO" invariant class, with the inline note "sim invariant violated". `personality_bias.rs` adopted the weaker `debug_assert!` form despite the same load-bearing semantic. Additionally: `bt/on_ball.rs:225` notes "[0, 1] contract that `apply_shoot_bias::debug_assert!` expects" — confirming the [0,1] range IS treated as an invariant, not advisory.
+  - Suggested fix: Either (a) promote all 13 sites to `assert!` per `bias_apply.rs:88` if the [0,1] range is a real invariant; OR (b) saturate-then-validate inside each helper rather than asserting. The current state asserts in debug + silently corrupts in release — the worst of both worlds. Comment-evidence at on_ball.rs:225 supports (a) as the intended semantic.
+
+- **C-4** (severity: pre-T3-recommended) — silent-failure class: validate-structural false-positive on empty corpus
+  - File: `crates/fw-content-baker/src/main.rs:316-385` (`run_validate_structural`)
+  - Pattern: After `ContentStore::load_sources`, the four validator loops iterate the (possibly-empty) BTreeMaps; an empty corpus produces zero iterations + zero errors + prints `"validated 0 cultures, 0 archetypes, 0 role-affinity tables, 0 player templates, 0 signatures, 0 managers"` followed by `"STRUCTURAL validation passed"`.
+  - Why silent: `ContentStore::load_sources` (`crates/fw-content/src/runtime.rs:546-745`) treats missing directories as silently-skipped (`if cultures_dir.is_dir() { ... }`). An operator running `validate-structural` against a freshly-cloned repo where `content/sources/cultures/` is missing OR against a malformed content pack with no archetypes will see a passing structural validation result. The downstream `AppState::new` would then fail at `generate_league` (state.rs:83-86 panics) — but that failure is far from the validation site. The validator's job is to fail-loud at corpus authoring time; the empty-corpus pass-through is the false-positive failure mode. Same class as T2-9's load_sources comment-vs-code-drift finding.
+  - Suggested fix: Add a top-of-function check `if store.cultures.is_empty() || store.tactical_archetypes.is_empty() || store.player_templates.is_empty() || store.managers.is_empty() { anyhow::bail!("content corpus is empty in one or more required categories — content/sources/{{cultures,archetypes,players,managers}}/ must each contain ≥1 entity"); }` before the validator loops. Or stronger: per-category minimum counts (T2-5's `generate_league` already implicitly requires CLUBS_PER_LEAGUE=20 club-worthy entities; encode those gates in the validator).
+
+- **C-5** (severity: pre-T3-recommended) — silent-failure class: unwrap_or-on-arbitrary-input-with-misleading-comment
+  - File: `crates/fw-content/src/runtime.rs:87-108` (`load_commentary_grammars` inner loop)
+  - Pattern: `let stem = path.file_name().and_then(|n| n.to_str()).map(|n| n.trim_end_matches(".tracery.json")).unwrap_or("");` followed by `match stem { "kickoff" => ..., other => { let _ = other; continue; } }` with the comment "Unknown filename — log and skip."
+  - Why silent: TWO silent surfaces here. (a) `unwrap_or("")` masks non-UTF8 file names or `file_name() == None` as empty-stem, which falls into the `other` arm and silently `continue`s. (b) The `let _ = other; continue;` literally discards the unknown stem with NO log — the comment claims "log and skip" but the code never logs. A typo like `kickoff.tracery.json.bak` from an editor backup silently makes the file invisible to the loader; the downstream missing-discriminant check at line 125-128 will catch the MISSING required grammar but won't tell the operator that the .bak file was the cause.
+  - Suggested fix: (a) Promote `unwrap_or("")` to explicit handling — `let stem = match path.file_name().and_then(|n| n.to_str()) { Some(s) => s.trim_end_matches(".tracery.json"), None => return Err(ContentLoadError::Io { path: path.clone(), source: io::Error::other("non-UTF8 filename in commentary/ directory") }), };`. (b) Either delete the misleading comment + the `let _ = other` dead code, OR add a real `tracing::warn!("skipping unknown commentary grammar filename: {}", path.display());` so the operator can actually see what got skipped.
+
+- **C-6** (severity: opportunistic) — silent-failure class: standings-aggregation-silent-drop-on-bogus-club-id
+  - File: `crates/fw-content/src/league.rs:538-552, 554-568`
+  - Pattern: `if let Some(row) = rows.get_mut(home) { ... }` (and same for away) inside `Season::standings()`. The accumulator is pre-populated from `league.clubs` at lines 511-532; any result whose `(home, away)` references a ClubId NOT in `league.clubs` is silently dropped from the standings.
+  - Why silent: The current call path (`Season::apply_result` at line 499 is the only mutator) is invoked from `advance_week_inner` (`crates/fw-tauri/src/commands.rs:247`) with fixtures that came from `season.fixtures_for_match_day`, which itself iterates `self.league.fixtures` — so today this is structurally unreachable. BUT `Season::apply_result` accepts arbitrary `ClubId` parameters with NO validation against `league.clubs`. If a future caller (test fixture, mod overlay, save-load path) ever calls `apply_result` with a stale or fabricated ClubId, those goals silently vanish from standings — an invisible scoreline bug.
+  - Suggested fix: Add a guard at the top of `Season::apply_result`: `assert!(self.league.clubs.iter().any(|c| c.id == home), "apply_result: home ClubId {:?} not in league.clubs", home);` (same for away). Or change `apply_result` to return `Result<(), ApplyResultError>` with a `ClubNotInLeague` variant. Cheap; eliminates the invisible-scoreline class entirely.
+
+- **C-7** (severity: opportunistic) — silent-failure class: lossy-string-conversion-on-author-controlled-path
+  - File: `crates/fw-content-baker/src/bake.rs:196-199`
+  - Pattern: `let output_filename = ron_path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| format!("names_{slug}.ron"));`
+  - Why silent: (a) `to_string_lossy()` silently substitutes U+FFFD for non-UTF8 bytes — for an author-controlled output path this should be a programmer error, not a silent substitution. (b) The `unwrap_or_else` reconstructs the filename from `slug` if `file_name()` returns None (impossible for a freshly built `output_dir.join(format!("names_{slug}.ron"))` but the fallback hides that impossibility). The manifest then records the reconstructed filename, which would differ from the actual file on disk in any future case where `ron_path` construction changes — silent manifest drift in the audit trail. The whole point of the T2-3 manifest is reproducibility; this fallback masks a corrupted manifest as a successful bake.
+  - Suggested fix: `ron_path.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()).expect("ron_path was just constructed from output_dir.join(format!(\"names_{slug}.ron\")); file_name + UTF8 must succeed")`. Defensive but loud — the manifest's reproducibility-audit guarantee depends on this not silently substituting.
+
+- **C-8** (severity: opportunistic) — silent-failure class: lint-script swallows file-read errors
+  - File: `scripts/lint-banned-terms.py:295-299` (`lint_file`) + `scripts/determinism-audit.py:200-203` (`audit_file`)
+  - Pattern: `try: text = path.read_text(...) except OSError: return` — silently treats unreadable files as having zero violations.
+  - Why silent: Both lint scripts walk the workspace. If a file errors on read (permission denied, partial-write race, deleted-mid-walk), the lint silently passes for that file — a banned term in a file that briefly errored would slip through CI. The lint scripts are the LAST line of defense for the banned-terms rule per Sim/RULES.md + Content/RULES.md §5; silent file-skip undermines that role. The risk is bounded (the walked files are in-tree + author-controlled), but the right semantic is "fail loud on any unreadable file" — a partial-walk lint is a false-pass.
+  - Suggested fix: Replace `except OSError: return` (and `except (UnicodeDecodeError, OSError): return []`) with `except OSError as e: print(f"ERROR: lint cannot read {path}: {e}", file=sys.stderr); sys.exit(1)`. Loud-fail is the right semantic for a CI lint.
+
+### Notes for consolidation
+
+- **C-1 / C-2 / C-3 are the convergence with prior audit findings.** All three are "the project already knew this pattern" surfaces. C-1 = T2-6 P1 deferred. C-2 = T1-3.6 contract violated by T2-5. C-3 = Sim/RULES.md §11 (post-T1-16) authored to prevent exactly this; personality_bias.rs is the violation. Process discipline signal, not just three bugs.
+- **C-4 mirrors T2-9's load_sources false-positive class** — same "validation silently passes on empty/missing" pattern, this time in the baker entrypoint vs the loader.
+- Workspace was scanned for `decode_from_slice` siblings (per the prompt's checklist): `fw-save` is the only consumer per the grep at sweep time, so T2-9's fix has no siblings. Confirmed clean.
+- `MemoryLedger` (fw-memory) is a T3 stub with no production callers — no silent-failure surface to flag yet.
+- `Tick` arithmetic + `Q32` arithmetic + `should_decide` cadence (the canonical-state hot paths) audit clean per T1-21 + T1-23 — `Tick`'s panic-on-overflow + typed `checked_elapsed_since` / `checked_add_ticks` helpers are working as designed.
+- `fw-tauri/commands.rs:134, 325` use `debug_assert!` but for genuine "Allowed" cases per Sim/RULES.md §11 (the actual safety check is the explicit `if` guard preceding the debug_assert, or a structural invariant already validated by the loop). Not flagged.
+- All four `unwrap_or_else(|| panic!())` patterns in `tactic_fsm.rs:1134`, `subtree_library.rs:260, 344`, `signature/dispatcher.rs:103`, `lib.rs:1664` are correct invariant assertions with descriptive panic messages. Not flagged.
+- `player.rs:231 saturating_add` has a thorough `// SAFETY:` comment per §11; not flagged.
 
 ---
 
@@ -63,11 +232,55 @@ _To be filled by Track C subagent._
 *Lens: vacuous-test patterns, redundancy across the suite, coverage holes that test NAMES imply but the test bodies don't actually cover, insta snapshot quality. Especially: tests that read named constants at assert-time (where mutating the constant doesn't fail the test), tests that assert default-shape only, integration tests that re-implement the production code instead of asserting against it.*
 
 **Owner:** Claude `qa-lead`
-**Status:** _(pending — track populated by subagent on dispatch)_
+**Status:** COMPLETE — 2026-05-18
+
+### Summary
+
+Tests reviewed: ~851 Rust `#[test]` items + 88 frontend Vitest `it()` blocks across 32 test files. Findings by severity: 1 gate-blocker, 4 pre-T3, 3 opportunistic. Top 3 most-concerning: (1) vacuous `smoke` test in `fw-save` — `assert_eq!(2+2, 4)` as the opening test in the migration-discipline crate; (2) `standings_sort_order_is_points_desc_then_gd_desc_then_gf_desc_then_club_id_asc` never exercises GD or GF tie-break sorting despite the name promising it does; (3) `play_fixtures_is_deterministic_same_seed` tests only the top-1 standings slot out of 20.
+
+Verdict: **concerning**. No test is broken. The canonical-hash regression layer and proptest invariants are solid. But three coverage-holes in test names vs bodies, one actively vacuous test, and a systematic partial-determinism pattern in the IPC layer reduce mutation-detection confidence in the exact scenarios most likely to drift: save migration correctness, full-table sort order, and season-level determinism.
 
 ### Findings
 
-_To be filled by Track D subagent._
+- **D-1** (severity: gate-blocker) — class: vacuous
+  - File: `crates/fw-save/src/lib.rs:207-210`, function `smoke()`
+  - Issue: `assert_eq!(2 + 2, 4)` is the entire test body. The test lives in `mod smoke` inside `fw-save` — the crate that owns the four-test save-migration discipline. Mutating any production code in this file (`encode`, `decode`, `migrate_v0_to_v1`, `load_envelope`) does not fail this test. It contributes zero mutation-detection coverage to the most critical regression surface in the crate, and its presence as the FIRST named test in `mod smoke` misleads readers into expecting it guards something.
+  - Suggested fix: Delete the `smoke()` test body. The adjacent `encode_decode_round_trip` test (immediately following at line 213) covers the same implied intent. Deletion also resolves D-7's redundancy finding against that test.
+
+- **D-2** (severity: pre-T3) — class: name-vs-body-mismatch
+  - File: `crates/fw-content/tests/season_state_test.rs:327-365`, function `standings_sort_order_is_points_desc_then_gd_desc_then_gf_desc_then_club_id_asc`
+  - Issue: The test name claims four-key sort coverage (points DESC, goal_difference DESC, goals_for DESC, club_id ASC). The body injects uniform 1-0 wins for all day-1 fixtures, giving every winning club identical GD (+1) and identical GF (1). The test then falls through immediately to the club_id tiebreak — GD and GF sort arms are never exercised. Mutating `b.goal_difference.cmp(&a.goal_difference)` to `a.goal_difference.cmp(&b.goal_difference)` (reversing the GD sort direction) in `crates/fw-content/src/league.rs:577` would not fail this test. The sort implementation at lines 574-580 is correct; the test just doesn't discriminate it.
+  - Suggested fix: Add two targeted tests: (a) two clubs with equal points but different GD — assert the higher-GD club ranks first; (b) three clubs with equal points and equal GD but different GF — assert higher-GF ranks first. Rename the existing test to `standings_sort_by_points_then_club_id_tiebreak` to match what it actually exercises.
+
+- **D-3** (severity: pre-T3) — class: name-vs-body-mismatch (partial determinism)
+  - File: `crates/fw-tauri/tests/season_commands_test.rs:151-172`, function `play_fixtures_is_deterministic_same_seed`
+  - Issue: The test name claims same-seed determinism across a full 380-match season. The body asserts only `standings_a[0].points == standings_b[0].points` and `standings_a[0].club_id == standings_b[0].club_id` — two fields from the league leader. A bug that non-deterministically scrambled positions 2-20 while leaving position 1 stable would pass. The comment says "avoids fragility on field additions" — but `state_a.season().results` (the raw `BTreeMap<(ClubId,ClubId), MatchOutcome>`) is field-order-stable and already compared directly in `advance_week_is_deterministic_same_seed` in the same file (lines 97-112). The full-results comparison is the right target for the full-season determinism claim.
+  - Suggested fix: Replace the two top-standings assertions with `assert_eq!(state_a.season().read().unwrap().results, state_b.season().read().unwrap().results, "same career seed must produce identical full-season results BTreeMap")`. This is already the pattern used by `advance_week_is_deterministic_same_seed` — apply it to the full-season test.
+
+- **D-4** (severity: pre-T3) — class: coverage-hole (snapshot dormant)
+  - File: `crates/fw-replay/tests/canonical_hash.rs:550-563`, function `smoke_seed_final_state_snapshot`
+  - Issue: The insta snapshot for human-diffable state-change detection is `#[ignore = "snapshot baseline created alongside first CI green hash"]`. The pinned constant has gone through 18+ re-baselines since T0-7 and the snapshot was never activated. There is no committed `.snap` baseline (only one exists: `crates/fw-match-sim/tests/snapshots/match_event_snapshot__smoke_seed_60_tick_match_events.snap` for the event stream). A behavioral regression that keeps the canonical hash intact but changes player positions or possession state would produce no human-readable diff signal — only hex-string mismatch or silence. The meta-guard comment explicitly allows this test to stay ignored, but that permission has been abused for 18 re-baselines.
+  - Suggested fix: Remove the `#[ignore]` attribute. Run `cargo test -p fw-replay -- smoke_seed_final_state_snapshot --review` to accept the current state as the insta snapshot baseline. Commit the resulting `.snap` file alongside this audit. The snapshot is not a correctness gate — it is a human-diff surface. It should have been activated at T0-7 alongside the first real hash.
+
+- **D-5** (severity: pre-T3) — class: coverage-hole (stub tests counted as production coverage)
+  - File: `crates/fw-content-baker/src/validators.rs:437-507`, four functions named `check_*_returns_not_implemented_*`
+  - Issue: These four tests verify that stub functions (`check_banned_terms`, `check_licensed_data`, `check_cliche`, `validate_fragment`) return `Err(ValidationError::NotImplemented { ... })`. They count toward the "22 T2-3 baker tests" total in the CHANGELOG but they exercise only the stub contract, not production validation logic. When T2-4 ships real implementations, these four tests become invalid test artifacts that must be removed or rewritten. More critically, there is zero test coverage for what happens when content DOES contain a banned term or licensed data — the structural validators (CultureValidator, etc.) each have both happy-path AND rejection tests; the semantic validators have only the "returns NotImplemented" test.
+  - Suggested fix: Add a `// TODO(T2-4): remove or replace this test when real implementation lands` comment on each of the four tests to make their lifecycle explicit. This is a documentation fix, not a structural one — the tests are correct for stubs. The coverage gap for real semantic validation is a T2-4 delivery concern, not a T2-phase defect.
+
+- **D-6** (severity: opportunistic) — class: redundant
+  - File: `crates/fw-save/src/lib.rs:213-222`, function `encode_decode_round_trip`
+  - Issue: This test encodes `SaveEnvelope::V1` and decodes it, asserting equality. The subsequent `v0_and_v1_variants_construct_and_round_trip` test (lines 229-251) does the same V1 encode+decode+equality-check AND adds V0 + the first-byte-divergence guard. `encode_decode_round_trip`'s V1 assertion is entirely subsumed. The four migration-discipline tests (`forward_v0_to_v1`, `callback_preservation`, `forward-incompat`, `round-trip-byte-identical`) are all meaningfully orthogonal and are NOT flagged.
+  - Suggested fix: Delete `encode_decode_round_trip`. Combined with D-1 (delete `smoke()`), the net effect is reducing fw-save tests from 11 to 9 with zero loss of mutation-detection coverage.
+
+- **D-7** (severity: opportunistic) — class: coverage-hole (GD accumulation under overwrite)
+  - File: `crates/fw-content/tests/season_state_test.rs:278-323`, function `apply_result_overwrites_prior_result`
+  - Issue: The overwrite test records a home win (2-0) then overwrites it with an away win (0-1). It asserts on points and played — correctly verifying the overwrite semantics. It does NOT assert on `goal_difference`. A bug where `apply_result` subtracted the new result's goals from GD WITHOUT first rolling back the previous result's GD contribution would corrupt goal_difference silently — the overwrite would double-count negative GD from the first result's perspective. The `goal_difference_is_goals_for_minus_goals_against` test (lines 236-263) exercises GD computation on a single first-application, not on the overwrite path.
+  - Suggested fix: Add `assert_eq!(home_row.goal_difference, -1, "overwritten result: home GD should be -1 (lost 0-1)"); assert_eq!(away_row.goal_difference, 1, "overwritten result: away GD should be +1 (won 1-0)");` at the end of `apply_result_overwrites_prior_result`.
+
+- **D-8** (severity: opportunistic) — class: coverage-hole (IPC canonical hash scope overpromise)
+  - File: `crates/fw-tauri/tests/ipc_contract_test.rs:39-84`, function `play_match_round_trip_canonical_hash_matches`
+  - Issue: The test proves path-equivalence (IPC path ↔ direct path both call the same `encode_canonical` + `blake3::hash`). The inline comment honestly documents the limitation: "It does NOT prove the hash matches an external auditor's BLAKE3." The function NAME however is `play_match_round_trip_canonical_hash_matches` — implying a stronger external validation. This is a name-vs-scope mismatch, not a vacuousness finding (the test IS meaningful for catching IPC-path divergence from direct-sim-path). The canonical regression in `fw-replay/tests/canonical_hash.rs` is the authoritative external pin; the IPC test's naming confuses the two roles.
+  - Suggested fix: Rename to `play_match_ipc_path_matches_direct_sim_call` and add a one-line comment referencing `fw-replay/tests/canonical_hash.rs` as the external hash pin. No structural change needed.
 
 ---
 

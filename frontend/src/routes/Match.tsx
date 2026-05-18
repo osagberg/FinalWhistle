@@ -108,10 +108,17 @@ function formatIpcError(err: IpcError): string {
     case "lockPoisoned":
       return `Internal state was corrupted by a prior error (lock: ${err.lock}). Please restart the app.`;
     default: {
-      // Exhaustiveness — fails to compile if a new IpcError variant lands
-      // without a matching case arm above.
+      // Post-T2-close Track C-1 gate-blocker fix: prior code returned
+      // `_exhaustive` which is typed `never` at compile-time but at runtime
+      // evaluates to the actual `err` object — concatenating into a template
+      // literal yields `[object Object]` instead of useful diagnostic text.
+      // The whole point of this pattern is to fail LOUD on a future variant
+      // drift, not feed garbage to the alert region. Mirrors the post-T2-6
+      // silent-failure-hunter P1 fix landed on League.tsx.
       const _exhaustive: never = err;
-      return _exhaustive;
+      throw new Error(
+        `formatIpcError: unhandled IpcError variant — KNOWN_IPC_ERROR_KINDS / formatIpcError drift. err=${JSON.stringify(_exhaustive)}`,
+      );
     }
   }
 }
@@ -158,8 +165,14 @@ function eventLabel(kind: MatchEventKind): string {
     case "SignatureFirstFired":
       return "Signature";
     default: {
+      // Post-T2-close Track C-1 gate-blocker fix: throw not return — see
+      // formatIpcError above for full rationale. A future MatchEventKind
+      // variant that lands without a case arm here used to silently render
+      // the raw object as `[object Object]` in event-list badges.
       const _exhaustive: never = kind;
-      return _exhaustive;
+      throw new Error(
+        `eventLabel: unhandled MatchEventKind — types.ts / eventLabel drift. kind=${JSON.stringify(_exhaustive)}`,
+      );
     }
   }
 }
@@ -180,8 +193,15 @@ function badgeClass(kind: MatchEventKind): string {
     case "SignatureFirstFired":
       return "bg-paper-bold text-ink-subtle dark:bg-midnight-subtle dark:text-paper-subtle";
     default: {
+      // Post-T2-close Track C-1 gate-blocker fix: throw not return. Prior
+      // pattern returned `_exhaustive` which evaluates to the raw object at
+      // runtime, then propagated as a literal `class=` attribute value of
+      // `[object Object]` — a CSS-invalid string that browsers ignore,
+      // silently dropping the badge styling.
       const _exhaustive: never = kind;
-      return _exhaustive;
+      throw new Error(
+        `badgeClass: unhandled MatchEventKind — types.ts / badgeClass drift. kind=${JSON.stringify(_exhaustive)}`,
+      );
     }
   }
 }

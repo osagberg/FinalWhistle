@@ -39,12 +39,16 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AdvanceWeekSummary,
   BackendHandshake,
+  FixtureWithResult,
   MatchEvent,
   MatchEventKind,
   MatchFrameDTO,
   MatchResult,
+  PlayFixturesSummary,
   Score,
+  StandingsRow,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -216,6 +220,103 @@ export function isBackendHandshake(v: unknown): v is BackendHandshake {
   if (typeof v.message !== "string") return false;
   if (typeof v.backendReady !== "boolean") return false;
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// T2-9 phase-close Track C-2 gate-blocker fix: runtime shape guards for the
+// 4 T2-5 season-controller IPC commands. Prior `season.ts` invoke wrappers
+// skipped runtime validation entirely — undoing the T1-3.6 audit response
+// one phase later. Backend DTO drift on advance_week / play_fixtures /
+// get_standings / get_fixtures would silently NPE deep in League.tsx /
+// Transfers.tsx. These guards close the gap.
+// ---------------------------------------------------------------------------
+
+function isU16(v: unknown): v is number {
+  return (
+    typeof v === "number" &&
+    Number.isInteger(v) &&
+    v >= 0 &&
+    v <= 65535
+  );
+}
+
+function isU32(v: unknown): v is number {
+  return (
+    typeof v === "number" &&
+    Number.isInteger(v) &&
+    v >= 0 &&
+    v <= 4294967295
+  );
+}
+
+function isI32(v: unknown): v is number {
+  return (
+    typeof v === "number" &&
+    Number.isInteger(v) &&
+    v >= -2147483648 &&
+    v <= 2147483647
+  );
+}
+
+function isU8OrNull(v: unknown): boolean {
+  if (v === null || v === undefined) return true;
+  return typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 255;
+}
+
+export function isAdvanceWeekSummary(v: unknown): v is AdvanceWeekSummary {
+  if (!isObject(v)) return false;
+  if (!isU16(v.matchDayPlayed)) return false;
+  if (!isU16(v.matchesPlayed)) return false;
+  if (typeof v.seasonComplete !== "boolean") return false;
+  return true;
+}
+
+export function isPlayFixturesSummary(v: unknown): v is PlayFixturesSummary {
+  if (!isObject(v)) return false;
+  if (!isU32(v.matchesPlayed)) return false;
+  if (!isU16(v.finalMatchDay)) return false;
+  return true;
+}
+
+export function isStandingsRow(v: unknown): v is StandingsRow {
+  if (!isObject(v)) return false;
+  if (!isU32(v.clubId)) return false;
+  if (typeof v.clubName !== "string") return false;
+  for (const key of [
+    "played",
+    "wins",
+    "draws",
+    "losses",
+    "goalsFor",
+    "goalsAgainst",
+    "points",
+  ] as const) {
+    if (!isU16(v[key])) return false;
+  }
+  if (!isI32(v.goalDifference)) return false;
+  return true;
+}
+
+export function isStandingsRowArray(v: unknown): v is StandingsRow[] {
+  return Array.isArray(v) && v.every(isStandingsRow);
+}
+
+export function isFixtureWithResult(v: unknown): v is FixtureWithResult {
+  if (!isObject(v)) return false;
+  if (!isU16(v.matchDay)) return false;
+  if (!isU32(v.opponentClubId)) return false;
+  if (typeof v.opponentClubName !== "string") return false;
+  if (typeof v.isHome !== "boolean") return false;
+  if (typeof v.played !== "boolean") return false;
+  // homeScore + awayScore are Option<u8> serde-skipped when None — accept
+  // undefined OR a u8-bounded integer.
+  if (!isU8OrNull(v.homeScore)) return false;
+  if (!isU8OrNull(v.awayScore)) return false;
+  return true;
+}
+
+export function isFixtureWithResultArray(v: unknown): v is FixtureWithResult[] {
+  return Array.isArray(v) && v.every(isFixtureWithResult);
 }
 
 // ---------------------------------------------------------------------------

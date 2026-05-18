@@ -202,12 +202,13 @@ pub fn load_envelope(bytes: &[u8]) -> Result<SaveV1, SaveError> {
 
 #[cfg(test)]
 mod smoke {
+    // Post-T2-close Track D-1 gate-blocker fix: removed vacuous `smoke()` test
+    // (asserted `2 + 2 == 4`; mutating any production fw-save code did not
+    // fail it). A vacuous test in the save-migration crate is exactly the
+    // kind of false confidence the four-test-per-bump discipline was built
+    // to prevent — keeping it would corrupt the test-count signal that
+    // future migration reviews rely on.
     use super::*;
-
-    #[test]
-    fn smoke() {
-        assert_eq!(2 + 2, 4);
-    }
 
     #[test]
     fn encode_decode_round_trip() {
