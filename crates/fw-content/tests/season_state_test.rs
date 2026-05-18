@@ -105,7 +105,11 @@ fn fixtures_for_match_day_returns_ten_per_day() {
     // CLUBS_PER_LEAGUE 20→16 would shift both sides of the assert
     // below to 8==8 and the test would silently pass against a
     // broken constant.
-    assert_eq!(CLUBS_PER_LEAGUE / 2, 10, "fixtures-per-match-day pinned at 10");
+    assert_eq!(
+        CLUBS_PER_LEAGUE / 2,
+        10,
+        "fixtures-per-match-day pinned at 10"
+    );
     let (state, _) = make_season(0xC0FFEE);
     for day in 1..=MATCH_DAYS_PER_SEASON {
         let day_fixtures = state.fixtures_for_match_day(day);

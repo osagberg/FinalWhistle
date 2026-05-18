@@ -70,7 +70,10 @@ fn advance_week_returns_season_complete_after_final_day() {
     // shift both the loop bound AND the final-day assert + the
     // `is_complete()` check, so the test would pass against a broken
     // constant. Pin makes the constant load-bearing.
-    assert_eq!(MATCH_DAYS_PER_SEASON, 38, "MATCH_DAYS_PER_SEASON pinned at 38");
+    assert_eq!(
+        MATCH_DAYS_PER_SEASON, 38,
+        "MATCH_DAYS_PER_SEASON pinned at 38"
+    );
     let state = test_state();
     // Fast-forward all 38 days by calling advance_week in a loop.
     let mut last_summary = None;
@@ -260,7 +263,11 @@ fn get_fixtures_returns_38_for_valid_club() {
     // derived `(CLUBS_PER_LEAGUE - 1) * 2`. Without this pin, mutating
     // CLUBS_PER_LEAGUE 20→16 would shift both sides of the assert below
     // to 30==30 and the test would pass against a broken constant.
-    assert_eq!((CLUBS_PER_LEAGUE - 1) * 2, 38, "fixtures-per-club pinned at 38");
+    assert_eq!(
+        (CLUBS_PER_LEAGUE - 1) * 2,
+        38,
+        "fixtures-per-club pinned at 38"
+    );
     let state = test_state();
     let first_club_id = state.season().read().expect("lock").league.clubs[0]
         .id

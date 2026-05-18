@@ -96,9 +96,7 @@ fn load_commentary_grammars(
             None => {
                 return Err(ContentLoadError::Io {
                     path: path.clone(),
-                    source: std::io::Error::other(
-                        "non-UTF8 file name in commentary/ directory",
-                    ),
+                    source: std::io::Error::other("non-UTF8 file name in commentary/ directory"),
                 });
             }
         };
