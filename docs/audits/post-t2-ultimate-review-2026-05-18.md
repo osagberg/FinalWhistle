@@ -382,10 +382,57 @@ _To be filled by Codex CLI when the user runs the prompt above._
 
 ## Consolidated verdict
 
-_To be filled by main thread after all 6 tracks land. Format per /done Step 5.5:_
-- _Severity-sorted findings_
-- _Cross-track convergence patterns (highest-value signal)_
-- _Recommended new MASTER_PLAN rows (gate-blocking vs opportunistic)_
-- _ACCEPT / REVISE / REJECT for the phase close_
+**Status:** Complete — 2026-05-18 (4 of 6 tracks landed; Tracks E + F deferred to user-driven Codex CLI session post-PR-open per user direction)
 
-**Status:** _(pending consolidation)_
+### Headline
+
+**Verdict: ACCEPT-WITH-FIXES.** 3 gate-blockers found across Tracks C + D, **all 3 fixed in-place pre-PR** at commit `d573161`. 12 pre-T3 findings + 8 opportunistic findings consolidated below for MASTER_PLAN promotion before T3-1 dispatches. No findings warrant phase REJECT.
+
+### Track-by-track summary
+
+| Track | Owner | Findings | Gate-blockers | Pre-T3 | Opportunistic | Verdict |
+|---|---|---|---|---|---|---|
+| A — mutation analysis | Claude code-explorer | 6 | 0 | 4 | 2 | concerning (T2-2/T2-5 only) |
+| B — arch drift | Claude code-reviewer | 8 | 0 | 3 | 5 | concerning |
+| C — silent-failure sweep | Claude silent-failure-hunter | 8 | 2 (fixed) | 3 | 3 | concerning |
+| D — test-the-tests | Claude qa-lead | 8 | 1 (fixed) | 4 | 3 | concerning |
+| E — adversarial red-team | Codex CLI | _deferred (user-side)_ | _pending_ | _pending_ | _pending_ | _pending_ |
+| F — property explosion | Codex CLI | _deferred (user-side)_ | _pending_ | _pending_ | _pending_ | _pending_ |
+
+### Gate-blockers (all 3 fixed in-place at commit `d573161`)
+
+1. **C-1 — Match.tsx `return _exhaustive` runtime garbage at 3 sites** (`formatIpcError` + `eventLabel` + `badgeClass`). Sister of the post-T2-6 silent-failure-hunter P1 fix landed on League.tsx; the deferred Match.tsx P1 had hardened into recurring debt across a phase boundary. **FIX**: throw with payload preview, matching the League.tsx pattern.
+2. **C-2 — TS `season.ts` IPC wrappers skip runtime shape validation** (all 4 T2-5 commands). Undoes the T1-3.6 audit response one phase later; backend DTO drift would silently NPE deep in League.tsx / Transfers.tsx. **FIX**: route all 4 through `safeInvoke` + 4 new runtime shape guards (`isAdvanceWeekSummary`, `isPlayFixturesSummary`, `isStandingsRowArray`, `isFixtureWithResultArray`) in `runtime-validators.ts`.
+3. **D-1 — Vacuous `smoke()` test in fw-save** asserting `2 + 2 == 4`; mutation-survives every fw-save production change. **FIX**: deleted. A vacuous test in the save-migration crate is exactly the false-confidence pattern the four-test discipline exists to prevent.
+
+### Cross-track convergence patterns (highest-value signal)
+
+- **"Docs promise more than code delivers"** — Tracks B + D both surface this. Track B finds 4 doc-vs-code drifts in `tactic-fsm.md` (3 deferred timer events + missing `tactic-fsm-heartbeat-rules.md`) + `personality-bias-weights.md` (K_15..K_21 missing). Track D-3 finds `play_fixtures_is_deterministic_same_seed` test NAME claims full-season determinism but only asserts on row 0. Pattern: design docs + test names overpromise their substance. **Recommended row:** "docs-and-test-name honesty pass" before T3-1.
+- **"Same-constant-on-both-sides vacuity"** — Track A finds 4 instances (CLUBS_PER_LEAGUE / MATCH_DAYS_PER_SEASON shifts together across loop bounds + asserts). Track D-7 finds GD coverage hole in `apply_result_overwrites_prior_result`. Pattern: tests that derive their expected values from the same constants the production uses. **Recommended row:** "literal-pin sanity tests for league constants" (cheap; ~30 LoC).
+- **"Sister silent-failure pattern across files"** — Track C-1 (Match.tsx ↔ League.tsx) is the headline case. Track C also surfaces 13 `debug_assert!` sites in `personality_bias.rs` echoing the Sim/RULES.md §11 violation pattern. Pattern: a fix lands in one file; the same shape persists in sibling files until a future audit catches it. **Recommended row:** workspace-wide `debug_assert!` audit for canonical-invariant misuse (per Sim/RULES.md §11).
+
+### Recommended new MASTER_PLAN rows (pre-T3, ordered by value)
+
+**Pre-T3 row R1 — Tactic-FSM + personality-bias doc-honesty pass** (1-2h): tactic-fsm.md transition table needs explicit "Deferred to T3" caveat for `PressTimeoutExpired` / `CounterWindowClosed` / `HalfTime` + reference to the deferred `tactic-fsm-heartbeat-rules.md`. personality-bias-weights.md mapping table needs K_15..K_21 added (currently 15 of 21 live coefficients are doc-visible; 6 are not). Addresses B-1, B-2, B-3, B-4.
+
+**Pre-T3 row R2 — Test-quality pass for T2-2 + T2-5 vacuous constants** (1h): add 4 literal-pin sanity tests (`CLUBS_PER_LEAGUE == 20`, `MATCH_DAYS_PER_SEASON == 38`, `CLUBS_PER_LEAGUE / 2 == 10`, `(CLUBS_PER_LEAGUE - 1) * 2 == 38`); replace 3 vacuous derivations with hard literals; tighten `calibrate_smoke` lower bound 1 → 10. Addresses A-1 through A-6. Also: activate the `#[ignore]`'d `smoke_seed_final_state_snapshot` (D-4); fix `apply_result_overwrites_prior_result` GD coverage hole (D-7); rename `play_match_round_trip_canonical_hash_matches` → `play_match_ipc_path_matches_direct_sim_call` (D-8).
+
+**Pre-T3 row R3 — Personality-bias `debug_assert!` migration to `assert!`** (~30 min): 13 sites in `personality_bias.rs` use `debug_assert!` for `[0,1]` invariants — Sim/RULES.md §11 bans this for canonical invariants. Sibling `signature/bias_apply.rs:88` uses `assert!` for the same class, proving the pattern is known. Addresses C-3.
+
+**Pre-T3 row R4 — `fw-content-baker validate-structural` empty-corpus false-positive** (~30 min): prints "validated 0 cultures, 0 archetypes" + exits OK against an empty content corpus. Add a non-zero check or a `--allow-empty` opt-in flag. Addresses C-4.
+
+**Opportunistic row R5 — sibling silent-failure cleanups** (~1h): commentary loader / standings aggregator / bake manifest / Python lint scripts. Addresses C-5 through C-8. Fold into other touching commits if convenient; not standalone urgent.
+
+**Doc-only row R6 — Track D-5 NotImplemented validator tests**: mark with `TODO(T2-4)` comments so the next phase that touches `validators.rs` knows to delete them.
+
+### Deferred to T3 phase (rolled-rows context)
+
+T2-4 (PlayerBio) + T2-7 (Squad) + T2-1d2 (utility_shoot rewire) were all rolled to T3 per user direction (`docs/MASTER_PLAN.md` rows now carry `DEFERRED-ROLLED-TO-T3` status). T2-4 + T2-7 promote upon `design/player-generation.md` authorship; T2-1d2 promotes after T3 BT-runner maturation per `personality-bias-weights.md §Re-tuning cadence`.
+
+### Tracks E + F deferral note
+
+Per user direction (`/done` invoked before user-side Codex CLI run), Tracks E (adversarial red-team — 4 attack goals: canonical-hash bypass, content-pack semantic poisoning, malicious mod overlay, determinism leak) + Track F (property explosion — PROPTEST_CASES 256 → 10,000) are DEFERRED to a post-PR-open user-driven session. Prompts remain in this file ready to copy-paste. If either surfaces gate-blockers post-PR-merge, address via a `T2-codex-followup` row before T3-1.
+
+### Verdict
+
+**ACCEPT-WITH-FIXES.** Phase T2 ships. The 3 gate-blockers were fixable in <100 LoC total; all 4 Claude tracks confirm the deeper architectural + correctness invariants are intact. The 12 pre-T3 findings warrant 4 small docs-and-test cleanup rows before T3-1 dispatches. Tag `v0.2.0-season` per T2 exit gate Bullet 5.
