@@ -102,6 +102,26 @@ fn arb_team_tactic_state() -> impl Strategy<Value = TeamTacticState> {
     })
 }
 
+/// T2-R-F2 (post-T2 ultimate-review Track F-2): joint strategy
+/// generating `(current, now_tick)` where `now_tick >= current.entry_tick()`
+/// is invariant by construction. The prior shape independently drew
+/// `now_tick in 0..10000` then used `prop_assume!` to reject pairs that
+/// violate the invariant — at `PROPTEST_CASES=10000` that wasted ~1024
+/// global rejects (proptest aborts the run when global reject budget
+/// is exhausted, around 2.7k successful cases). Composing the strategies
+/// eliminates rejection waste, so audit-time property explosion can
+/// scale to 10k cases cleanly.
+fn arb_team_tactic_state_and_now_tick() -> impl Strategy<Value = (TeamTacticState, Tick)> {
+    arb_team_tactic_state().prop_flat_map(|current| {
+        let entry_raw = current.entry_tick().to_raw();
+        // 10000-tick window of "now" past entry — covers the same
+        // semantic range the prior 0..10000 generator targeted (~166s
+        // of real time at 60 Hz) without rejection.
+        (Just(current), (entry_raw..entry_raw.saturating_add(10_000)))
+            .prop_map(|(c, now_raw)| (c, Tick::from_raw(now_raw)))
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Invariants
 // ---------------------------------------------------------------------------
@@ -120,13 +140,13 @@ proptest! {
     /// `fw_core::tick::tests::checked_elapsed_since_panics_when_entry_in_future`.
     #[test]
     fn transition_is_deterministic(
-        current in arb_team_tactic_state(),
+        // T2-R-F2: joint strategy guarantees now_tick >= entry_tick by
+        // construction (no prop_assume! rejection waste). See
+        // arb_team_tactic_state_and_now_tick rationale.
+        (current, now_tick) in arb_team_tactic_state_and_now_tick(),
         archetype in arb_archetype_params(),
         event in arb_tactic_event(),
-        now_tick_raw in 0i64..10000,
     ) {
-        let now_tick = Tick::from_raw(now_tick_raw);
-        prop_assume!(now_tick >= current.entry_tick());
         let a = apply_event(current, &archetype, event, now_tick);
         let b = apply_event(current, &archetype, event, now_tick);
         prop_assert_eq!(a.state(), b.state());
@@ -138,14 +158,11 @@ proptest! {
     /// Three identical calls → identical results.
     #[test]
     fn apply_event_is_pure(
-        current in arb_team_tactic_state(),
+        // T2-R-F2: joint strategy — see above.
+        (current, now_tick) in arb_team_tactic_state_and_now_tick(),
         archetype in arb_archetype_params(),
         event in arb_tactic_event(),
-        now_tick_raw in 0i64..10000,
     ) {
-        let now_tick = Tick::from_raw(now_tick_raw);
-        // T1-23: see transition_is_deterministic's prop_assume rationale.
-        prop_assume!(now_tick >= current.entry_tick());
         let a = apply_event(current, &archetype, event, now_tick);
         let b = apply_event(current, &archetype, event, now_tick);
         let c = apply_event(current, &archetype, event, now_tick);
@@ -156,12 +173,9 @@ proptest! {
     /// Invariant 2b: `heartbeat_check` is pure.
     #[test]
     fn heartbeat_check_is_pure(
-        current in arb_team_tactic_state(),
-        now_tick_raw in 0i64..10000,
+        // T2-R-F2: joint strategy — see above.
+        (current, now_tick) in arb_team_tactic_state_and_now_tick(),
     ) {
-        let now_tick = Tick::from_raw(now_tick_raw);
-        // T1-23: see transition_is_deterministic's prop_assume rationale.
-        prop_assume!(now_tick >= current.entry_tick());
         let a = heartbeat_check(&current, now_tick);
         let b = heartbeat_check(&current, now_tick);
         let c = heartbeat_check(&current, now_tick);
