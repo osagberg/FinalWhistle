@@ -131,6 +131,17 @@ pub async fn match_frames_inner(
     // `usize >= u32` (which the workspace requires). The debug_assert pins
     // the invariant at the call site so a future relaxation of the guard
     // fails loudly here rather than silently allocating usize::MAX.
+    //
+    // T2-R-B5 (post-T2 ultimate-review Track B-5): debug_assert is
+    // intentional here. fw-tauri is OUTSIDE Sim/RULES.md §11's path
+    // scope (the rule covers fw-match-sim / fw-memory / fw-replay /
+    // fw-save / fw-core / fw-content / fw-scouting only). The
+    // load-bearing safety check is the explicit `if tick_count >
+    // MAX_FRAMES_PER_REQUEST { bail!(...) }` immediately above this
+    // assert; debug_assert is the redundant invariant pin for the
+    // "future relaxation of the guard" case. Promotion to assert!
+    // is unnecessary because release builds already have the explicit
+    // guard providing the load-bearing check.
     debug_assert!(tick_count <= MAX_FRAMES_PER_REQUEST);
     let total = (tick_count as usize) + 1;
     let mut frames = Vec::with_capacity(total);
@@ -322,6 +333,14 @@ pub fn play_fixtures_inner(state: &AppState) -> Result<PlayFixturesSummaryDto, I
         // `current` is the NEXT match-day to play; the last successfully played
         // is `current - 1`. The loop guarantees `current >= 1` because each
         // iteration advanced current_match_day at least once before exit.
+        //
+        // T2-R-B5 (post-T2 ultimate-review Track B-5): debug_assert
+        // intentional here. fw-tauri is OUTSIDE Sim/RULES.md §11's
+        // path scope. The load-bearing safety check is the structural
+        // invariant guaranteed by the loop body above (each iteration
+        // advances current_match_day at least once before reaching this
+        // branch); debug_assert is the redundant invariant pin for
+        // documentation. Promotion to assert! is unnecessary.
         debug_assert!(current >= 1, "advance_week_inner advanced current >= 1");
         current - 1
     };

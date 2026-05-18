@@ -112,21 +112,27 @@ pub struct League {
 /// the corresponding mirror round.
 ///
 /// **Determinism**: pure function of `club_ids` order. Same input → same
-/// output Vec byte-for-byte. The `_seed` parameter is reserved for future
-/// fixture-order randomization (e.g. shuffling match-day order while
-/// preserving the pair-coverage invariant); for T2-2 MVP the schedule is
-/// fixed by the circle-method algorithm alone.
+/// output Vec byte-for-byte.
 ///
 /// **Home/away assignment per pair-occurrence**: in the first leg, the
 /// club at the lower circle-position takes home; in the reverse leg,
 /// home/away swap. This produces a balanced 19 home + 19 away per club.
+///
+/// T2-R-B7 (post-T2 ultimate-review Track B-7): the prior signature
+/// took an unused `_seed: Seed` parameter "reserved for future fixture-
+/// order randomization (weighted seedings, derby-spreading, broadcast-
+/// window adjustments)." Removed — the API parameter was undocumented
+/// reserve-against-vapor. If/when seed-driven fixture shuffling lands
+/// (potentially never — real-football schedules are computer-fixed by
+/// the FA, only kickoff times shuffle), the signature gains the param
+/// back AT THAT TIME, with the consumer test that authorises it.
 ///
 /// # Panics
 ///
 /// Panics if `club_ids.len() != CLUBS_PER_LEAGUE`. Callers should ensure
 /// the slice is exactly 20 long; `generate_league` enforces this.
 #[must_use]
-pub fn generate_fixtures(club_ids: &[ClubId; CLUBS_PER_LEAGUE], _seed: Seed) -> Vec<Fixture> {
+pub fn generate_fixtures(club_ids: &[ClubId; CLUBS_PER_LEAGUE]) -> Vec<Fixture> {
     let n = CLUBS_PER_LEAGUE;
     let rounds_per_leg = n - 1; // 19 for n=20
     let half = n / 2; // 10 matches per round
@@ -325,7 +331,7 @@ pub fn generate_league(seed: Seed, content: &ContentStore) -> Result<League, Pro
         .try_into()
         .expect("clubs.len() == CLUBS_PER_LEAGUE invariant violated post-loop");
 
-    let fixtures = generate_fixtures(&club_id_array, seed);
+    let fixtures = generate_fixtures(&club_id_array);
 
     // League name: MVP shape is a fixed-template-with-seed-suffix string.
     // T3+ may procgen this via a dedicated `league_name` markov chain

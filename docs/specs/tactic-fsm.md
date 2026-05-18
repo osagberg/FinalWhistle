@@ -143,6 +143,24 @@ The heartbeat is at 2 Hz (30 ticks) because tactic state is meant to be **coarse
 
 Heartbeat draws no RNG. It's a pure predicate over canonical state.
 
+### What's actually wired today (T2 close)
+
+> ⚠ **Honesty caveat (T2-R-B3 post-T2 ultimate-review Track B-3):** the heartbeat code in
+> `crates/fw-match-sim/src/tactic_fsm.rs::heartbeat_check` implements ONLY the first example
+> rule above ("HighPress for >10s without ball recovery → MidBlock"). The MidBlock-deep-with-
+> scoreline-lead → LowBlock spatial drift rule + every archetype-conditioned rule remain
+> deferred. Spatial state IS available now (T1-2b-iii-a landed `PlayerState.pos_x` reads
+> everywhere) so the gating constraint is no longer absent state — it's design-doc authoring +
+> impl row, both deferred to T3+.
+>
+> The referenced `docs/design/tactic-fsm-heartbeat-rules.md` Phase-1 tuning doc does NOT yet
+> exist. The author-it-or-update-the-spec choice is: author it as part of T3-1 (memory ledger
+> + tactic-driven memory-event row) OR delete this Sub-section from the spec when T3 settles
+> what tactic-FSM is actually responsible for.
+>
+> Until then: the spatial drift rules and archetype-conditioned rules above are PROMISES, not
+> behavior the codebase exhibits today.
+
 ---
 
 ## Parameters
