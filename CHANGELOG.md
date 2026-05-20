@@ -6,6 +6,7 @@ Append-only human-readable ship log. One line per shipped MASTER_PLAN task. Phas
 
 ## Phase T3: Career + Memory — IN PROGRESS
 
+- 2026-05-18 — **T3-2** `fw-memory` 5 read-only ledger readers — SalienceReader (top-N by projected salience), PressReader (callback-eligible events by PressTopic class-frame), FanReader (fan-culture events per club + Emotion tally), ScoutReader (per-player subset — structural; archetype bias deferred to T3-5), CoachReader (per-club-player weighted lists — structural; breakthrough-readiness deferred to T3-4); shared `project_salience` decay helper (Never/Linear/Exponential via fw-core exp_q32 LUT); `compute_salience` now returns `event.stakes` (1-term degenerate per ambiguity-gate resolution). 43 tests. 1 P0 fixed in self-review (i64 overflow in decay branches). Canonical match-state hashes UNCHANGED.
 - 2026-05-18 — **T3-1** `fw-memory` ADR-0005 schema port + `fw-save` SaveV2 alongside V1 (Codex Tier-3 constraint) — MemoryEvent struct + 14 supporting types (EventClass with 30 ADR-locked variants + UnknownEventClass via `#[repr(u32)]` explicit discriminants); append-only MemoryLedger with EventId allocator + 3 lazy BTreeMap indexes; SaveEnvelope::V2(SaveV2)=2 added without mutating V0/V1; migrate_v1_to_v2 + V0→V1→V2 load_envelope chain; v2 wire-byte locked at 0x02; 4-test V1→V2 migration discipline; 1000-event round-trip <100ms; ADR-0005 Status: Proposed→Accepted. 38 new tests. Canonical match-state hashes UNCHANGED.
 
 ---

@@ -23,6 +23,7 @@
 
 pub mod event;
 pub mod ledger;
+pub mod readers;
 
 // -------------------------------------------------------------------------
 // Flat re-exports for convenience
@@ -34,3 +35,7 @@ pub use event::{
     SeasonNumber, SourceId,
 };
 pub use ledger::MemoryLedger;
+pub use readers::{
+    EmotionTally, FAN_CULTURE_CLASS_DISCRIMINANTS, FanReaderOutput, PressTopic, SalienceFilter,
+    project_salience,
+};

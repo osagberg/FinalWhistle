@@ -4,11 +4,11 @@
 
 ## Phase
 
-**Phase T3 (Career + Memory) IN PROGRESS.** T3-1 closed 2026-05-18 (first task of T3): `fw-memory` ADR-0005 schema port + `fw-save` SaveV2 alongside V1 per Codex Tier-3 phase-gate constraint. Schema lock complete; ADR-0005 moved to Accepted. Pre-T3 cleanup backlog R-rows all closed prior to T3-1 (see commits `2c38fb9..1e980e3`).
+**Phase T3 (Career + Memory) IN PROGRESS.** T3-1 (ADR-0005 schema port + SaveV2) + T3-2 (5 ledger readers) closed 2026-05-18. Memory pillar's structural carriers — the canonical `MemoryEvent` schema + the read-only projection layer — are now in place. 2 of 8 T3 rows DONE.
 
 ## Active task
 
-(none — T3-1 closed; next `/next` picks T3-2 — 5 readers (alumni-DB / rival-recall / promise-tracking / big-match-scars / press-fan-callbacks). Deps T3-1 DONE.)
+(none — T3-2 closed; next `/next` picks T3-3 — `fw-content` news headlines + manager-quote templates via Tracery grammars. Deps T3-1 + T2-3 both DONE.)
 
 ## Blockers
 
@@ -17,7 +17,7 @@
 
 ## Last green verify
 
-2026-05-18 (post-T3-1): `scripts/fw verify` exit 0; 1000-event ledger round-trip well under 100ms in release; 38 new tests across fw-memory + fw-save; canonical match-state hashes UNCHANGED on both pins (fw-memory + fw-save are non-canonical-state-pin path).
+2026-05-18 (post-T3-2): `scripts/fw verify` exit 0; 43 fw-memory tests (5 readers + decay helper + integration); canonical match-state hashes UNCHANGED on both pins (readers are read-only projections — no canonical-state surface).
 
 ## Last canonical hash
 
@@ -29,6 +29,6 @@
 
 ## Phase T3 pointer
 
-**Next task (T3-2):** `fw-memory` 5 readers — `SalienceReader` / `PressReader` / `FanReader` / `ScoutReader` / `CoachReader`. Each reader has ≥3 unit tests + one integration test against a seeded multi-season ledger. Per ADR-0005 §"The five readers" — read-only projections; lazy-rebuilt BTreeMap indexes (`by_subject`/`by_club`/`by_class_season`) are already in place from T3-1.
+**Next task (T3-3):** `fw-content` news headlines + manager-quote templates via Tracery-style grammars; phrase banks loaded from RON. Slot-filling deterministic on `(career_id, event_id)` seed; banned-terms lint green. Deps T3-1 + T2-3 both DONE. The T3-2 readers (PressReader candidate lists) are the upstream feed for the press-quote slot-filling.
 
-**Remaining T3 rows (7):** T3-2 (5 readers), T3-3 (news headlines + manager-quote templates via Tracery), T3-4 (breakthrough events — signature awakening + latent-flag unlock + regressive collapse triggers), T3-5 (scout-uncertainty model — single-scout-report variant), T3-6 (Frontend Player detail page with memory callbacks), T3-7 (save migration 4-test discipline for V1→V2 — partially complete via T3-1; T3-7 acts as the formal verifier), T3-8 (phase-gate Codex review #2).
+**Remaining T3 rows (6):** T3-3 (news headlines + manager-quote Tracery), T3-4 (breakthrough events — signature awakening + latent-flag unlock + regressive collapse triggers), T3-5 (scout-uncertainty model — single-scout-report variant; also adds ScoutReader's archetype bias), T3-6 (Frontend Player detail page with memory callbacks), T3-7 (save migration 4-test discipline for V1→V2 — partially complete via T3-1; T3-7 acts as the formal verifier), T3-8 (phase-gate Codex review #2).

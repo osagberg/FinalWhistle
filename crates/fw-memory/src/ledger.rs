@@ -10,13 +10,14 @@
 //!   are `#[serde(skip)]` fields rebuilt lazily on first read after an
 //!   append.
 //!
-//! ## Salience placeholder
+//! ## Salience formula
 //!
-//! `append` calls `compute_salience(event)` before pushing. At T3-1 this
-//! returns `Q32::ZERO` unconditionally — a stable placeholder so the wire-
-//! byte pin test has a deterministic value. The real 5-term blend
-//! (`w_stakes·stakes + w_prominence·...`) lands at T3-2 alongside the
-//! `SalienceReader`.
+//! `append` calls `compute_salience(event)` before pushing. At T3-2 this
+//! returns `event.stakes` — the 1-term degenerate formula so readers have a
+//! meaningful cached salience to rank on. The full 5-term blend
+//! (`w_stakes·stakes + w_prominence·...`) lands when the career system
+//! supplies `participant_prominence_avg` (Phase 4) and `docs/design/memory.md`
+//! supplies `event_class_base_weight` + `rarity_boost`.
 
 use std::collections::BTreeMap;
 
@@ -31,15 +32,24 @@ use crate::event::{EventId, MemoryEvent, SeasonNumber};
 
 /// Compute salience for an event at emission time.
 ///
-/// **T3-1 placeholder:** always returns `Q32::ZERO`. The real 5-term linear
-/// blend (`w_stakes · stakes + w_prominence · participant_prominence_avg +
-/// w_class · event_class_base_weight + w_rivalry · rivalry_boost +
-/// w_rarity · rarity_boost`) lands at T3-2 alongside `SalienceReader`.
+/// **T3-2 degenerate formula:** returns `event.stakes` directly.
 ///
-/// The placeholder is deliberately stable (always zero) so the V2 wire-byte
-/// pin test has a reproducible value across platforms.
-fn compute_salience(_event: &MemoryEvent) -> Q32 {
-    Q32::ZERO
+/// The full 5-term linear blend
+/// (`w_stakes · stakes + w_prominence · participant_prominence_avg +
+/// w_class · event_class_base_weight + w_rivalry · rivalry_boost +
+/// w_rarity · rarity_boost`) is deferred until the career system supplies
+/// `participant_prominence_avg` (Phase 4) and `docs/design/memory.md`
+/// supplies `event_class_base_weight` + `rarity_boost`.
+///
+/// At T3-2, `stakes` is the sole emission-time signal available:
+/// the emitter sets it as "how weighty this event was as it happened."
+/// The cached `event.salience` field therefore equals `event.stakes` after
+/// this task; readers can read either uniformly.
+///
+/// The result is always in [0, 1] because `stakes` is guaranteed in [0, 1]
+/// by the emitter contract (enforced by `MemoryEvent`'s doc comment).
+fn compute_salience(event: &MemoryEvent) -> Q32 {
+    event.stakes
 }
 
 // -------------------------------------------------------------------------
@@ -147,8 +157,8 @@ impl MemoryLedger {
     // ---- Write surface (append only) ------------------------------------
 
     /// Append a partially-constructed event. The ledger stamps `event_id`
-    /// monotonically and computes + stores `salience` via the placeholder
-    /// formula (T3-1: always `Q32::ZERO`; real formula at T3-2).
+    /// monotonically and computes + stores `salience` via `compute_salience`
+    /// (T3-2: returns `event.stakes`; full 5-term blend at Phase 4).
     ///
     /// Returns the allocated `EventId`.
     ///
@@ -357,21 +367,26 @@ mod tests {
         assert_eq!(last_id.unwrap().0, 99);
     }
 
-    /// AC3 — `append` stamps the salience placeholder (Q32::ZERO) on the
-    /// stored event, overwriting whatever the caller set.
+    /// AC8 — `append` stamps `salience == stakes` (T3-2 degenerate formula).
+    ///
+    /// The T3-1 placeholder always stored `Q32::ZERO`. At T3-2, `compute_salience`
+    /// returns `event.stakes` so readers have a meaningful salience to rank on.
     #[test]
-    fn append_stamps_salience_placeholder() {
+    fn compute_salience_returns_stakes() {
         let mut ledger = MemoryLedger::new();
         let mut ev = make_event(PlayerId::new(1), 0, EventClass::LegacyGoal);
-        // Caller provides a non-zero salience — ledger must overwrite.
-        // We can't set Q32 to a non-zero value from outside the crate's
-        // pub(crate) inner, but we CAN verify the stored value is ZERO.
-        ev.salience = Q32::ZERO; // placeholder already ZERO; test is structural
+        // Set a non-zero stakes value before appending.
+        ev.stakes = Q32::from_raw(3_006_477_107_i64); // ≈ 0.7 in Q32
         let id = ledger.append(ev);
+        let stored = ledger.get_by_id(id).unwrap();
         assert_eq!(
-            ledger.get_by_id(id).unwrap().salience,
+            stored.salience, stored.stakes,
+            "compute_salience must return stakes (T3-2 degenerate formula)"
+        );
+        assert_ne!(
+            stored.salience,
             Q32::ZERO,
-            "placeholder compute_salience must store Q32::ZERO at T3-1"
+            "salience must not be zero when stakes > 0"
         );
     }
 
