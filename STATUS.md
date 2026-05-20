@@ -4,11 +4,11 @@
 
 ## Phase
 
-**Phase T3 (Career + Memory) IN PROGRESS.** T3-1 (ADR-0005 schema port + SaveV2) + T3-2 (5 ledger readers) closed 2026-05-18. Memory pillar's structural carriers — the canonical `MemoryEvent` schema + the read-only projection layer — are now in place. 2 of 8 T3 rows DONE.
+**Phase T3 (Career + Memory) IN PROGRESS.** T3-1 (ADR-0005 schema port + SaveV2), T3-2 (5 ledger readers), T3-3 (news-headline + manager-quote render) closed 2026-05-18. Memory pillar: canonical schema + read-only projection layer + deterministic narrative render are now in place. 3 of 8 T3 rows DONE.
 
 ## Active task
 
-(none — T3-2 closed; next `/next` picks T3-3 — `fw-content` news headlines + manager-quote templates via Tracery grammars. Deps T3-1 + T2-3 both DONE.)
+(none — T3-3 closed; next `/next` picks T3-4 — `fw-content` breakthrough events: signature awakening + latent-flag unlock + regressive collapse triggers. Deps T3-1 DONE.)
 
 ## Blockers
 
@@ -17,7 +17,7 @@
 
 ## Last green verify
 
-2026-05-18 (post-T3-2): `scripts/fw verify` exit 0; 43 fw-memory tests (5 readers + decay helper + integration); canonical match-state hashes UNCHANGED on both pins (readers are read-only projections — no canonical-state surface).
+2026-05-18 (post-T3-3): `scripts/fw verify` exit 0; 202 fw-content tests (news render module + 11 new integration); banned-terms green; canonical match-state hashes UNCHANGED on both pins (fw-content narrative is a read-side projection — no canonical-state surface).
 
 ## Last canonical hash
 
@@ -29,6 +29,6 @@
 
 ## Phase T3 pointer
 
-**Next task (T3-3):** `fw-content` news headlines + manager-quote templates via Tracery-style grammars; phrase banks loaded from RON. Slot-filling deterministic on `(career_id, event_id)` seed; banned-terms lint green. Deps T3-1 + T2-3 both DONE. The T3-2 readers (PressReader candidate lists) are the upstream feed for the press-quote slot-filling.
+**Next task (T3-4):** `fw-content` breakthrough events — signature awakening + latent-flag unlock + regressive collapse triggers (port from `design/breakthrough-moments.md`). Done criteria: across a 5-season career, 1-3 breakthroughs fire per player on average; structured text recap surfaces. Deps T3-1 DONE. Per ADR-0005 §"Breakthrough mechanism" + §"Regressive collapse" — `signature_readiness` / `regressive_pressure` meters + narrative-gated triggers; this is the row that fills in CoachReader's deferred breakthrough-readiness signals.
 
-**Remaining T3 rows (6):** T3-3 (news headlines + manager-quote Tracery), T3-4 (breakthrough events — signature awakening + latent-flag unlock + regressive collapse triggers), T3-5 (scout-uncertainty model — single-scout-report variant; also adds ScoutReader's archetype bias), T3-6 (Frontend Player detail page with memory callbacks), T3-7 (save migration 4-test discipline for V1→V2 — partially complete via T3-1; T3-7 acts as the formal verifier), T3-8 (phase-gate Codex review #2).
+**Remaining T3 rows (5):** T3-4 (breakthrough events), T3-5 (scout-uncertainty model — single-scout-report variant; also adds ScoutReader's archetype bias), T3-6 (Frontend Player detail page with memory callbacks), T3-7 (save migration 4-test discipline for V1→V2 — partially complete via T3-1; T3-7 acts as the formal verifier), T3-8 (phase-gate Codex review #2).

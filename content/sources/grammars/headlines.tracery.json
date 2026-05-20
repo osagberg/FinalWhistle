@@ -1,5 +1,5 @@
 {
-  "_comment": "Tracery grammar for news-headline rendering. Slot variables (#team#, #opponent#, #player#, #scorer#, #score_line#, #minute#, #manager#, #stake_phrase#) are substituted at runtime via fw-content::sample_headline. See docs/CONTENT_PIPELINE.md §2. This is a hand-authored seed file; the baker (fw-content-baker bake-headlines) extends it under content/baked/headlines/<event-class>.tracery.json.",
+  "_comment": ["Tracery grammar for news-headline rendering. Slot variables (#team#, #opponent#, #player#, #scorer#, #score_line#, #minute#, #manager#) are substituted at runtime via fw-content::news::render_headline. See docs/CONTENT_PIPELINE.md §2. This is a hand-authored seed file; the baker (fw-content-baker bake-headlines) extends it under content/baked/headlines/<event-class>.tracery.json."],
 
   "origin": ["#headline#"],
 
@@ -18,7 +18,12 @@
     "#player# carries #team# through #adjective# #stake_phrase#",
     "Cup romance continues — #team# past #opponent# in extra time",
     "Five-goal thriller ends in #result# for #team#",
-    "Set-piece masterclass earns #team# #result# at #opponent#"
+    "Set-piece masterclass earns #team# #result# at #opponent#",
+    "#scorer# ends drought as #team# grind out #result#",
+    "#team# hold on for #result# after #opponent# late pressure",
+    "Job done — #team# see off #opponent# without fuss",
+    "#manager#'s system clicks into place in #adjective# #stake_phrase#",
+    "#team# comeback stuns #opponent# on #stake_phrase# night"
   ],
 
   "result": [

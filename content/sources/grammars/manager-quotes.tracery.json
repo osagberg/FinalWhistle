@@ -1,12 +1,13 @@
 {
-  "_comment": "Manager-quote Tracery grammar, keyed at sample time by manager archetype + outcome class. Slot variables: #manager#, #team#, #opponent#, #player#, #scorer#, #stake_phrase#. Seed file (~50 templates); baker extends to per-archetype banks at T3-3.",
+  "_comment": ["Manager-quote Tracery grammar, keyed at sample time by manager archetype + outcome class. Slot variables: #manager#, #team#, #opponent#, #player#, #scorer#. Seed file (~50 templates); baker extends to per-archetype banks at T3-3."],
 
   "origin": ["#quote#"],
 
   "quote": [
     "#opener# #middle# #closer#",
     "#opener# #closer#",
-    "#middle#"
+    "#middle# #closer#",
+    "#opener# #middle#"
   ],
 
   "opener": [
@@ -17,7 +18,9 @@
     "I'm pleased with",
     "You can't argue with",
     "Disappointing, ultimately —",
-    "The way the boys"
+    "The way the boys",
+    "Honestly,",
+    "At this level,"
   ],
 
   "middle": [
@@ -28,7 +31,11 @@
     "controlled the tempo from the first whistle",
     "looked sharp in the press from minute one",
     "let ourselves down on the basics",
-    "found a way when it mattered"
+    "found a way when it mattered",
+    "showed a lot of quality in the final third",
+    "made life hard for ourselves at the back",
+    "kept our shape and trusted the process",
+    "put in the work when it counted"
   ],
 
   "closer": [
@@ -38,6 +45,9 @@
     "the lads deserve a quiet weekend.",
     "we're nowhere near where we want to be.",
     "but credit to #opponent# — they made it difficult.",
-    "the supporters were excellent throughout."
+    "the supporters were excellent throughout.",
+    "three points is three points.",
+    "we dust ourselves off and go again.",
+    "#player# was outstanding today, for what it's worth."
   ]
 }

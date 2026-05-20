@@ -14,6 +14,7 @@ pub mod event;
 pub mod league;
 pub mod manager;
 pub mod markov;
+pub mod news;
 pub mod player;
 pub mod procgen;
 pub mod role_affinity;
@@ -37,6 +38,10 @@ pub use manager::{
     ManagerArchetypeIdError,
 };
 pub use markov::{MAX_NAME_LEN, MarkovError, MarkovNameChain};
+pub use news::{
+    HeadlineContext, NewsBankBuildError, NewsGrammarBank, NewsRenderError, QuoteContext,
+    render_headline, render_manager_quote,
+};
 pub use player::{PLAYER_TEMPLATE_SCHEMA_VERSION, PlayerTemplate};
 pub use procgen::{
     ManagerName, PlayerName, ProcGenError, ProcGenInputs, ProcGenTeam, generate_team,

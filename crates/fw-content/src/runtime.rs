@@ -18,6 +18,7 @@ use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::commentary::{CommentaryGrammarBank, MatchEventDiscriminant};
+use crate::news::NewsGrammarBank;
 
 /// Walk `dir` and return every file with the given extension, sorted
 /// alphabetically. Sorting is load-bearing for determinism — `fs::read_dir`
@@ -160,6 +161,95 @@ fn load_commentary_grammars(
     CommentaryGrammarBank::try_from_map(raw).map_err(|e| {
         ContentLoadError::MissingCommentaryGrammar {
             event_class: e.discriminant(),
+        }
+    })
+}
+
+/// Load the narrative grammar bank (news headlines + manager quotes) from
+/// `grammars_dir`.
+///
+/// Expects exactly two files in the directory:
+///   `headlines.tracery.json`       → headline grammar
+///   `manager-quotes.tracery.json`  → manager-quote grammar
+///
+/// Both files carry a `"_comment"` key — the JSON carries it as a
+/// single-element array (`["..."]`) so `serde_json::from_str::<BTreeMap<String,
+/// Vec<String>>>` parses it cleanly (Tracery ignores any rule never referenced
+/// from `origin`). The loader reads the full `BTreeMap<String, Vec<String>>`
+/// then hands it directly to `NewsGrammarBank::from_parts` which validates the
+/// `origin` rule discipline.
+///
+/// Returns `ContentLoadError::MissingNarrativeGrammar` for any absent file
+/// (fail-loud; both are required). Returns `ContentLoadError::TraceryParse` for
+/// a malformed JSON file. Returns `ContentLoadError::MissingCommentaryGrammar`
+/// (reused variant) if the loaded rules fail the `NewsGrammarBank` origin-rule
+/// invariant — the `NewsBankBuildError` message is forwarded via the Display
+/// impl.
+fn load_narrative_grammars(grammars_dir: &Path) -> Result<NewsGrammarBank, ContentLoadError> {
+    if !grammars_dir.is_dir() {
+        return Err(ContentLoadError::MissingNarrativeGrammar {
+            filename: "headlines.tracery.json",
+        });
+    }
+
+    let load_grammar =
+        |filename: &'static str| -> Result<BTreeMap<String, Vec<String>>, ContentLoadError> {
+            let path = grammars_dir.join(filename);
+            if !path.exists() {
+                return Err(ContentLoadError::MissingNarrativeGrammar { filename });
+            }
+            let raw_json = fs::read_to_string(&path).map_err(|source| ContentLoadError::Io {
+                path: path.clone(),
+                source,
+            })?;
+
+            // Parse as `BTreeMap<String, serde_json::Value>` first, then
+            // filter to array-valued entries only. This handles the
+            // `"_comment": ["..."]` key (array — kept) and would also
+            // gracefully skip any bare-string value that snuck in during
+            // content authoring. Array-typed values are collected into
+            // `Vec<String>` by unwrapping `Value::Array` of `Value::String`
+            // entries; any non-string elements are silently skipped (Tracery
+            // ignores them; the origin-rule validation in try_from_map is the
+            // real gate).
+            let raw_map: BTreeMap<String, serde_json::Value> = serde_json::from_str(&raw_json)
+                .map_err(|e| ContentLoadError::TraceryParse {
+                    path: path.clone(),
+                    source: tracery::Error::from(e),
+                })?;
+
+            let rules: BTreeMap<String, Vec<String>> = raw_map
+                .into_iter()
+                .filter_map(|(k, v)| match v {
+                    serde_json::Value::Array(arr) => {
+                        let strings: Vec<String> = arr
+                            .into_iter()
+                            .filter_map(|el| match el {
+                                serde_json::Value::String(s) => Some(s),
+                                _ => None,
+                            })
+                            .collect();
+                        Some((k, strings))
+                    }
+                    _ => None, // skip bare-string _comment or other non-array values
+                })
+                .collect();
+
+            Ok(rules)
+        };
+
+    let headline_rules = load_grammar("headlines.tracery.json")?;
+    let quote_rules = load_grammar("manager-quotes.tracery.json")?;
+
+    // Fail-loud: try_from_map validates origin-rule discipline on both grammars.
+    // Map the build error to an Io variant so the caller sees a clear message
+    // naming the grammar key and the rule violation. `std::io::Error::other`
+    // (stable since Rust 1.74) wraps the display string without requiring
+    // serde traits in scope.
+    crate::news::NewsGrammarBank::from_parts(headline_rules, quote_rules).map_err(|e| {
+        ContentLoadError::Io {
+            path: grammars_dir.to_path_buf(),
+            source: std::io::Error::other(e.to_string()),
         }
     })
 }
@@ -369,8 +459,14 @@ pub struct ContentStore {
     /// absent directory is silently skipped (backwards-compat; old content
     /// packs have no managers/ dir).
     pub managers: BTreeMap<String, crate::manager::ManagerArchetype>,
-    // TODO(T2-3): bios, scout phrases, headlines, manager quotes, fan
-    // reactions — wired in as each baker subcommand lands.
+    /// News headline + manager-quote grammar bank. Loaded from
+    /// `content/sources/grammars/headlines.tracery.json` and
+    /// `content/sources/grammars/manager-quotes.tracery.json`.
+    /// Missing either file is a hard load error
+    /// (`ContentLoadError::MissingNarrativeGrammar`).
+    pub news_grammars: crate::news::NewsGrammarBank,
+    // TODO(T2-3): bios, scout phrases, fan reactions — wired in as each
+    // baker subcommand lands.
 }
 
 impl Default for ContentStore {
@@ -402,6 +498,22 @@ impl Default for ContentStore {
         // non-empty origin variants, satisfying the tightened invariant.
         let commentary_grammars = CommentaryGrammarBank::try_from_map(map)
             .expect("default ContentStore: all discriminants present with non-empty origin");
+
+        // Build placeholder news grammar bank for tests that construct a
+        // ContentStore without going through load_sources. The placeholder text
+        // surfaces in test output if anyone forgets to load real grammars.
+        let mut headline_rules: std::collections::BTreeMap<String, Vec<String>> =
+            std::collections::BTreeMap::new();
+        headline_rules.insert(
+            "origin".into(),
+            vec!["(default headline placeholder)".into()],
+        );
+        let mut quote_rules: std::collections::BTreeMap<String, Vec<String>> =
+            std::collections::BTreeMap::new();
+        quote_rules.insert("origin".into(), vec!["(default quote placeholder)".into()]);
+        let news_grammars = crate::news::NewsGrammarBank::from_parts(headline_rules, quote_rules)
+            .expect("default ContentStore: news grammar placeholder must construct cleanly");
+
         Self {
             corpus_version: 0,
             cultures: BTreeMap::new(),
@@ -411,6 +523,7 @@ impl Default for ContentStore {
             signature_definitions: BTreeMap::new(),
             commentary_grammars,
             managers: BTreeMap::new(),
+            news_grammars,
         }
     }
 }
@@ -470,6 +583,15 @@ pub enum ContentLoadError {
         /// Path of the duplicate RON file that also claimed this ID.
         path_dupe: PathBuf,
     },
+    /// A required narrative grammar file is absent from
+    /// `content/sources/grammars/`. Fail-loud: both headline and manager-quote
+    /// grammars are required; missing one means the news renderer is broken.
+    #[error(
+        "missing required narrative grammar file: {filename}; \
+         expected in content/sources/grammars/"
+    )]
+    MissingNarrativeGrammar { filename: &'static str },
+
     /// A content fixture references another content entity by ID, but that
     /// ID doesn't resolve in the loaded `ContentStore`.
     ///
@@ -676,6 +798,13 @@ impl ContentStore {
         //   signature_first_fired.tracery.json → SignatureFirstFired
         let commentary_dir = sources_dir.join("commentary");
         store.commentary_grammars = load_commentary_grammars(&commentary_dir)?;
+
+        // Narrative grammars — news headlines + manager quotes (T3-3).
+        // Required: both `headlines.tracery.json` and `manager-quotes.tracery.json`
+        // must exist under `content/sources/grammars/`. Missing either is a hard
+        // load error (fail-loud; the news renderer is broken without them).
+        let grammars_dir = sources_dir.join("grammars");
+        store.news_grammars = load_narrative_grammars(&grammars_dir)?;
 
         // Manager archetypes (T1-7). Optional — old content packs may not
         // have a managers/ dir; silently skip if absent. ID conversion
