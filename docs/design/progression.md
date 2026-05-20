@@ -58,7 +58,7 @@ ADR-0005 §"Breakthrough mechanism" line 270 names examples (`Finishing`, `Passi
 | `regressive_cooldown` | 18 in-game months | Longer than positive — collapses are rarer and heavier. Pillar 3 intent: regressive moments feel massive, not routine. |
 | `career_floor_formula` | `max(20, current_ca − 30)` | A collapse redraws PA downward but never below this floor in the affected family. Prevents a single catastrophic arc from writing a player out of the game. |
 
-All values are Q32 fixed-point in canonical state. The `0.92` breakthrough threshold is `Q32::from_fraction(92, 100)` (raw bits: `3_952_623_616` in Q32.32).
+All values are Q32 fixed-point in canonical state. The `0.92` breakthrough threshold has Q32.32 raw bits `3_951_369_912` (`0.92 × 2^32 = 395_136_991_232 / 100 = 3_951_369_912.32`, rounded to nearest). The `0.90` regressive threshold has raw bits `3_865_470_566` (`0.90 × 2^32 = 3_865_470_566.4`, rounded). These exact raw values are pinned by literal-assert tests in `crates/fw-memory/src/breakthrough.rs` so a hand-typed-constant slip fails loudly.
 
 ---
 

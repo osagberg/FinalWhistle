@@ -451,11 +451,11 @@ pub enum Emotion {
 ///
 /// ## T3-1 minimal starter
 ///
-/// Three core consequence types cover the T3-1 scope. The breakthrough /
-/// regressive-collapse consequence types (`PaRedraw` / `PaReductionRedraw`)
-/// are reserved for T3-4 when the breakthrough emitter lands. Mod content
-/// packs may supply additional consequence variants via opaque bytes analogous
-/// to `UnknownEventClass`.
+/// Three core consequence types cover the T3-1 scope. The `PaRedraw`,
+/// `PaReductionRedraw`, and `SignatureActivated` variants were reserved for
+/// T3-4 and are now appended below (additive — old saves still decode).
+/// Mod content packs may supply additional consequence variants via opaque
+/// bytes analogous to `UnknownEventClass`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Consequence {
     /// No downstream effect (most events).
@@ -466,6 +466,47 @@ pub enum Consequence {
     /// A compaction event dropped the referenced event ids from tick-level
     /// granularity.
     CompactionDrop { dropped_count: u32 },
+
+    // ---- T3-4 additions (appended additive — old saves decode None for these) ----
+    /// A positive PA redraw from a `BreakthroughMoment` event.
+    ///
+    /// `delta_pa` is always positive. `delta_ca` is also positive (the floor
+    /// catches up by `ca_lift_fraction`). Carried on the `BreakthroughMoment`
+    /// event so commentary / scout / press readers can phrase the lift.
+    PaRedraw {
+        /// The attribute family that was redrawn upward.
+        family: crate::breakthrough::AttributeFamily,
+        /// PA delta (positive integer, PA-scale units 1..=200).
+        delta_pa: i16,
+        /// CA delta (positive integer, PA-scale units 1..=200).
+        delta_ca: i16,
+    },
+
+    /// A negative PA redraw from a `RegressiveCollapse` event.
+    ///
+    /// `delta_pa` is always negative (bounded by the career floor).
+    /// `delta_ca` is also negative. Carried on the `RegressiveCollapse` event.
+    PaReductionRedraw {
+        /// The attribute family that was redrawn downward.
+        family: crate::breakthrough::AttributeFamily,
+        /// PA delta (negative integer, bounded by `max(20, ca − 30)`).
+        delta_pa: i16,
+        /// CA delta (negative integer, partial catch-down).
+        delta_ca: i16,
+    },
+
+    /// A signature candidate has been activated (Kind 1 breakthrough).
+    ///
+    /// Carried on the `BreakthroughMoment` event alongside `PaRedraw`.
+    /// The signature transitions from candidate to active on the player's card.
+    /// `signature_id` is the content-pack-qualified signature ID string
+    /// (e.g. `"fwh.core:signature.first_time_diagonal"`). Using `String`
+    /// avoids a `fw-memory → fw-content` dependency edge; the career system
+    /// (caller) resolves the ID via its own content store.
+    SignatureActivated {
+        /// Content-pack-qualified signature ID.
+        signature_id: String,
+    },
 }
 
 /// When and under what conditions a `MemoryEvent` becomes recall-eligible for
