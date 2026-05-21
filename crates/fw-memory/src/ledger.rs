@@ -853,4 +853,53 @@ mod tests {
             "one additional Compaction event for the new boundary"
         );
     }
+
+    /// T3-R-C mutation coverage — the `event.season.0 + 5 <= current_season.0`
+    /// boundary is pinned at EXACTLY 5. For a fixed season-0 event, `compact()`
+    /// is a no-op for `current_season` 1..=4 and fires at exactly 5. This single
+    /// test kills the `+ 5` ±1 mutation (a `+ 4` would fire at season 4; a `+ 6`
+    /// would not fire at season 5) AND the `<=` → `<` mutation (which would not
+    /// fire at season 5).
+    #[test]
+    fn compact_boundary_fires_only_at_exactly_five_seasons() {
+        use crate::event::EventClass;
+
+        // Below the boundary: a season-0 event must NOT compact at current 1..=4.
+        for current in 1u16..=4 {
+            let mut ledger = MemoryLedger::new();
+            ledger.append(make_event(PlayerId::new(1), 0, EventClass::DebutSenior));
+
+            let fired = ledger.compact(SeasonNumber(current));
+
+            assert_eq!(
+                fired, 0,
+                "compact(season {current}) must not compact a season-0 event (0 + 5 > {current})"
+            );
+            assert!(
+                !ledger
+                    .iter()
+                    .any(|e| matches!(e.event_class, EventClass::Compaction)),
+                "no Compaction event before the 5-season boundary (current_season = {current})"
+            );
+        }
+
+        // At exactly the boundary: a season-0 event IS compacted at current 5.
+        let mut ledger = MemoryLedger::new();
+        ledger.append(make_event(PlayerId::new(1), 0, EventClass::DebutSenior));
+
+        let fired = ledger.compact(SeasonNumber(5));
+
+        assert_eq!(
+            fired, 1,
+            "compact(season 5) must compact the season-0 event (0 + 5 <= 5)"
+        );
+        assert_eq!(
+            ledger
+                .iter()
+                .filter(|e| matches!(e.event_class, EventClass::Compaction))
+                .count(),
+            1,
+            "exactly one Compaction event at the 5-season boundary"
+        );
+    }
 }

@@ -8,7 +8,7 @@
 
 ## Active task
 
-(none — T3-R-B (breakthrough `evaluate` zero-delta panic guards + sub-floor-CA fix + gate-coverage tests + `compute_ca_delta` honesty) closed. Next `/next` picks **T3-R-C** — mutation-coverage tests + frozen V2 fixture. The `T3-R-C..F` cleanup rows land before T4's first user-facing-polish row.)
+(none — T3-R-C (compaction-boundary mutation-coverage test + frozen non-empty-ledger V2 save fixture) closed. Next `/next` picks **T3-R-D** — pack-level squad/roster validation. The `T3-R-D..F` cleanup rows land before T4's first user-facing-polish row.)
 
 ## Blockers
 
@@ -16,7 +16,7 @@
 
 ## Last green verify
 
-2026-05-21 (T3-R-B close): `scripts/fw verify` exit 0; full workspace + 154 frontend tests; clippy + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
+2026-05-21 (T3-R-C close): `scripts/fw verify` exit 0; full workspace + 154 frontend tests; clippy + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
 
 ## Last canonical hash
 

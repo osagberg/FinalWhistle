@@ -18,7 +18,9 @@
 //!   3. forward-incompat-failure  — unknown-future-discriminant FAILS LOUDLY
 //!   4. round-trip-byte-identical — encode(decode(frozen_bytes)) == frozen_bytes
 //!
-//! T3-7 adds a fifth test for the V0→V1→V2 full chain.
+//! T3-7 adds a fifth test for the V0→V1→V2 full chain; T3-R-C adds three more
+//! for the frozen non-empty-ledger V2 fixture (decode, byte-identical
+//! re-encode, load + transient-state restore).
 //!
 //! ## Fixture definitions (load-bearing; must match README.md)
 //!
@@ -42,20 +44,36 @@
 //!   0x63. bincode rejects unknown variants before attempting payload decode.
 //!   This mirrors the byte construction in `lib.rs` migration::load_envelope_rejects_unsupported_future_version.
 //!
+//! `v2_nonempty_ledger_sample.fwsave` (T3-R-C):
+//!   SaveEnvelope::V2(SaveV2 {
+//!       career_seed: Seed::from_u64(0x7E57_C0DE_0002_0003),
+//!       content_pack_version: 1,
+//!       ledger: <2 plain MemoryEvents + 1 Compaction>,
+//!   })
+//!   Wire bytes: [0x02, ...] (V2 tag = 0x02). The ledger is built by appending
+//!   a season-0 and a season-5 event then calling `compact(SeasonNumber(5))`.
+//!   This is the ONLY frozen fixture with a non-empty ledger — the v0/v1
+//!   fixtures carry empty ledgers and so cannot catch a `MemoryEvent` serde
+//!   regression against frozen bytes.
+//!
 //! ## Regeneration
 //!
 //! Run:
 //!   cargo test -p fw-save --test migration_fixtures_test -- --ignored regenerate_fixtures
 //!
-//! The `#[ignore]`-gated `regenerate_fixtures` test writes all three files.
+//! The `#[ignore]`-gated `regenerate_fixtures` test writes all four files.
 //! Run it once to bootstrap; re-run any time the encoder changes (requires an
 //! intentional schema bump + re-pin, per T3-7 discipline).
 
 use std::path::PathBuf;
 
-use fw_core::Seed;
-use fw_memory::MemoryLedger;
-use fw_save::{SaveEnvelope, SaveError, SaveV0, SaveV1, decode, encode, load_envelope};
+use fw_core::{MatchId, PlayerId, Q32, Seed, Tick};
+use fw_memory::{
+    CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter, EmitterKind, Emotion,
+    EntityRef, EventClass, EventId, MemoryEvent, MemoryLedger, Participant, ParticipantRole,
+    SeasonNumber, SourceId,
+};
+use fw_save::{SaveEnvelope, SaveError, SaveV0, SaveV1, SaveV2, decode, encode, load_envelope};
 
 // -------------------------------------------------------------------------
 // Fixture path helpers
@@ -85,6 +103,10 @@ fn v99_future_path() -> PathBuf {
     fixtures_dir().join("v99_future.fwsave")
 }
 
+fn v2_nonempty_path() -> PathBuf {
+    fixtures_dir().join("v2_nonempty_ledger_sample.fwsave")
+}
+
 // -------------------------------------------------------------------------
 // Documented fixture values (single source of truth; mirror README.md)
 // -------------------------------------------------------------------------
@@ -97,6 +119,69 @@ const V1_SAMPLE_CONTENT_PACK_VERSION: u32 = 1;
 
 /// The career seed encoded into `v0_sample.fwsave`.
 const V0_SAMPLE_SEED: u64 = 0xA0B1_C2D3_E4F5_0001;
+
+/// The career seed encoded into `v2_nonempty_ledger_sample.fwsave`.
+const V2_NONEMPTY_SEED: u64 = 0x7E57_C0DE_0002_0003;
+
+/// The content_pack_version encoded into `v2_nonempty_ledger_sample.fwsave`.
+const V2_NONEMPTY_CONTENT_PACK_VERSION: u32 = 1;
+
+/// Total row count of the frozen `v2_nonempty_ledger_sample.fwsave` ledger:
+/// 2 plain `MemoryEvent`s + 1 `Compaction` event.
+const V2_NONEMPTY_LEDGER_LEN: usize = 3;
+
+// -------------------------------------------------------------------------
+// Non-empty V2 ledger fixture construction
+// -------------------------------------------------------------------------
+// The v0/v1 fixtures all carry EMPTY ledgers (`MemoryLedger::new()`), so the
+// round-trip-byte-identical test never exercises the `MemoryEvent` serde
+// surface. `v2_nonempty_ledger_sample.fwsave` freezes a ledger with real rows
+// so a backward-compat regression in `MemoryEvent` encoding (a field reorder,
+// an `EventClass` discriminant shift) is caught against frozen bytes.
+
+/// Build a deterministic plain `MemoryEvent` for the non-empty V2 fixture.
+/// Mirrors the field shape of `fw-memory`'s internal `make_event` test helper.
+/// `event_id` and `salience` are overwritten by `MemoryLedger::append`.
+fn sample_memory_event(season: u16, event_class: EventClass) -> MemoryEvent {
+    MemoryEvent {
+        event_id: EventId(0),
+        schema_version: 1,
+        season: SeasonNumber(season),
+        tick: Some(Tick::ZERO),
+        career_date: CareerDate {
+            year: 1,
+            day_of_year: 1,
+        },
+        emitter: Emitter {
+            kind: EmitterKind::MatchEngine,
+            source_id: SourceId::Match(MatchId::new(0)),
+        },
+        participants: vec![Participant {
+            role: ParticipantRole::Subject,
+            entity: EntityRef::Player(PlayerId::new(1)),
+        }],
+        event_class,
+        stakes: Q32::ZERO,
+        emotion: Emotion::Neutral,
+        consequence: vec![Consequence::None],
+        callback_eligibility: CallbackEligibility::Immediate,
+        salience: Q32::ZERO,
+        decay_function: DecayFunction::Never,
+    }
+}
+
+/// Build the non-empty V2 ledger frozen into `v2_nonempty_ledger_sample.fwsave`:
+/// a season-0 event + a season-5 event, then `compact(SeasonNumber(5))` which
+/// nulls the season-0 event's tick and appends one `Compaction` event. Result:
+/// 3 rows — 2 plain `MemoryEvent`s (one `tick: None`, one `tick: Some`) + 1
+/// `Compaction`. Fully deterministic: no clocks, no RNG, sequential `EventId`s.
+fn build_v2_nonempty_ledger() -> MemoryLedger {
+    let mut ledger = MemoryLedger::new();
+    ledger.append(sample_memory_event(0, EventClass::DebutSenior));
+    ledger.append(sample_memory_event(5, EventClass::LegacyGoal));
+    ledger.compact(SeasonNumber(5));
+    ledger
+}
 
 // -------------------------------------------------------------------------
 // Chunk 1: #[ignore]-gated fixture regeneration
@@ -121,7 +206,7 @@ const V0_SAMPLE_SEED: u64 = 0xA0B1_C2D3_E4F5_0001;
 /// The fixture values written here are the canonical definitions; the
 /// README.md and the constants above mirror them. If you change the
 /// constants, re-run this test to update the binaries, then verify
-/// all five committed-fixture verifier tests still pass.
+/// all eight committed-fixture verifier tests still pass.
 #[test]
 #[ignore = "fixture regeneration — run manually to bootstrap or re-pin; not for CI"]
 fn regenerate_fixtures() {
@@ -162,6 +247,23 @@ fn regenerate_fixtures() {
     let v99_bytes: Vec<u8> = vec![0x63_u8];
     std::fs::write(v99_future_path(), &v99_bytes).expect("write v99_future.fwsave");
 
+    // --- v2_nonempty_ledger_sample.fwsave ---
+    // A V2 save whose ledger carries real rows — 2 plain MemoryEvents + 1
+    // Compaction event (appended by compact() at the 5-season boundary). The
+    // v0/v1 fixtures all carry EMPTY ledgers; this is the only frozen fixture
+    // that exercises the MemoryEvent serde surface against backward-compat drift.
+    let v2_env = SaveEnvelope::V2(SaveV2 {
+        career_seed: Seed::from_u64(V2_NONEMPTY_SEED),
+        content_pack_version: V2_NONEMPTY_CONTENT_PACK_VERSION,
+        ledger: build_v2_nonempty_ledger(),
+    });
+    let v2_bytes = encode(&v2_env).expect("encode V2 fixture");
+    assert_eq!(
+        v2_bytes[0], 0x02,
+        "V2 wire tag must be 0x02 — schema-lock invariant"
+    );
+    std::fs::write(v2_nonempty_path(), &v2_bytes).expect("write v2_nonempty_ledger_sample.fwsave");
+
     println!("Fixtures written to: {}", dir.display());
     println!(
         "  v1_sample.fwsave  {} bytes  (first byte 0x{:02x})",
@@ -178,10 +280,15 @@ fn regenerate_fixtures() {
         v99_bytes.len(),
         v99_bytes[0]
     );
+    println!(
+        "  v2_nonempty_ledger_sample.fwsave {} bytes  (first byte 0x{:02x})",
+        v2_bytes.len(),
+        v2_bytes[0]
+    );
 }
 
 // -------------------------------------------------------------------------
-// Chunk 2: committed-fixture verifier tests (5 tests)
+// Chunk 2: committed-fixture verifier tests (8 tests)
 // -------------------------------------------------------------------------
 // These tests READ the committed frozen binaries and assert migration
 // behavior. Each must fail if:
@@ -392,5 +499,128 @@ fn fixture_v0_traverses_full_chain() {
     assert!(
         v2.ledger.is_empty(),
         "full-chain: V0→V1→V2 chain must produce an empty ledger"
+    );
+}
+
+// -------------------------------------------------------------------------
+// AC7: non-empty V2 ledger fixture (T3-R-C — Codex E6 frozen-fixture gap)
+// -------------------------------------------------------------------------
+
+/// `decode` on the committed `v2_nonempty_ledger_sample.fwsave` yields a
+/// `SaveEnvelope::V2` whose ledger carries the frozen rows — 2 plain
+/// `MemoryEvent`s + exactly 1 `Compaction`. This is the only frozen fixture
+/// with a NON-EMPTY ledger; the v0/v1 fixtures carry empty ledgers and so
+/// cannot catch a `MemoryEvent` serde regression.
+///
+/// Non-vacuousness: replacing the fixture with an empty-ledger save fails the
+/// `ledger.len()` assertion; a fixture missing the `Compaction` row fails the
+/// compaction-count assertion; a fixture encoding a different seed fails the
+/// `career_seed` assertion.
+#[test]
+fn fixture_v2_nonempty_ledger_decodes() {
+    let bytes = std::fs::read(v2_nonempty_path()).expect(
+        "read v2_nonempty_ledger_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap",
+    );
+
+    assert_eq!(
+        bytes[0], 0x02,
+        "v2_nonempty_ledger_sample.fwsave first byte must be 0x02 (V2 tag) — wrong fixture loaded?"
+    );
+
+    let env =
+        decode(&bytes).expect("decode of committed v2_nonempty_ledger_sample.fwsave must succeed");
+    let SaveEnvelope::V2(v2) = env else {
+        panic!("v2_nonempty_ledger_sample.fwsave must decode as SaveEnvelope::V2, got {env:?}");
+    };
+
+    assert_eq!(
+        v2.career_seed.to_u64(),
+        V2_NONEMPTY_SEED,
+        "decoded V2 career_seed must match the documented fixture value"
+    );
+    assert_eq!(
+        v2.ledger.len(),
+        V2_NONEMPTY_LEDGER_LEN,
+        "frozen V2 ledger must carry {V2_NONEMPTY_LEDGER_LEN} rows"
+    );
+
+    let compaction_count = v2
+        .ledger
+        .iter()
+        .filter(|e| matches!(e.event_class, EventClass::Compaction))
+        .count();
+    assert_eq!(
+        compaction_count, 1,
+        "frozen V2 ledger must carry exactly 1 Compaction event"
+    );
+    let plain_count = v2
+        .ledger
+        .iter()
+        .filter(|e| !matches!(e.event_class, EventClass::Compaction))
+        .count();
+    assert_eq!(
+        plain_count, 2,
+        "frozen V2 ledger must carry 2 plain (non-Compaction) MemoryEvents"
+    );
+}
+
+/// `encode(decode(committed_v2_bytes))` is byte-identical to the committed
+/// bytes — the non-empty-ledger analogue of `fixture_v1_round_trip_byte_identical`.
+/// A `MemoryEvent` serde regression (a field reorder, an `EventClass`
+/// discriminant shift, a varint-encoding change) produces different bytes
+/// here where the empty-ledger fixtures stay silent.
+///
+/// Non-vacuousness: mutating `encode` to append or drop any byte fails the
+/// length-and-content `assert_eq!`; the frozen non-empty ledger means the
+/// `MemoryEvent` rows are genuinely re-encoded, not skipped.
+#[test]
+fn fixture_v2_nonempty_round_trip_byte_identical() {
+    let bytes = std::fs::read(v2_nonempty_path()).expect(
+        "read v2_nonempty_ledger_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap",
+    );
+
+    let envelope = decode(&bytes)
+        .expect("decode of committed v2_nonempty_ledger_sample.fwsave must succeed for round-trip");
+    let re_encoded = encode(&envelope)
+        .expect("re-encode of decoded v2_nonempty_ledger_sample.fwsave envelope must succeed");
+
+    assert_eq!(
+        bytes, re_encoded,
+        "round-trip-byte-identical: encode(decode(committed_v2_bytes)) must equal committed_v2_bytes"
+    );
+}
+
+/// `load_envelope` on the committed `v2_nonempty_ledger_sample.fwsave` passes
+/// the V2 payload through (V2 is the current schema — no migration hop) and
+/// `restore_transient_state` rebuilds the transient `next_id` from the 3
+/// frozen rows, so the next appended event takes `EventId(3)`.
+///
+/// Non-vacuousness: if `load_envelope` skipped `restore_transient_state`,
+/// `next_id` would stay at its `#[serde(skip)]` default of 0 and the new
+/// append would collide at `EventId(0)`, failing the assertion.
+#[test]
+fn fixture_v2_nonempty_loads_and_restores_transient_state() {
+    let bytes = std::fs::read(v2_nonempty_path()).expect(
+        "read v2_nonempty_ledger_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap",
+    );
+
+    let mut v2 = load_envelope(&bytes)
+        .expect("v2_nonempty_ledger_sample.fwsave must load via load_envelope without error");
+
+    assert_eq!(
+        v2.ledger.len(),
+        V2_NONEMPTY_LEDGER_LEN,
+        "loaded V2 ledger must carry {V2_NONEMPTY_LEDGER_LEN} rows"
+    );
+
+    // restore_transient_state (run by load_envelope) rebuilt next_id from the
+    // 3 frozen rows — the next append must take EventId(3), not EventId(0).
+    let new_id = v2
+        .ledger
+        .append(sample_memory_event(6, EventClass::LegacyGoal));
+    assert_eq!(
+        new_id,
+        EventId(3),
+        "load_envelope must restore next_id so a post-load append continues the EventId sequence"
     );
 }

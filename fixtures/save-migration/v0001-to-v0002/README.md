@@ -78,6 +78,33 @@ Used by tests:
 
 ---
 
+### `v2_nonempty_ledger_sample.fwsave` (73 bytes)
+
+A `SaveEnvelope::V2` save with a NON-EMPTY ledger. Wire tag: `0x02`.
+
+| Field                  | Value                                            |
+|------------------------|--------------------------------------------------|
+| `career_seed`          | `0x7E57C0DE00020003` (u64)                       |
+| `content_pack_version` | `1` (u32)                                        |
+| `ledger`               | 2 plain `MemoryEvent`s + 1 `Compaction` (3 rows) |
+
+The ledger is built by appending a season-0 `DebutSenior` event and a season-5
+`LegacyGoal` event, then calling `compact(SeasonNumber(5))` — which nulls the
+season-0 event's `tick` and appends one `Compaction` event.
+
+This is the ONLY frozen fixture with a non-empty ledger. The `v0`/`v1` fixtures
+carry empty ledgers, so their round-trip tests never exercise the `MemoryEvent`
+serde surface. A backward-compat regression in `MemoryEvent` encoding (a field
+reorder, an `EventClass` discriminant shift, a varint-encoding change) is caught
+here against frozen bytes where the empty-ledger fixtures stay silent.
+
+Used by tests:
+- `fixture_v2_nonempty_ledger_decodes` (AC7 — decode + row / Compaction count)
+- `fixture_v2_nonempty_round_trip_byte_identical` (AC7 — round-trip-byte-identical)
+- `fixture_v2_nonempty_loads_and_restores_transient_state` (AC7 — load + transient-state restore)
+
+---
+
 ## Regeneration
 
 Run this once to bootstrap or re-pin after a schema bump:
@@ -86,7 +113,7 @@ Run this once to bootstrap or re-pin after a schema bump:
 cargo test -p fw-save --test migration_fixtures_test -- --ignored regenerate_fixtures
 ```
 
-Then commit the three `.fwsave` files. After regeneration, verify all five
+Then commit the four `.fwsave` files. After regeneration, verify all eight
 committed-fixture verifier tests still pass:
 
 ```sh
@@ -102,11 +129,12 @@ regression to investigate, not a regen prompt.
 
 ## Schema version map
 
-| File                 | `SaveEnvelope` variant | Wire tag |
-|----------------------|------------------------|----------|
-| `v0_sample.fwsave`   | `V0(SaveV0) = 0`       | `0x00`   |
-| `v1_sample.fwsave`   | `V1(SaveV1) = 1`       | `0x01`   |
-| `v99_future.fwsave`  | N/A (discriminant 99)  | `0x63`   |
+| File                              | `SaveEnvelope` variant | Wire tag |
+|-----------------------------------|------------------------|----------|
+| `v0_sample.fwsave`                | `V0(SaveV0) = 0`       | `0x00`   |
+| `v1_sample.fwsave`                | `V1(SaveV1) = 1`       | `0x01`   |
+| `v2_nonempty_ledger_sample.fwsave`| `V2(SaveV2) = 2`       | `0x02`   |
+| `v99_future.fwsave`               | N/A (discriminant 99)  | `0x63`   |
 
 The current production schema is `V2` (T3-1). `V1` is the locked first real
 schema (T2-9). `V0` is the fictional pre-T2-9 stub kept forever to exercise
