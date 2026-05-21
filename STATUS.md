@@ -4,11 +4,11 @@
 
 ## Phase
 
-**Phase T3 (Career + Memory) IN PROGRESS.** T3-1 (schema + SaveV2), T3-2 (5 ledger readers), T3-3 (news render) closed 2026-05-18; T3-4 (breakthrough mechanism — pillar 3) closed 2026-05-20. The memory pillar's three structural layers (canonical schema, read projections, narrative render) + the breakthrough/regressive-collapse progression engine are now in place. 4 of 8 T3 rows DONE.
+**Phase T3 (Career + Memory) IN PROGRESS.** T3-1 (schema + SaveV2), T3-2 (5 ledger readers), T3-3 (news render) closed 2026-05-18; T3-4 (breakthrough mechanism — pillar 3) closed 2026-05-20; T3-7 (save-migration committed-fixture verifier) closed 2026-05-21. 5 of 8 T3 rows DONE. The 3 remaining: T3-5 + T3-6 (both dep-blocked on DEFERRED rows), T3-8 (phase-gate Codex review).
 
 ## Active task
 
-(none — T3-4 closed; next `/next` picks T3-5 — `fw-scouting` scout-uncertainty model, single-scout-report variant. Note dependency: T3-5's MASTER_PLAN dep is T2-4, which is DEFERRED-ROLLED-TO-T3 — see Blockers.)
+(none — T3-7 closed. **Phase T3 has no cleanly-eligible `/next` row left:** T3-5 dep T2-4 + T3-6 dep T2-7 are both `DEFERRED-ROLLED-TO-T3`; T3-8 dep is T3-7 (now DONE) but T3-8 IS the phase-gate Codex review — a `/done`-class step, not a `/next` implementation row. Next move is a user decision — see Phase T3 pointer.)
 
 ## Blockers
 
@@ -17,7 +17,7 @@
 
 ## Last green verify
 
-2026-05-20 (post-T3-4): `scripts/fw verify` exit 0; 70 fw-memory tests (breakthrough mechanism + synthetic 5-season-career cadence harness); clippy clean; canonical match-state hashes UNCHANGED on both pins (fw-memory is not in the canonical match-state hash path).
+2026-05-21 (post-T3-7): `scripts/fw verify` exit 0; 29 fw-save tests (incl 5 committed-fixture migration verifiers); clippy clean; canonical match-state hashes UNCHANGED on both pins.
 
 ## Last canonical hash
 
@@ -29,6 +29,9 @@
 
 ## Phase T3 pointer
 
-**Next task (T3-5):** `fw-scouting` scout-uncertainty model — single-scout-report variant (Path B fallback); report data shape locked; uncertainty bands display as text labels, not numbers. **Dependency note:** the MASTER_PLAN T3-5 row's listed dep is T2-4, which is `DEFERRED-ROLLED-TO-T3` — its blocker (`design/player-generation.md`) was resolved 2026-05-18, so T2-4 is promotable; `/next` will need to weigh whether T3-5 can proceed against the design doc directly, or whether T2-4 (PlayerBio gen) must land first. Likely a `/next` ambiguity-gate pause to confirm.
+**No cleanly-eligible `/next` row remains in T3 — user decision needed.** The 3 open rows:
+- **T3-5** (`fw-scouting` scout-uncertainty model) — dep T2-4 is `DEFERRED-ROLLED-TO-T3`. T2-4's blocker (`design/player-generation.md`) was resolved 2026-05-18; T2-4 is promotable to TODO.
+- **T3-6** (Frontend Player detail page) — dep T2-7 is `DEFERRED-ROLLED-TO-T3`. T2-7's blocker also resolved 2026-05-18; promotable alongside T2-4.
+- **T3-8** (phase-gate Codex review #2) — dep T3-7 is now DONE, so T3-8 is technically eligible, but T3-8 IS the phase-close Codex review — a `/done`-class step, not a `/next` implementation row.
 
-**Remaining T3 rows (4):** T3-5 (scout-uncertainty model; also adds ScoutReader's archetype bias), T3-6 (Frontend Player detail page with memory callbacks; dep T2-7 also DEFERRED-ROLLED-TO-T3), T3-7 (save migration 4-test discipline for V1→V2 — partially complete via T3-1; T3-7 acts as the formal verifier), T3-8 (phase-gate Codex review #2).
+**Options for the user:** (a) promote T2-4 + T2-7 back to TODO (their blockers are resolved) so `/next` can ship the PlayerBio-generation + Squad-page + scouting + player-detail rows; (b) run `/done` to close Phase T3 now with T3-5/T3-6 carried forward as DEFERRED — but T3-5/T3-6 are MVP rows, so closing without them is a scope cut; (c) decide T3-5/T3-6 order. The honest read: T3 is not really complete — 2 MVP rows (scouting, player-detail UI) are unbuilt because their PlayerBio dependency was rolled forward. Promoting T2-4/T2-7 is the path to a genuinely-complete T3.
