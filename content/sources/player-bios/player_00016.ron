@@ -1,0 +1,77 @@
+// AM #2 — Corvan Ash. Half-space creator, late bloomer, struggles under scrutiny.
+// fwh.core:player_00016 | schema_version: 1
+PlayerBio(
+    schema_version: 1,
+    player_id: "fwh.core:player_00016",
+    content_pack_version: "1.0.0",
+    display_name_full: "Corvan Ash",
+    display_name_short: "C. Ash",
+    role_family: AttackingMidfielder,
+    birth_region: "Moorside Junction",
+    playing_instincts: (
+        defensive_shape_preference: Compact,
+        attacking_run_preference: Channels,
+        pressing_trigger: Reactive,
+        risk_appetite: (bits: 3435973837),  // 0.80
+    ),
+    pressure_response: (
+        stakes_to_performance_curve: [
+            (stakes: (bits: 0),           performance_delta: (bits: 858993459)),  // +0.2
+            (stakes: (bits: 2147483648),  performance_delta: (bits: -858993459)), // -0.2 dips
+            (stakes: (bits: 4294967296),  performance_delta: (bits: -1717986918)), // -0.4 struggles
+        ],
+        composure_floor: (bits: 1717986918),  // 0.40
+    ),
+    development_hooks: [
+        NarrativeFlagHook(
+            flag: LateBloomer,
+            unlock_conditions: [
+                CupRunDepth(min_rounds: 4),
+                AgeReached(age: 25),
+            ],
+        ),
+    ],
+    signature_candidates: [],
+    scout_labels: [
+        HalfSpaceCreator,
+        StrugglesUnderScrutiny,
+        LateBloomer,
+        AgilePivot,
+    ],
+    commentary_handles: (
+        preferred_nouns: ["the number ten", "Ash"],
+        preferred_verbs: ["drifts", "creates", "finds space"],
+    ),
+    rivalry_compatibility: {},
+    alumni_of: [],
+    tactical_dna_fragments: [],
+    internal_gene_snapshot: (
+        physical: (
+            height_ceiling:    (bits: 2362232013),  // 0.55
+            frame_density:     (bits: 1932735283),  // 0.45
+            fast_twitch_ratio: (bits: 3006477107),  // 0.70
+            stamina_recovery:  (bits: 2362232013),  // 0.55
+            growth_curve:      (bits: 1717986918),  // +0.40 (late bloomer)
+            aging_curve:       (bits: 3006477107),  // 0.70
+            injury_resilience: (bits: 1932735283),  // 0.45
+        ),
+        mental: (
+            pattern_recognition: (bits: 3435973837),  // 0.80
+            composure_floor:     (bits: 1717986918),  // 0.40
+            decision_velocity:   (bits: 2920577761),  // 0.68
+            learning_rate:       (bits: 3221225472),  // 0.75
+            ambition:            (bits: 2576980378),  // 0.60
+            mentality:           (bits: 2576980378),  // +0.60 (extrovert)
+        ),
+        technical: (
+            left_foot:   (bits: 2147483648),  // 0.50
+            aerial:      (bits: 1503238554),  // 0.35
+            dead_ball:   (bits: 2362232013),  // 0.55
+            striking:    (bits: 2576980378),  // 0.60
+            first_touch: (bits: 3435973837),  // 0.80
+        ),
+        narrative_flags: [
+            LateBloomer,
+        ],
+    ),
+)

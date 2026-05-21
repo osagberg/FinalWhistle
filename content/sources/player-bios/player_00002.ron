@@ -1,0 +1,73 @@
+// GK #2 — Orla Brightfen. Line keeper, reliable, early developer.
+// fwh.core:player_00002 | schema_version: 1
+PlayerBio(
+    schema_version: 1,
+    player_id: "fwh.core:player_00002",
+    content_pack_version: "1.0.0",
+    display_name_full: "Orla Brightfen",
+    display_name_short: "O. Brightfen",
+    role_family: Goalkeeper,
+    birth_region: "Halsworth Fells",
+    playing_instincts: (
+        defensive_shape_preference: Compact,
+        attacking_run_preference: DropDeep,
+        pressing_trigger: Conservative,
+        risk_appetite: (bits: 1503238554),  // 0.35
+    ),
+    pressure_response: (
+        stakes_to_performance_curve: [
+            (stakes: (bits: 0),           performance_delta: (bits: 858993459)),  // +0.2 baseline
+            (stakes: (bits: 2147483648),  performance_delta: (bits: 858993459)),  // flat under pressure
+            (stakes: (bits: 4294967296),  performance_delta: (bits: 0)),          // slight drop
+        ],
+        composure_floor: (bits: 2920577761),  // 0.68
+    ),
+    development_hooks: [
+        MinutesInRole(
+            role: Goalkeeper,
+            threshold_minutes: 900,
+            readiness_target_field: TechnicalCeiling,
+        ),
+    ],
+    signature_candidates: [],
+    scout_labels: [
+        LineKeeper,
+        CrossClaimer,
+        EarlyDeveloper,
+        Loyal,
+    ],
+    commentary_handles: (
+        preferred_nouns: ["the goalkeeper", "Brightfen"],
+        preferred_verbs: ["claims", "holds", "catches"],
+    ),
+    rivalry_compatibility: {},
+    alumni_of: [],
+    tactical_dna_fragments: [],
+    internal_gene_snapshot: (
+        physical: (
+            height_ceiling:    (bits: 3865470566),  // 0.90
+            frame_density:     (bits: 3006477107),  // 0.70
+            fast_twitch_ratio: (bits: 1717986918),  // 0.40
+            stamina_recovery:  (bits: 2576980378),  // 0.60
+            growth_curve:      (bits: -1717986918), // -0.40 (early peak)
+            aging_curve:       (bits: 2362232013),  // 0.55
+            injury_resilience: (bits: 3006477107),  // 0.70
+        ),
+        mental: (
+            pattern_recognition: (bits: 2920577761),  // 0.68
+            composure_floor:     (bits: 2920577761),  // 0.68
+            decision_velocity:   (bits: 2576980378),  // 0.60
+            learning_rate:       (bits: 1717986918),  // 0.40
+            ambition:            (bits: 1932735283),  // 0.45
+            mentality:           (bits: 0),           // 0.0 (neutral)
+        ),
+        technical: (
+            left_foot:   (bits: 1288490189),  // 0.30
+            aerial:      (bits: 3650722202),  // 0.85
+            dead_ball:   (bits: 858993459),   // 0.20
+            striking:    (bits: 858993459),   // 0.20
+            first_touch: (bits: 2362232013),  // 0.55
+        ),
+        narrative_flags: [],
+    ),
+)

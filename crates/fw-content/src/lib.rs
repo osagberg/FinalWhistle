@@ -11,11 +11,13 @@
 pub mod archetype;
 pub mod commentary;
 pub mod event;
+pub mod gene;
 pub mod league;
 pub mod manager;
 pub mod markov;
 pub mod news;
 pub mod player;
+pub mod player_bio;
 pub mod procgen;
 pub mod role_affinity;
 pub mod runtime;
@@ -29,6 +31,9 @@ pub use commentary::{
 // MatchEventDiscriminant moved to event module at T1-11 type-design P1 fix-pass
 // (was in commentary; cyclic-import once MatchEvent::discriminant() returns it).
 pub use event::{MatchEvent, MatchEventDiscriminant, PassKind, is_shot_on_target};
+pub use gene::{
+    GeneRangeError, GeneSnapshot, MentalGenes, NarrativeFlag, PhysicalGenes, TechnicalAffinities,
+};
 pub use league::{
     CLUBS_PER_LEAGUE, Fixture, League, MATCH_DAYS_PER_SEASON, MATCHES_PER_SEASON, MatchOutcome,
     SeasonState, Standings, StandingsRow, generate_fixtures, generate_league,
@@ -43,6 +48,11 @@ pub use news::{
     render_headline, render_manager_quote,
 };
 pub use player::{PLAYER_TEMPLATE_SCHEMA_VERSION, PlayerTemplate};
+pub use player_bio::{
+    AttackingRun, CommentaryHandles, CurvePoint, DefensiveShape, DevelopmentHook, MemoryEventClass,
+    PLAYER_BIO_SCHEMA_VERSION, PhenotypeLabelId, PlayerBio, PlayingInstincts, PressingTrigger,
+    PressureResponse, ReadinessField, TacticalDnaFragment, UnlockCondition,
+};
 pub use procgen::{
     ManagerName, PlayerName, ProcGenError, ProcGenInputs, ProcGenTeam, generate_team,
     train_culture_chain,

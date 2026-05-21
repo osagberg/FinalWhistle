@@ -1,0 +1,72 @@
+// FB #3 — Brix Oland. Wing-back runner, relentless engine, quick recovery.
+// fwh.core:player_00008 | schema_version: 1
+PlayerBio(
+    schema_version: 1,
+    player_id: "fwh.core:player_00008",
+    content_pack_version: "1.0.0",
+    display_name_full: "Brix Oland",
+    display_name_short: "B. Oland",
+    role_family: FullBack,
+    birth_region: "Cragswell Northern",
+    playing_instincts: (
+        defensive_shape_preference: SpreadHigh,
+        attacking_run_preference: DriftWide,
+        pressing_trigger: Aggressive,
+        risk_appetite: (bits: 3006477107),  // 0.70
+    ),
+    pressure_response: (
+        stakes_to_performance_curve: [
+            (stakes: (bits: 0),           performance_delta: (bits: 0)),
+            (stakes: (bits: 2147483648),  performance_delta: (bits: 858993459)),  // +0.2
+            (stakes: (bits: 4294967296),  performance_delta: (bits: 1288490189)), // +0.3
+        ],
+        composure_floor: (bits: 2147483648),  // 0.50
+    ),
+    development_hooks: [
+        EventCount(
+            event_class: BigMatchPlayed,
+            threshold: 10,
+            readiness_target_field: TechnicalCeiling,
+        ),
+    ],
+    signature_candidates: [],
+    scout_labels: [
+        WingBackRunner,
+        RelentlessEngine,
+        QuickRecovery,
+    ],
+    commentary_handles: (
+        preferred_nouns: ["the wing-back", "Oland"],
+        preferred_verbs: ["gallops", "recovers", "tracks back"],
+    ),
+    rivalry_compatibility: {},
+    alumni_of: [],
+    tactical_dna_fragments: [],
+    internal_gene_snapshot: (
+        physical: (
+            height_ceiling:    (bits: 2576980378),  // 0.60
+            frame_density:     (bits: 2147483648),  // 0.50
+            fast_twitch_ratio: (bits: 3435973837),  // 0.80
+            stamina_recovery:  (bits: 4079218611),  // 0.95
+            growth_curve:      (bits: -429496730), // -0.10
+            aging_curve:       (bits: 2362232013),  // 0.55
+            injury_resilience: (bits: 3221225472),  // 0.75
+        ),
+        mental: (
+            pattern_recognition: (bits: 2362232013),  // 0.55
+            composure_floor:     (bits: 2147483648),  // 0.50
+            decision_velocity:   (bits: 3006477107),  // 0.70
+            learning_rate:       (bits: 2576980378),  // 0.60
+            ambition:            (bits: 2791728742),  // 0.65
+            mentality:           (bits: 858993459),   // +0.20
+        ),
+        technical: (
+            left_foot:   (bits: 1932735283),  // 0.45
+            aerial:      (bits: 2362232013),  // 0.55
+            dead_ball:   (bits: 1503238554),  // 0.35
+            striking:    (bits: 2147483648),  // 0.50
+            first_touch: (bits: 2576980378),  // 0.60
+        ),
+        narrative_flags: [],
+    ),
+)

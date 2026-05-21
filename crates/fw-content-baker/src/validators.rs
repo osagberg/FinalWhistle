@@ -20,9 +20,10 @@
 use std::path::Path;
 
 use fw_content::{
-    BUILDUP_SPEED_MAX_BPS, BUILDUP_SPEED_MIN_BPS, Culture, PlayerTemplate, RoleAffinityTable,
-    TacticalArchetype,
+    BUILDUP_SPEED_MAX_BPS, BUILDUP_SPEED_MIN_BPS, Culture, GeneRangeError, PlayerBio,
+    PlayerTemplate, RoleAffinityTable, TacticalArchetype,
 };
+use fw_core::Q32;
 
 // ---------------------------------------------------------------------------
 // ValidationError — extended with structured variants per T2-3
@@ -110,6 +111,60 @@ pub enum ValidationError {
     TacticalArchetypeFormationSlotsInvalid {
         archetype_id: String,
         detail: String,
+    },
+
+    // --- PlayerBioValidator variants (T2-4) ----------------------------------
+    #[error(
+        "player bio {player_id:?}: player_id format invalid — \
+         expected `fwh.core:player_NNNNN` (5-digit zero-padded), got {value:?}"
+    )]
+    PlayerBioIdFormatInvalid { player_id: String, value: String },
+
+    #[error(
+        "player bio {player_id:?}: schema_version {version} is 0 — \
+         must be >= 1 (Content/RULES.md §3)"
+    )]
+    PlayerBioSchemaVersionZero { player_id: String, version: u16 },
+
+    #[error(
+        "player bio {player_id:?}: gene field {field:?} value {value:?} \
+         is outside the allowed range [{lo}, {hi}]"
+    )]
+    PlayerBioGeneOutOfRange {
+        player_id: String,
+        field: String,
+        value: Q32,
+        lo: &'static str,
+        hi: &'static str,
+    },
+
+    #[error("player bio {player_id:?}: scout_labels is empty — must have at least 1 label")]
+    PlayerBioEmptyScoutLabels { player_id: String },
+
+    #[error(
+        "player bio {player_id:?}: signature_candidate[{idx}] affinity {value:?} \
+         is outside [0, 1]"
+    )]
+    PlayerBioSignatureAffinityOutOfRange {
+        player_id: String,
+        idx: usize,
+        value: Q32,
+    },
+
+    #[error(
+        "player bio {player_id:?}: has {count} signature candidates; \
+         maximum is 3 per design/player-generation.md"
+    )]
+    PlayerBioTooManySignatureCandidates { player_id: String, count: usize },
+
+    #[error(
+        "player bio {player_id:?}: field {field:?} value {value:?} \
+         is outside the allowed range [0, 1]"
+    )]
+    PlayerBioInstinctFieldOutOfRange {
+        player_id: String,
+        field: &'static str,
+        value: Q32,
     },
 }
 
@@ -351,6 +406,181 @@ impl TacticalArchetypeValidator {
 }
 
 // ---------------------------------------------------------------------------
+// PlayerBioValidator (T2-4)
+// ---------------------------------------------------------------------------
+
+/// Structural validator for `PlayerBio` fixtures.
+///
+/// Chained checks (in order):
+///  1. `check_id_format` — `player_id` matches `^fwh\.core:player_\d{5}$`.
+///  2. `check_schema_version` — `schema_version >= 1`.
+///  3. `check_gene_ranges` — all Q32 gene fields in their declared ranges
+///     (0..=1 for most; -1..=+1 for `growth_curve` + `mentality`).
+///  4. `check_scout_labels_non_empty` — `scout_labels.len() >= 1`.
+///  5. `check_signature_candidates` — each affinity in [0, 1]; count <= 3.
+///
+/// STRUCTURAL ONLY — NOT semantic. Composed-output sampling and
+/// banned-terms linting defer to T4+ per `docs/MASTER_PLAN.md`.
+#[derive(Debug, Default)]
+pub struct PlayerBioValidator;
+
+impl PlayerBioValidator {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Run all structural checks on `entity`. Returns the FIRST violation.
+    pub fn validate(&self, entity: &PlayerBio) -> Result<(), ValidationError> {
+        self.check_id_format(entity)?;
+        self.check_schema_version(entity)?;
+        self.check_gene_ranges(entity)?;
+        self.check_instinct_and_pressure_ranges(entity)?;
+        self.check_scout_labels_non_empty(entity)?;
+        self.check_signature_candidates(entity)?;
+        Ok(())
+    }
+
+    /// Player ID must match `fwh.core:player_NNNNN` (exactly 5 decimal digits).
+    /// This is the canonical procedural form per `Content/RULES.md §2`.
+    fn check_id_format(&self, bio: &PlayerBio) -> Result<(), ValidationError> {
+        if !Self::is_valid_player_id(&bio.player_id) {
+            return Err(ValidationError::PlayerBioIdFormatInvalid {
+                player_id: bio.player_id.clone(),
+                value: bio.player_id.clone(),
+            });
+        }
+        Ok(())
+    }
+
+    fn is_valid_player_id(id: &str) -> bool {
+        // Expected: `fwh.core:player_NNNNN` (exactly 5 decimal digits)
+        let Some(rest) = id.strip_prefix("fwh.core:player_") else {
+            return false;
+        };
+        rest.len() == 5 && rest.bytes().all(|b| b.is_ascii_digit())
+    }
+
+    fn check_schema_version(&self, bio: &PlayerBio) -> Result<(), ValidationError> {
+        if bio.schema_version == 0 {
+            return Err(ValidationError::PlayerBioSchemaVersionZero {
+                player_id: bio.player_id.clone(),
+                version: bio.schema_version,
+            });
+        }
+        Ok(())
+    }
+
+    /// Check all 22 gene fields are within their declared ranges.
+    ///
+    /// Delegates to `GeneSnapshot::validate()` so the invariant travels with
+    /// the type (fw-content) rather than living only in the baker.
+    fn check_gene_ranges(&self, bio: &PlayerBio) -> Result<(), ValidationError> {
+        bio.internal_gene_snapshot.validate().map_err(|e| match e {
+            GeneRangeError::UnitOutOfRange { field, value } => {
+                ValidationError::PlayerBioGeneOutOfRange {
+                    player_id: bio.player_id.clone(),
+                    field: field.to_string(),
+                    value,
+                    lo: "0",
+                    hi: "1",
+                }
+            }
+            GeneRangeError::SignedOutOfRange { field, value } => {
+                ValidationError::PlayerBioGeneOutOfRange {
+                    player_id: bio.player_id.clone(),
+                    field: field.to_string(),
+                    value,
+                    lo: "-1",
+                    hi: "1",
+                }
+            }
+        })
+    }
+
+    /// Check Q32 fields outside the gene snapshot that are declared `[0, 1]`:
+    /// - `playing_instincts.risk_appetite`
+    /// - `pressure_response.composure_floor`
+    /// - `pressure_response.stakes_to_performance_curve[].stakes`
+    ///   (NOTE: `performance_delta` is intentionally signed — NOT checked here)
+    /// - each `tactical_dna_fragments[].influence_weight`
+    fn check_instinct_and_pressure_ranges(&self, bio: &PlayerBio) -> Result<(), ValidationError> {
+        let check_unit = |val: Q32, field: &'static str| -> Result<(), ValidationError> {
+            if val < Q32::ZERO || val > Q32::ONE {
+                return Err(ValidationError::PlayerBioInstinctFieldOutOfRange {
+                    player_id: bio.player_id.clone(),
+                    field,
+                    value: val,
+                });
+            }
+            Ok(())
+        };
+
+        check_unit(bio.playing_instincts.risk_appetite, "risk_appetite")?;
+        check_unit(bio.pressure_response.composure_floor, "composure_floor")?;
+
+        for (idx, pt) in bio
+            .pressure_response
+            .stakes_to_performance_curve
+            .iter()
+            .enumerate()
+        {
+            if pt.stakes < Q32::ZERO || pt.stakes > Q32::ONE {
+                return Err(ValidationError::PlayerBioInstinctFieldOutOfRange {
+                    player_id: bio.player_id.clone(),
+                    field: "stakes_to_performance_curve[].stakes",
+                    value: pt.stakes,
+                });
+            }
+            // Suppress unused-variable warning for idx when the loop body only
+            // uses it in the error path.
+            let _ = idx;
+        }
+
+        for frag in &bio.tactical_dna_fragments {
+            check_unit(
+                frag.influence_weight,
+                "tactical_dna_fragments[].influence_weight",
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn check_scout_labels_non_empty(&self, bio: &PlayerBio) -> Result<(), ValidationError> {
+        if bio.scout_labels.is_empty() {
+            return Err(ValidationError::PlayerBioEmptyScoutLabels {
+                player_id: bio.player_id.clone(),
+            });
+        }
+        Ok(())
+    }
+
+    fn check_signature_candidates(&self, bio: &PlayerBio) -> Result<(), ValidationError> {
+        if bio.signature_candidates.len() > 3 {
+            return Err(ValidationError::PlayerBioTooManySignatureCandidates {
+                player_id: bio.player_id.clone(),
+                count: bio.signature_candidates.len(),
+            });
+        }
+        // NOTE: SignatureCandidate::try_new already validates affinity ∈ [0,1]
+        // at deserialisation time (the custom Deserialize impl on SignatureCandidate
+        // calls try_new). If we ever build a PlayerBio in code with an unchecked
+        // affinity, we'd need to re-check here. Since all code paths go through
+        // try_new at construction time, this is belt-and-suspenders:
+        for (idx, candidate) in bio.signature_candidates.iter().enumerate() {
+            if candidate.affinity < Q32::ZERO || candidate.affinity > Q32::ONE {
+                return Err(ValidationError::PlayerBioSignatureAffinityOutOfRange {
+                    player_id: bio.player_id.clone(),
+                    idx,
+                    value: candidate.affinity,
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Semantic free-functions (T1-12 deferred — DO NOT CHANGE)
 // ---------------------------------------------------------------------------
 
@@ -438,8 +668,8 @@ mod tests {
 
     use fw_content::{
         BUILDUP_SPEED_BASELINE_BPS, BUILDUP_SPEED_MAX_BPS, BUILDUP_SPEED_MIN_BPS, Culture,
-        CultureWeights, FormationSlot, PlayerTemplate, ROLE_AFFINITY_SCHEMA_VERSION,
-        RoleAffinityTable, TacticalArchetype,
+        CultureWeights, FormationSlot, PLAYER_BIO_SCHEMA_VERSION, PlayerTemplate,
+        ROLE_AFFINITY_SCHEMA_VERSION, RoleAffinityTable, TacticalArchetype,
     };
     use fw_core::{
         AbilityCeiling, DurabilityProfile, GoalkeeperAttributes, MentalAttributes,
@@ -911,6 +1141,265 @@ mod tests {
                 assert_eq!(len, 19);
             }
             other => panic!("expected CultureLastNameBankTooSmall, got {other:?}"),
+        }
+    }
+
+    // --- T2-4: PlayerBioValidator tests (AC3) --------------------------------
+
+    /// Build a fully-populated, structurally-valid `PlayerBio` for testing.
+    fn well_formed_player_bio() -> PlayerBio {
+        use fw_content::signature::RoleFamily;
+        use fw_content::{
+            AttackingRun, CommentaryHandles, CurvePoint, DefensiveShape, DevelopmentHook,
+            GeneSnapshot, MentalGenes, NarrativeFlag, PhenotypeLabelId, PhysicalGenes, PlayerBio,
+            PlayingInstincts, PressingTrigger, PressureResponse, TacticalDnaFragment,
+            TechnicalAffinities,
+        };
+        use std::collections::{BTreeMap, BTreeSet};
+
+        let half = Q32::from_raw(2_147_483_648_i64); // 0.5
+        let zero = Q32::ZERO;
+        let one = Q32::ONE;
+
+        PlayerBio {
+            schema_version: PLAYER_BIO_SCHEMA_VERSION,
+            player_id: "fwh.core:player_00001".to_string(),
+            content_pack_version: "1.0.0".to_string(),
+            display_name_full: "Emeka Thorne".to_string(),
+            display_name_short: "E. Thorne".to_string(),
+            role_family: RoleFamily::Striker,
+            birth_region: "Ashvale".to_string(),
+            playing_instincts: PlayingInstincts {
+                defensive_shape_preference: DefensiveShape::Compact,
+                attacking_run_preference: AttackingRun::InBehind,
+                pressing_trigger: PressingTrigger::Aggressive,
+                risk_appetite: half,
+            },
+            pressure_response: PressureResponse {
+                stakes_to_performance_curve: vec![
+                    CurvePoint {
+                        stakes: zero,
+                        performance_delta: zero,
+                    },
+                    CurvePoint {
+                        stakes: half,
+                        performance_delta: half,
+                    },
+                    CurvePoint {
+                        stakes: one,
+                        performance_delta: one,
+                    },
+                ],
+                composure_floor: half,
+            },
+            development_hooks: vec![DevelopmentHook::MinutesInRole {
+                role: RoleFamily::Striker,
+                threshold_minutes: 900,
+                readiness_target_field: fw_content::ReadinessField::TechnicalCeiling,
+            }],
+            signature_candidates: vec![],
+            scout_labels: {
+                let mut s = BTreeSet::new();
+                s.insert(PhenotypeLabelId::PureFinisher);
+                s.insert(PhenotypeLabelId::Poacher);
+                s
+            },
+            commentary_handles: CommentaryHandles {
+                preferred_nouns: vec!["the striker".to_string()],
+                preferred_verbs: vec!["drives".to_string()],
+            },
+            rivalry_compatibility: BTreeMap::new(),
+            alumni_of: vec![],
+            tactical_dna_fragments: vec![TacticalDnaFragment {
+                archetype_id: "fwh.core:archetype.direct-pressing".to_string(),
+                influence_weight: half,
+            }],
+            internal_gene_snapshot: GeneSnapshot {
+                physical: PhysicalGenes {
+                    height_ceiling: half,
+                    frame_density: half,
+                    fast_twitch_ratio: half,
+                    stamina_recovery: half,
+                    growth_curve: zero,
+                    aging_curve: half,
+                    injury_resilience: half,
+                },
+                mental: MentalGenes {
+                    pattern_recognition: half,
+                    composure_floor: half,
+                    decision_velocity: half,
+                    learning_rate: half,
+                    ambition: half,
+                    mentality: zero,
+                },
+                technical: TechnicalAffinities {
+                    left_foot: zero,
+                    aerial: half,
+                    dead_ball: half,
+                    striking: half,
+                    first_touch: half,
+                },
+                narrative_flags: {
+                    let mut s = std::collections::BTreeSet::new();
+                    s.insert(NarrativeFlag::LateBloomer);
+                    s
+                },
+            },
+        }
+    }
+
+    #[test]
+    fn player_bio_validator_accepts_valid() {
+        let bio = well_formed_player_bio();
+        assert!(
+            PlayerBioValidator::new().validate(&bio).is_ok(),
+            "PlayerBioValidator must accept a well-formed fixture"
+        );
+    }
+
+    #[test]
+    fn player_bio_validator_rejects_out_of_range_gene() {
+        let mut bio = well_formed_player_bio();
+        // Set height_ceiling to 2.0 (above [0,1] — Q32::ONE << 1 = 2.0 raw).
+        bio.internal_gene_snapshot.physical.height_ceiling = Q32::from_raw(Q32::ONE.to_bits() + 1);
+
+        let err = PlayerBioValidator::new()
+            .validate(&bio)
+            .expect_err("must reject height_ceiling above 1.0");
+
+        match err {
+            ValidationError::PlayerBioGeneOutOfRange {
+                player_id, field, ..
+            } => {
+                assert_eq!(player_id, "fwh.core:player_00001");
+                assert_eq!(field, "height_ceiling");
+            }
+            other => panic!("expected PlayerBioGeneOutOfRange, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn player_bio_validator_rejects_bad_id_format() {
+        let mut bio = well_formed_player_bio();
+        bio.player_id = "bad".to_string();
+
+        let err = PlayerBioValidator::new()
+            .validate(&bio)
+            .expect_err("must reject malformed player_id");
+
+        match err {
+            ValidationError::PlayerBioIdFormatInvalid { .. } => {}
+            other => panic!("expected PlayerBioIdFormatInvalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn player_bio_validator_rejects_zero_schema_version() {
+        let mut bio = well_formed_player_bio();
+        bio.schema_version = 0;
+
+        let err = PlayerBioValidator::new()
+            .validate(&bio)
+            .expect_err("must reject schema_version 0");
+
+        match err {
+            ValidationError::PlayerBioSchemaVersionZero { .. } => {}
+            other => panic!("expected PlayerBioSchemaVersionZero, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn player_bio_validator_rejects_empty_scout_labels() {
+        let mut bio = well_formed_player_bio();
+        bio.scout_labels.clear();
+
+        let err = PlayerBioValidator::new()
+            .validate(&bio)
+            .expect_err("must reject empty scout_labels");
+
+        match err {
+            ValidationError::PlayerBioEmptyScoutLabels { .. } => {}
+            other => panic!("expected PlayerBioEmptyScoutLabels, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn player_bio_validator_rejects_signed_gene_below_neg_one() {
+        let mut bio = well_formed_player_bio();
+        // growth_curve is signed [-1, +1]; set to -1.5 (below -1).
+        // Q32::from_int(-1) = -1.0; -1.5 = -1.0 - 0.5
+        let neg_one = Q32::from_int(-1);
+        let half = Q32::from_raw(2_147_483_648_i64);
+        bio.internal_gene_snapshot.physical.growth_curve = neg_one - half;
+
+        let err = PlayerBioValidator::new()
+            .validate(&bio)
+            .expect_err("must reject growth_curve below -1.0");
+
+        match err {
+            ValidationError::PlayerBioGeneOutOfRange { field, .. } => {
+                assert_eq!(field, "growth_curve");
+            }
+            other => panic!("expected PlayerBioGeneOutOfRange for growth_curve, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn player_bio_validator_rejects_too_many_signature_candidates() {
+        use fw_content::signature::{SignatureCandidate, SignatureId};
+        let mut bio = well_formed_player_bio();
+        // Add 4 candidates (max is 3).
+        let half = Q32::from_raw(2_147_483_648_i64);
+        let id = SignatureId::try_new("fwh.core:signature.no-op-stub").unwrap();
+        for _ in 0..4 {
+            bio.signature_candidates
+                .push(SignatureCandidate::try_new(id.clone(), half).unwrap());
+        }
+
+        let err = PlayerBioValidator::new()
+            .validate(&bio)
+            .expect_err("must reject > 3 signature candidates");
+
+        match err {
+            ValidationError::PlayerBioTooManySignatureCandidates { count, .. } => {
+                assert_eq!(count, 4);
+            }
+            other => panic!("expected PlayerBioTooManySignatureCandidates, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn player_bio_validator_rejects_composure_floor_above_one() {
+        let mut bio = well_formed_player_bio();
+        // 2.3 — above [0, 1] (bits value used directly; Q32::ONE = 2^32 bits).
+        bio.pressure_response.composure_floor = Q32::from_raw(9_999_999_999_i64);
+
+        let err = PlayerBioValidator::new()
+            .validate(&bio)
+            .expect_err("must reject composure_floor above 1.0");
+
+        match err {
+            ValidationError::PlayerBioInstinctFieldOutOfRange { field, .. } => {
+                assert_eq!(field, "composure_floor");
+            }
+            other => panic!("expected PlayerBioInstinctFieldOutOfRange, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn player_bio_validator_rejects_risk_appetite_above_one() {
+        let mut bio = well_formed_player_bio();
+        bio.playing_instincts.risk_appetite = Q32::from_raw(Q32::ONE.to_bits() + 1);
+
+        let err = PlayerBioValidator::new()
+            .validate(&bio)
+            .expect_err("must reject risk_appetite above 1.0");
+
+        match err {
+            ValidationError::PlayerBioInstinctFieldOutOfRange { field, .. } => {
+                assert_eq!(field, "risk_appetite");
+            }
+            other => panic!("expected PlayerBioInstinctFieldOutOfRange, got {other:?}"),
         }
     }
 }

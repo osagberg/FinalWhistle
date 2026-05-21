@@ -4,11 +4,11 @@
 
 ## Phase
 
-**Phase T3 (Career + Memory) IN PROGRESS.** T3-1 (schema + SaveV2), T3-2 (5 ledger readers), T3-3 (news render) closed 2026-05-18; T3-4 (breakthrough mechanism — pillar 3) closed 2026-05-20; T3-7 (save-migration committed-fixture verifier) closed 2026-05-21. 5 of 8 T3 rows DONE. The 3 remaining: T3-5 + T3-6 (both dep-blocked on DEFERRED rows), T3-8 (phase-gate Codex review).
+**Phase T3 (Career + Memory) IN PROGRESS.** T3-1/T3-2/T3-3 closed 2026-05-18; T3-4 (breakthrough mechanism) 2026-05-20; T3-7 (save-migration fixtures) + T2-4 (PlayerBio type contract + 22 fixtures) 2026-05-21. T2-4 + T2-7 were promoted back from DEFERRED (blocker resolved); T2-4 is now DONE — which unblocks T3-5 and makes T2-7 eligible.
 
 ## Active task
 
-(none — T3-7 closed. **T2-4 + T2-7 promoted back to TODO 2026-05-21** (user direction) — their blocker, the missing `design/player-generation.md`, was resolved 2026-05-18. Next `/next` picks **T2-4** (`fw-content` PlayerBio generation) — it's now the earliest TODO in declared order with its dep T2-3 DONE. T2-4 DONE then unblocks T3-5; T2-7 DONE unblocks T3-6.)
+(none — T2-4 closed. Next `/next` picks **T2-7** (Frontend Squad page) — earliest TODO in declared order, deps T2-4 + T2-5 both DONE.)
 
 ## Blockers
 
@@ -17,7 +17,7 @@
 
 ## Last green verify
 
-2026-05-21 (post-T3-7): `scripts/fw verify` exit 0; 29 fw-save tests (incl 5 committed-fixture migration verifiers); clippy clean; canonical match-state hashes UNCHANGED on both pins.
+2026-05-21 (post-T2-4): `scripts/fw verify` exit 0; fw-content + fw-content-baker tests green (PlayerBio types + PlayerBioValidator + 22 fixtures); clippy clean; canonical match-state hashes UNCHANGED on both pins.
 
 ## Last canonical hash
 
@@ -29,11 +29,10 @@
 
 ## Phase T3 pointer
 
-**Remaining build sequence** (T2-4 + T2-7 promoted to TODO 2026-05-21):
-- **T2-4** (`fw-content` PlayerBio generation) — eligible NOW (dep T2-3 DONE); the next `/next` target.
-- **T2-7** (Frontend Squad page) — TODO; eligible once T2-4 reaches DONE (deps T2-4 + T2-5).
-- **T3-5** (`fw-scouting` scout-uncertainty model) — TODO; eligible once T2-4 DONE.
-- **T3-6** (Frontend Player detail page) — TODO; eligible once T2-7 + T3-2 DONE.
-- **T3-8** (phase-gate Codex review #2) — the phase-close step; run via `/done` after T3-5/T3-6 land.
+**Remaining build sequence** (T2-4 DONE 2026-05-21 — chain unblocked):
+- **T2-7** (Frontend Squad page) — eligible NOW (deps T2-4 + T2-5 DONE); the next `/next` target.
+- **T3-5** (`fw-scouting` scout-uncertainty model) — eligible NOW (dep T2-4 DONE).
+- **T3-6** (Frontend Player detail page) — eligible once T2-7 DONE (deps T2-7 + T3-2).
+- **T3-8** (phase-gate Codex review #2) — the phase-close step; run via `/done` after T2-7 / T3-5 / T3-6 land.
 
-`/next` walks declared order (phases top-down) so it will ship T2-4 first, then the chain unblocks naturally. Phase T3 closes genuinely complete once T2-4 / T2-7 / T3-5 / T3-6 are DONE — then `/done` opens the T3-8 Codex phase-gate review.
+`/next` walks declared order (phases top-down) so it ships T2-7 next, then T3-5, then T3-6. Phase T3 closes genuinely complete once T2-7 / T3-5 / T3-6 are DONE — then `/done` opens the T3-8 Codex phase-gate review.

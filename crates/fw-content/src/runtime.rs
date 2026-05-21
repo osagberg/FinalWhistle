@@ -449,6 +449,12 @@ pub struct ContentStore {
     /// look-up at T1-2b-iv dispatch time. Loaded from
     /// `content/sources/signatures/*.ron`. BTreeMap for deterministic iteration.
     pub signature_definitions: BTreeMap<String, crate::SignatureDefinition>,
+    /// Player bio identity records — keyed by `PlayerBio.player_id` string.
+    /// Loaded from `content/sources/player-bios/*.ron`. Optional directory —
+    /// absent directory is silently skipped (backwards-compat; content packs
+    /// without the T2-4 PlayerBio layer still load cleanly).
+    /// BTreeMap for deterministic iteration per `Sim/RULES.md §2`.
+    pub player_bios: BTreeMap<String, crate::player_bio::PlayerBio>,
     /// In-match commentary grammar bank. One grammar per `MatchEventDiscriminant`.
     /// Loaded from `content/sources/commentary/*.tracery.json`.
     /// Missing any of the 6 required files is a hard load error
@@ -521,6 +527,7 @@ impl Default for ContentStore {
             player_templates: BTreeMap::new(),
             role_affinity_tables: BTreeMap::new(),
             signature_definitions: BTreeMap::new(),
+            player_bios: BTreeMap::new(),
             commentary_grammars,
             managers: BTreeMap::new(),
             news_grammars,
@@ -832,6 +839,26 @@ impl ContentStore {
                     id,
                     parsed,
                     "manager_archetype",
+                    entry,
+                )?;
+            }
+        }
+
+        // Player bios (T2-4). Optional — old content packs may not have a
+        // player-bios/ dir; silently skip if absent (same guard pattern as the
+        // other optional loaders above).
+        let player_bios_dir = sources_dir.join("player-bios");
+        if player_bios_dir.is_dir() {
+            let mut seen: BTreeMap<String, PathBuf> = BTreeMap::new();
+            for entry in walk_ron_files(&player_bios_dir)? {
+                let parsed: crate::player_bio::PlayerBio = parse_ron_file(&entry)?;
+                let id = parsed.player_id.clone();
+                insert_unique(
+                    &mut store.player_bios,
+                    &mut seen,
+                    id,
+                    parsed,
+                    "player_bio",
                     entry,
                 )?;
             }

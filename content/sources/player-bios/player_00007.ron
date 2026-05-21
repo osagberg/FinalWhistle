@@ -1,0 +1,73 @@
+// FB #2 — Saul Drent. Inverted full-back, strong left foot, set-piece taker.
+// fwh.core:player_00007 | schema_version: 1
+PlayerBio(
+    schema_version: 1,
+    player_id: "fwh.core:player_00007",
+    content_pack_version: "1.0.0",
+    display_name_full: "Saul Drent",
+    display_name_short: "S. Drent",
+    role_family: FullBack,
+    birth_region: "Redwick Marshes",
+    playing_instincts: (
+        defensive_shape_preference: Compact,
+        attacking_run_preference: Channels,
+        pressing_trigger: Reactive,
+        risk_appetite: (bits: 2576980378),  // 0.60
+    ),
+    pressure_response: (
+        stakes_to_performance_curve: [
+            (stakes: (bits: 0),           performance_delta: (bits: 0)),
+            (stakes: (bits: 2147483648),  performance_delta: (bits: 429496730)), // +0.1
+            (stakes: (bits: 4294967296),  performance_delta: (bits: 858993459)), // +0.2
+        ],
+        composure_floor: (bits: 2791728742),  // 0.65
+    ),
+    development_hooks: [
+        MinutesInRole(
+            role: FullBack,
+            threshold_minutes: 1200,
+            readiness_target_field: SignatureAffinity,
+        ),
+    ],
+    signature_candidates: [],
+    scout_labels: [
+        InvertedFullBack,
+        StrongLeftFoot,
+        SetPieceNatural,
+        SteadyProgressor,
+    ],
+    commentary_handles: (
+        preferred_nouns: ["the full-back", "Drent"],
+        preferred_verbs: ["cuts inside", "whips in", "curls"],
+    ),
+    rivalry_compatibility: {},
+    alumni_of: [],
+    tactical_dna_fragments: [],
+    internal_gene_snapshot: (
+        physical: (
+            height_ceiling:    (bits: 2791728742),  // 0.65
+            frame_density:     (bits: 2362232013),  // 0.55
+            fast_twitch_ratio: (bits: 2920577761),  // 0.68
+            stamina_recovery:  (bits: 2791728742),  // 0.65
+            growth_curve:      (bits: 0),           // 0.0 (steady)
+            aging_curve:       (bits: 2576980378),  // 0.60
+            injury_resilience: (bits: 2791728742),  // 0.65
+        ),
+        mental: (
+            pattern_recognition: (bits: 2791728742),  // 0.65
+            composure_floor:     (bits: 2791728742),  // 0.65
+            decision_velocity:   (bits: 2576980378),  // 0.60
+            learning_rate:       (bits: 2362232013),  // 0.55
+            ambition:            (bits: 2147483648),  // 0.50
+            mentality:           (bits: 0),           // 0.0
+        ),
+        technical: (
+            left_foot:   (bits: 3865470566),  // 0.90
+            aerial:      (bits: 2147483648),  // 0.50
+            dead_ball:   (bits: 3435973837),  // 0.80
+            striking:    (bits: 2576980378),  // 0.60
+            first_touch: (bits: 3006477107),  // 0.70
+        ),
+        narrative_flags: [],
+    ),
+)

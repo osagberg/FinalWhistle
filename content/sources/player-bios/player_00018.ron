@@ -1,0 +1,72 @@
+// W #2 — Finn Craster. Traditional winger, crosses from wide, grows into games.
+// fwh.core:player_00018 | schema_version: 1
+PlayerBio(
+    schema_version: 1,
+    player_id: "fwh.core:player_00018",
+    content_pack_version: "1.0.0",
+    display_name_full: "Finn Craster",
+    display_name_short: "F. Craster",
+    role_family: Winger,
+    birth_region: "Redwick Marshes",
+    playing_instincts: (
+        defensive_shape_preference: SpreadHigh,
+        attacking_run_preference: DriftWide,
+        pressing_trigger: Reactive,
+        risk_appetite: (bits: 2791728742),  // 0.65
+    ),
+    pressure_response: (
+        stakes_to_performance_curve: [
+            (stakes: (bits: 0),           performance_delta: (bits: -429496730)), // -0.1
+            (stakes: (bits: 2147483648),  performance_delta: (bits: 429496730)),  // +0.1
+            (stakes: (bits: 4294967296),  performance_delta: (bits: 1288490189)), // +0.3 rises
+        ],
+        composure_floor: (bits: 2362232013),  // 0.55
+    ),
+    development_hooks: [
+        EventCount(
+            event_class: AssistCreated,
+            threshold: 20,
+            readiness_target_field: TechnicalCeiling,
+        ),
+    ],
+    signature_candidates: [],
+    scout_labels: [
+        TraditionalWinger,
+        GrowsIntoGames,
+        QuickRecovery,
+    ],
+    commentary_handles: (
+        preferred_nouns: ["the winger", "Craster"],
+        preferred_verbs: ["whips in", "delivers", "breaks free"],
+    ),
+    rivalry_compatibility: {},
+    alumni_of: [],
+    tactical_dna_fragments: [],
+    internal_gene_snapshot: (
+        physical: (
+            height_ceiling:    (bits: 2791728742),  // 0.65
+            frame_density:     (bits: 2362232013),  // 0.55
+            fast_twitch_ratio: (bits: 3350074491),  // 0.78
+            stamina_recovery:  (bits: 3006477107),  // 0.70
+            growth_curve:      (bits: 858993459),   // +0.20
+            aging_curve:       (bits: 2576980378),  // 0.60
+            injury_resilience: (bits: 2791728742),  // 0.65
+        ),
+        mental: (
+            pattern_recognition: (bits: 2576980378),  // 0.60
+            composure_floor:     (bits: 2362232013),  // 0.55
+            decision_velocity:   (bits: 2920577761),  // 0.68
+            learning_rate:       (bits: 3006477107),  // 0.70
+            ambition:            (bits: 2576980378),  // 0.60
+            mentality:           (bits: 858993459),   // +0.20
+        ),
+        technical: (
+            left_foot:   (bits: 858993459),   // 0.20 (right foot dominant)
+            aerial:      (bits: 2362232013),  // 0.55
+            dead_ball:   (bits: 2920577761),  // 0.68
+            striking:    (bits: 2147483648),  // 0.50
+            first_touch: (bits: 2791728742),  // 0.65
+        ),
+        narrative_flags: [],
+    ),
+)

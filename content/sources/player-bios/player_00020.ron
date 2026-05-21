@@ -1,0 +1,81 @@
+// ST #1 — Emeka Thorne. Poacher, pure finisher, decisive in the box.
+// fwh.core:player_00020 | schema_version: 1
+PlayerBio(
+    schema_version: 1,
+    player_id: "fwh.core:player_00020",
+    content_pack_version: "1.0.0",
+    display_name_full: "Emeka Thorne",
+    display_name_short: "E. Thorne",
+    role_family: Striker,
+    birth_region: "Ashvale",
+    playing_instincts: (
+        defensive_shape_preference: SitAndCounter,
+        attacking_run_preference: InBehind,
+        pressing_trigger: Conservative,
+        risk_appetite: (bits: 3435973837),  // 0.80
+    ),
+    pressure_response: (
+        stakes_to_performance_curve: [
+            (stakes: (bits: 0),           performance_delta: (bits: 858993459)),  // +0.2
+            (stakes: (bits: 2147483648),  performance_delta: (bits: 1717986918)), // +0.4
+            (stakes: (bits: 4294967296),  performance_delta: (bits: 2147483648)), // +0.5 peak
+        ],
+        composure_floor: (bits: 3221225472),  // 0.75
+    ),
+    development_hooks: [
+        EventCount(
+            event_class: Goal,
+            threshold: 30,
+            readiness_target_field: TechnicalCeiling,
+        ),
+        NarrativeFlagHook(
+            flag: PeakCeilingHigh,
+            unlock_conditions: [
+                DecisiveGoalInHighStakes(min_stakes: (bits: 3650722202)), // 0.85
+            ],
+        ),
+    ],
+    signature_candidates: [],
+    scout_labels: [
+        Poacher,
+        PureFinisher,
+        DecisiveInTheBox,
+        ExplosiveFirstStep,
+    ],
+    commentary_handles: (
+        preferred_nouns: ["the striker", "Thorne"],
+        preferred_verbs: ["slots home", "finishes", "ghosts in"],
+    ),
+    rivalry_compatibility: {},
+    alumni_of: [],
+    tactical_dna_fragments: [],
+    internal_gene_snapshot: (
+        physical: (
+            height_ceiling:    (bits: 2791728742),  // 0.65
+            frame_density:     (bits: 2576980378),  // 0.60
+            fast_twitch_ratio: (bits: 3650722202),  // 0.85
+            stamina_recovery:  (bits: 2362232013),  // 0.55
+            growth_curve:      (bits: 429496730),   // +0.10
+            aging_curve:       (bits: 2576980378),  // 0.60
+            injury_resilience: (bits: 2576980378),  // 0.60
+        ),
+        mental: (
+            pattern_recognition: (bits: 3221225472),  // 0.75
+            composure_floor:     (bits: 3221225472),  // 0.75
+            decision_velocity:   (bits: 3650722202),  // 0.85
+            learning_rate:       (bits: 2576980378),  // 0.60
+            ambition:            (bits: 3006477107),  // 0.70
+            mentality:           (bits: 1288490189),  // +0.30
+        ),
+        technical: (
+            left_foot:   (bits: 1932735283),  // 0.45
+            aerial:      (bits: 2362232013),  // 0.55
+            dead_ball:   (bits: 2147483648),  // 0.50
+            striking:    (bits: 3650722202),  // 0.85
+            first_touch: (bits: 3006477107),  // 0.70
+        ),
+        narrative_flags: [
+            PeakCeilingHigh,
+        ],
+    ),
+)

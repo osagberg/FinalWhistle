@@ -1,0 +1,73 @@
+// CM #3 — Wick Aldren. Box-to-box workhorse, steady progressor, left-foot bias.
+// fwh.core:player_00014 | schema_version: 1
+PlayerBio(
+    schema_version: 1,
+    player_id: "fwh.core:player_00014",
+    content_pack_version: "1.0.0",
+    display_name_full: "Wick Aldren",
+    display_name_short: "W. Aldren",
+    role_family: CentralMidfielder,
+    birth_region: "Irongate Plateau",
+    playing_instincts: (
+        defensive_shape_preference: Compact,
+        attacking_run_preference: InBehind,
+        pressing_trigger: Reactive,
+        risk_appetite: (bits: 2362232013),  // 0.55
+    ),
+    pressure_response: (
+        stakes_to_performance_curve: [
+            (stakes: (bits: 0),           performance_delta: (bits: 429496730)),  // +0.1
+            (stakes: (bits: 2147483648),  performance_delta: (bits: 429496730)),  // flat
+            (stakes: (bits: 4294967296),  performance_delta: (bits: 429496730)),  // flat
+        ],
+        composure_floor: (bits: 2791728742),  // 0.65
+    ),
+    development_hooks: [
+        MinutesInRole(
+            role: CentralMidfielder,
+            threshold_minutes: 1800,
+            readiness_target_field: TechnicalCeiling,
+        ),
+    ],
+    signature_candidates: [],
+    scout_labels: [
+        BoxToBox,
+        StrongLeftFoot,
+        SteadyProgressor,
+        SlowToAdapt,
+    ],
+    commentary_handles: (
+        preferred_nouns: ["the midfielder", "Aldren"],
+        preferred_verbs: ["carries", "gets stuck in", "keeps it simple"],
+    ),
+    rivalry_compatibility: {},
+    alumni_of: [],
+    tactical_dna_fragments: [],
+    internal_gene_snapshot: (
+        physical: (
+            height_ceiling:    (bits: 2791728742),  // 0.65
+            frame_density:     (bits: 2920577761),  // 0.68
+            fast_twitch_ratio: (bits: 2362232013),  // 0.55
+            stamina_recovery:  (bits: 3221225472),  // 0.75
+            growth_curve:      (bits: 0),           // 0.0 (steady)
+            aging_curve:       (bits: 2791728742),  // 0.65
+            injury_resilience: (bits: 2920577761),  // 0.68
+        ),
+        mental: (
+            pattern_recognition: (bits: 2362232013),  // 0.55
+            composure_floor:     (bits: 2791728742),  // 0.65
+            decision_velocity:   (bits: 2147483648),  // 0.50
+            learning_rate:       (bits: 1717986918),  // 0.40
+            ambition:            (bits: 2147483648),  // 0.50
+            mentality:           (bits: -429496730), // -0.10
+        ),
+        technical: (
+            left_foot:   (bits: 3650722202),  // 0.85
+            aerial:      (bits: 2362232013),  // 0.55
+            dead_ball:   (bits: 2576980378),  // 0.60
+            striking:    (bits: 2362232013),  // 0.55
+            first_touch: (bits: 2920577761),  // 0.68
+        ),
+        narrative_flags: [],
+    ),
+)

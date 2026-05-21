@@ -1,0 +1,80 @@
+// GK #1 — Kaspar Veln. Sweeper keeper, composure-driven, late bloomer.
+// fwh.core:player_00001 | schema_version: 1
+PlayerBio(
+    schema_version: 1,
+    player_id: "fwh.core:player_00001",
+    content_pack_version: "1.0.0",
+    display_name_full: "Kaspar Veln",
+    display_name_short: "K. Veln",
+    role_family: Goalkeeper,
+    birth_region: "Dawnmere Coast",
+    playing_instincts: (
+        defensive_shape_preference: SpreadHigh,
+        attacking_run_preference: DropDeep,
+        pressing_trigger: Aggressive,
+        risk_appetite: (bits: 2791728742),  // 0.65
+    ),
+    pressure_response: (
+        stakes_to_performance_curve: [
+            (stakes: (bits: 0),           performance_delta: (bits: 0)),          // low stakes: flat
+            (stakes: (bits: 2147483648),  performance_delta: (bits: 858993459)),  // mid stakes: +0.2
+            (stakes: (bits: 4294967296),  performance_delta: (bits: 1717986918)), // peak stakes: +0.4
+        ],
+        composure_floor: (bits: 3006477107),  // 0.70
+    ),
+    development_hooks: [
+        MinutesInRole(
+            role: Goalkeeper,
+            threshold_minutes: 1800,
+            readiness_target_field: TechnicalCeiling,
+        ),
+        NarrativeFlagHook(
+            flag: LateBloomer,
+            unlock_conditions: [
+                AgeReached(age: 26),
+            ],
+        ),
+    ],
+    signature_candidates: [],
+    scout_labels: [
+        SweeperKeeper,
+        ComposedUnderPressure,
+        LateBloomer,
+    ],
+    commentary_handles: (
+        preferred_nouns: ["the keeper", "Veln"],
+        preferred_verbs: ["rushes", "commands", "sweeps"],
+    ),
+    rivalry_compatibility: {},
+    alumni_of: [],
+    tactical_dna_fragments: [],
+    internal_gene_snapshot: (
+        physical: (
+            height_ceiling:    (bits: 3650722202),  // 0.85
+            frame_density:     (bits: 3006477107),  // 0.70
+            fast_twitch_ratio: (bits: 2147483648),  // 0.50
+            stamina_recovery:  (bits: 2576980378),  // 0.60
+            growth_curve:      (bits: 1288490189),  // +0.30 (late bloomer)
+            aging_curve:       (bits: 3221225472),  // 0.75
+            injury_resilience: (bits: 2791728742),  // 0.65
+        ),
+        mental: (
+            pattern_recognition: (bits: 3435973837),  // 0.80
+            composure_floor:     (bits: 3221225472),  // 0.75
+            decision_velocity:   (bits: 2920577761),  // 0.68
+            learning_rate:       (bits: 3006477107),  // 0.70
+            ambition:            (bits: 2362232013),  // 0.55
+            mentality:           (bits: -858993459), // -0.20 (grinder lean)
+        ),
+        technical: (
+            left_foot:   (bits: 858993459),   // 0.20
+            aerial:      (bits: 3435973837),  // 0.80
+            dead_ball:   (bits: 1288490189),  // 0.30
+            striking:    (bits: 858993459),   // 0.20
+            first_touch: (bits: 2576980378),  // 0.60
+        ),
+        narrative_flags: [
+            LateBloomer,
+        ],
+    ),
+)

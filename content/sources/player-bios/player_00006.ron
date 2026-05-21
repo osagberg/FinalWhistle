@@ -1,0 +1,73 @@
+// FB #1 — Lena Crausk. Overlapping full-back, explosive pace, relentless.
+// fwh.core:player_00006 | schema_version: 1
+PlayerBio(
+    schema_version: 1,
+    player_id: "fwh.core:player_00006",
+    content_pack_version: "1.0.0",
+    display_name_full: "Lena Crausk",
+    display_name_short: "L. Crausk",
+    role_family: FullBack,
+    birth_region: "Thornfen Bay",
+    playing_instincts: (
+        defensive_shape_preference: SpreadHigh,
+        attacking_run_preference: Channels,
+        pressing_trigger: Aggressive,
+        risk_appetite: (bits: 3221225472),  // 0.75
+    ),
+    pressure_response: (
+        stakes_to_performance_curve: [
+            (stakes: (bits: 0),           performance_delta: (bits: 858993459)),  // +0.2
+            (stakes: (bits: 2147483648),  performance_delta: (bits: 1288490189)), // +0.3
+            (stakes: (bits: 4294967296),  performance_delta: (bits: 1717986918)), // +0.4
+        ],
+        composure_floor: (bits: 2362232013),  // 0.55
+    ),
+    development_hooks: [
+        MinutesInRole(
+            role: FullBack,
+            threshold_minutes: 900,
+            readiness_target_field: TechnicalCeiling,
+        ),
+    ],
+    signature_candidates: [],
+    scout_labels: [
+        OverlappingFullBack,
+        ExplosiveFirstStep,
+        RelentlessEngine,
+        Ambitious,
+    ],
+    commentary_handles: (
+        preferred_nouns: ["the full-back", "Crausk"],
+        preferred_verbs: ["overlaps", "bursts", "charges"],
+    ),
+    rivalry_compatibility: {},
+    alumni_of: [],
+    tactical_dna_fragments: [],
+    internal_gene_snapshot: (
+        physical: (
+            height_ceiling:    (bits: 2362232013),  // 0.55
+            frame_density:     (bits: 2147483648),  // 0.50
+            fast_twitch_ratio: (bits: 3865470566),  // 0.90
+            stamina_recovery:  (bits: 3650722202),  // 0.85
+            growth_curve:      (bits: -858993459), // -0.20 (slightly early)
+            aging_curve:       (bits: 2147483648),  // 0.50
+            injury_resilience: (bits: 2576980378),  // 0.60
+        ),
+        mental: (
+            pattern_recognition: (bits: 2576980378),  // 0.60
+            composure_floor:     (bits: 2362232013),  // 0.55
+            decision_velocity:   (bits: 3221225472),  // 0.75
+            learning_rate:       (bits: 2791728742),  // 0.65
+            ambition:            (bits: 3435973837),  // 0.80
+            mentality:           (bits: 1717986918),  // +0.40 (extrovert)
+        ),
+        technical: (
+            left_foot:   (bits: 2791728742),  // 0.65
+            aerial:      (bits: 1717986918),  // 0.40
+            dead_ball:   (bits: 1932735283),  // 0.45
+            striking:    (bits: 2147483648),  // 0.50
+            first_touch: (bits: 2576980378),  // 0.60
+        ),
+        narrative_flags: [],
+    ),
+)

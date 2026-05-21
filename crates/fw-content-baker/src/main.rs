@@ -23,7 +23,7 @@ mod schemas;
 // tests share the same module tree.
 use fw_content_baker::bake::BakeNamesOffline;
 use fw_content_baker::validators::{
-    CultureValidator, PlayerTemplateValidator, RoleAffinityTableValidator,
+    CultureValidator, PlayerBioValidator, PlayerTemplateValidator, RoleAffinityTableValidator,
     TacticalArchetypeValidator,
 };
 
@@ -369,10 +369,13 @@ fn run_validate_structural(workspace: &str) -> anyhow::Result<()> {
     if store.role_affinity_tables.is_empty() {
         empty_categories.push("role_affinity_tables");
     }
+    if store.player_bios.is_empty() {
+        empty_categories.push("player_bios");
+    }
     if !empty_categories.is_empty() {
         anyhow::bail!(
             "content corpus is empty in one or more required categories: {:?}. \
-             content/sources/{{cultures,archetypes,players,managers,role-affinities}}/ \
+             content/sources/{{cultures,archetypes,players,managers,role-affinities,player-bios}}/ \
              must each contain >=1 entity. Did content/sources/ get partially deleted \
              or was the workspace cloned without LFS-fetched RON files?",
             empty_categories
@@ -413,15 +416,25 @@ fn run_validate_structural(workspace: &str) -> anyhow::Result<()> {
         }
     }
 
+    // Player-bio validation (T2-4).
+    let bio_validator = PlayerBioValidator::new();
+    for (id, bio) in &store.player_bios {
+        if let Err(e) = bio_validator.validate(bio) {
+            errors.push(format!("player-bio {id:?}: {e}"));
+        }
+    }
+
     println!(
         "fw-content-baker: structurally validated {} cultures, {} archetypes, \
-         {} role-affinity tables, {} player templates, {} signatures, {} managers",
+         {} role-affinity tables, {} player templates, {} signatures, {} managers, \
+         {} player bios",
         store.cultures.len(),
         store.tactical_archetypes.len(),
         store.role_affinity_tables.len(),
         store.player_templates.len(),
         store.signature_definitions.len(),
         store.managers.len(),
+        store.player_bios.len(),
     );
 
     if !errors.is_empty() {

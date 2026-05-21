@@ -1,0 +1,80 @@
+// DM #3 — Philo Crenach. Pressing midfielder, high work rate, grows into games.
+// fwh.core:player_00011 | schema_version: 1
+PlayerBio(
+    schema_version: 1,
+    player_id: "fwh.core:player_00011",
+    content_pack_version: "1.0.0",
+    display_name_full: "Philo Crenach",
+    display_name_short: "P. Crenach",
+    role_family: DefensiveMidfielder,
+    birth_region: "Blenfield Common",
+    playing_instincts: (
+        defensive_shape_preference: Aggressive,
+        attacking_run_preference: Channels,
+        pressing_trigger: Aggressive,
+        risk_appetite: (bits: 2576980378),  // 0.60
+    ),
+    pressure_response: (
+        stakes_to_performance_curve: [
+            (stakes: (bits: 0),           performance_delta: (bits: -858993459)), // -0.2 flat
+            (stakes: (bits: 2147483648),  performance_delta: (bits: 429496730)),  // +0.1
+            (stakes: (bits: 4294967296),  performance_delta: (bits: 1717986918)), // +0.4 rises
+        ],
+        composure_floor: (bits: 2147483648),  // 0.50
+    ),
+    development_hooks: [
+        EventCount(
+            event_class: BigMatchPlayed,
+            threshold: 15,
+            readiness_target_field: TechnicalCeiling,
+        ),
+        NarrativeFlagHook(
+            flag: FlowAccess,
+            unlock_conditions: [
+                StakesThreshold(min_stakes: (bits: 3435973837)), // high stakes match
+            ],
+        ),
+    ],
+    signature_candidates: [],
+    scout_labels: [
+        PressingMidfielder,
+        GrowsIntoGames,
+        RelentlessEngine,
+    ],
+    commentary_handles: (
+        preferred_nouns: ["the midfielder", "Crenach"],
+        preferred_verbs: ["presses", "harries", "hunts"],
+    ),
+    rivalry_compatibility: {},
+    alumni_of: [],
+    tactical_dna_fragments: [],
+    internal_gene_snapshot: (
+        physical: (
+            height_ceiling:    (bits: 2576980378),  // 0.60
+            frame_density:     (bits: 2576980378),  // 0.60
+            fast_twitch_ratio: (bits: 2791728742),  // 0.65
+            stamina_recovery:  (bits: 3650722202),  // 0.85
+            growth_curve:      (bits: 858993459),   // +0.20
+            aging_curve:       (bits: 2576980378),  // 0.60
+            injury_resilience: (bits: 2147483648),  // 0.50
+        ),
+        mental: (
+            pattern_recognition: (bits: 2576980378),  // 0.60
+            composure_floor:     (bits: 2147483648),  // 0.50
+            decision_velocity:   (bits: 3006477107),  // 0.70
+            learning_rate:       (bits: 3006477107),  // 0.70
+            ambition:            (bits: 3006477107),  // 0.70
+            mentality:           (bits: 1288490189),  // +0.30
+        ),
+        technical: (
+            left_foot:   (bits: 1717986918),  // 0.40
+            aerial:      (bits: 2362232013),  // 0.55
+            dead_ball:   (bits: 1503238554),  // 0.35
+            striking:    (bits: 2147483648),  // 0.50
+            first_touch: (bits: 2362232013),  // 0.55
+        ),
+        narrative_flags: [
+            FlowAccess,
+        ],
+    ),
+)
