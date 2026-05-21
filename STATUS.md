@@ -8,7 +8,7 @@
 
 ## Active task
 
-(none — T3-R-E (SaveV3 career-state persistence — `SaveEnvelope::V3` + V2→V3 migration + frozen fixture) closed. Next `/next` picks **T3-R-F** — career clock for salience decay, the last post-T3 cleanup row before T4.)
+(none — T3-R-F (career clock for salience decay) closed. The post-T3 ultimate-review cleanup cluster **T3-R-A..F is now COMPLETE** — all six rows shipped. Next `/next` picks the first **Phase T4** row.)
 
 ## Blockers
 
@@ -16,7 +16,7 @@
 
 ## Last green verify
 
-2026-05-21 (T3-R-E close): `scripts/fw verify` exit 0; full workspace + 154 frontend tests; clippy + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
+2026-05-21 (T3-R-F close): `scripts/fw verify` exit 0; full workspace + 154 frontend tests; clippy + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
 
 ## Last canonical hash
 
@@ -28,7 +28,7 @@
 
 ## Post-T3 cleanup + Phase T4 pointer
 
-The 2026-05-21 ultimate review logged 6 cleanup rows — **T3-R-A..F** in `docs/MASTER_PLAN.md` (doc reconciliation; breakthrough `evaluate` panic-fix + gate tests; mutation-coverage tests + frozen V2 fixture; pack-level roster validation; SaveV3 career-state persistence; career clock for salience). `/next` walks T3-R-A..F before the first T4 row. None is a gate-blocker.
+The 2026-05-21 ultimate review logged 6 cleanup rows — **T3-R-A..F** in `docs/MASTER_PLAN.md` (doc reconciliation; breakthrough `evaluate` panic-fix + gate tests; mutation-coverage tests + frozen V2 fixture; pack-level roster validation; SaveV3 career-state persistence; career clock for salience). **All six are DONE (closed 2026-05-21)** — the cluster is complete; `/next` now picks the first Phase T4 row.
 
 Phase T4 — Beautiful UI + Tactical Viewer (polish; match-day live mode reads as finished; visual identity locked). The genuine T4-scale follow-up surfaced by the review: wiring breakthrough + scout into a played career (needs the T4+ career-roster layer). Carry-in: T2-1d2.
 

@@ -22,7 +22,7 @@ use fw_content::{
     Fixture, MemoryCallbackContext, SeasonState, discriminant_to_family_key, generate_league,
     render_memory_callback,
 };
-use fw_core::{PlayerId, Seed, Tick};
+use fw_core::{PlayerId, Seed};
 use fw_match_sim::{MatchState, tick_match};
 use fw_memory::event::{EventClass, SeasonNumber};
 use fw_memory::readers::{SalienceFilter, salience::SalienceReader};
@@ -582,12 +582,16 @@ pub fn get_player_detail_inner(
                 lock: "career".to_string(),
             })?;
 
-            // TODO(T4): wire the career clock — Tick::ZERO disables salience decay.
+            // Career clock (T3-R-F): salience decay is projected to the current
+            // career tick. Computed before the `&mut career.ledger` borrow below
+            // so the shared `&career` borrow `current_tick()` needs does not
+            // conflict with it.
+            let now_tick = career.current_tick();
             let top_events: Vec<fw_memory::event::MemoryEvent> = SalienceReader::top_n(
                 &mut career.ledger,
                 5,
                 SalienceFilter::BySubject(player_fw_id),
-                Tick::ZERO,
+                now_tick,
             )
             .into_iter()
             .cloned()
@@ -1371,5 +1375,110 @@ mod tests {
                 "callback contains '#' tracery seam: {cb:?}"
             );
         }
+    }
+
+    // ---- T3-R-F: career clock drives salience decay ----
+
+    /// Integration test: a fixture ledger of tick-bearing events, ranked via
+    /// `SalienceReader::top_n` at the real `CareerState::current_tick()`, applies
+    /// salience decay — an outcome the old `Tick::ZERO` placeholder could not
+    /// produce.
+    ///
+    /// Two events for the same player, identical raw salience: one with a short
+    /// `Linear` decay, one that `Never` decays. At the career clock (`now_tick`
+    /// well past the decayer's lifetime) the decayer's projected salience is
+    /// zero, so the `Never` event ranks first. At `Tick::ZERO` the decay guard
+    /// (`elapsed <= 0`) leaves both at full salience — they tie, and the tie
+    /// breaks to the lower `event_id`, so the decayer ranks first. The order
+    /// flip proves the career clock genuinely feeds decay.
+    #[test]
+    fn salience_decay_applied_through_career_clock() {
+        use fw_core::{MatchId, Q32, Tick};
+        use fw_memory::event::{
+            CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter, EmitterKind,
+            Emotion, EntityRef, EventId, MemoryEvent, Participant, ParticipantRole, SourceId,
+        };
+
+        let player = PlayerId::new(7);
+
+        // A tick-0 event for `player`, identical in every field except its
+        // decay function — so the two events have the same computed raw
+        // salience and differ only in how they decay.
+        fn fixture_event(player: PlayerId, decay: DecayFunction) -> MemoryEvent {
+            MemoryEvent {
+                event_id: EventId(0), // overwritten by ledger.append
+                schema_version: 1,
+                season: SeasonNumber(0),
+                tick: Some(Tick::from_raw(0)),
+                career_date: CareerDate {
+                    year: 1,
+                    day_of_year: 1,
+                },
+                emitter: Emitter {
+                    kind: EmitterKind::MatchEngine,
+                    source_id: SourceId::Match(MatchId::new(0)),
+                },
+                participants: vec![Participant {
+                    role: ParticipantRole::Subject,
+                    entity: EntityRef::Player(player),
+                }],
+                event_class: EventClass::LegacyGoal,
+                stakes: Q32::ONE,
+                emotion: Emotion::Joy,
+                consequence: vec![Consequence::None],
+                callback_eligibility: CallbackEligibility::Immediate,
+                salience: Q32::ZERO, // overwritten by ledger.append (compute_salience)
+                decay_function: decay,
+            }
+        }
+
+        let state = test_app_state();
+        let mut career = state.career().write().expect("career lock");
+
+        // event_id 0: the fast Linear-decay event. event_id 1: the Never event.
+        let decayer = fixture_event(
+            player,
+            DecayFunction::Linear {
+                lifetime_ticks: 100,
+            },
+        );
+        let stable = fixture_event(player, DecayFunction::Never);
+        career.ledger.append(decayer);
+        career.ledger.append(stable);
+
+        // The career clock for a fresh career (season 0, match-day 1) is well
+        // past the decayer's 100-tick lifetime.
+        let now_tick = career.current_tick();
+        assert!(
+            now_tick.to_raw() > 100,
+            "the fresh-career clock must exceed the decayer's lifetime for this test"
+        );
+
+        let at_career_clock = SalienceReader::top_n(
+            &mut career.ledger,
+            5,
+            SalienceFilter::BySubject(player),
+            now_tick,
+        );
+        assert_eq!(
+            at_career_clock[0].event_id,
+            EventId(1),
+            "at the career clock the decayer (id 0) is fully decayed — the Never \
+             event (id 1) must rank first",
+        );
+
+        // Control: at Tick::ZERO the decay guard fires; the order reverses.
+        let at_zero = SalienceReader::top_n(
+            &mut career.ledger,
+            5,
+            SalienceFilter::BySubject(player),
+            Tick::ZERO,
+        );
+        assert_eq!(
+            at_zero[0].event_id,
+            EventId(0),
+            "at Tick::ZERO both events hold full salience — the tie breaks to \
+             the lower event_id, so the decayer (id 0) ranks first",
+        );
     }
 }

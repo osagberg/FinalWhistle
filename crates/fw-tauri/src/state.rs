@@ -26,11 +26,14 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use fw_content::{
-    ContentLoadError, ContentStore, SeasonState, SignatureDefinition, generate_league,
+    ContentLoadError, ContentStore, MATCH_DAYS_PER_SEASON, SeasonState, SignatureDefinition,
+    generate_league,
 };
-use fw_core::{Seed, SeedLayer, seed_fn};
+use fw_core::{Seed, SeedLayer, Tick, seed_fn};
 use fw_memory::event::SeasonNumber;
 use fw_memory::ledger::MemoryLedger;
+
+use crate::season::SEASON_MATCH_TICK_BUDGET;
 
 /// The default career seed used when no explicit seed is provided.
 ///
@@ -54,6 +57,25 @@ pub struct CareerState {
     /// Ordinal of the current season. Starts at `SeasonNumber(0)`.
     /// Incremented by `advance_season`.
     pub season_number: SeasonNumber,
+}
+
+impl CareerState {
+    /// The current career clock — a monotonic `Tick` derived from how far the
+    /// career has progressed: `season_number` complete seasons plus the current
+    /// season's `current_match_day`, measured in the per-match `Tick` unit a
+    /// played match uses (`SEASON_MATCH_TICK_BUDGET` ticks per match-day).
+    ///
+    /// Used as the `now_tick` argument to salience-decay projection
+    /// (`SalienceReader::top_n`). Derived rather than stored so it cannot
+    /// desync from `season_number` / `current_match_day`; it is monotonic
+    /// non-decreasing and continuous across a season rollover (at
+    /// season-N-complete `current_match_day == MATCH_DAYS_PER_SEASON + 1`,
+    /// whose value equals season-(N+1)-day-1).
+    pub fn current_tick(&self) -> Tick {
+        let career_match_days = i64::from(self.season_number.0) * i64::from(MATCH_DAYS_PER_SEASON)
+            + i64::from(self.season.current_match_day);
+        Tick::from_raw(career_match_days * i64::from(SEASON_MATCH_TICK_BUDGET))
+    }
 }
 
 /// Application-level state managed by Tauri.
@@ -298,5 +320,62 @@ mod tests {
         let first = &career.season.league.fixtures[0];
         let idx = league_fixture_index(&career.season.league.fixtures, first);
         assert_eq!(idx, 0);
+    }
+
+    // ---- T3-R-F: CareerState::current_tick() career clock ----
+
+    /// A fresh career (season 0, match-day 1) has a non-zero career clock —
+    /// the salience-decay `now_tick` is real, not the `Tick::ZERO` placeholder.
+    #[test]
+    fn current_tick_is_nonzero_for_fresh_career() {
+        let state = AppState::new(&workspace_content_path()).expect("AppState::new");
+        let career = state.career().read().expect("career lock");
+        assert!(
+            career.current_tick() > Tick::ZERO,
+            "a fresh career (season 0, match-day 1) must have a non-zero career clock"
+        );
+    }
+
+    /// The career clock advances by exactly `SEASON_MATCH_TICK_BUDGET` for each
+    /// match-day, and strictly increases — it is monotonic.
+    #[test]
+    fn current_tick_advances_one_match_day_at_a_time() {
+        let state = AppState::new(&workspace_content_path()).expect("AppState::new");
+        let mut career = state.career().write().expect("career lock");
+
+        let before = career.current_tick();
+        career.season.current_match_day += 1;
+        let after = career.current_tick();
+
+        assert!(after > before, "career clock must strictly increase");
+        assert_eq!(
+            after.to_raw() - before.to_raw(),
+            i64::from(SEASON_MATCH_TICK_BUDGET),
+            "one match-day must advance the career clock by SEASON_MATCH_TICK_BUDGET",
+        );
+    }
+
+    /// The career clock is continuous across a season rollover: a completed
+    /// season at `current_match_day == MATCH_DAYS_PER_SEASON + 1` has the same
+    /// career tick as the next season at match-day 1. No jump, no regression.
+    #[test]
+    fn current_tick_is_continuous_across_season_rollover() {
+        let state = AppState::new(&workspace_content_path()).expect("AppState::new");
+        let mut career = state.career().write().expect("career lock");
+
+        // Season N complete: match-day advanced past the last played day.
+        career.season_number = SeasonNumber(3);
+        career.season.current_match_day = MATCH_DAYS_PER_SEASON + 1;
+        let end_of_season = career.current_tick();
+
+        // Season N+1, match-day 1 (the post-rollover state).
+        career.season_number = SeasonNumber(4);
+        career.season.current_match_day = 1;
+        let start_of_next = career.current_tick();
+
+        assert_eq!(
+            end_of_season, start_of_next,
+            "the career clock must be continuous across a season rollover"
+        );
     }
 }
