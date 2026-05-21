@@ -16,7 +16,7 @@ use std::path::PathBuf;
 
 use fw_content::ContentStore;
 use fw_content::signature::RoleFamily;
-use fw_content_baker::validators::PlayerBioValidator;
+use fw_content_baker::validators::{PlayerBioRosterValidator, PlayerBioValidator};
 
 /// Resolve the workspace-root `content/` directory from `CARGO_MANIFEST_DIR`.
 /// This crate is at `crates/fw-content-baker/`, so workspace root = `../../`.
@@ -73,4 +73,20 @@ fn all_22_fixtures_load_and_validate() {
         "all 8 RoleFamily variants must appear across the 22 fixtures; missing: {:?}",
         expected.difference(&role_families_seen).collect::<Vec<_>>()
     );
+}
+
+/// T3-R-D — the real shipped `fwh.core` pack (22 hand-authored player bios)
+/// passes `PlayerBioRosterValidator`. This anchors `MVP_ROSTER_SIZE` to the
+/// shipped corpus: if the constant drifts, or a bio fixture is added/removed,
+/// this test — and `validate-structural` — fails.
+#[test]
+fn shipped_pack_passes_the_roster_validator() {
+    let store = ContentStore::load_sources(&content_root())
+        .expect("ContentStore::load_sources must succeed");
+
+    PlayerBioRosterValidator::new()
+        .validate(&store.player_bios)
+        .unwrap_or_else(|e| {
+            panic!("PlayerBioRosterValidator rejected the shipped fwh.core pack: {e}")
+        });
 }

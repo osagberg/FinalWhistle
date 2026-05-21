@@ -17,6 +17,7 @@
 // consumer arrives.
 #![allow(dead_code)]
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use fw_content::{
@@ -166,6 +167,14 @@ pub enum ValidationError {
         field: &'static str,
         value: Q32,
     },
+
+    #[error(
+        "player-bio roster has {actual} bio(s) — the MVP content pack must hold \
+         exactly {expected} (two teams of eleven). A too-small roster cannot field \
+         two teams; the per-bio validator checks each bio in isolation and so \
+         cannot catch this."
+    )]
+    PlayerBioRosterSizeInvalid { actual: usize, expected: usize },
 }
 
 // ---------------------------------------------------------------------------
@@ -575,6 +584,42 @@ impl PlayerBioValidator {
                     value: candidate.affinity,
                 });
             }
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PlayerBioRosterValidator (T3-R-D)
+// ---------------------------------------------------------------------------
+
+/// MVP player-bio roster size: exactly 22 — two teams of eleven. The `fwh.core`
+/// pack ships exactly 22 hand-authored `PlayerBio` fixtures (T2-4) as a single
+/// pool. Revisit at the T4+ procedural-roster milestone, when a content pack
+/// ships a real declared roster (or a manifest) rather than a fixed 22-bio pool.
+pub const MVP_ROSTER_SIZE: usize = 22;
+
+/// Pack-level validator for the `PlayerBio` roster.
+///
+/// Unlike `PlayerBioValidator` (which validates ONE bio in isolation), this
+/// validates the whole collection: the MVP corpus must hold exactly
+/// `MVP_ROSTER_SIZE` bios. A too-small roster (e.g. a 1-bio pack) cannot field
+/// two teams and is semantically broken even though each individual bio passes.
+#[derive(Debug, Default)]
+pub struct PlayerBioRosterValidator;
+
+impl PlayerBioRosterValidator {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// The roster must contain exactly `MVP_ROSTER_SIZE` player bios.
+    pub fn validate(&self, bios: &BTreeMap<String, PlayerBio>) -> Result<(), ValidationError> {
+        if bios.len() != MVP_ROSTER_SIZE {
+            return Err(ValidationError::PlayerBioRosterSizeInvalid {
+                actual: bios.len(),
+                expected: MVP_ROSTER_SIZE,
+            });
         }
         Ok(())
     }
@@ -1401,5 +1446,72 @@ mod tests {
             }
             other => panic!("expected PlayerBioInstinctFieldOutOfRange, got {other:?}"),
         }
+    }
+
+    // --- T3-R-D: PlayerBioRosterValidator tests ------------------------------
+
+    /// Build a roster of `n` distinct, well-formed player bios. IDs are
+    /// 1-indexed (`fwh.core:player_00001`..) to match the shipped corpus.
+    fn roster_of(n: usize) -> BTreeMap<String, PlayerBio> {
+        let mut roster = BTreeMap::new();
+        for i in 1..=n {
+            let id = format!("fwh.core:player_{i:05}");
+            let mut bio = well_formed_player_bio();
+            bio.player_id = id.clone();
+            roster.insert(id, bio);
+        }
+        roster
+    }
+
+    #[test]
+    fn roster_validator_accepts_exactly_22() {
+        // 22 == MVP_ROSTER_SIZE — two teams of eleven.
+        let roster = roster_of(22);
+        assert!(
+            PlayerBioRosterValidator::new().validate(&roster).is_ok(),
+            "a roster of exactly 22 bios must validate"
+        );
+    }
+
+    #[test]
+    fn roster_validator_rejects_one_bio_pack() {
+        let roster = roster_of(1);
+        let err = PlayerBioRosterValidator::new()
+            .validate(&roster)
+            .expect_err("a 1-bio pack must be rejected — it cannot field two teams");
+        match err {
+            ValidationError::PlayerBioRosterSizeInvalid { actual, expected } => {
+                assert_eq!(actual, 1, "error must report the actual roster size");
+                assert_eq!(expected, 22, "error must report the expected size (22)");
+            }
+            other => panic!("expected PlayerBioRosterSizeInvalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn roster_validator_rejects_one_short() {
+        // 21 — one short. Kills a `!= 22` -> `> 22` mutation (21 > 22 is false).
+        let roster = roster_of(21);
+        assert!(
+            matches!(
+                PlayerBioRosterValidator::new().validate(&roster),
+                Err(ValidationError::PlayerBioRosterSizeInvalid { actual: 21, .. })
+            ),
+            "a 21-bio pack must be rejected"
+        );
+    }
+
+    #[test]
+    fn roster_validator_rejects_one_over() {
+        // 23 — one over. Kills a `!= 22` -> `< 22` mutation (23 < 22 is false):
+        // proves the invariant is EXACTLY 22, not ">= 22".
+        let roster = roster_of(23);
+        assert!(
+            matches!(
+                PlayerBioRosterValidator::new().validate(&roster),
+                Err(ValidationError::PlayerBioRosterSizeInvalid { actual: 23, .. })
+            ),
+            "a 23-bio pack must be rejected — the MVP invariant is EXACTLY 22"
+        );
     }
 }

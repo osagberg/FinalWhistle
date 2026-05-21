@@ -23,8 +23,8 @@ mod schemas;
 // tests share the same module tree.
 use fw_content_baker::bake::BakeNamesOffline;
 use fw_content_baker::validators::{
-    CultureValidator, PlayerBioValidator, PlayerTemplateValidator, RoleAffinityTableValidator,
-    TacticalArchetypeValidator,
+    CultureValidator, PlayerBioRosterValidator, PlayerBioValidator, PlayerTemplateValidator,
+    RoleAffinityTableValidator, TacticalArchetypeValidator,
 };
 
 #[derive(Parser, Debug)]
@@ -422,6 +422,16 @@ fn run_validate_structural(workspace: &str) -> anyhow::Result<()> {
         if let Err(e) = bio_validator.validate(bio) {
             errors.push(format!("player-bio {id:?}: {e}"));
         }
+    }
+
+    // Player-bio roster validation (T3-R-D) — pack-level: the MVP corpus must
+    // hold exactly MVP_ROSTER_SIZE bios. The per-bio loop above validates each
+    // bio in isolation, so a too-small (e.g. 1-bio) pack would otherwise pass
+    // structural validation. The empty-categories guard above only catches a
+    // ZERO-bio pack; this catches every other wrong roster size.
+    let roster_validator = PlayerBioRosterValidator::new();
+    if let Err(e) = roster_validator.validate(&store.player_bios) {
+        errors.push(format!("player-bio roster: {e}"));
     }
 
     println!(
