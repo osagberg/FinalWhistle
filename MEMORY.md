@@ -31,7 +31,7 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-(none — T3-9 closed 2026-05-21; the career loop shipped (multi-season runner + `MemoryLedger::compact` + `advance_season`/`get_career_overview` IPC + `/career` screen); `scripts/fw verify` exit 0; canonical match-state hashes UNCHANGED. **All Phase T3 build rows are now DONE** — next step is `/done` to re-run the T3 phase-gate; the T3 Exit Gate should now genuinely pass.)
+(none — **Phase T3 CLOSED 2026-05-21**. The `/done` ran the multi-track ultimate review (Claude tracks A–D + Codex tracks E–F); Codex returned ACCEPT, no gate-blocker; the locked T3 Exit Gate is met; tag `v0.3.0-career` created. The review logged a 6-row post-T3 cleanup cluster — **T3-R-A..F** in `docs/MASTER_PLAN.md` (doc reconciliation; breakthrough `evaluate` zero-delta panic-fix + gate tests; mutation-coverage tests + frozen V2 fixture; pack-level roster validation; SaveV3 career-state persistence; career clock for salience). Next `/next` picks T3-R-A; the cluster lands before T4's first user-facing-polish row. Audits: `docs/audits/post-t3-ultimate-review-2026-05-21.md` + `post-t3-codex-gate-2026-05-21.md`. The convergent systemic finding: the breakthrough + scout subsystems are infrastructure-complete but unwired into a played career — the wiring is genuine T4 work (needs the career-roster layer).)
 
 <!-- T3-9 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
 
