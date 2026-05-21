@@ -8,7 +8,7 @@
 
 ## Active task
 
-(none — T3-7 closed. **Phase T3 has no cleanly-eligible `/next` row left:** T3-5 dep T2-4 + T3-6 dep T2-7 are both `DEFERRED-ROLLED-TO-T3`; T3-8 dep is T3-7 (now DONE) but T3-8 IS the phase-gate Codex review — a `/done`-class step, not a `/next` implementation row. Next move is a user decision — see Phase T3 pointer.)
+(none — T3-7 closed. **T2-4 + T2-7 promoted back to TODO 2026-05-21** (user direction) — their blocker, the missing `design/player-generation.md`, was resolved 2026-05-18. Next `/next` picks **T2-4** (`fw-content` PlayerBio generation) — it's now the earliest TODO in declared order with its dep T2-3 DONE. T2-4 DONE then unblocks T3-5; T2-7 DONE unblocks T3-6.)
 
 ## Blockers
 
@@ -29,9 +29,11 @@
 
 ## Phase T3 pointer
 
-**No cleanly-eligible `/next` row remains in T3 — user decision needed.** The 3 open rows:
-- **T3-5** (`fw-scouting` scout-uncertainty model) — dep T2-4 is `DEFERRED-ROLLED-TO-T3`. T2-4's blocker (`design/player-generation.md`) was resolved 2026-05-18; T2-4 is promotable to TODO.
-- **T3-6** (Frontend Player detail page) — dep T2-7 is `DEFERRED-ROLLED-TO-T3`. T2-7's blocker also resolved 2026-05-18; promotable alongside T2-4.
-- **T3-8** (phase-gate Codex review #2) — dep T3-7 is now DONE, so T3-8 is technically eligible, but T3-8 IS the phase-close Codex review — a `/done`-class step, not a `/next` implementation row.
+**Remaining build sequence** (T2-4 + T2-7 promoted to TODO 2026-05-21):
+- **T2-4** (`fw-content` PlayerBio generation) — eligible NOW (dep T2-3 DONE); the next `/next` target.
+- **T2-7** (Frontend Squad page) — TODO; eligible once T2-4 reaches DONE (deps T2-4 + T2-5).
+- **T3-5** (`fw-scouting` scout-uncertainty model) — TODO; eligible once T2-4 DONE.
+- **T3-6** (Frontend Player detail page) — TODO; eligible once T2-7 + T3-2 DONE.
+- **T3-8** (phase-gate Codex review #2) — the phase-close step; run via `/done` after T3-5/T3-6 land.
 
-**Options for the user:** (a) promote T2-4 + T2-7 back to TODO (their blockers are resolved) so `/next` can ship the PlayerBio-generation + Squad-page + scouting + player-detail rows; (b) run `/done` to close Phase T3 now with T3-5/T3-6 carried forward as DEFERRED — but T3-5/T3-6 are MVP rows, so closing without them is a scope cut; (c) decide T3-5/T3-6 order. The honest read: T3 is not really complete — 2 MVP rows (scouting, player-detail UI) are unbuilt because their PlayerBio dependency was rolled forward. Promoting T2-4/T2-7 is the path to a genuinely-complete T3.
+`/next` walks declared order (phases top-down) so it will ship T2-4 first, then the chain unblocks naturally. Phase T3 closes genuinely complete once T2-4 / T2-7 / T3-5 / T3-6 are DONE — then `/done` opens the T3-8 Codex phase-gate review.
