@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use crate::event::{EventId, MemoryEvent, SeasonNumber};
 
 // -------------------------------------------------------------------------
-// Salience placeholder (T3-1)
+// Salience (T3-2 degenerate formula; full 5-term blend deferred to Phase 4)
 // -------------------------------------------------------------------------
 
 /// Compute salience for an event at emission time.

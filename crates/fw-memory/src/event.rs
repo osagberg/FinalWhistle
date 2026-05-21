@@ -30,8 +30,8 @@ pub struct MemoryEvent {
     /// Stable identity. Allocated monotonically by the ledger at append.
     pub event_id: EventId,
 
-    /// Schema version. Bumped only by forward-migration in
-    /// `fw-content::migrations`; older fixtures stay byte-identical.
+    /// Schema version. Bumped only by forward-migration in `fw-save`
+    /// (the `SaveV-N` ledger migration chain); older fixtures stay byte-identical.
     /// Always `1` at T3-1 emission.
     pub schema_version: u16,
 
@@ -83,8 +83,8 @@ pub struct MemoryEvent {
     /// canonical; reader-side modifiers (callback age, player attention) are
     /// applied on top at read time without mutating this field.
     ///
-    /// At T3-1 the placeholder formula always returns `Q32::ZERO`; the real
-    /// 5-term blend lands at T3-2.
+    /// T3-2 ships the degenerate formula (`salience == event.stakes`); the
+    /// real 5-term blend is deferred to Phase 4 (see `ledger::compute_salience`).
     pub salience: Q32,
 
     /// The decay shape applied by readers projecting current salience.

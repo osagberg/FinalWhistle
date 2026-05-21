@@ -8,6 +8,8 @@
 
 **Amendments:** 2026-05-13 — Event class catalogue count reconciled to 30 (was 29 in §catalogue header but the §"Mod-overlay compatibility" inline comment said 28; `Compaction` was referenced in prose but absent from the enum). Added `Compaction` as the sixth thematic group's sole "system" variant.
 
+**T3 ship status (2026-05-21, per the post-T3 ultimate review):** Phase T3 shipped the ledger schema (T3-1), the 5 readers (T3-2), the breakthrough mechanism (T3-4), and 5-season compaction (T3-9) as **infrastructure**. The live "career system" emitter this ADR describes — the layer that fills `signature_readiness` / `regressive_pressure`, fires breakthroughs, and runs scout observations *in a played career* — is **not yet wired into the career loop**. `breakthrough::evaluate` and `fw_scouting::observe_player` exist and are tested, but are exercised only by synthetic test harnesses; no played career produces a `BreakthroughMoment` yet. `BreakthroughState` is not persisted in `SaveV2` (career-state save is `SaveV3`, MASTER_PLAN T3-R-E). Wiring the career-system emitter is T4+ work (it needs the career-roster layer). The career loop that ships at T3-9 emits only season-end `TitleWon` events.
+
 ---
 
 ## Context
@@ -40,8 +42,8 @@ The canonical record. Declared in `crates/fw-memory/src/event.rs`, re-exported a
 pub struct MemoryEvent {
     /// Stable identity. Allocated monotonically by the ledger at append.
     pub event_id: EventId,
-    /// Schema version. Bumped only by forward-migration in
-    /// `fw-content::migrations`; older fixtures stay byte-identical.
+    /// Schema version. Bumped only by forward-migration in `fw-save`
+    /// (the `SaveV-N` ledger migration chain); older fixtures stay byte-identical.
     pub schema_version: u16,
     /// In-game season number (0-indexed from save start).
     pub season: SeasonNumber,
@@ -351,14 +353,14 @@ The schema_version on a `MemoryEvent` with `UnknownEventClass` is still the core
 - **Pillar 2 ships structurally.** The ledger + readers separation gives every player-facing surface (press, fan, scout, coach, alumni recall) one path to the same canonical history. The "kid you cut as captain in eight seasons" callback is a `BTreeMap<PlayerId, Vec<EventId>>` lookup, not an ad-hoc surface-specific store.
 - **Pillar 3 is genuinely event-caused.** `signature_readiness` is the only path to a Breakthrough; the meter cannot fill on training ticks; the redraw fires only with a narrative-anchored gating event. The "growth lives in the ledger" claim is now mechanical, not rhetorical.
 - **Determinism contract holds end-to-end.** `Q32` salience + stakes + readiness + pressure; `BTreeMap` indexes; `Vec` source-of-truth; no clocks (every time reference is `Tick` or `CareerDate` — both sim-time, not wall-time); no async; no system RNG. The pinned canonical-hash regression in `crates/fw-replay/tests/canonical_hash.rs` extends to cover a fixed-seed ledger scenario.
-- **Compaction is well-defined.** At the 5-season boundary, the compactor drops `tick: Some(_)` to `None` and collapses Linear-decay events that have decayed below the compaction floor into summarised aggregates per `(subject, class, season)`. Never-decay events survive intact. Compaction is itself an append-only operation that emits a `Compaction` event recording what was dropped; the BLAKE3 hash captures the compaction action.
+- **Compaction is well-defined.** At the 5-season boundary, the compactor drops `tick: Some(_)` to `None` and emits an append-only `Compaction` event recording the in-window event count. Never-decay events survive intact; the BLAKE3 hash captures the compaction action. *(T3-9 shipped exactly this — the boundary, tick-nulling, and the `Compaction` event. The richer behaviour the earlier draft of this bullet described — collapsing decayed Linear events into summarised aggregates per `(subject, class, season)` — is deferred design-doc-level tuning; see §Neutral "Compaction algorithm is a separate spec".)*
 - **Mod-friendly without coupling.** `UnknownEventClass` round-trips through serde + hash without core knowing the mod's semantics. A mod author can ship a new event class without recompiling core.
 - **Symmetric breakthrough / collapse.** Same schema, same redraw path, same cooldown discipline. No special-case code for "growth-up vs growth-down" — the narrative gate differs, the mechanism is one.
 - **Numeric weights stay in design docs.** The salience formula, threshold seeds, redraw distributions, family-relevance table, decay half-lives are all in `docs/design/memory.md` + `docs/design/progression.md`. Tuning loops do not require an ADR revision — they require a tuning-doc revision.
 
 ### Negative
 
-- **A lot of schema to lock at schema_version = 1.** 28 event classes plus 6 emitter kinds plus 6 participant roles is a wide surface. We accept this because forward migration is supported and the alternative (start with 3 event classes and grow) means breaking ledger compatibility every time we add a class. We pre-lock a generous catalogue and forward-migrate only on structural changes.
+- **A lot of schema to lock at schema_version = 1.** 30 event classes plus 6 emitter kinds plus 6 participant roles is a wide surface. We accept this because forward migration is supported and the alternative (start with 3 event classes and grow) means breaking ledger compatibility every time we add a class. We pre-lock a generous catalogue and forward-migrate only on structural changes.
 - **`UnknownEventClass` participates in canonical hashing.** This means a mod's internal payload representation is canonical-state. If a mod changes its payload encoding without bumping its mod-version, the BLAKE3 hash shifts and existing saves fail the determinism check. We mitigate by making mod authors stamp a payload-version inside the payload bytes; the mod-fingerprint already covers external version drift.
 - **Readers need indexes the ledger doesn't maintain on the hot path.** Per-subject and per-class indexes are rebuilt lazily on first read after each append, which means the first read after a batch of appends pays the rebuild cost. Acceptable for a per-press-conference (~weekly) cadence; we measure at T3 implementation.
 - **The narrative gate adds gameplay variability.** A breakthrough may sit at readiness=0.98 for a season because no gating event fires. This is by design (pillar 3 explicitly: "rare, earned, memorable") but means the meter is not a promise. We surface the meter only obliquely in commentary ("seems to be finding his stride") — never as a numeric tooltip (Sim/RULES §1, banned visible-stats UI).
@@ -367,7 +369,7 @@ The schema_version on a `MemoryEvent` with `UnknownEventClass` is still the core
 ### Neutral
 
 - **Five readers may grow.** A `BoardReader` for board-confidence summaries and an `OppositionScoutReader` (the opposing manager's view of our players) are candidates for Phase 4-5. The reader pattern is extensible; this ADR locks the initial five.
-- **Compaction algorithm is a separate spec.** `docs/specs/compaction-strategy.md` (Phase 3, after T3 lands the ledger primitives) details which fields drop, which aggregate, and how callback eligibility survives. This ADR commits to the boundary (5 seasons) and the append-only Compaction event; the algorithm itself is design-doc-level tuning.
+- **Compaction algorithm is a separate spec.** The rich aggregation algorithm (which fields drop, which aggregate, how callback eligibility survives) is design-doc-level tuning, deferred to a future `docs/specs/compaction-strategy.md` — **not yet authored**. T3-9 shipped only the boundary + tick-nulling + the append-only `Compaction` event; the aggregation spec lands when the compaction behaviour is genuinely tuned (T4+). This ADR commits to the boundary (5 seasons) and the append-only `Compaction` event.
 - **Mod readers are Phase 6.** Core readers ignore `UnknownEventClass`; a mod that wants its events to surface in commentary ships its own reader-side templates. The host engine reserves the right to add core readers for mod event tags in a future schema migration (which would promote `UnknownEventClass` to a first-class variant).
 
 ## Alternatives considered

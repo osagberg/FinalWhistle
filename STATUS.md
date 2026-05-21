@@ -8,7 +8,7 @@
 
 ## Active task
 
-(none — Phase T3 closed. Next `/next` picks **T3-R-A** — the first row of the post-T3 ultimate-review cleanup cluster (`T3-R-A..F`), which lands before T4's first user-facing-polish row. No gate-blockers; these are pre-T4 cleanup.)
+(none — T3-R-A (doc reconciliation) closed. Next `/next` picks **T3-R-B** — breakthrough `evaluate` zero-delta panic fix + gate-coverage tests + `compute_ca_delta`. The `T3-R-B..F` cleanup rows land before T4's first user-facing-polish row.)
 
 ## Blockers
 

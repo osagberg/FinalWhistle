@@ -43,7 +43,7 @@ auto_load: when_editing_matching_path
 - Every NEW RON-backed content type ships with `schema_version: <N>` as a top-level field from day one. `PlayerTemplate` (T1-1) + `RoleAffinityTable` (T1-1) comply.
 - **Legacy exception (2026-05-13 carve-out per Codex audit P2):** `Culture` + `TacticalArchetype` were authored before this rule and still lack the field. They gain `#[serde(default = ...)] schema_version: u32` opportunistically at T2-3 when the real `ContentStore::load_baked` baked-corpus pipeline lands AND starts gating on schema_version for migration routing. Until then, the loader accepts these legacy fixtures without the field. NO ad-hoc add — the field comes in alongside its consumer.
 - **Forward migration only.** Bumping the schema adds a migration path; the v1 fixtures are NEVER mutated.
-- Migrations live in `crates/fw-content/src/migrations/<N>_to_<N+1>.rs`.
+- Migrations for RON **content-type** schema bumps (e.g. `Culture`, `PlayerTemplate`) live in `crates/fw-content/src/migrations/<N>_to_<N+1>.rs` — the planned location; the directory is created when the first content-type migration is genuinely needed (none has been so far). This is distinct from **save-envelope / `MemoryEvent` ledger** migrations, which live in `fw-save` (the `SaveV-N` chain) — do not conflate the two.
 
 ## §4. Tracery grammars
 
