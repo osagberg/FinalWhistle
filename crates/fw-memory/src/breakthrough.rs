@@ -126,10 +126,6 @@ pub const READINESS_RESIDUE: Q32 = Q32::from_raw(644_245_094_i64);
 /// Arithmetic: 4_294_967_296 × 15 / 100 = 644_245_094.4 → round = 644_245_094
 pub const REGRESSIVE_RESIDUE: Q32 = Q32::from_raw(644_245_094_i64);
 
-/// CA-lift fraction: 0.50 (CA catches up halfway to the new PA ceiling).
-/// Raw bits: 1 << 31 = 2_147_483_648
-pub const CA_LIFT_FRACTION: Q32 = Q32::from_raw(2_147_483_648_i64);
-
 /// Positive breakthrough cooldown in in-game months.
 /// 12 in-game months = 12 * 30 = 360 in-game days.
 /// We store as ticks; the career system maps days → ticks externally.
@@ -802,12 +798,15 @@ fn career_floor(current_ca: i16) -> i16 {
 // CA delta — apply ca_lift_fraction to PA delta
 // -------------------------------------------------------------------------
 
-/// Compute the CA delta given a PA delta.
-/// `new_ca = clamp(old_ca + ca_lift_fraction × delta_pa, ca_min, new_pa)`.
-/// Returns `delta_ca` (may be positive or negative).
+/// Compute the CA delta for a positive breakthrough.
+///
+/// CA catches up toward the new PA by a `ca_lift_fraction` of 0.5
+/// (progression.md): `new_ca = clamp(old_ca + delta_pa / 2, ca_min, ca_max)`.
+/// The lift is integer `delta_pa / 2`, truncating toward zero — the
+/// deterministic 0.5 lift for the non-negative `delta_pa` this fn receives from
+/// the positive gate. Returns `delta_ca`.
 fn compute_ca_delta(delta_pa: i16, old_pa: i16, old_ca: i16, new_pa: i16) -> i16 {
-    // CA_LIFT_FRACTION = 0.5; multiply delta_pa by 0.5 using integer arithmetic.
-    // delta_pa × 1 / 2 (rounds toward zero).
+    // Lift = 0.5 × delta_pa, implemented as integer `delta_pa / 2`.
     let raw_lift = delta_pa / 2;
     let new_ca_raw = old_ca + raw_lift;
     // Clamp to [career_floor_for_positive, new_pa] for positive,
@@ -1059,32 +1058,43 @@ pub fn evaluate(
                     // Clamp new_pa to the documented PA scale ceiling (1..=200).
                     let new_pa = (pa_current + raw_delta).min(200);
                     let delta_pa = new_pa - pa_current;
-                    let delta_ca = compute_ca_delta(delta_pa, pa_current, ca_current, new_pa);
 
-                    let evt = make_breakthrough_event(
-                        ctx.player_id,
-                        event.season,
-                        ctx.career_date,
-                        family,
-                        &kind,
-                        delta_pa,
-                        delta_ca,
-                        event.stakes,
-                    );
+                    // PA already at the documented ceiling (200): the
+                    // breakthrough has no headroom to manifest as a stat lift.
+                    // Skip emission rather than emitting a zero-delta PaRedraw
+                    // (which would trip the make_breakthrough_event delta_pa>0
+                    // invariant). The readiness meter is intentionally NOT
+                    // reset: it stays at threshold so that if a later regressive
+                    // collapse drops PA below 200, the player immediately fires
+                    // the breakthrough they had already earned.
+                    if delta_pa > 0 {
+                        let delta_ca = compute_ca_delta(delta_pa, pa_current, ca_current, new_pa);
 
-                    outcomes.push(BreakthroughOutcome {
-                        player_id: ctx.player_id,
-                        family,
-                        kind,
-                        delta_pa,
-                        delta_ca,
-                        gating_event_class: event.event_class.clone(),
-                        event: evt,
-                    });
+                        let evt = make_breakthrough_event(
+                            ctx.player_id,
+                            event.season,
+                            ctx.career_date,
+                            family,
+                            &kind,
+                            delta_pa,
+                            delta_ca,
+                            event.stakes,
+                        );
 
-                    // Reset readiness; record fire date.
-                    state.reset_readiness_to_residue(family);
-                    state.last_positive_fire.insert(family, ctx.career_date);
+                        outcomes.push(BreakthroughOutcome {
+                            player_id: ctx.player_id,
+                            family,
+                            kind,
+                            delta_pa,
+                            delta_ca,
+                            gating_event_class: event.event_class.clone(),
+                            event: evt,
+                        });
+
+                        // Reset readiness; record fire date.
+                        state.reset_readiness_to_residue(family);
+                        state.last_positive_fire.insert(family, ctx.career_date);
+                    }
                 }
                 // None: player lacks both a signature candidate and a narrative flag
                 // for this family — meter stays at threshold until conditions are met.
@@ -1109,31 +1119,47 @@ pub fn evaluate(
                 let floor = career_floor(ca_current);
                 let new_pa = (pa_current + delta_pa).max(floor);
                 let actual_delta_pa = new_pa - pa_current; // may be less negative than sampled
-                let new_ca = (ca_current + actual_delta_pa / 2).max(floor);
-                let delta_ca = new_ca - ca_current;
 
-                let evt = make_regressive_event(
-                    ctx.player_id,
-                    event.season,
-                    ctx.career_date,
-                    family,
-                    actual_delta_pa,
-                    delta_ca,
-                    event.stakes,
-                );
+                // PA already at (or below) the career floor: no room to fall.
+                // Skip emission rather than emitting a zero-delta (or, for a
+                // sub-floor PA, a positive-delta) PaReductionRedraw, which would
+                // trip the make_regressive_event delta_pa<0 invariant. The
+                // pressure meter stays at threshold.
+                if actual_delta_pa < 0 {
+                    // CA drops by half the PA delta, floored at the career
+                    // floor — but a collapse can never *raise* CA, so cap at
+                    // the pre-collapse CA. A sub-floor-CA player would
+                    // otherwise be pushed up to the floor, yielding a positive
+                    // delta_ca that violates make_regressive_event's
+                    // delta_ca<=0 invariant.
+                    let new_ca = (ca_current + actual_delta_pa / 2)
+                        .max(floor)
+                        .min(ca_current);
+                    let delta_ca = new_ca - ca_current;
 
-                outcomes.push(BreakthroughOutcome {
-                    player_id: ctx.player_id,
-                    family,
-                    kind: BreakthroughKind::RegressiveCollapse,
-                    delta_pa: actual_delta_pa,
-                    delta_ca,
-                    gating_event_class: event.event_class.clone(),
-                    event: evt,
-                });
+                    let evt = make_regressive_event(
+                        ctx.player_id,
+                        event.season,
+                        ctx.career_date,
+                        family,
+                        actual_delta_pa,
+                        delta_ca,
+                        event.stakes,
+                    );
 
-                state.reset_pressure_to_residue(family);
-                state.last_regressive_fire.insert(family, ctx.career_date);
+                    outcomes.push(BreakthroughOutcome {
+                        player_id: ctx.player_id,
+                        family,
+                        kind: BreakthroughKind::RegressiveCollapse,
+                        delta_pa: actual_delta_pa,
+                        delta_ca,
+                        gating_event_class: event.event_class.clone(),
+                        event: evt,
+                    });
+
+                    state.reset_pressure_to_residue(family);
+                    state.last_regressive_fire.insert(family, ctx.career_date);
+                }
             }
         }
     }
@@ -1851,5 +1877,217 @@ mod tests {
             new_pa > 85,
             "positive breakthrough should lift PA above the regressive scar"
         );
+    }
+
+    // ---- T3-R-B: zero-delta guard + gate coverage ----
+
+    /// T3-R-B regression — a positive breakthrough on a family already at the PA
+    /// ceiling (200) yields a zero PA delta. `evaluate` must skip emission, not
+    /// trip the `make_breakthrough_event` `delta_pa > 0` invariant.
+    #[test]
+    fn evaluate_at_pa_ceiling_skips_without_panic() {
+        let player_id = PlayerId::new(50);
+        let mut ctx = ctx_with_finishing_candidate(player_id);
+        ctx.pa_by_family.insert(AttributeFamily::Finishing, 200);
+
+        let mut state = BreakthroughState::new();
+        state
+            .signature_readiness
+            .insert(AttributeFamily::Finishing, BREAKTHROUGH_THRESHOLD);
+
+        let mut ledger = MemoryLedger::new();
+        ledger.append(make_event_with_stakes(
+            EventClass::LegacyGoal,
+            player_id,
+            3_435_973_837_i64, // 0.80 stakes
+            0,
+        ));
+
+        // Without the zero-delta guard this panics inside make_breakthrough_event.
+        let outcomes = evaluate(&ledger, &ctx, &mut state, 12345, Tick::ZERO);
+        assert!(
+            outcomes.is_empty(),
+            "a PA-at-ceiling family must skip emission, not emit a zero-delta breakthrough"
+        );
+    }
+
+    /// T3-R-B regression — a regressive collapse on a family already at its
+    /// career floor yields a zero PA delta. `evaluate` must skip emission, not
+    /// trip the `make_regressive_event` `delta_pa < 0` invariant.
+    #[test]
+    fn evaluate_at_career_floor_skips_without_panic() {
+        let player_id = PlayerId::new(51);
+        let mut ctx = default_ctx(player_id);
+        // CA=30 → career floor = max(20, 30-30) = 20. PA pinned at the floor.
+        ctx.pa_by_family.insert(AttributeFamily::Composure, 20);
+        ctx.ca_by_family.insert(AttributeFamily::Composure, 30);
+
+        let mut state = BreakthroughState::new();
+        state
+            .regressive_pressure
+            .insert(AttributeFamily::Composure, REGRESSIVE_THRESHOLD);
+
+        let mut ledger = MemoryLedger::new();
+        ledger.append(make_event_with_stakes(
+            EventClass::BigMatchScar,
+            player_id,
+            3_650_722_202_i64, // 0.85 stakes
+            0,
+        ));
+
+        // Without the zero-delta guard this panics inside make_regressive_event.
+        let outcomes = evaluate(&ledger, &ctx, &mut state, 12345, Tick::ZERO);
+        assert!(
+            outcomes.is_empty(),
+            "a PA-at-floor family must skip emission, not emit a zero-delta collapse"
+        );
+    }
+
+    /// T3-R-B gate coverage — the `event.stakes >= GATE_MIN_STAKES` guard. An
+    /// event one raw unit below the floor fires nothing; an otherwise-identical
+    /// event exactly at the floor fires one breakthrough. Kills a `>=` → `>`
+    /// mutation on the stakes guard.
+    #[test]
+    fn gate_respects_min_stakes_floor() {
+        fn fired_count(stakes_raw: i64) -> usize {
+            let player_id = PlayerId::new(52);
+            let ctx = ctx_with_finishing_candidate(player_id);
+            let mut state = BreakthroughState::new();
+            state
+                .signature_readiness
+                .insert(AttributeFamily::Finishing, BREAKTHROUGH_THRESHOLD);
+            let mut ledger = MemoryLedger::new();
+            ledger.append(make_event_with_stakes(
+                EventClass::LegacyGoal,
+                player_id,
+                stakes_raw,
+                0,
+            ));
+            evaluate(&ledger, &ctx, &mut state, 12345, Tick::ZERO).len()
+        }
+
+        // GATE_MIN_STAKES raw bits == 2_147_483_648 (0.50).
+        assert_eq!(GATE_MIN_STAKES.to_raw(), 2_147_483_648_i64);
+        assert_eq!(
+            fired_count(2_147_483_647),
+            0,
+            "stakes one raw unit below GATE_MIN_STAKES must not fire"
+        );
+        assert_eq!(
+            fired_count(2_147_483_648),
+            1,
+            "stakes exactly at GATE_MIN_STAKES must fire"
+        );
+    }
+
+    /// T3-R-B gate coverage — when a player has BOTH a signature candidate and a
+    /// narrative flag in the same family, the positive breakthrough is Kind 1
+    /// (signature awakening), never Kind 2. Kills a candidate/flag priority flip
+    /// in `determine_positive_kind`.
+    #[test]
+    fn positive_kind_prefers_signature_over_flag() {
+        let player_id = PlayerId::new(53);
+        let mut ctx = ctx_with_finishing_candidate(player_id);
+        ctx.narrative_flags = vec![NarrativeFlag::LateBloomer];
+
+        let mut state = BreakthroughState::new();
+        state
+            .signature_readiness
+            .insert(AttributeFamily::Finishing, BREAKTHROUGH_THRESHOLD);
+
+        let mut ledger = MemoryLedger::new();
+        ledger.append(make_event_with_stakes(
+            EventClass::LegacyGoal,
+            player_id,
+            3_435_973_837_i64,
+            0,
+        ));
+
+        let outcomes = evaluate(&ledger, &ctx, &mut state, 12345, Tick::ZERO);
+        assert_eq!(outcomes.len(), 1, "exactly one breakthrough should fire");
+        assert!(
+            matches!(
+                outcomes[0].kind,
+                BreakthroughKind::SignatureAwakening { .. }
+            ),
+            "Kind 1 (signature awakening) must win over Kind 2 when both are present"
+        );
+    }
+
+    mod proptest_invariants {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// T3-R-B — `evaluate` must never panic for any well-formed (PA, CA)
+            /// pair, on either the positive or the regressive gate. The
+            /// zero-delta cases (PA at the ceiling 200, PA at the career floor)
+            /// are the regression target; any breakthrough that DOES fire must
+            /// carry a correctly-signed PA delta.
+            ///
+            /// Well-formedness: a valid player has `CA <= PA` (current ability
+            /// cannot exceed its potential ceiling). `ca = min(a, b)` /
+            /// `pa = max(a, b)` enforces that. A `CA > PA` context is corrupt
+            /// state and is *expected* to panic per Sim/RULES §11 — it is not
+            /// in this invariant's domain.
+            #[test]
+            fn evaluate_never_panics_for_any_pa_ca(
+                a in 1i16..=200,
+                b in 1i16..=200,
+            ) {
+                let pa = a.max(b);
+                let ca = a.min(b);
+                // Positive gate: Finishing candidate + LegacyGoal.
+                {
+                    let player_id = PlayerId::new(60);
+                    let mut ctx = ctx_with_finishing_candidate(player_id);
+                    ctx.pa_by_family.insert(AttributeFamily::Finishing, pa);
+                    ctx.ca_by_family.insert(AttributeFamily::Finishing, ca);
+                    let mut state = BreakthroughState::new();
+                    state
+                        .signature_readiness
+                        .insert(AttributeFamily::Finishing, BREAKTHROUGH_THRESHOLD);
+                    let mut ledger = MemoryLedger::new();
+                    ledger.append(make_event_with_stakes(
+                        EventClass::LegacyGoal,
+                        player_id,
+                        3_435_973_837_i64,
+                        0,
+                    ));
+                    let outcomes = evaluate(&ledger, &ctx, &mut state, 7, Tick::ZERO);
+                    for o in &outcomes {
+                        prop_assert!(
+                            o.delta_pa > 0,
+                            "a fired positive breakthrough must have delta_pa > 0"
+                        );
+                    }
+                }
+                // Regressive gate: Composure + BigMatchScar.
+                {
+                    let player_id = PlayerId::new(61);
+                    let mut ctx = default_ctx(player_id);
+                    ctx.pa_by_family.insert(AttributeFamily::Composure, pa);
+                    ctx.ca_by_family.insert(AttributeFamily::Composure, ca);
+                    let mut state = BreakthroughState::new();
+                    state
+                        .regressive_pressure
+                        .insert(AttributeFamily::Composure, REGRESSIVE_THRESHOLD);
+                    let mut ledger = MemoryLedger::new();
+                    ledger.append(make_event_with_stakes(
+                        EventClass::BigMatchScar,
+                        player_id,
+                        3_650_722_202_i64,
+                        0,
+                    ));
+                    let outcomes = evaluate(&ledger, &ctx, &mut state, 7, Tick::ZERO);
+                    for o in &outcomes {
+                        prop_assert!(
+                            o.delta_pa < 0,
+                            "a fired regressive collapse must have delta_pa < 0"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

@@ -32,10 +32,10 @@ pub mod readers;
 
 pub use breakthrough::{
     AttributeFamily, BREAKTHROUGH_COOLDOWN_DAYS, BREAKTHROUGH_THRESHOLD, BreakthroughContext,
-    BreakthroughKind, BreakthroughOutcome, BreakthroughState, CA_LIFT_FRACTION, GATE_MIN_STAKES,
-    NarrativeFlag, READINESS_RESIDUE, REGRESSIVE_COOLDOWN_DAYS, REGRESSIVE_RESIDUE,
-    REGRESSIVE_THRESHOLD, accumulate, evaluate, family_relevance, is_positive_gate,
-    is_regressive_gate, positive_redraw_range, regressive_redraw_range,
+    BreakthroughKind, BreakthroughOutcome, BreakthroughState, GATE_MIN_STAKES, NarrativeFlag,
+    READINESS_RESIDUE, REGRESSIVE_COOLDOWN_DAYS, REGRESSIVE_RESIDUE, REGRESSIVE_THRESHOLD,
+    accumulate, evaluate, family_relevance, is_positive_gate, is_regressive_gate,
+    positive_redraw_range, regressive_redraw_range,
 };
 pub use event::{
     CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter, EmitterKind, Emotion,
