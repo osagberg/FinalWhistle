@@ -28,6 +28,8 @@ import {
   isMatchFrameDTO,
   isMatchResult,
   isScore,
+  isSquadPlayer,
+  isSquadPlayerArray,
   safeInvoke,
 } from "./runtime-validators";
 
@@ -213,6 +215,80 @@ describe("isBackendHandshake", () => {
         backendReady: true,
       }),
     ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isSquadPlayer / isSquadPlayerArray — T2-7
+// ---------------------------------------------------------------------------
+
+describe("isSquadPlayer", () => {
+  const valid = {
+    playerId: "fwh.core:player_00001",
+    name: "Emeka Thorne",
+    role: "Striker",
+    birthRegion: "Ashvale",
+    phenotypeLabels: ["Pure finisher", "Poacher"],
+  };
+
+  it("accepts a fully-valid SquadPlayer", () => {
+    expect(isSquadPlayer(valid)).toBe(true);
+  });
+
+  it("accepts a SquadPlayer with empty phenotypeLabels array", () => {
+    expect(isSquadPlayer({ ...valid, phenotypeLabels: [] })).toBe(true);
+  });
+
+  it("rejects when name is missing", () => {
+    const bad = { ...valid } as Record<string, unknown>;
+    delete bad.name;
+    expect(isSquadPlayer(bad)).toBe(false);
+  });
+
+  it("rejects when playerId is a number", () => {
+    expect(isSquadPlayer({ ...valid, playerId: 42 })).toBe(false);
+  });
+
+  it("rejects when birthRegion is missing", () => {
+    const bad = { ...valid } as Record<string, unknown>;
+    delete bad.birthRegion;
+    expect(isSquadPlayer(bad)).toBe(false);
+  });
+
+  it("rejects when phenotypeLabels contains a non-string element", () => {
+    expect(isSquadPlayer({ ...valid, phenotypeLabels: ["ok", 99] })).toBe(false);
+  });
+
+  it("rejects null", () => {
+    expect(isSquadPlayer(null)).toBe(false);
+  });
+});
+
+describe("isSquadPlayerArray", () => {
+  const validPlayer = {
+    playerId: "fwh.core:player_00001",
+    name: "Emeka Thorne",
+    role: "Striker",
+    birthRegion: "Ashvale",
+    phenotypeLabels: ["Pure finisher"],
+  };
+
+  it("accepts an empty array", () => {
+    expect(isSquadPlayerArray([])).toBe(true);
+  });
+
+  it("accepts an array of valid SquadPlayers", () => {
+    expect(isSquadPlayerArray([validPlayer, { ...validPlayer, playerId: "fwh.core:player_00002" }])).toBe(true);
+  });
+
+  it("rejects when one element has a missing field", () => {
+    const bad = { ...validPlayer } as Record<string, unknown>;
+    delete bad.role;
+    expect(isSquadPlayerArray([validPlayer, bad])).toBe(false);
+  });
+
+  it("rejects a non-array", () => {
+    expect(isSquadPlayerArray(validPlayer)).toBe(false);
   });
 });
 

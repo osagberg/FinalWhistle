@@ -32,6 +32,7 @@ fn main() {
             fw_tauri::commands::play_fixtures,
             fw_tauri::commands::get_standings,
             fw_tauri::commands::get_fixtures,
+            fw_tauri::commands::get_squad,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

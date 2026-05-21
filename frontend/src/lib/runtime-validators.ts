@@ -48,6 +48,7 @@ import type {
   MatchResult,
   PlayFixturesSummary,
   Score,
+  SquadPlayer,
   StandingsRow,
 } from "./types";
 
@@ -317,6 +318,25 @@ export function isFixtureWithResult(v: unknown): v is FixtureWithResult {
 
 export function isFixtureWithResultArray(v: unknown): v is FixtureWithResult[] {
   return Array.isArray(v) && v.every(isFixtureWithResult);
+}
+
+// ---------------------------------------------------------------------------
+// T2-7 squad guards
+// ---------------------------------------------------------------------------
+
+export function isSquadPlayer(v: unknown): v is SquadPlayer {
+  if (!isObject(v)) return false;
+  if (typeof v.playerId !== "string") return false;
+  if (typeof v.name !== "string") return false;
+  if (typeof v.role !== "string") return false;
+  if (typeof v.birthRegion !== "string") return false;
+  if (!Array.isArray(v.phenotypeLabels)) return false;
+  if (!v.phenotypeLabels.every((l) => typeof l === "string")) return false;
+  return true;
+}
+
+export function isSquadPlayerArray(v: unknown): v is SquadPlayer[] {
+  return Array.isArray(v) && v.every(isSquadPlayer);
 }
 
 // ---------------------------------------------------------------------------

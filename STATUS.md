@@ -4,20 +4,19 @@
 
 ## Phase
 
-**Phase T3 (Career + Memory) IN PROGRESS.** T3-1/T3-2/T3-3 closed 2026-05-18; T3-4 (breakthrough mechanism) 2026-05-20; T3-7 (save-migration fixtures) + T2-4 (PlayerBio type contract + 22 fixtures) 2026-05-21. T2-4 + T2-7 were promoted back from DEFERRED (blocker resolved); T2-4 is now DONE — which unblocks T3-5 and makes T2-7 eligible.
+**Phase T3 (Career + Memory) IN PROGRESS.** T3-1/T3-2/T3-3 closed 2026-05-18; T3-4 (breakthrough mechanism) 2026-05-20; T3-7 (save-migration fixtures) + T2-4 (PlayerBio type contract + 22 fixtures) + T2-7 (Frontend Squad page) 2026-05-21. T2-4 + T2-7 (both promoted back from DEFERRED) are now DONE. Remaining T3 build rows: T3-5, T3-6, T3-8.
 
 ## Active task
 
-(none — T2-4 closed. Next `/next` picks **T2-7** (Frontend Squad page) — earliest TODO in declared order, deps T2-4 + T2-5 both DONE.)
+(none — T2-7 closed. Next `/next` picks **T3-5** (`fw-scouting` scout-uncertainty model) — earliest TODO in declared order, dep T2-4 DONE.)
 
 ## Blockers
 
-- **T2-4 + T2-7 + T3-5** still `DEFERRED-ROLLED-TO-T3` per the /done roll-forward. PROMOTABLE at any /next; T2-4 unblock landed at 2026-05-18 via `design/player-generation.md` port.
 - **T2-1d2** rolled to T3 as `DEFERRED-ROLLED-TO-T3`; promote at T3 midpoint after BT-runner matures per `personality-bias-weights.md` cadence.
 
 ## Last green verify
 
-2026-05-21 (post-T2-4): `scripts/fw verify` exit 0; fw-content + fw-content-baker tests green (PlayerBio types + PlayerBioValidator + 22 fixtures); clippy clean; canonical match-state hashes UNCHANGED on both pins.
+2026-05-21 (post-T2-7): `scripts/fw verify` exit 0; fw-content + fw-tauri tests green (`display_label` methods + `get_squad` command + `SquadPlayerDto`); 106 frontend tests green (8 new Squad page); clippy + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
 
 ## Last canonical hash
 
@@ -29,10 +28,9 @@
 
 ## Phase T3 pointer
 
-**Remaining build sequence** (T2-4 DONE 2026-05-21 — chain unblocked):
-- **T2-7** (Frontend Squad page) — eligible NOW (deps T2-4 + T2-5 DONE); the next `/next` target.
-- **T3-5** (`fw-scouting` scout-uncertainty model) — eligible NOW (dep T2-4 DONE).
-- **T3-6** (Frontend Player detail page) — eligible once T2-7 DONE (deps T2-7 + T3-2).
-- **T3-8** (phase-gate Codex review #2) — the phase-close step; run via `/done` after T2-7 / T3-5 / T3-6 land.
+**Remaining build sequence** (T2-4 + T2-7 DONE 2026-05-21):
+- **T3-5** (`fw-scouting` scout-uncertainty model) — eligible NOW (dep T2-4 DONE); the next `/next` target.
+- **T3-6** (Frontend Player detail page) — eligible NOW (deps T2-7 + T3-2 both DONE).
+- **T3-8** (phase-gate Codex review #2) — the phase-close step; run via `/done` after T3-5 / T3-6 land.
 
-`/next` walks declared order (phases top-down) so it ships T2-7 next, then T3-5, then T3-6. Phase T3 closes genuinely complete once T2-7 / T3-5 / T3-6 are DONE — then `/done` opens the T3-8 Codex phase-gate review.
+`/next` walks declared order so it ships T3-5 next, then T3-6. Phase T3 closes genuinely complete once T3-5 / T3-6 are DONE — then `/done` opens the T3-8 Codex phase-gate review.

@@ -198,6 +198,82 @@ fn too_many_frames_error_round_trips_through_json() {
 }
 
 // ---------------------------------------------------------------------------
+// T2-7: get_squad camelCase DTO contract
+// ---------------------------------------------------------------------------
+
+/// `SquadPlayerDto` must serialise with camelCase keys matching the TS
+/// `SquadPlayer` interface: `playerId`, `name`, `role`, `birthRegion`,
+/// `phenotypeLabels`.
+#[test]
+fn squad_player_dto_serializes_camel_case_keys() {
+    let state = test_app_state();
+    let squad = fw_tauri::commands::get_squad_inner(&state).expect("get_squad_inner");
+    assert!(
+        !squad.is_empty(),
+        "ContentStore must have at least one player bio"
+    );
+
+    // Pick first DTO and round-trip through JSON to verify key names.
+    let dto = &squad[0];
+    let json = serde_json::to_string(dto).expect("SquadPlayerDto must serialize");
+    let v: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+    let obj = v.as_object().expect("SquadPlayerDto is a JSON object");
+
+    assert!(
+        obj.contains_key("playerId"),
+        "missing key 'playerId': {json}"
+    );
+    assert!(obj.contains_key("name"), "missing key 'name': {json}");
+    assert!(obj.contains_key("role"), "missing key 'role': {json}");
+    assert!(
+        obj.contains_key("birthRegion"),
+        "missing key 'birthRegion': {json}"
+    );
+    assert!(
+        obj.contains_key("phenotypeLabels"),
+        "missing key 'phenotypeLabels': {json}"
+    );
+
+    // No snake_case keys should appear.
+    assert!(
+        !obj.contains_key("player_id"),
+        "snake_case key 'player_id' must not appear"
+    );
+    assert!(
+        !obj.contains_key("birth_region"),
+        "snake_case key 'birth_region' must not appear"
+    );
+    assert!(
+        !obj.contains_key("phenotype_labels"),
+        "snake_case key 'phenotype_labels' must not appear"
+    );
+
+    // phenotypeLabels must be a JSON array.
+    let labels = obj["phenotypeLabels"]
+        .as_array()
+        .expect("phenotypeLabels must be a JSON array");
+    // Each label string must be a string (not null).
+    for label in labels {
+        assert!(
+            label.is_string(),
+            "each phenotype label must be a string, got: {label}"
+        );
+    }
+}
+
+/// `get_squad_inner` returns exactly 22 players (the hand-authored fixture count).
+#[test]
+fn get_squad_returns_22_players() {
+    let state = test_app_state();
+    let squad = fw_tauri::commands::get_squad_inner(&state).expect("get_squad_inner");
+    assert_eq!(
+        squad.len(),
+        22,
+        "hand-authored content has exactly 22 player bios"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Structural: src-tauri has zero local commands (acceptance criterion 7)
 // ---------------------------------------------------------------------------
 

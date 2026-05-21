@@ -173,6 +173,75 @@ impl PhenotypeLabelId {
         PhenotypeLabelId::False9,
         PhenotypeLabelId::LinkForward,
     ];
+
+    /// Human-readable football-native label for this phenotype.
+    ///
+    /// Exhaustive match — adding a new variant without a corresponding arm
+    /// causes a compile error, guaranteeing the label list stays in sync.
+    /// Labels are banned-terms-clean per `Content/RULES.md §5`: football
+    /// vocabulary only, no capitalised mystical state-nouns, no "+N stat" forms.
+    pub fn display_label(&self) -> &'static str {
+        match self {
+            // Physical (7)
+            PhenotypeLabelId::ExplosiveFirstStep => "Explosive first step",
+            PhenotypeLabelId::RelentlessEngine => "Relentless engine",
+            PhenotypeLabelId::AerialPresence => "Aerial presence",
+            PhenotypeLabelId::AgilePivot => "Agile pivot",
+            PhenotypeLabelId::SlowStarter => "Slow starter",
+            PhenotypeLabelId::LateCareerPeak => "Late career peak",
+            PhenotypeLabelId::QuickRecovery => "Quick recovery",
+            // Mental (8)
+            PhenotypeLabelId::ReadsTheGame => "Reads the game",
+            PhenotypeLabelId::ComposedUnderPressure => "Composed under pressure",
+            PhenotypeLabelId::DecisiveInTheBox => "Decisive in the box",
+            PhenotypeLabelId::StrugglesUnderScrutiny => "Struggles under scrutiny",
+            PhenotypeLabelId::SlowToAdapt => "Slow to adapt",
+            PhenotypeLabelId::GrowsIntoGames => "Grows into games",
+            PhenotypeLabelId::Ambitious => "Ambitious",
+            PhenotypeLabelId::Loyal => "Loyal",
+            // Technical (6)
+            PhenotypeLabelId::SetPieceNatural => "Set-piece natural",
+            PhenotypeLabelId::StrongLeftFoot => "Strong left foot",
+            PhenotypeLabelId::PureFinisher => "Pure finisher",
+            PhenotypeLabelId::SilkenFirstTouch => "Silken first touch",
+            PhenotypeLabelId::PowerfulBallStriker => "Powerful ball striker",
+            PhenotypeLabelId::AerialThreat => "Aerial threat",
+            // Development (3)
+            PhenotypeLabelId::LateBloomer => "Late bloomer",
+            PhenotypeLabelId::EarlyDeveloper => "Early developer",
+            PhenotypeLabelId::SteadyProgressor => "Steady progressor",
+            // Role-specific — Goalkeeper (3)
+            PhenotypeLabelId::SweeperKeeper => "Sweeper-keeper",
+            PhenotypeLabelId::LineKeeper => "Line keeper",
+            PhenotypeLabelId::CrossClaimer => "Cross claimer",
+            // Role-specific — Centre-back (3)
+            PhenotypeLabelId::BallPlayingDefender => "Ball-playing defender",
+            PhenotypeLabelId::Stopper => "Stopper",
+            PhenotypeLabelId::CoverDefender => "Cover defender",
+            // Role-specific — Full-back / wing-back (3)
+            PhenotypeLabelId::OverlappingFullBack => "Overlapping full-back",
+            PhenotypeLabelId::InvertedFullBack => "Inverted full-back",
+            PhenotypeLabelId::WingBackRunner => "Wing-back runner",
+            // Role-specific — Defensive midfielder (3)
+            PhenotypeLabelId::AnchorMan => "Anchor man",
+            PhenotypeLabelId::BallWinningMidfielder => "Ball-winning midfielder",
+            PhenotypeLabelId::PressingMidfielder => "Pressing midfielder",
+            // Role-specific — Central midfielder (2)
+            PhenotypeLabelId::TempoSetter => "Tempo setter",
+            PhenotypeLabelId::BoxToBox => "Box-to-box",
+            // Role-specific — Attacking midfielder (2)
+            PhenotypeLabelId::Playmaker => "Playmaker",
+            PhenotypeLabelId::HalfSpaceCreator => "Half-space creator",
+            // Role-specific — Winger (2)
+            PhenotypeLabelId::InvertedWinger => "Inverted winger",
+            PhenotypeLabelId::TraditionalWinger => "Traditional winger",
+            // Role-specific — Striker (4)
+            PhenotypeLabelId::Poacher => "Poacher",
+            PhenotypeLabelId::TargetMan => "Target man",
+            PhenotypeLabelId::False9 => "False 9",
+            PhenotypeLabelId::LinkForward => "Link forward",
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -657,5 +726,85 @@ pub mod tests {
         // before Poacher). PartialOrd/Ord derives use declaration order.
         assert_eq!(*v[0], PhenotypeLabelId::PureFinisher);
         assert_eq!(*v[1], PhenotypeLabelId::Poacher);
+    }
+
+    // ------------------------------------------------------------------------
+    // T2-7: display_label — RED tests (written before the impl)
+    // ------------------------------------------------------------------------
+
+    /// Every label in PhenotypeLabelId::ALL returns a non-empty string and
+    /// multi-word variants do NOT render as the raw CamelCase identifier.
+    ///
+    /// Single-word labels (e.g. "Ambitious", "Loyal", "Poacher") may share the
+    /// same spelling as their variant name — that is intentional: the football
+    /// vocabulary for those concepts is a single English word, so there is no
+    /// CamelCase to transform. Multi-word variants (anything whose debug form
+    /// contains no internal hyphens and has >1 CamelCase word) must NOT appear
+    /// verbatim as the CamelCase identifier.
+    #[test]
+    fn phenotype_display_labels_all_non_empty_and_football_native() {
+        for variant in PhenotypeLabelId::ALL {
+            let label = variant.display_label();
+            assert!(
+                !label.is_empty(),
+                "display_label for {variant:?} must not be empty"
+            );
+            // For multi-word CamelCase identifiers (detected by the presence of
+            // a second uppercase letter that is NOT the very first character),
+            // the display label must differ from the debug form. Single-word
+            // variants (Poacher, Stopper, Playmaker, etc.) are exempt because
+            // the readable English word IS the identifier.
+            let debug_str = format!("{variant:?}");
+            let is_multi_word_camel = debug_str.chars().skip(1).any(|c| c.is_uppercase());
+            if is_multi_word_camel {
+                assert_ne!(
+                    label,
+                    debug_str.as_str(),
+                    "display_label for multi-word variant {variant:?} must not be \
+                     the raw CamelCase identifier; got {label:?}"
+                );
+            }
+        }
+    }
+
+    /// Labels are unique — no two variants share the same display string.
+    #[test]
+    fn phenotype_display_labels_are_unique() {
+        let labels: Vec<&'static str> = PhenotypeLabelId::ALL
+            .iter()
+            .map(|v| v.display_label())
+            .collect();
+        let unique: std::collections::BTreeSet<_> = labels.iter().collect();
+        assert_eq!(
+            labels.len(),
+            unique.len(),
+            "every PhenotypeLabelId variant must have a unique display label"
+        );
+    }
+
+    /// Spot-check specific human-readable renders.
+    #[test]
+    fn phenotype_display_label_spot_checks() {
+        assert_eq!(
+            PhenotypeLabelId::ExplosiveFirstStep.display_label(),
+            "Explosive first step"
+        );
+        assert_eq!(
+            PhenotypeLabelId::ReadsTheGame.display_label(),
+            "Reads the game"
+        );
+        assert_eq!(
+            PhenotypeLabelId::SweeperKeeper.display_label(),
+            "Sweeper-keeper"
+        );
+        assert_eq!(PhenotypeLabelId::Poacher.display_label(), "Poacher");
+        assert_eq!(
+            PhenotypeLabelId::StrugglesUnderScrutiny.display_label(),
+            "Struggles under scrutiny"
+        );
+        assert_eq!(
+            PhenotypeLabelId::PowerfulBallStriker.display_label(),
+            "Powerful ball striker"
+        );
     }
 }

@@ -174,6 +174,25 @@ export interface FixtureWithResult {
 }
 
 // ---------------------------------------------------------------------------
+// T2-7 squad DTO — mirrors fw-tauri::SquadPlayerDto
+// ---------------------------------------------------------------------------
+
+/**
+ * One player row returned by `get_squad`.
+ *
+ * Age and contract are absent by design — they are T4+ career-roster state
+ * that `PlayerBio` does not carry. Phenotype labels are human-readable strings
+ * (e.g. "Explosive first step"), never raw Rust enum identifiers.
+ */
+export interface SquadPlayer {
+  playerId: string;
+  name: string;
+  role: string;
+  birthRegion: string;
+  phenotypeLabels: string[];
+}
+
+// ---------------------------------------------------------------------------
 // T1-2a tactical board DTOs — mirrors fw-match-sim::dto (camelCase serde)
 // ---------------------------------------------------------------------------
 

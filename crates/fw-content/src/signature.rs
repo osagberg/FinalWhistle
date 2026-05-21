@@ -191,6 +191,25 @@ pub enum RoleFamily {
     Striker = 7,
 }
 
+impl RoleFamily {
+    /// Human-readable football-native label for this role family.
+    ///
+    /// Exhaustive match — adding a variant without a corresponding arm causes
+    /// a compile error, keeping the label list in sync automatically.
+    pub fn display_label(&self) -> &'static str {
+        match self {
+            RoleFamily::Goalkeeper => "Goalkeeper",
+            RoleFamily::CentreBack => "Centre-back",
+            RoleFamily::FullBack => "Full-back",
+            RoleFamily::DefensiveMidfielder => "Defensive midfielder",
+            RoleFamily::CentralMidfielder => "Central midfielder",
+            RoleFamily::AttackingMidfielder => "Attacking midfielder",
+            RoleFamily::Winger => "Winger",
+            RoleFamily::Striker => "Striker",
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // BiasCategory — 4 categories per ADR-0011 §"Stacking policy"
 // ---------------------------------------------------------------------------
@@ -594,6 +613,64 @@ mod tests {
         for (i, v) in variants.iter().enumerate() {
             assert_eq!(*v as u8, i as u8, "RoleFamily::{v:?} discriminant wrong");
         }
+    }
+
+    // ------------------------------------------------------------------------
+    // T2-7: RoleFamily::display_label — RED tests (written before impl)
+    // ------------------------------------------------------------------------
+
+    /// All 8 variants return non-empty labels; multi-word CamelCase variants
+    /// must not render as the raw identifier.
+    #[test]
+    fn role_family_display_labels_all_non_empty() {
+        let variants = [
+            RoleFamily::Goalkeeper,
+            RoleFamily::CentreBack,
+            RoleFamily::FullBack,
+            RoleFamily::DefensiveMidfielder,
+            RoleFamily::CentralMidfielder,
+            RoleFamily::AttackingMidfielder,
+            RoleFamily::Winger,
+            RoleFamily::Striker,
+        ];
+        for v in &variants {
+            let label = v.display_label();
+            assert!(
+                !label.is_empty(),
+                "display_label for {v:?} must not be empty"
+            );
+            let debug_str = format!("{v:?}");
+            let is_multi_word_camel = debug_str.chars().skip(1).any(|c| c.is_uppercase());
+            if is_multi_word_camel {
+                assert_ne!(
+                    label,
+                    debug_str.as_str(),
+                    "display_label for multi-word {v:?} must not be the raw CamelCase identifier"
+                );
+            }
+        }
+    }
+
+    /// Spot-check specific human-readable renders including hyphenated forms.
+    #[test]
+    fn role_family_display_label_spot_checks() {
+        assert_eq!(RoleFamily::Goalkeeper.display_label(), "Goalkeeper");
+        assert_eq!(RoleFamily::CentreBack.display_label(), "Centre-back");
+        assert_eq!(RoleFamily::FullBack.display_label(), "Full-back");
+        assert_eq!(
+            RoleFamily::DefensiveMidfielder.display_label(),
+            "Defensive midfielder"
+        );
+        assert_eq!(
+            RoleFamily::CentralMidfielder.display_label(),
+            "Central midfielder"
+        );
+        assert_eq!(
+            RoleFamily::AttackingMidfielder.display_label(),
+            "Attacking midfielder"
+        );
+        assert_eq!(RoleFamily::Winger.display_label(), "Winger");
+        assert_eq!(RoleFamily::Striker.display_label(), "Striker");
     }
 
     // ---- BiasCategory all variants present ----

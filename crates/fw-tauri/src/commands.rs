@@ -25,8 +25,8 @@ use fw_match_sim::{MatchState, tick_match};
 use crate::state::{fixture_seed, league_fixture_index};
 use crate::{
     AdvanceWeekSummaryDto, AppState, BackendHandshakeDto, FixtureWithResultDto, IpcError,
-    MAX_FRAMES_PER_REQUEST, MatchFrameDto, MatchResult, PlayFixturesSummaryDto, StandingsRowDto,
-    season,
+    MAX_FRAMES_PER_REQUEST, MatchFrameDto, MatchResult, PlayFixturesSummaryDto, SquadPlayerDto,
+    StandingsRowDto, season,
 };
 
 // ---------------------------------------------------------------------------
@@ -202,6 +202,17 @@ pub async fn get_fixtures(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<FixtureWithResultDto>, IpcError> {
     get_fixtures_inner(club_id, &state)
+}
+
+/// `get_squad()` — return all player bios from the content store as a flat list.
+///
+/// Returns the 22-player pool from `ContentStore.player_bios` in BTreeMap
+/// key order (deterministic, content-pack-qualified ID order). Columns
+/// available: name, role, birth region, phenotype labels (human-readable).
+/// Age and contract are deliberately absent — they are T4+ career-roster state.
+#[tauri::command]
+pub async fn get_squad(state: tauri::State<'_, AppState>) -> Result<Vec<SquadPlayerDto>, IpcError> {
+    get_squad_inner(&state)
 }
 
 // ---------------------------------------------------------------------------
@@ -441,6 +452,31 @@ pub fn get_fixtures_inner(
     Ok(dtos)
 }
 
+pub fn get_squad_inner(state: &AppState) -> Result<Vec<SquadPlayerDto>, IpcError> {
+    let dtos: Vec<SquadPlayerDto> = state
+        .content()
+        .player_bios
+        .values()
+        // BTreeMap::values() iterates in key order — deterministic by contract.
+        .map(|bio| {
+            let phenotype_labels: Vec<String> = bio
+                .scout_labels
+                .iter()
+                // BTreeSet::iter() is sorted — deterministic order.
+                .map(|label| label.display_label().to_string())
+                .collect();
+            SquadPlayerDto {
+                player_id: bio.player_id.clone(),
+                name: bio.display_name_full.clone(),
+                role: bio.role_family.display_label().to_string(),
+                birth_region: bio.birth_region.clone(),
+                phenotype_labels,
+            }
+        })
+        .collect();
+    Ok(dtos)
+}
+
 // ---------------------------------------------------------------------------
 // Shared helper
 // ---------------------------------------------------------------------------
@@ -611,6 +647,53 @@ mod tests {
         ))
         .expect("play_match");
         assert_eq!(result.commentary_preview.len(), result.match_events.len());
+    }
+
+    // ---- get_squad_inner ----
+
+    #[test]
+    fn get_squad_inner_returns_all_22_bios() {
+        let state = test_app_state();
+        let squad = get_squad_inner(&state).expect("get_squad_inner");
+        assert_eq!(
+            squad.len(),
+            22,
+            "ContentStore holds exactly 22 hand-authored player bios"
+        );
+        let first = &squad[0];
+        assert!(!first.name.is_empty(), "name must be non-empty");
+        assert!(!first.role.is_empty(), "role must be non-empty");
+        // phenotype_labels must be human-readable text, NOT raw enum identifiers.
+        // A rendered label is sentence-case — uppercase only at position 0
+        // ("Explosive first step"). A raw multi-word CamelCase identifier
+        // ("ExplosiveFirstStep") has uppercase letters PAST position 0, so
+        // `chars().skip(1).any(is_uppercase)` flags exactly that — and this
+        // assertion WOULD fail if get_squad_inner returned `format!("{:?}")`
+        // instead of `display_label()`. (An adjacent-uppercase check does NOT
+        // work: CamelCase never has two uppercase letters in a row.) Checked
+        // across every player, not just squad[0].
+        for player in &squad {
+            for label in &player.phenotype_labels {
+                let looks_like_raw_identifier = label.chars().skip(1).any(|c| c.is_uppercase());
+                assert!(
+                    !looks_like_raw_identifier,
+                    "phenotype label {label:?} (player {}) looks like a raw \
+                     CamelCase identifier — display_label() must render \
+                     sentence-case text",
+                    player.player_id
+                );
+            }
+        }
+        // At least one label across all players must contain a space (proving
+        // multi-word labels are rendered correctly, not as raw identifiers).
+        let any_with_space = squad
+            .iter()
+            .flat_map(|p| &p.phenotype_labels)
+            .any(|l| l.contains(' '));
+        assert!(
+            any_with_space,
+            "at least one phenotype label must contain a space (multi-word)"
+        );
     }
 
     // ---- IpcError serialization (acceptance criterion 3) ----

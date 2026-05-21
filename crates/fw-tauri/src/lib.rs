@@ -37,8 +37,8 @@ pub mod season;
 pub mod state;
 
 pub use commands::{
-    advance_week, get_backend_handshake, get_fixtures, get_standings, match_frames, play_fixtures,
-    play_match,
+    advance_week, get_backend_handshake, get_fixtures, get_squad, get_standings, match_frames,
+    play_fixtures, play_match,
 };
 pub use error::IpcError;
 pub use handshake::BackendHandshakeDto;
@@ -89,6 +89,27 @@ pub struct StandingsRowDto {
     pub goals_against: u16,
     pub goal_difference: i32,
     pub points: u16,
+}
+
+/// One player in the squad list returned by `get_squad`.
+///
+/// Columns: player_id, display name, role family, birth region, scout phenotype
+/// labels (human-readable strings from `PhenotypeLabelId::display_label`).
+/// Age and contract fields are deliberately absent — they are T4+ career-roster
+/// state that `PlayerBio` does not carry.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SquadPlayerDto {
+    /// Content-pack-qualified player ID (`fwh.core:player_00042`).
+    pub player_id: String,
+    /// Full display name.
+    pub name: String,
+    /// Human-readable role family label (e.g. "Centre-back").
+    pub role: String,
+    /// Fantasy birth region string.
+    pub birth_region: String,
+    /// Scout phenotype labels in BTreeSet iteration order (deterministic).
+    pub phenotype_labels: Vec<String>,
 }
 
 /// One fixture entry in the `get_fixtures(club_id)` response.
