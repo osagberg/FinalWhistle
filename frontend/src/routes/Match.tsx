@@ -40,15 +40,17 @@ import type {
   MatchEvent,
   MatchEventKind,
   MatchResult,
+  MatchFrameDTO,
 } from "~/lib/types";
 import { MAX_FRAMES_PER_REQUEST } from "~/lib/types";
+import { TauriFrameSource } from "~/routes/Dev/FrameSource";
 
 // ---------------------------------------------------------------------------
-// Dev board — lazy-imported so the PixiJS bundle only loads when toggled on.
-// The Dev/TacticalBoard route component is already FrameSource-driven; we
-// import it inline behind the toggle (same component, NOT a separate route).
+// Production TacticalBoard — lazy-imported so the PixiJS bundle only loads
+// when toggled on. T4-1: this replaces the DevTacticalBoard inline hack.
+// The production board accepts a `frames` prop directly (no URL-param coupling).
 // ---------------------------------------------------------------------------
-const DevTacticalBoard = lazy(() => import("~/routes/Dev/TacticalBoard"));
+const ProductionTacticalBoard = lazy(() => import("~/components/TacticalBoard"));
 
 // ---------------------------------------------------------------------------
 // IpcError type guard + exhaustiveness helper
@@ -386,10 +388,17 @@ export default function Match(): JSX.Element {
     () => !busy() && seedValid() && ticksValid(),
   );
 
-  // The seed + ticks used for the last completed run — passed to dev-board
-  // so it matches the recap's frames.
+  // The seed + ticks used for the last completed run — used to load frames
+  // for the production tactical board.
   const [lastSeedHex, setLastSeedHex] = createSignal<string | null>(null);
   const [lastTicks, setLastTicks] = createSignal<number>(DEFAULT_TICK_COUNT);
+  // Frames loaded for the last run's seed — passed to the production board.
+  const [boardFrames, setBoardFrames] = createSignal<MatchFrameDTO[]>([]);
+  const [framesLoading, setFramesLoading] = createSignal(false);
+  // Set when the post-run tactical-board frame load fails — surfaced as a
+  // board-local notice DISTINCT from the legitimate "no frames" empty state,
+  // so an IPC failure is never silently indistinguishable from an empty board.
+  const [framesError, setFramesError] = createSignal<string | null>(null);
 
   const onPlay = async () => {
     setErrorMsg(null);
@@ -420,6 +429,33 @@ export default function Match(): JSX.Element {
       }
       setLastSeedHex(seedInput());
       setLastTicks(ticks);
+      // Load frames for the production board after a successful run.
+      // Frames are loaded in the background; the board renders as they arrive.
+      // In browser-preview mode we skip Tauri IPC and leave frames empty.
+      if (isTauri()) {
+        setFramesLoading(true);
+        setBoardFrames([]);
+        setFramesError(null);
+        void (async () => {
+          try {
+            // Use `lastSeedHex()` (the seed that actually ran, captured above)
+            // — NOT the live `seedInput()`, which the user may have edited
+            // since pressing Play.
+            const source = new TauriFrameSource(lastSeedHex()!, ticks);
+            const loaded = await source.loadFrames();
+            setBoardFrames(loaded);
+          } catch (e: unknown) {
+            // Frame-load failure is non-fatal — the text recap already shows —
+            // but it must NOT be silent: log it + surface a board-local notice
+            // distinct from the legitimate "no frames" empty state. Do not
+            // overwrite a match error.
+            console.error("[Match] tactical-board frame load failed:", e);
+            setFramesError(e instanceof Error ? e.message : String(e));
+          } finally {
+            setFramesLoading(false);
+          }
+        })();
+      }
     } catch (e: unknown) {
       setErrorMsg(describeError(e));
     } finally {
@@ -598,7 +634,8 @@ export default function Match(): JSX.Element {
         </Show>
 
         {/* ---------------------------------------------------------------- */}
-        {/* Dev board toggle (opt-in; not the default surface)               */}
+        {/* Tactical board toggle (opt-in; not the default surface)          */}
+        {/* T4-1: production board wired to last-run frames via TauriFrameSource. */}
         {/* ---------------------------------------------------------------- */}
         <Show when={result() !== null}>
           <div class="flex items-center gap-2">
@@ -612,53 +649,41 @@ export default function Match(): JSX.Element {
               onClick={() => setShowDevBoard((v) => !v)}
               aria-pressed={showDevBoard()}
               aria-label={
-                showDevBoard() ? "Hide dev board" : "Show dev board"
+                showDevBoard() ? "Hide tactical board" : "Show tactical board"
               }
             >
-              {showDevBoard() ? "Hide dev board" : "Show dev board"}
+              {showDevBoard() ? "Hide tactical board" : "Show tactical board"}
             </button>
             <Show when={showDevBoard()}>
-              {/* T1-6 fix-pass per silent-failure P2 + code-reviewer P1:
-                  prior label "Seed: X | Ticks: Y" implied the dev board
-                  rendered THIS match — but the inline Dev/TacticalBoard
-                  reuses its route component which reads useSearchParams
-                  and falls back to the default 60-tick 0xdeadbeef sample.
-                  Explicit caveat removes the misleading implication; the
-                  real fix (prop-driven board) is T4-1 when dot rendering
-                  lands. Recap above shows the matched seed; dev board
-                  below shows the default sample. */}
               <span class="text-xs text-ink-mute dark:text-paper-subtle font-mono">
-                Recap: {lastSeedHex()} ({lastTicks()} ticks) ·
-                <span class="ml-1 italic">
-                  board shows default sample (T4-1 wires last-run props)
-                </span>
+                {lastSeedHex()} · {lastTicks()} ticks
+                <Show when={framesLoading()}>
+                  <span class="ml-1 italic"> · loading frames…</span>
+                </Show>
+                <Show when={framesError()}>
+                  <span class="ml-1 text-rose-600 dark:text-rose-400">
+                    {" "}
+                    · frame load failed: {framesError()}
+                  </span>
+                </Show>
               </span>
             </Show>
           </div>
         </Show>
 
-        {/* Dev board — lazy-loaded; onCleanup inside DevTacticalBoard destroys
-            the Pixi Application when toggled off (Frontend/RULES.md §4). */}
+        {/* Production tactical board — lazy-loaded; onCleanup destroys Pixi
+            Application when toggled off (Frontend/RULES.md §4).
+            Frames are passed directly as a prop — no URL-param coupling. */}
         <Show when={showDevBoard()}>
           <Suspense
             fallback={
               <div class="fw-panel p-4 text-sm text-ink-mute dark:text-paper-subtle">
-                Loading dev board…
+                Loading board…
               </div>
             }
           >
-            {/* DevTacticalBoard reads ?source=tauri&seed=...&ticks=... from URL
-                params. We pass them via the URL since the component is designed
-                to consume useSearchParams — which requires the router to be
-                active. The component IS currently a route component; reusing it
-                here is within T1-6 scope. The FrameSource-driven board matches
-                the last run's seed + ticks automatically when the URL params
-                are set, but in the inline case the user sees the default
-                FrameSource (60 ticks, deadbeef seed). T4-1 wires the frame
-                source to the actual last run's seed; for T1-6 the board
-                exercises the Pixi init + cleanup path (the substance gate). */}
             <div class="fw-panel p-2">
-              <DevTacticalBoard />
+              <ProductionTacticalBoard frames={boardFrames()} />
             </div>
           </Suspense>
         </Show>

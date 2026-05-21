@@ -4,11 +4,11 @@
 
 ## Phase
 
-**Phase T3 (Career + Memory) — CLOSED 2026-05-21 (Codex phase-gate ACCEPT).** All 9 T3 build rows (T3-1..T3-7, T3-9) + the 2 rolled-in T2 rows (T2-4, T2-7) DONE. The T3 `/done` ran the multi-track ultimate review (Claude tracks A–D + Codex tracks E–F); Codex returned **ACCEPT, no gate-blocker** — `scripts/fw verify` green, 10k-case property sweeps + determinism stress passed, canonical hashes UNCHANGED. The locked T3 Exit Gate is met. Tag `v0.3.0-career` created. Next phase: **T4 — Beautiful UI + Tactical Viewer**.
+**Phase T4 — Beautiful UI + Tactical Viewer — IN PROGRESS.** Phase T3 (Career + Memory) CLOSED 2026-05-21 (Codex phase-gate ACCEPT, tag `v0.3.0-career`); the post-T3 cleanup cluster T3-R-A..F all DONE. T4 began 2026-05-21 — **T4-1 (PixiJS tactical board) DONE.** T4 ships 8 MVP rows (T4-1..T4-8) + a Stretch T4-9; the T4 Exit Gate is locked in `docs/MASTER_PLAN.md`.
 
 ## Active task
 
-(none — T3-R-F (career clock for salience decay) closed. The post-T3 ultimate-review cleanup cluster **T3-R-A..F is now COMPLETE** — all six rows shipped. Next `/next` picks the first **Phase T4** row.)
+(none — T4-1 (PixiJS production tactical board with smooth interpolated playback) closed. Next `/next` picks **T4-2** — ECharts stat dashboards.)
 
 ## Blockers
 
@@ -16,7 +16,7 @@
 
 ## Last green verify
 
-2026-05-21 (T3-R-F close): `scripts/fw verify` exit 0; full workspace + 154 frontend tests; clippy + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
+2026-05-21 (T4-1 close): `scripts/fw verify` exit 0; full workspace + 179 frontend tests (+25 from T4-1); clippy + eslint + tsc + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
 
 ## Last canonical hash
 
@@ -26,10 +26,8 @@
 
 **Save-format wire-byte pins** (T2-9 + T3-1 + T3-R-E): SaveEnvelope V0=0x00 / V1=0x01 / V2=0x02 / V3=0x03. Locked FOREVER. V3 is the current production schema (career-state persistence).
 
-## Post-T3 cleanup + Phase T4 pointer
+## Phase T4 notes
 
-The 2026-05-21 ultimate review logged 6 cleanup rows — **T3-R-A..F** in `docs/MASTER_PLAN.md` (doc reconciliation; breakthrough `evaluate` panic-fix + gate tests; mutation-coverage tests + frozen V2 fixture; pack-level roster validation; SaveV3 career-state persistence; career clock for salience). **All six are DONE (closed 2026-05-21)** — the cluster is complete; `/next` now picks the first Phase T4 row.
+T4 carry-ins: T2-1d2 (see Blockers); wiring breakthrough + scout into a played career (needs the T4+ career-roster layer — the genuine T4-scale follow-up the post-T3 review surfaced). T3-R-F's `current_tick()` salience-decay path + the breakthrough/scout emitters remain unwired infrastructure until that career-roster layer lands.
 
-Phase T4 — Beautiful UI + Tactical Viewer (polish; match-day live mode reads as finished; visual identity locked). The genuine T4-scale follow-up surfaced by the review: wiring breakthrough + scout into a played career (needs the T4+ career-roster layer). Carry-in: T2-1d2.
-
-**Audits:** `docs/audits/post-t3-ultimate-review-2026-05-21.md` (consolidated verdict), `docs/audits/post-t3-codex-gate-2026-05-21.md` (Codex E/F).
+**Audits:** `docs/audits/post-t3-ultimate-review-2026-05-21.md`, `docs/audits/post-t3-codex-gate-2026-05-21.md`.

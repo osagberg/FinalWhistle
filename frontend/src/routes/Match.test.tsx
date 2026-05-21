@@ -67,11 +67,23 @@ vi.mock("~/lib/tauri", () => ({
   getDummyState: vi.fn(),
 }));
 
-// Mock Dev/TacticalBoard to avoid Pixi full init in the toggle path.
-vi.mock("~/routes/Dev/TacticalBoard", () => ({
-  default: () => (
-    <div data-testid="dev-tactical-board">Dev Board (mocked)</div>
+// Mock the production TacticalBoard to avoid Pixi full init in the toggle path.
+vi.mock("~/components/TacticalBoard", () => ({
+  default: (props: { frames: unknown[] }) => (
+    <div data-testid="dev-tactical-board">
+      Tactical Board (mocked) — {props.frames.length} frames
+    </div>
   ),
+}));
+
+// Mock Dev/FrameSource so TauriFrameSource.loadFrames() doesn't hit IPC.
+vi.mock("~/routes/Dev/FrameSource", () => ({
+  TauriFrameSource: vi.fn().mockImplementation(() => ({
+    loadFrames: vi.fn().mockResolvedValue([]),
+  })),
+  HttpFrameSource: vi.fn().mockImplementation(() => ({
+    loadFrames: vi.fn().mockResolvedValue([]),
+  })),
 }));
 
 // Import AFTER mocks are defined.
@@ -235,17 +247,17 @@ describe("Match page", () => {
     });
   });
 
-  it("toggles dev board on and off without crashing", async () => {
+  it("toggles tactical board on and off without crashing", async () => {
     render(() => <Match />);
 
     // Play first so the toggle button appears.
     fireEvent.click(screen.getByRole("button", { name: /play match/i }));
     await waitFor(() =>
-      screen.getByRole("button", { name: /show dev board/i }),
+      screen.getByRole("button", { name: /show tactical board/i }),
     );
 
     // Toggle on.
-    const toggleBtn = screen.getByRole("button", { name: /show dev board/i });
+    const toggleBtn = screen.getByRole("button", { name: /show tactical board/i });
     fireEvent.click(toggleBtn);
 
     await waitFor(() => {
@@ -253,7 +265,7 @@ describe("Match page", () => {
     });
 
     // Toggle off — board should disappear.
-    fireEvent.click(screen.getByRole("button", { name: /hide dev board/i }));
+    fireEvent.click(screen.getByRole("button", { name: /hide tactical board/i }));
     await waitFor(() => {
       expect(screen.queryByTestId("dev-tactical-board")).toBeNull();
     });
