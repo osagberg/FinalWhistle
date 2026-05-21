@@ -1,5 +1,5 @@
 ---
-description: Close the current phase — verify gate, sync ledgers, open PR for Codex review.
+description: Close the current phase — verify gate, sync ledgers, hand off a copy-paste Codex review prompt.
 ---
 
 # /done — phase completion
@@ -58,7 +58,7 @@ Stop hook auto-stamps the file timestamp.
 
 ### 5.5 Multi-track ultimate-review at phase boundary (post-2026-05-16 hardening — Codex workflow improvement #7)
 
-Per the 2026-05-16 Codex ultimate-review verdict: at phase close (before opening the Codex Tier-3 PR), dispatch a multi-track adversarial review combining Claude + Codex. The split is load-bearing — Claude is strong on implementation-drift / test-quality / systemic-pattern detection; Codex is strong on adversarial red-team + property explosion at scale. **The two together find ~2× what either finds alone**, per the convergence patterns surfaced in the 2026-05-16 audit (`docs/audits/post-t1-ultimate-review-2026-05-16.md`).
+Per the 2026-05-16 Codex ultimate-review verdict: at phase close (before the Step 6 Codex hand-off), dispatch a multi-track adversarial review combining Claude + Codex. The split is load-bearing — Claude is strong on implementation-drift / test-quality / systemic-pattern detection; Codex is strong on adversarial red-team + property explosion at scale. **The two together find ~2× what either finds alone**, per the convergence patterns surfaced in the 2026-05-16 audit (`docs/audits/post-t1-ultimate-review-2026-05-16.md`).
 
 Skip ONLY if the prior phase shipped < 5 commits OR the phase deliverable is doc-only.
 
@@ -75,10 +75,12 @@ Skip ONLY if the prior phase shipped < 5 commits OR the phase deliverable is doc
 
 **Setup:** main thread creates `docs/audits/post-<phase>-ultimate-review-<YYYY-MM-DD>.md` with section anchors for each track. Subagents dispatched with mandatory boilerplate (no commits, no file edits outside the shared review file, read-only). Codex prompt drafted as a single copy-paste block + handed to user to paste in parallel terminal.
 
+**Review scope** is every row shipped in the phase window — **including rows rolled in from earlier phases** (rows promoted back from `DEFERRED`, or earlier-numbered rows that were actually built during this phase). The audit file's scope section + the Step-6 Codex prompt MUST name those rolled-in rows explicitly so the review covers them, not just the rows whose ID matches the current phase number.
+
 **Consolidation:** main thread reads all 6 tracks when complete, writes a consolidated verdict section to the same file with: severity-sorted findings; cross-track convergence patterns (the highest-value signal); recommended new MASTER_PLAN rows (gate-blocking vs opportunistic); ACCEPT / REVISE / REJECT for the phase close.
 
 Findings classification:
-- **Gate-blocker** (rare): fix BEFORE Step 6 PR open
+- **Gate-blocker** (rare): fix BEFORE the Step 6 Codex hand-off
 - **Pre-next-phase recommended**: add MASTER_PLAN row, land before next phase's first /next
 - **Inline cleanup**: fold into next-touching commit
 - **Doc-only follow-up**: single docs commit
@@ -87,35 +89,40 @@ The phase tag (`v<X>.<Y>.<Z>-<phase-name>`) is created AFTER the ultimate-review
 
 This step adds ~30-60 min wall-clock + ~$15-30 in agent spend per phase close. Acceptable cost given the bug-class catches.
 
-### 6. Open PR for Codex phase-gate review
+### 6. Hand off the Codex phase-gate review prompt
 
-Print (DO NOT EXECUTE) the suggested commands for the user:
+**Do NOT run `gh pr create`.** Codex CLI reviews against the local filesystem — no PR, no `gh`, no `git push` is needed for the review. Instead, print ONE copy-paste-ready prompt block for the user to paste into a separate Codex CLI session. (Permanent change, 2026-05-21 user direction — this replaces the old PR-based hand-off for all `/done` phase gates.)
 
-```bash
-git push origin main
-gh pr create \
-  --title "Phase <N>: <name>" \
-  --body "$(cat <<'EOF'
-## Phase <N> gate review
+Print the block below (DO NOT execute anything), with every `<...>` placeholder filled in from the actual phase state:
 
-**Scope:** <one line>
-**Acceptance:** see docs/MASTER_PLAN.md Phase <N> gate — all checks green.
-**Verify:** scripts/fw verify green on macOS dev + CI matrix.
-**Canonical hash:** <BLAKE3 short>
-**Stats:** <LoC added/removed>, <N commits>, <N tests>.
+```
+Phase-gate review — Final Whistle Phase <N>: <name>
 
-### Decisions logged this phase
-- <bullet per DECISIONS.md entry added since last phase>
+Review the whole codebase at its current `main` state for the close of Phase <N>.
 
-### Risks for next phase
-- <bullet>
+SCOPE — every row shipped in the Phase <N> window, INCLUDING rows rolled in from
+earlier phases (rows promoted back from DEFERRED, or earlier-numbered rows actually
+built during this phase). Rows in scope: <explicit list, e.g. T3-1..T3-9 + T2-4 + T2-7>.
+Commit range: <first-sha>..<last-sha> (<N> commits). Lens is whole-codebase +
+cross-task + adversarial — NOT commit-by-commit (the per-task self-review triple
+already covered each diff).
 
-Handing to Codex for phase-gate review.
-EOF
-)"
+ACCEPTANCE GATE — see docs/MASTER_PLAN.md Phase <N> exit gate. Confirm every
+criterion is genuinely met (substance, not shape).
+
+VERIFY STATE — `scripts/fw verify` green on the macOS dev box; canonical-state
+hashes <BLAKE3 short> (<UNCHANGED | REBASELINED-<reason>>).
+
+FOCUS — <2-3 phase-specific risk areas>; determinism leaks; silent failures;
+stale-doc drift (CLAUDE.md / ADRs / specs vs code); vacuous tests; save-schema
+integrity.
+
+OUTPUT — post a verdict (ACCEPT / REVISE / REJECT) + severity-sorted findings to
+docs/audits/post-<phase>-codex-gate-<YYYY-MM-DD>.md, or hand the findings back in
+this session for the developer to paste.
 ```
 
-The user runs these in a separate terminal. Codex reviews via filesystem against the PR URL.
+The user runs Codex CLI in a separate terminal with this prompt, then brings the verdict + findings back. Apply any gate-blockers via `/next` before the phase tag is created.
 
 ### 7. Print phase-summary report (<300 words)
 

@@ -31,7 +31,7 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-(none — T3-6 closed 2026-05-21; Player detail page + `render_memory_callback` renderer + `get_player_detail` IPC + `AppState` memory-ledger slot shipped; `scripts/fw verify` exit 0; canonical match-state hashes UNCHANGED. Phase T3 build rows all DONE — next step is `/done` to run the T3-8 phase-gate Codex review.)
+(none — T3-6 closed 2026-05-21. A `/done` gate check found the locked T3 Exit Gate 2-of-4 unmet: the 8 original T3 rows shipped the memory/career/scouting INFRASTRUCTURE but no row built the integrated career loop ("5-season career end-to-end" + "cross-season callback surfaces on a screen" both fail). User direction: keep T3 open. NEW row **T3-9 (Career loop)** added to MASTER_PLAN — next `/next` picks it. The `/done` skill was also updated 2026-05-21: hands off a copy-paste Codex prompt instead of `gh pr create`, and its review scope explicitly covers rows rolled in from earlier phases (so the eventual T3 close-review includes T2-4 + T2-7).)
 
 <!-- T3-6 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
 
