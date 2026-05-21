@@ -11,6 +11,7 @@ const Tactics = lazy(() => import("./routes/Tactics"));
 const Transfers = lazy(() => import("./routes/Transfers"));
 const League = lazy(() => import("./routes/League"));
 const Match = lazy(() => import("./routes/Match"));
+const Career = lazy(() => import("./routes/Career"));
 // Dev-only board — T1-2a tactical board with frame scrubber + window.fwDev.
 const DevBoard = lazy(() => import("./routes/Dev/TacticalBoard"));
 
@@ -32,6 +33,7 @@ export default function App(): JSX.Element {
       <Route path="/transfers" component={Transfers} />
       <Route path="/league" component={League} />
       <Route path="/match" component={Match} />
+      <Route path="/career" component={Career} />
       <Route path="/dev/board" component={DevBoard} />
     </Route>
   );

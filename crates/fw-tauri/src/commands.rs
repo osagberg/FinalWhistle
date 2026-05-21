@@ -19,15 +19,18 @@
 //! shells validated by the integration test in `crates/fw-tauri/tests/`.
 
 use fw_content::{
-    Fixture, MemoryCallbackContext, discriminant_to_family_key, render_memory_callback,
+    Fixture, MemoryCallbackContext, SeasonState, discriminant_to_family_key, generate_league,
+    render_memory_callback,
 };
 use fw_core::{PlayerId, Seed, Tick};
 use fw_match_sim::{MatchState, tick_match};
+use fw_memory::event::{EventClass, SeasonNumber};
 use fw_memory::readers::{SalienceFilter, salience::SalienceReader};
 
 use crate::state::{fixture_seed, league_fixture_index};
 use crate::{
-    AdvanceWeekSummaryDto, AppState, BackendHandshakeDto, FixtureWithResultDto, IpcError,
+    AdvanceSeasonSummaryDto, AdvanceWeekSummaryDto, AppState, BackendHandshakeDto,
+    CareerOverviewDto, ChampionHistoryEntryDto, FixtureWithResultDto, IpcError,
     MAX_FRAMES_PER_REQUEST, MatchFrameDto, MatchResult, PlayFixturesSummaryDto, PlayerDetailDto,
     PlayerPhenotypeDto, SquadPlayerDto, StandingsRowDto, season,
 };
@@ -98,6 +101,31 @@ pub async fn get_player_detail(
     state: tauri::State<'_, AppState>,
 ) -> Result<PlayerDetailDto, IpcError> {
     get_player_detail_inner(&player_id, &state)
+}
+
+/// `advance_season()` — complete the current season and advance to the next one.
+///
+/// Requires the current season to be complete (`IpcError::SeasonNotComplete`
+/// if not). Emits the season-end `TitleWon` event into the ledger, runs
+/// compaction if at the 5-season boundary, regenerates a fresh `SeasonState`,
+/// and increments `season_number`.
+#[tauri::command]
+pub async fn advance_season(
+    state: tauri::State<'_, AppState>,
+) -> Result<AdvanceSeasonSummaryDto, IpcError> {
+    advance_season_inner(&state)
+}
+
+/// `get_career_overview()` — return the career overview DTO.
+///
+/// Returns the current season number, per-season champion history, and
+/// rendered cross-season memory callbacks from `TitleWon` events in past
+/// seasons.
+#[tauri::command]
+pub async fn get_career_overview(
+    state: tauri::State<'_, AppState>,
+) -> Result<CareerOverviewDto, IpcError> {
+    get_career_overview_inner(&state)
 }
 
 // ---------------------------------------------------------------------------
@@ -240,19 +268,20 @@ pub async fn get_squad(state: tauri::State<'_, AppState>) -> Result<Vec<SquadPla
 // ---------------------------------------------------------------------------
 
 pub fn advance_week_inner(state: &AppState) -> Result<AdvanceWeekSummaryDto, IpcError> {
-    let mut season = state.season().write().map_err(|_| IpcError::LockPoisoned {
-        lock: "season".to_string(),
+    let mut career = state.career().write().map_err(|_| IpcError::LockPoisoned {
+        lock: "career".to_string(),
     })?;
 
-    if season.is_complete() {
+    if career.season.is_complete() {
         return Err(IpcError::SeasonComplete);
     }
 
-    let match_day = season.current_match_day;
+    let match_day = career.season.current_match_day;
 
     // Collect the fixtures for this match-day. Clone because we need to drop
     // the borrow on `season` before calling `apply_result` / accessing fields.
-    let fixtures: Vec<Fixture> = season
+    let fixtures: Vec<Fixture> = career
+        .season
         .fixtures_for_match_day(match_day)
         .into_iter()
         .copied()
@@ -270,13 +299,13 @@ pub fn advance_week_inner(state: &AppState) -> Result<AdvanceWeekSummaryDto, Ipc
     // The fix: snapshot results pre-loop, restore on `?` early-return so the
     // mutation is atomic per advance_week() call. BTreeMap clone is sub-
     // microsecond; cost is negligible vs the perf benefit was overstated.
-    let results_snapshot = season.results.clone();
+    let results_snapshot = career.season.results.clone();
 
     for fixture in &fixtures {
-        let idx = league_fixture_index(&season.league.fixtures, fixture) as u32;
+        let idx = league_fixture_index(&career.season.league.fixtures, fixture) as u32;
         let seed = fixture_seed(career_seed, idx);
-        let home_arch = season.tactical_archetype_ids[&fixture.home].clone();
-        let away_arch = season.tactical_archetype_ids[&fixture.away].clone();
+        let home_arch = career.season.tactical_archetype_ids[&fixture.home].clone();
+        let away_arch = career.season.tactical_archetype_ids[&fixture.away].clone();
         match season::play_one_match(
             seed,
             state.content(),
@@ -286,7 +315,9 @@ pub fn advance_week_inner(state: &AppState) -> Result<AdvanceWeekSummaryDto, Ipc
             season::SEASON_MATCH_TICK_BUDGET,
         ) {
             Ok(outcome) => {
-                season.apply_result(fixture.home, fixture.away, outcome);
+                career
+                    .season
+                    .apply_result(fixture.home, fixture.away, outcome);
             }
             Err(e) => {
                 // Atomic rollback: restore results to the pre-loop snapshot
@@ -294,18 +325,18 @@ pub fn advance_week_inner(state: &AppState) -> Result<AdvanceWeekSummaryDto, Ipc
                 // match-day did NOT advance"). current_match_day was never
                 // bumped (the bump is after the loop), so no rollback needed
                 // there.
-                season.results = results_snapshot;
+                career.season.results = results_snapshot;
                 return Err(e);
             }
         }
     }
 
-    season.current_match_day += 1;
+    career.season.current_match_day += 1;
 
     Ok(AdvanceWeekSummaryDto {
         match_day_played: match_day,
         matches_played: fixtures.len() as u16,
-        season_complete: season.is_complete(),
+        season_complete: career.season.is_complete(),
     })
 }
 
@@ -346,20 +377,22 @@ pub fn play_fixtures_inner(state: &AppState) -> Result<PlayFixturesSummaryDto, I
         // Report current_match_day - 1 if it's > 0, else 0 (representing
         // "no fixtures played" or "all fixtures already played at entry").
         let current = state
-            .season()
+            .career()
             .read()
             .map_err(|_| IpcError::LockPoisoned {
-                lock: "season".to_string(),
+                lock: "career".to_string(),
             })?
+            .season
             .current_match_day;
         if current == 0 { 0 } else { current - 1 }
     } else {
         let current = state
-            .season()
+            .career()
             .read()
             .map_err(|_| IpcError::LockPoisoned {
-                lock: "season".to_string(),
+                lock: "career".to_string(),
             })?
+            .season
             .current_match_day;
         // `current` is the NEXT match-day to play; the last successfully played
         // is `current - 1`. The loop guarantees `current >= 1` because each
@@ -383,10 +416,10 @@ pub fn play_fixtures_inner(state: &AppState) -> Result<PlayFixturesSummaryDto, I
 }
 
 pub fn get_standings_inner(state: &AppState) -> Result<Vec<StandingsRowDto>, IpcError> {
-    let season = state.season().read().map_err(|_| IpcError::LockPoisoned {
-        lock: "season".to_string(),
+    let career = state.career().read().map_err(|_| IpcError::LockPoisoned {
+        lock: "career".to_string(),
     })?;
-    let standings = season.standings();
+    let standings = career.season.standings();
 
     // club_name is already on StandingsRow from standings(); no separate
     // BTreeMap lookup needed (post-T2-5 silent-failure-hunter cleanup —
@@ -417,12 +450,12 @@ pub fn get_fixtures_inner(
     state: &AppState,
 ) -> Result<Vec<FixtureWithResultDto>, IpcError> {
     let club_id = fw_core::ClubId::new(club_id_raw);
-    let season = state.season().read().map_err(|_| IpcError::LockPoisoned {
-        lock: "season".to_string(),
+    let career = state.career().read().map_err(|_| IpcError::LockPoisoned {
+        lock: "career".to_string(),
     })?;
 
     // Validate that the club is in the league before doing any work.
-    let club_exists = season.league.clubs.iter().any(|c| c.id == club_id);
+    let club_exists = career.season.league.clubs.iter().any(|c| c.id == club_id);
     if !club_exists {
         return Err(IpcError::ClubNotFound {
             club_id: club_id_raw,
@@ -430,14 +463,15 @@ pub fn get_fixtures_inner(
     }
 
     // Build a ClubId → display_name map for the opponent name lookup.
-    let club_names: std::collections::BTreeMap<fw_core::ClubId, &str> = season
+    let club_names: std::collections::BTreeMap<fw_core::ClubId, &str> = career
+        .season
         .league
         .clubs
         .iter()
         .map(|c| (c.id, c.display_name.as_str()))
         .collect();
 
-    let fixtures = season.fixtures_for_club(club_id);
+    let fixtures = career.season.fixtures_for_club(club_id);
 
     let dtos: Vec<FixtureWithResultDto> = fixtures
         .into_iter()
@@ -537,47 +571,41 @@ pub fn get_player_detail_inner(
         let bank = &state.content().memory_callback_grammars;
         let career_seed = state.career_seed().to_u64();
 
-        // Collect into owned events BEFORE acquiring the season read lock.
-        //
-        // Deadlock prevention: `SalienceReader::top_n` requires `&mut MemoryLedger`
-        // (write lock). If we held the memory_ledger write lock while then acquiring
-        // the season read lock, and a future T4 career-loop path acquires
-        // season-write then memory-write, the inverse order would deadlock.
-        // Collecting into owned `MemoryEvent` values here drops the ledger guard
-        // before the season lock is ever taken, eliminating the ordering hazard.
-        let top_events: Vec<fw_memory::event::MemoryEvent> = {
-            let mut ledger = state
-                .memory_ledger()
-                .write()
-                .map_err(|_| IpcError::LockPoisoned {
-                    lock: "memory_ledger".to_string(),
-                })?;
+        // SalienceReader::top_n takes `&mut MemoryLedger` for lazy index
+        // rebuilds, so we need the write lock on CareerState. We collect the
+        // top events into owned values before the render loop so the write
+        // guard is held for the shortest possible time — we release it after
+        // collecting `top_events` and `club_names`, then render without holding
+        // the lock.
+        let (top_events, club_names) = {
+            let mut career = state.career().write().map_err(|_| IpcError::LockPoisoned {
+                lock: "career".to_string(),
+            })?;
 
             // TODO(T4): wire the career clock — Tick::ZERO disables salience decay.
-            SalienceReader::top_n(
-                &mut ledger,
+            let top_events: Vec<fw_memory::event::MemoryEvent> = SalienceReader::top_n(
+                &mut career.ledger,
                 5,
                 SalienceFilter::BySubject(player_fw_id),
                 Tick::ZERO,
             )
             .into_iter()
             .cloned()
-            .collect()
-        }; // ledger write guard dropped here — safe to acquire season read lock below.
-
-        let season_read = state.season().read().map_err(|_| IpcError::LockPoisoned {
-            lock: "season".to_string(),
-        })?;
-
-        // Build ClubId → display_name map for participant resolution.
-        // Keyed by ClubId (not by name string) to avoid silent dedup when two
-        // procedurally-generated clubs happen to share a display_name.
-        let club_names: std::collections::BTreeMap<fw_core::ClubId, String> = season_read
-            .league
-            .clubs
-            .iter()
-            .map(|c| (c.id, c.display_name.clone()))
             .collect();
+
+            // Build ClubId → display_name map for participant resolution.
+            // Keyed by ClubId (not by name string) to avoid silent dedup when two
+            // procedurally-generated clubs happen to share a display_name.
+            let club_names: std::collections::BTreeMap<fw_core::ClubId, String> = career
+                .season
+                .league
+                .clubs
+                .iter()
+                .map(|c| (c.id, c.display_name.clone()))
+                .collect();
+
+            (top_events, club_names)
+        }; // career write guard dropped here
 
         top_events
             .iter()
@@ -670,6 +698,197 @@ pub fn get_player_detail_inner(
         phenotype,
         memory_callbacks,
         contract_status: None,
+    })
+}
+
+/// `advance_season_inner` — complete the current season and advance to the next.
+///
+/// Atomically under one `career().write()` guard:
+/// 1. Check `season.is_complete()` → early `Err(SeasonNotComplete)` before any mutation.
+/// 2. Run the FALLIBLE step `generate_league(...)` FIRST, before any mutation, so a
+///    failure leaves the career state unchanged. Maps failure to `IpcError::LeagueGenerationFailed`.
+/// 3. Infallible mutations: emit season-end events, compact if at the 5-season
+///    boundary, swap the season, increment season_number. All under the same write guard.
+pub fn advance_season_inner(state: &AppState) -> Result<AdvanceSeasonSummaryDto, IpcError> {
+    // Run generate_league BEFORE acquiring the write lock — it's pure + fallible,
+    // and we must not hold the career write lock across a potentially-expensive
+    // call. If it fails we return an error without touching career state.
+    let new_league = generate_league(state.career_seed(), state.content()).map_err(|e| {
+        IpcError::LeagueGenerationFailed {
+            reason: e.to_string(),
+        }
+    })?;
+
+    let mut career = state.career().write().map_err(|_| IpcError::LockPoisoned {
+        lock: "career".to_string(),
+    })?;
+
+    // Guard: require season complete before any mutation.
+    if !career.season.is_complete() {
+        return Err(IpcError::SeasonNotComplete);
+    }
+
+    // Collect champion data from standings (read-only; borrow ends before ledger write).
+    let (champion_club_name, champion_club_id) = {
+        let standings = career.season.standings();
+        let first = standings.rows.first();
+        let name = first.map(|r| r.club_name.clone()).unwrap_or_default();
+        let id = first.map(|r| r.club_id);
+        (name, id)
+    };
+
+    let current_season_num = career.season_number;
+
+    // Emit season-end events into the ledger. Because `career.season` and
+    // `career.ledger` are separate fields on the same struct, the borrow
+    // checker requires we finish borrowing `career.season` before writing
+    // to `career.ledger` via a function call (Rust cannot prove the function
+    // touches disjoint fields). We pass only the derived champion_club_id
+    // instead of `&career.season` to side-step the two-field borrow.
+    if let Some(cid) = champion_club_id {
+        season::emit_title_won_event(cid, current_season_num, &mut career.ledger);
+    }
+
+    let new_season_num = SeasonNumber(current_season_num.0 + 1);
+    // At or past the 5-season boundary: compact with the NEW season number
+    // so the boundary condition (event.season + 5 <= current_season)
+    // correctly identifies events from 5+ seasons ago.
+    let compaction_fired = if new_season_num.0 >= 5 {
+        career.ledger.compact(new_season_num) > 0
+    } else {
+        false
+    };
+
+    // Swap in the fresh season and increment season_number — both under the
+    // same write guard so the transition is atomic.
+    career.season = SeasonState::new(new_league, state.content());
+    career.season_number = new_season_num;
+
+    Ok(AdvanceSeasonSummaryDto {
+        completed_season: current_season_num.0,
+        champion_club_name,
+        new_season_number: new_season_num.0,
+        compaction_fired,
+    })
+}
+
+/// `get_career_overview_inner` — career overview DTO.
+///
+/// Reads the ledger's `TitleWon` events from past seasons (season <
+/// current_season_number), resolves champion names from the current league's
+/// club list, renders cross-season callbacks via `render_memory_callback`.
+pub fn get_career_overview_inner(state: &AppState) -> Result<CareerOverviewDto, IpcError> {
+    // Collect all career state under one read lock, then release before rendering.
+    let (current_season_num, club_names, past_title_events) = {
+        let career = state.career().read().map_err(|_| IpcError::LockPoisoned {
+            lock: "career".to_string(),
+        })?;
+
+        let current_season_num = career.season_number;
+
+        let club_names: std::collections::BTreeMap<fw_core::ClubId, String> = career
+            .season
+            .league
+            .clubs
+            .iter()
+            .map(|c| (c.id, c.display_name.clone()))
+            .collect();
+
+        let title_won_disc = EventClass::TitleWon.discriminant();
+        let past_title_events: Vec<fw_memory::event::MemoryEvent> = career
+            .ledger
+            .iter()
+            .filter(|e| {
+                e.event_class.discriminant() == title_won_disc && e.season.0 < current_season_num.0
+            })
+            .cloned()
+            .collect();
+
+        (current_season_num, club_names, past_title_events)
+    }; // career read guard dropped
+
+    // Build champion history: one entry per season (ordered by season ASC).
+    let mut history: Vec<ChampionHistoryEntryDto> = past_title_events
+        .iter()
+        .map(|event| {
+            let champion_club_name = event
+                .participants
+                .iter()
+                .find_map(|p| {
+                    if let fw_memory::event::EntityRef::Club(cid) = p.entity {
+                        club_names.get(&cid).cloned()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
+            ChampionHistoryEntryDto {
+                season: event.season.0,
+                champion_club_name,
+            }
+        })
+        .collect();
+    history.sort_by_key(|e| e.season);
+
+    // Render cross-season callbacks via the T3-6 render_memory_callback path.
+    let bank = &state.content().memory_callback_grammars;
+    let career_seed = state.career_seed().to_u64();
+
+    let cross_season_callbacks: Vec<String> = past_title_events
+        .iter()
+        .map(|event| {
+            let disc = event.event_class.discriminant();
+            if discriminant_to_family_key(disc).is_none() {
+                log::error!(
+                    "career overview: no grammar family for event {} disc {} — \
+                     using static fallback",
+                    event.event_id.0,
+                    disc
+                );
+                return "an unusual moment in the career".to_string();
+            }
+            let first_club_cid: Option<fw_core::ClubId> = event.participants.iter().find_map(|p| {
+                if let fw_memory::event::EntityRef::Club(cid) = p.entity {
+                    Some(cid)
+                } else {
+                    None
+                }
+            });
+            let club_name = first_club_cid
+                .and_then(|cid| club_names.get(&cid).cloned())
+                .unwrap_or_default();
+
+            let season_label = format!("Season {}", event.season.0 + 1);
+            let ctx = MemoryCallbackContext {
+                player_name: String::new(),
+                club_name,
+                opponent_name: String::new(),
+                competition_name: String::new(),
+                season_label,
+                score_line: String::new(),
+                outcome_phrase: String::new(),
+                role_label: String::new(),
+                detail_phrase: String::new(),
+            };
+            match render_memory_callback(career_seed, event.event_id.0, disc, &ctx, bank) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::error!(
+                        "career overview: memory-callback render failed for event {} disc {}: {}",
+                        event.event_id.0,
+                        disc,
+                        e
+                    );
+                    "a notable moment in the career".to_string()
+                }
+            }
+        })
+        .collect();
+
+    Ok(CareerOverviewDto {
+        season_number: current_season_num.0,
+        history,
+        cross_season_callbacks,
     })
 }
 
@@ -1028,5 +1247,129 @@ mod tests {
         // Hand-authored dotted-form IDs (no underscore in the local part after colon).
         // "fwh.core:culture.anglo" → last '_' split finds "culture.anglo", no parse → None.
         // This is fine — hand-authored IDs don't go through this path.
+    }
+
+    // ---- advance_season_inner tests (AC3) -----------------------------------
+
+    /// AC3: incomplete season → SeasonNotComplete error.
+    #[test]
+    fn advance_season_inner_rejects_incomplete_season() {
+        let state = test_app_state();
+        // Fresh state: season not yet complete.
+        let err = advance_season_inner(&state).expect_err("should fail on incomplete season");
+        match err {
+            IpcError::SeasonNotComplete => {}
+            other => panic!("expected SeasonNotComplete, got {other:?}"),
+        }
+    }
+
+    /// AC3: complete season → Ok, season_number incremented, new fresh season.
+    #[test]
+    fn advance_season_inner_complete_season_increments_season_number() {
+        let state = test_app_state();
+        // Complete the current season first.
+        play_fixtures_inner(&state).expect("play_fixtures");
+        assert!(
+            state.career().read().expect("lock").season.is_complete(),
+            "precondition: season must be complete"
+        );
+
+        let summary = advance_season_inner(&state).expect("advance_season_inner should succeed");
+        assert_eq!(summary.completed_season, 0, "first completed season is 0");
+        assert_eq!(
+            summary.new_season_number, 1,
+            "season_number must be 1 after first advance"
+        );
+        assert!(
+            !summary.champion_club_name.is_empty(),
+            "champion_club_name must be non-empty"
+        );
+
+        let career = state.career().read().expect("career lock");
+        // Season_number on AppState must be 1.
+        assert_eq!(
+            career.season_number.0, 1,
+            "AppState.season_number must be 1 after advance"
+        );
+        // The new season must not be complete.
+        assert!(
+            !career.season.is_complete(),
+            "new season must not be complete immediately after advance_season"
+        );
+        assert_eq!(
+            career.season.current_match_day, 1,
+            "new season starts at match-day 1"
+        );
+    }
+
+    /// AC3: ledger receives exactly one TitleWon event after advance_season.
+    #[test]
+    fn advance_season_inner_emits_title_won_event() {
+        let state = test_app_state();
+        play_fixtures_inner(&state).expect("play_fixtures");
+        advance_season_inner(&state).expect("advance_season");
+
+        let career = state.career().read().expect("career lock");
+        let title_won_count = career
+            .ledger
+            .iter()
+            .filter(|e| matches!(e.event_class, EventClass::TitleWon))
+            .count();
+        assert_eq!(
+            title_won_count, 1,
+            "exactly one TitleWon event after one season"
+        );
+    }
+
+    // ---- get_career_overview_inner tests (AC5) ------------------------------
+
+    /// AC5: fresh state (no seasons completed) → empty history + callbacks.
+    #[test]
+    fn get_career_overview_inner_fresh_state_returns_empty_history() {
+        let state = test_app_state();
+        let dto = get_career_overview_inner(&state).expect("get_career_overview");
+        assert_eq!(dto.season_number, 0, "fresh career starts at season 0");
+        assert!(
+            dto.history.is_empty(),
+            "no history before any season completes"
+        );
+        assert!(
+            dto.cross_season_callbacks.is_empty(),
+            "no callbacks before any season completes"
+        );
+    }
+
+    /// AC5: after one completed season, history has one entry and callbacks are present.
+    #[test]
+    fn get_career_overview_inner_after_one_season_has_history() {
+        let state = test_app_state();
+        play_fixtures_inner(&state).expect("play_fixtures");
+        advance_season_inner(&state).expect("advance_season");
+
+        let dto = get_career_overview_inner(&state).expect("get_career_overview after season 1");
+        assert_eq!(dto.season_number, 1, "season_number is 1 after one advance");
+        assert_eq!(dto.history.len(), 1, "one history entry for season 0");
+        assert_eq!(dto.history[0].season, 0, "history entry is for season 0");
+        assert!(
+            !dto.history[0].champion_club_name.is_empty(),
+            "champion_club_name must be non-empty"
+        );
+        // Callbacks should be non-empty (TitleWon events are in past seasons).
+        assert!(
+            !dto.cross_season_callbacks.is_empty(),
+            "cross_season_callbacks must be non-empty after one completed season"
+        );
+        // No template seams in callback strings.
+        for cb in &dto.cross_season_callbacks {
+            assert!(!cb.is_empty(), "callback must not be empty");
+            assert!(
+                !cb.contains("{{"),
+                "callback contains '{{{{' template seam: {cb:?}"
+            );
+            assert!(
+                !cb.contains('#'),
+                "callback contains '#' tracery seam: {cb:?}"
+            );
+        }
     }
 }

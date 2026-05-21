@@ -13,8 +13,10 @@ use std::path::PathBuf;
 
 use fw_content::{CLUBS_PER_LEAGUE, MATCH_DAYS_PER_SEASON, MATCHES_PER_SEASON};
 use fw_core::Seed;
+use fw_memory::event::EventClass;
 use fw_tauri::commands::{
-    advance_week_inner, get_fixtures_inner, get_standings_inner, play_fixtures_inner,
+    advance_season_inner, advance_week_inner, get_fixtures_inner, get_standings_inner,
+    play_fixtures_inner,
 };
 use fw_tauri::state::AppState;
 
@@ -59,7 +61,12 @@ fn advance_week_plays_ten_matches_on_day_one() {
 fn advance_week_increments_current_match_day() {
     let state = test_state();
     advance_week_inner(&state).expect("day 1");
-    let day = state.season().read().expect("lock").current_match_day;
+    let day = state
+        .career()
+        .read()
+        .expect("lock")
+        .season
+        .current_match_day;
     assert_eq!(day, 2, "current_match_day should be 2 after playing day 1");
 }
 
@@ -113,8 +120,20 @@ fn advance_week_is_deterministic_same_seed() {
     advance_week_inner(&state_a).expect("advance a");
     advance_week_inner(&state_b).expect("advance b");
 
-    let results_a = state_a.season().read().expect("lock a").results.clone();
-    let results_b = state_b.season().read().expect("lock b").results.clone();
+    let results_a = state_a
+        .career()
+        .read()
+        .expect("lock a")
+        .season
+        .results
+        .clone();
+    let results_b = state_b
+        .career()
+        .read()
+        .expect("lock b")
+        .season
+        .results
+        .clone();
     assert_eq!(
         results_a, results_b,
         "same career seed must produce identical results after one match-day"
@@ -140,7 +159,7 @@ fn play_fixtures_completes_the_season() {
         MATCH_DAYS_PER_SEASON
     );
     assert!(
-        state.season().read().expect("lock").is_complete(),
+        state.career().read().expect("lock").season.is_complete(),
         "season should be complete after play_fixtures"
     );
 }
@@ -172,8 +191,20 @@ fn play_fixtures_is_deterministic_same_seed() {
     // and the right discriminator for full-season determinism. Mirror
     // the pattern from `advance_week_is_deterministic_same_seed` in
     // this same file.
-    let results_a = state_a.season().read().expect("lock a").results.clone();
-    let results_b = state_b.season().read().expect("lock b").results.clone();
+    let results_a = state_a
+        .career()
+        .read()
+        .expect("lock a")
+        .season
+        .results
+        .clone();
+    let results_b = state_b
+        .career()
+        .read()
+        .expect("lock b")
+        .season
+        .results
+        .clone();
     assert_eq!(
         results_a, results_b,
         "same career seed must produce identical full-season results BTreeMap"
@@ -269,7 +300,7 @@ fn get_fixtures_returns_38_for_valid_club() {
         "fixtures-per-club pinned at 38"
     );
     let state = test_state();
-    let first_club_id = state.season().read().expect("lock").league.clubs[0]
+    let first_club_id = state.career().read().expect("lock").season.league.clubs[0]
         .id
         .raw();
     let fixtures = get_fixtures_inner(first_club_id, &state).expect("get_fixtures");
@@ -289,7 +320,7 @@ fn get_fixtures_returns_club_not_found_for_unknown_id() {
 #[test]
 fn get_fixtures_unplayed_before_any_matches() {
     let state = test_state();
-    let club_id = state.season().read().expect("lock").league.clubs[0]
+    let club_id = state.career().read().expect("lock").season.league.clubs[0]
         .id
         .raw();
     let fixtures = get_fixtures_inner(club_id, &state).expect("get_fixtures");
@@ -307,9 +338,10 @@ fn get_fixtures_unplayed_before_any_matches() {
 fn get_fixtures_marks_played_after_advance_week() {
     let state = test_state();
     let club_id = {
-        let season = state.season().read().expect("lock");
+        let career = state.career().read().expect("lock");
         // Find the club that plays on match-day 1 (home side of first day-1 fixture).
-        season
+        career
+            .season
             .fixtures_for_match_day(1)
             .first()
             .map(|f| f.home.raw())
@@ -343,7 +375,7 @@ fn get_fixtures_marks_played_after_advance_week() {
 #[test]
 fn get_fixtures_has_nineteen_home_and_nineteen_away() {
     let state = test_state();
-    let club_id = state.season().read().expect("lock").league.clubs[7]
+    let club_id = state.career().read().expect("lock").season.league.clubs[7]
         .id
         .raw();
     let fixtures = get_fixtures_inner(club_id, &state).expect("get_fixtures");
@@ -356,7 +388,7 @@ fn get_fixtures_has_nineteen_home_and_nineteen_away() {
 #[test]
 fn get_fixtures_opponent_names_are_non_empty() {
     let state = test_state();
-    let club_id = state.season().read().expect("lock").league.clubs[0]
+    let club_id = state.career().read().expect("lock").season.league.clubs[0]
         .id
         .raw();
     let fixtures = get_fixtures_inner(club_id, &state).expect("get_fixtures");
@@ -372,6 +404,88 @@ fn get_fixtures_opponent_names_are_non_empty() {
 // ---------------------------------------------------------------------------
 // Performance gate — ignored by default, run with --release --ignored
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 5-season career integration test (AC4)
+// ---------------------------------------------------------------------------
+
+/// AC4: 5-season career — after 5×(play_fixtures + advance_season) the ledger
+/// holds ≥5 TitleWon events, at least one Compaction event is present after
+/// the 5-season boundary, and season_number reached 5.
+///
+/// This test is marked `#[ignore]` by default because it takes ~5× the
+/// full_season_perf time. Run with:
+///   cargo test --release -p fw-tauri --test season_commands_test \
+///       -- --ignored five_season_career_integration --nocapture
+#[test]
+#[ignore]
+fn five_season_career_integration() {
+    let state = test_state();
+    for i in 0u16..5 {
+        play_fixtures_inner(&state)
+            .unwrap_or_else(|e| panic!("play_fixtures failed on season {i}: {e:?}"));
+        advance_season_inner(&state)
+            .unwrap_or_else(|e| panic!("advance_season failed on season {i}: {e:?}"));
+    }
+
+    let career = state.career().read().expect("career lock");
+    assert_eq!(
+        career.season_number.0, 5,
+        "season_number must be 5 after 5 advances"
+    );
+
+    let title_won_count = career
+        .ledger
+        .iter()
+        .filter(|e| matches!(e.event_class, EventClass::TitleWon))
+        .count();
+    assert!(
+        title_won_count >= 5,
+        "ledger must have ≥5 TitleWon events, got {title_won_count}"
+    );
+
+    let compaction_count = career
+        .ledger
+        .iter()
+        .filter(|e| matches!(e.event_class, EventClass::Compaction))
+        .count();
+    assert!(
+        compaction_count >= 1,
+        "ledger must have ≥1 Compaction event after 5-season career, got {compaction_count}"
+    );
+}
+
+/// Faster non-ignored variant of the 5-season integration test. Runs the
+/// 5-season career loop in the default (debug) test profile so CI catches
+/// regressions without the `--release --ignored` flag. Each `play_fixtures`
+/// call runs at debug speed — tolerable for 5 seasons.
+#[test]
+fn five_season_career_integration_fast() {
+    let state = test_state();
+    for i in 0u16..5 {
+        play_fixtures_inner(&state)
+            .unwrap_or_else(|e| panic!("play_fixtures failed on season {i}: {e:?}"));
+        advance_season_inner(&state)
+            .unwrap_or_else(|e| panic!("advance_season failed on season {i}: {e:?}"));
+    }
+
+    let career = state.career().read().expect("career lock");
+    assert_eq!(career.season_number.0, 5);
+
+    let title_won = career
+        .ledger
+        .iter()
+        .filter(|e| matches!(e.event_class, EventClass::TitleWon))
+        .count();
+    assert!(title_won >= 5, "≥5 TitleWon events; got {title_won}");
+
+    let compaction = career
+        .ledger
+        .iter()
+        .filter(|e| matches!(e.event_class, EventClass::Compaction))
+        .count();
+    assert!(compaction >= 1, "≥1 Compaction event; got {compaction}");
+}
 
 /// Full-season fast-forward under 30 seconds.
 ///

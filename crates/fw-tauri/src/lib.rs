@@ -37,8 +37,8 @@ pub mod season;
 pub mod state;
 
 pub use commands::{
-    advance_week, get_backend_handshake, get_fixtures, get_player_detail, get_squad, get_standings,
-    match_frames, play_fixtures, play_match,
+    advance_season, advance_week, get_backend_handshake, get_career_overview, get_fixtures,
+    get_player_detail, get_squad, get_standings, match_frames, play_fixtures, play_match,
 };
 pub use error::IpcError;
 pub use handshake::BackendHandshakeDto;
@@ -232,6 +232,47 @@ fn q32_to_f64(raw_bits: i64) -> f64 {
 // ---------------------------------------------------------------------------
 
 pub use fw_match_sim::{BallFrameDto, MatchFrameDto, PlayerFrameDto};
+
+// -------------------------------------------------------------------------
+// T3-9 Career DTOs
+// -------------------------------------------------------------------------
+
+/// One entry in the per-season champion history returned by `get_career_overview`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChampionHistoryEntryDto {
+    /// 0-indexed season number.
+    pub season: u16,
+    /// Display name of the champion club.
+    pub champion_club_name: String,
+}
+
+/// Returned by `advance_season`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvanceSeasonSummaryDto {
+    /// The season that just completed (0-indexed).
+    pub completed_season: u16,
+    /// Display name of the champion club for the completed season.
+    pub champion_club_name: String,
+    /// The new season number (0-indexed) that is now active.
+    pub new_season_number: u16,
+    /// Whether compaction fired during this advance.
+    pub compaction_fired: bool,
+}
+
+/// Returned by `get_career_overview`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CareerOverviewDto {
+    /// The current active season number (0-indexed).
+    pub season_number: u16,
+    /// Per-season champion history, ordered by season ascending.
+    pub history: Vec<ChampionHistoryEntryDto>,
+    /// Rendered memory callbacks from past seasons' `TitleWon` events.
+    /// Empty until at least 1 season has completed (filter: season < current_season_number).
+    pub cross_season_callbacks: Vec<String>,
+}
 
 // -------------------------------------------------------------------------
 // T3-6 Player detail DTOs

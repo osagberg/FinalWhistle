@@ -423,3 +423,100 @@ describe("safeInvoke", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// isAdvanceSeasonSummary (T3-9)
+// ---------------------------------------------------------------------------
+
+import { isAdvanceSeasonSummary, isCareerOverview } from "./runtime-validators";
+
+describe("isAdvanceSeasonSummary", () => {
+  const valid = {
+    completedSeason: 1,
+    championClubName: "Aardvark FC",
+    newSeasonNumber: 2,
+    compactionFired: false,
+  };
+
+  it("accepts a fully-valid AdvanceSeasonSummary", () => {
+    expect(isAdvanceSeasonSummary(valid)).toBe(true);
+  });
+
+  it("accepts compactionFired: true", () => {
+    expect(isAdvanceSeasonSummary({ ...valid, compactionFired: true })).toBe(true);
+  });
+
+  it("rejects when championClubName is missing", () => {
+    const { championClubName: _omit, ...bad } = valid;
+    expect(isAdvanceSeasonSummary(bad)).toBe(false);
+  });
+
+  it("rejects when completedSeason is a float", () => {
+    expect(isAdvanceSeasonSummary({ ...valid, completedSeason: 1.5 })).toBe(false);
+  });
+
+  it("rejects when compactionFired is a string", () => {
+    expect(isAdvanceSeasonSummary({ ...valid, compactionFired: "true" })).toBe(false);
+  });
+
+  it("rejects null", () => {
+    expect(isAdvanceSeasonSummary(null)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isCareerOverview (T3-9)
+// ---------------------------------------------------------------------------
+
+describe("isCareerOverview", () => {
+  const validEmpty = {
+    seasonNumber: 1,
+    history: [],
+    crossSeasonCallbacks: [],
+  };
+
+  const validWithHistory = {
+    seasonNumber: 3,
+    history: [
+      { season: 1, championClubName: "Aardvark FC" },
+      { season: 2, championClubName: "Brindlewood City" },
+    ],
+    crossSeasonCallbacks: [
+      "The golden boot winner is showing early form.",
+    ],
+  };
+
+  it("accepts an empty-history CareerOverview", () => {
+    expect(isCareerOverview(validEmpty)).toBe(true);
+  });
+
+  it("accepts a CareerOverview with history and callbacks", () => {
+    expect(isCareerOverview(validWithHistory)).toBe(true);
+  });
+
+  it("rejects when seasonNumber is negative", () => {
+    expect(isCareerOverview({ ...validEmpty, seasonNumber: -1 })).toBe(false);
+  });
+
+  it("rejects when history contains a non-string championClubName", () => {
+    const bad = {
+      ...validEmpty,
+      history: [{ season: 1, championClubName: 42 }],
+    };
+    expect(isCareerOverview(bad)).toBe(false);
+  });
+
+  it("rejects when crossSeasonCallbacks contains a non-string item", () => {
+    const bad = { ...validEmpty, crossSeasonCallbacks: [123] };
+    expect(isCareerOverview(bad)).toBe(false);
+  });
+
+  it("rejects when history is missing", () => {
+    const { history: _omit, ...bad } = validWithHistory;
+    expect(isCareerOverview(bad)).toBe(false);
+  });
+
+  it("rejects null", () => {
+    expect(isCareerOverview(null)).toBe(false);
+  });
+});

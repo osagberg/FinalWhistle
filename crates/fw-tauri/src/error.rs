@@ -41,6 +41,23 @@ pub enum IpcError {
     #[error("season is already complete; cannot advance further")]
     SeasonComplete,
 
+    /// `advance_season` was called before the current season is finished.
+    ///
+    /// The caller must complete all match-days (via `advance_week` or
+    /// `play_fixtures`) before advancing to the next season.
+    #[error("season is not yet complete; play all match-days before advancing")]
+    SeasonNotComplete,
+
+    /// `generate_league` failed during `advance_season`.
+    ///
+    /// This should be unreachable after a valid `AppState` construction —
+    /// `generate_league` only fails when `ContentStore` is missing required
+    /// cultures, archetypes, or managers, all of which `load_sources` validated.
+    /// Surfaced here rather than `.expect()`-ing because Tauri/RULES.md §4
+    /// forbids panics in handlers.
+    #[error("league generation failed: {reason}")]
+    LeagueGenerationFailed { reason: String },
+
     /// `get_fixtures` was called with a club ID that does not exist in the
     /// current league.
     ///

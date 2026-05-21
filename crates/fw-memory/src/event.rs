@@ -463,9 +463,11 @@ pub enum Consequence {
     /// A previously-emitted promise event has now been broken. Carries the
     /// `EventId` of the original `PromisedYouthMinutes` event.
     PromiseBroken { original_event_id: EventId },
-    /// A compaction event dropped the referenced event ids from tick-level
-    /// granularity.
-    CompactionDrop { dropped_count: u32 },
+    /// Records how many events were in the 5-season compaction window at this
+    /// boundary crossing. This includes events whose `tick` was already `None`
+    /// from a prior compaction — `in_window_count` is the total window size, not
+    /// the count of events newly tick-nulled this pass.
+    CompactionDrop { in_window_count: u32 },
 
     // ---- T3-4 additions (appended additive — old saves decode None for these) ----
     /// A positive PA redraw from a `BreakthroughMoment` event.

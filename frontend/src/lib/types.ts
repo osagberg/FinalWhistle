@@ -113,7 +113,8 @@ export type IpcError =
   | { kind: "seasonComplete" }
   | { kind: "clubNotFound"; clubId: number }
   | { kind: "lockPoisoned"; lock: string }
-  | { kind: "playerNotFound"; playerId: string };
+  | { kind: "playerNotFound"; playerId: string }
+  | { kind: "seasonNotComplete" };
 
 // ---------------------------------------------------------------------------
 // Frame-cap constant — mirrors `fw_tauri::MAX_FRAMES_PER_REQUEST`.
@@ -264,4 +265,39 @@ export interface MatchFrameDTO {
    * Mirrors `MatchFrameDto.possession: Option<u8>` on the Rust side.
    */
   possession: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// T3-9 career-loop DTOs — mirrors fw-tauri career command return types
+// ---------------------------------------------------------------------------
+
+/** One season entry in the career history list, returned as part of CareerOverview. */
+export interface ChampionHistoryEntry {
+  season: number;
+  championClubName: string;
+}
+
+/**
+ * Returned by `advance_season`.
+ *
+ * Rejects with `IpcError { kind: "seasonNotComplete" }` if the current
+ * season's fixtures have not all been played.
+ */
+export interface AdvanceSeasonSummary {
+  completedSeason: number;
+  championClubName: string;
+  newSeasonNumber: number;
+  compactionFired: boolean;
+}
+
+/**
+ * Returned by `get_career_overview`.
+ *
+ * `history` is ordered oldest-to-newest. `crossSeasonCallbacks` are
+ * rendered memory-event strings surfaced at season-advance time.
+ */
+export interface CareerOverview {
+  seasonNumber: number;
+  history: ChampionHistoryEntry[];
+  crossSeasonCallbacks: string[];
 }

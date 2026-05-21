@@ -4,11 +4,11 @@
 
 ## Phase
 
-**Phase T3 (Career + Memory) IN PROGRESS — original 8 rows done, but the phase stays OPEN.** T3-1/T3-2/T3-3 closed 2026-05-18; T3-4 2026-05-20; T3-7 + T2-4 + T2-7 + T3-5 + T3-6 closed 2026-05-21. A `/done` gate check 2026-05-21 found the **T3 Exit Gate 2-of-4 unmet** — the 8 original rows shipped the memory/career/scouting INFRASTRUCTURE but no row built the integrated career loop, so "5-season career runs end-to-end" + "cross-season callback surfaces on a screen" do not pass. User direction: keep T3 open. NEW row **T3-9 (Career loop)** added to close those two gate criteria; T3-8 (phase-gate review) now deps T3-7 + T3-9.
+**Phase T3 (Career + Memory) — ALL BUILD ROWS DONE.** T3-1/T3-2/T3-3 closed 2026-05-18; T3-4 2026-05-20; T3-5/T3-6/T3-7 + T2-4 + T2-7 closed 2026-05-21; **T3-9 (Career loop) closed 2026-05-21** — the row added at the 2026-05-21 `/done` gate check (the original 8 rows shipped infrastructure; T3-9 built the integrated career loop the T3 Exit Gate demands). Every T3 build row is now DONE. Only T3-8 (phase-gate Codex review #2) remains — the phase-close step, run via `/done`.
 
 ## Active task
 
-(none — next `/next` picks **T3-9** (Career loop) — multi-season runner + ledger event emission + 5-season compaction + a cross-season-callback screen. Large/multi-discipline: expect a `/next` chunk-ceiling split or an authorised oversized cycle. Re-run `/done` once T3-9 lands.)
+(none — T3-9 closed; all Phase T3 build rows complete. Next step is **`/done`** — re-runs the T3 acceptance gate (the Exit Gate should now genuinely pass — career loop + cross-season callback + schema bump all present), runs the multi-track ultimate review, and hands off the copy-paste Codex phase-gate prompt. Not a `/next` task.)
 
 ## Blockers
 
@@ -16,7 +16,7 @@
 
 ## Last green verify
 
-2026-05-21 (T3 `/done` gate check): `scripts/fw verify` exit 0; all 8 original T3 rows' tests green; 127 frontend tests; clippy + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
+2026-05-21 (post-T3-9): `scripts/fw verify` exit 0; `fw-memory` compaction + `fw-tauri` career runner (`advance_season` / `get_career_overview`, `RwLock<CareerState>`) + `/career` screen; 154 frontend tests; clippy + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
 
 ## Last canonical hash
 
@@ -28,8 +28,6 @@
 
 ## Phase T3 pointer
 
-**T3 stays open.** The 2026-05-21 `/done` gate check found the locked T3 Exit Gate 2-of-4 unmet (no career loop). Remaining sequence:
-- **T3-9** (Career loop) — the next `/next` target; deps T2-5 + T3-2 + T3-4 + T3-6 (all DONE). Closes T3 Exit Gate criteria 1 + 2.
-- **T3-8** (phase-gate Codex review #2) — the phase-close step; now deps T3-7 + T3-9. Run via `/done` after T3-9 lands.
+**All T3 build rows DONE (T3-9 closed 2026-05-21).** Only **T3-8** (phase-gate Codex review #2) remains — the phase-close step itself.
 
-`/next` ships T3-9 next. Phase T3 closes once T3-9 makes the exit gate genuinely pass — then `/done` runs the multi-track ultimate review (scope incl. the rolled-in T2-4 + T2-7) and hands off the copy-paste Codex phase-gate prompt. (Note: the `/done` skill was updated 2026-05-21 — it now hands off a copy-paste Codex prompt instead of `gh pr create`, and its review scope explicitly includes rows rolled in from earlier phases.)
+Next action: run **`/done`**. It re-runs the T3 acceptance gate — the Exit Gate should now genuinely pass: criterion 1 (5-season career end-to-end + compaction at the boundary) and criterion 2 (cross-season callback surfaces on the `/career` screen) are now built by T3-9; criterion 3 (save schema bump) was already met. `/done` then runs the multi-track ultimate review (scope includes the rolled-in T2-4 + T2-7 per the 2026-05-21 skill update) and hands off the copy-paste Codex phase-gate prompt (the skill no longer uses `gh pr create`).

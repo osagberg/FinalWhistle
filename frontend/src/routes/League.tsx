@@ -70,6 +70,8 @@ const KNOWN_IPC_ERROR_KINDS = new Set([
   "clubNotFound",
   "lockPoisoned",
   "playerNotFound",
+  // T3-9: career-loop variant.
+  "seasonNotComplete",
 ] as const) satisfies ReadonlySet<IpcError["kind"]>;
 
 function isIpcError(e: unknown): e is IpcError {
@@ -104,6 +106,8 @@ function formatIpcError(err: IpcError): string {
       return `Internal state was corrupted by a prior error (lock: ${err.lock}). Please restart the app.`;
     case "playerNotFound":
       return `Player "${err.playerId}" was not found in the content store.`;
+    case "seasonNotComplete":
+      return "The current season is not yet complete — finish all fixtures before advancing.";
     default: {
       // Post-T2-6 silent-failure-hunter P1 fix: prior code returned
       // `_exhaustive` which is typed `never` at compile-time but evaluates to

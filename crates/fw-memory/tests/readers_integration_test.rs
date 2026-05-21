@@ -448,7 +448,7 @@ fn build_fixture() -> (MemoryLedger, Tick) {
         event_class: EventClass::Compaction,
         stakes: Q32::ZERO,
         emotion: Emotion::Neutral,
-        consequence: vec![Consequence::CompactionDrop { dropped_count: 5 }],
+        consequence: vec![Consequence::CompactionDrop { in_window_count: 5 }],
         callback_eligibility: CallbackEligibility::Never,
         salience: Q32::ZERO,
         decay_function: DecayFunction::Never,

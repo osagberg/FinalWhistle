@@ -347,21 +347,21 @@ fn get_player_detail_fixture_ledger_returns_football_grade_callbacks() {
 
     // Inject 3 varied events into the ledger.
     {
-        let mut ledger = state.memory_ledger().write().expect("ledger write lock");
+        let mut career = state.career().write().expect("career write lock");
 
-        ledger.append(make_fixture_event(
+        career.ledger.append(make_fixture_event(
             player_fw_id,
             0,
             EventClass::DebutSenior,
             Q32::from_raw(1i64 << 31), // 0.5
         ));
-        ledger.append(make_fixture_event(
+        career.ledger.append(make_fixture_event(
             player_fw_id,
             1,
             EventClass::LegacyGoal,
             Q32::from_raw(3i64 << 30), // 0.75
         ));
-        ledger.append(make_fixture_event(
+        career.ledger.append(make_fixture_event(
             player_fw_id,
             2,
             EventClass::TitleWon,
@@ -450,8 +450,8 @@ fn get_player_detail_unknown_event_class_returns_static_fallback() {
 
     // Inject a single UnknownEventClass event — discriminant 30, no grammar family.
     {
-        let mut ledger = state.memory_ledger().write().expect("ledger write lock");
-        ledger.append(make_fixture_event(
+        let mut career = state.career().write().expect("career write lock");
+        career.ledger.append(make_fixture_event(
             player_fw_id,
             0,
             EventClass::UnknownEventClass {
@@ -498,6 +498,101 @@ fn player_not_found_error_serializes_as_ts_discriminated_union() {
         !v.as_object().unwrap().contains_key("player_id"),
         "snake_case 'player_id' must not appear"
     );
+}
+
+// ---------------------------------------------------------------------------
+// T3-9: get_career_overview — camelCase wire-shape contract (AC5)
+// ---------------------------------------------------------------------------
+
+/// `CareerOverviewDto` must serialise with camelCase keys matching the TS
+/// `CareerOverviewDto` interface: `seasonNumber`, `history`,
+/// `crossSeasonCallbacks`. Run after one completed season so history is
+/// non-empty.
+#[test]
+fn get_career_overview_dto_serializes_camel_case_keys() {
+    use fw_tauri::commands::{
+        advance_season_inner, get_career_overview_inner, play_fixtures_inner,
+    };
+
+    let state = test_app_state();
+    // Complete one season so there is at least one history entry.
+    play_fixtures_inner(&state).expect("play_fixtures");
+    advance_season_inner(&state).expect("advance_season");
+
+    let dto = get_career_overview_inner(&state).expect("get_career_overview_inner");
+    let json = serde_json::to_string(&dto).expect("CareerOverviewDto must serialize");
+    let v: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+    let obj = v.as_object().expect("CareerOverviewDto is an object");
+
+    // Required camelCase keys.
+    assert!(
+        obj.contains_key("seasonNumber"),
+        "missing key 'seasonNumber': {json}"
+    );
+    assert!(obj.contains_key("history"), "missing key 'history': {json}");
+    assert!(
+        obj.contains_key("crossSeasonCallbacks"),
+        "missing key 'crossSeasonCallbacks': {json}"
+    );
+
+    // No snake_case leakage.
+    assert!(
+        !obj.contains_key("season_number"),
+        "snake_case 'season_number' must not appear"
+    );
+    assert!(
+        !obj.contains_key("cross_season_callbacks"),
+        "snake_case 'cross_season_callbacks' must not appear"
+    );
+
+    // history is an array with at least one entry.
+    let history_arr = obj["history"]
+        .as_array()
+        .expect("history must be a JSON array");
+    assert!(
+        !history_arr.is_empty(),
+        "history must have ≥1 entry after one completed season"
+    );
+
+    let first_entry = history_arr[0]
+        .as_object()
+        .expect("history entry is an object");
+    assert!(
+        first_entry.contains_key("season"),
+        "history entry missing 'season' key"
+    );
+    assert!(
+        first_entry.contains_key("championClubName"),
+        "history entry missing 'championClubName' key"
+    );
+    assert!(
+        !first_entry.contains_key("champion_club_name"),
+        "snake_case leak in history entry"
+    );
+
+    // crossSeasonCallbacks is an array; each element is a non-empty string
+    // with no template seams.
+    let callbacks_arr = obj["crossSeasonCallbacks"]
+        .as_array()
+        .expect("crossSeasonCallbacks must be a JSON array");
+    assert!(
+        !callbacks_arr.is_empty(),
+        "crossSeasonCallbacks must have ≥1 entry after one completed season"
+    );
+    for v in callbacks_arr {
+        let s = v
+            .as_str()
+            .expect("each crossSeasonCallback element must be a string");
+        assert!(!s.is_empty(), "callback string must not be empty");
+        assert!(
+            !s.contains("{{"),
+            "callback contains '{{{{' template seam: {s:?}"
+        );
+        assert!(
+            !s.contains('#'),
+            "callback contains '#' tracery seam: {s:?}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

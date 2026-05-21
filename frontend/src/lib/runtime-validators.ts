@@ -39,8 +39,11 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AdvanceSeasonSummary,
   AdvanceWeekSummary,
   BackendHandshake,
+  CareerOverview,
+  ChampionHistoryEntry,
   FixtureWithResult,
   MatchEvent,
   MatchEventKind,
@@ -396,4 +399,34 @@ export async function safeInvoke<T>(
     );
   }
   return raw;
+}
+
+// ---------------------------------------------------------------------------
+// T3-9 career-loop guards
+// ---------------------------------------------------------------------------
+
+function isChampionHistoryEntry(v: unknown): v is ChampionHistoryEntry {
+  if (!isObject(v)) return false;
+  if (!isU32(v.season)) return false;
+  if (typeof v.championClubName !== "string") return false;
+  return true;
+}
+
+export function isAdvanceSeasonSummary(v: unknown): v is AdvanceSeasonSummary {
+  if (!isObject(v)) return false;
+  if (!isU32(v.completedSeason)) return false;
+  if (typeof v.championClubName !== "string") return false;
+  if (!isU32(v.newSeasonNumber)) return false;
+  if (typeof v.compactionFired !== "boolean") return false;
+  return true;
+}
+
+export function isCareerOverview(v: unknown): v is CareerOverview {
+  if (!isObject(v)) return false;
+  if (!isU32(v.seasonNumber)) return false;
+  if (!Array.isArray(v.history)) return false;
+  if (!v.history.every(isChampionHistoryEntry)) return false;
+  if (!Array.isArray(v.crossSeasonCallbacks)) return false;
+  if (!v.crossSeasonCallbacks.every((s) => typeof s === "string")) return false;
+  return true;
 }

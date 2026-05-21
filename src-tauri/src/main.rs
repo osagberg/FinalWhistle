@@ -34,6 +34,8 @@ fn main() {
             fw_tauri::commands::get_fixtures,
             fw_tauri::commands::get_squad,
             fw_tauri::commands::get_player_detail,
+            fw_tauri::commands::advance_season,
+            fw_tauri::commands::get_career_overview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -230,6 +230,86 @@ impl MemoryLedger {
             .unwrap_or(&[])
     }
 
+    // ---- Compaction ---------------------------------------------------------
+
+    /// Compact the ledger at the 5-season boundary.
+    ///
+    /// For every non-`Compaction` event whose season satisfies
+    /// `event.season.0 + 5 <= current_season.0` (i.e. ≥5 seasons old),
+    /// sets `tick` to `None` if it is still `Some`. All other fields are
+    /// untouched — `DecayFunction::Never` events survive intact; only
+    /// tick-level granularity is dropped.
+    ///
+    /// After processing, appends exactly ONE `EventClass::Compaction` event
+    /// carrying `Consequence::CompactionDrop { in_window_count }` — the total
+    /// count of events in the 5-season window at this boundary, **including**
+    /// events whose `tick` was already `None` from a prior compaction pass.
+    /// This count is honest about the window size, not just the newly-nulled
+    /// subset.
+    ///
+    /// **No-op** when no events fall in the compaction window — returns 0 and
+    /// does NOT append a `Compaction` event.
+    ///
+    /// Determinism contract: `Vec`/`BTreeMap` only; no floats; no clocks;
+    /// no `saturating_*` on `SeasonNumber` (plain `+` panics on impossible
+    /// overflow per Sim/RULES.md §11).
+    pub fn compact(&mut self, current_season: SeasonNumber) -> u32 {
+        use crate::event::{
+            CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter, EmitterKind,
+            EventClass, SourceId,
+        };
+        use fw_core::Q32;
+
+        // Count events in the compaction window (≥5 seasons old). Null the tick
+        // of those that still have one (Some → None). The `in_window_count` drives
+        // the Compaction event even when all in-window events already had tick: None
+        // (e.g. season-end TitleWon events emitted with tick: None by design).
+        //
+        // Plain `+ 5` — `SeasonNumber.0` is u16 and a 65530+ season career is
+        // unreachable; panicking on overflow matches §11 checked-then-panic discipline.
+        let mut in_window_count: u32 = 0;
+        for event in self.events.iter_mut() {
+            if !matches!(event.event_class, EventClass::Compaction)
+                && event.season.0 + 5 <= current_season.0
+            {
+                in_window_count += 1;
+                if event.tick.is_some() {
+                    event.tick = None;
+                }
+            }
+        }
+
+        if in_window_count == 0 {
+            return 0;
+        }
+
+        // Append the Compaction summary event.
+        let compaction_event = crate::event::MemoryEvent {
+            event_id: crate::event::EventId(0), // overwritten by append
+            schema_version: 1,
+            season: current_season,
+            tick: None,
+            career_date: CareerDate {
+                year: 0,
+                day_of_year: 1,
+            },
+            emitter: Emitter {
+                kind: EmitterKind::CareerSystem,
+                source_id: SourceId::None,
+            },
+            participants: Vec::new(),
+            event_class: EventClass::Compaction,
+            stakes: Q32::ZERO,
+            emotion: crate::event::Emotion::Neutral,
+            consequence: vec![Consequence::CompactionDrop { in_window_count }],
+            callback_eligibility: CallbackEligibility::Never,
+            salience: Q32::ZERO,
+            decay_function: DecayFunction::Never,
+        };
+        self.append(compaction_event);
+        in_window_count
+    }
+
     // ---- Index internals ------------------------------------------------
 
     /// Rebuild all three BTreeMap indexes from scratch if the ledger is dirty.
@@ -576,5 +656,201 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ---- compact() tests --------------------------------------------------
+
+    /// AC1 (pre-boundary): compact() with no events older than 5 seasons is a
+    /// no-op — ledger length unchanged, no Compaction event, all ticks intact.
+    #[test]
+    fn compact_pre_boundary_is_no_op() {
+        use crate::event::EventClass;
+
+        let mut ledger = MemoryLedger::new();
+        let p = PlayerId::new(1);
+        // Two events at season 0; current_season = 4 (0 + 5 > 4 → not compacted).
+        ledger.append(make_event(p, 0, EventClass::DebutSenior));
+        ledger.append(make_event(p, 1, EventClass::LegacyGoal));
+        let len_before = ledger.len();
+
+        let result = ledger.compact(SeasonNumber(4));
+
+        assert_eq!(
+            result, 0,
+            "compact should return 0 when nothing is compacted"
+        );
+        assert_eq!(
+            ledger.len(),
+            len_before,
+            "pre-boundary compact must not change ledger length"
+        );
+        // All ticks must still be Some.
+        for ev in ledger.iter() {
+            if !matches!(ev.event_class, crate::event::EventClass::Compaction) {
+                assert!(
+                    ev.tick.is_some(),
+                    "pre-boundary compact must not null any ticks"
+                );
+            }
+        }
+        // No Compaction event appended.
+        let compaction_count = ledger
+            .iter()
+            .filter(|e| matches!(e.event_class, crate::event::EventClass::Compaction))
+            .count();
+        assert_eq!(
+            compaction_count, 0,
+            "no Compaction event should be appended before the boundary"
+        );
+    }
+
+    /// AC1 (post-boundary): compact() with events ≥5 seasons old nulls their
+    /// ticks and appends exactly one Compaction event recording the count.
+    #[test]
+    fn compact_post_boundary_nulls_old_ticks_and_appends_compaction_event() {
+        use crate::event::{Consequence, EventClass};
+
+        let mut ledger = MemoryLedger::new();
+        let p = PlayerId::new(1);
+        // Season 0 events (5 seasons before current_season 5) → should be compacted.
+        ledger.append(make_event(p, 0, EventClass::DebutSenior));
+        ledger.append(make_event(p, 0, EventClass::LegacyGoal));
+        // Season 3 event (not yet 5 seasons before 5) → NOT compacted.
+        ledger.append(make_event(p, 3, EventClass::HatTrickScored));
+
+        let len_before = ledger.len();
+        let result = ledger.compact(SeasonNumber(5));
+
+        assert_eq!(result, 2, "two season-0 events should be compacted");
+        assert_eq!(
+            ledger.len(),
+            len_before + 1,
+            "one Compaction event should be appended"
+        );
+
+        // The two season-0 events must have tick == None.
+        let season_0_events: Vec<_> = ledger
+            .iter()
+            .filter(|e| e.season == SeasonNumber(0))
+            .collect();
+        assert_eq!(season_0_events.len(), 2);
+        for ev in &season_0_events {
+            assert!(
+                ev.tick.is_none(),
+                "season-0 events must have tick == None after compact()"
+            );
+        }
+
+        // The season-3 event must still have tick == Some.
+        let season_3_event = ledger.iter().find(|e| e.season == SeasonNumber(3)).unwrap();
+        assert!(
+            season_3_event.tick.is_some(),
+            "season-3 event must not be compacted"
+        );
+
+        // Exactly one Compaction event.
+        let compaction_events: Vec<_> = ledger
+            .iter()
+            .filter(|e| matches!(e.event_class, EventClass::Compaction))
+            .collect();
+        assert_eq!(compaction_events.len(), 1, "exactly one Compaction event");
+
+        let compaction_ev = compaction_events[0];
+        assert_eq!(compaction_ev.season, SeasonNumber(5));
+        assert!(
+            compaction_ev.tick.is_none(),
+            "Compaction event tick must be None"
+        );
+        assert!(
+            matches!(
+                compaction_ev.callback_eligibility,
+                crate::event::CallbackEligibility::Never
+            ),
+            "Compaction event must have CallbackEligibility::Never"
+        );
+
+        // The CompactionDrop consequence must carry the right count.
+        let drop_consequence = compaction_ev
+            .consequence
+            .iter()
+            .find(|c| matches!(c, Consequence::CompactionDrop { .. }));
+        assert!(
+            drop_consequence.is_some(),
+            "Compaction event must carry CompactionDrop consequence"
+        );
+        match drop_consequence.unwrap() {
+            Consequence::CompactionDrop { in_window_count } => {
+                assert_eq!(*in_window_count, 2, "in_window_count must equal 2");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// AC1 (indexes): after compact(), the lazy indexes rebuild correctly —
+    /// by_class_season for Compaction and original event classes still works.
+    #[test]
+    fn compact_indexes_rebuild_correctly_after_compaction() {
+        use crate::event::EventClass;
+
+        let mut ledger = MemoryLedger::new();
+        let p = PlayerId::new(1);
+        ledger.append(make_event(p, 0, EventClass::TitleWon));
+        ledger.append(make_event(p, 0, EventClass::TitleWon));
+        ledger.append(make_event(p, 3, EventClass::DebutSenior));
+
+        ledger.compact(SeasonNumber(5));
+
+        // The by_class_season for Compaction (discriminant 29) at season 5
+        // should have exactly one entry.
+        let compaction_ids = ledger.by_class_season(29, SeasonNumber(5));
+        assert_eq!(
+            compaction_ids.len(),
+            1,
+            "one Compaction event in season 5 index"
+        );
+
+        // TitleWon (discriminant 22) at season 0 should still index correctly.
+        let title_won_s0 = ledger.by_class_season(22, SeasonNumber(0));
+        assert_eq!(
+            title_won_s0.len(),
+            2,
+            "two TitleWon events in season 0 index"
+        );
+
+        // DebutSenior (discriminant 24) at season 3 should still be present.
+        let debut_s3 = ledger.by_class_season(24, SeasonNumber(3));
+        assert_eq!(debut_s3.len(), 1, "one DebutSenior event in season 3 index");
+    }
+
+    /// AC1 advancing boundary: a second compact at a HIGHER season boundary
+    /// correctly compacts new in-window events and appends another Compaction
+    /// event. This mirrors the real career-loop pattern where compact() is
+    /// called once per `advance_season` with a strictly increasing season number.
+    #[test]
+    fn compact_at_advancing_boundary_compacts_new_events() {
+        use crate::event::EventClass;
+
+        let mut ledger = MemoryLedger::new();
+        let p = PlayerId::new(1);
+        // Season 0 and season 1 events.
+        ledger.append(make_event(p, 0, EventClass::DebutSenior));
+        ledger.append(make_event(p, 1, EventClass::LegacyGoal));
+
+        // First compact at season 5 → compacts season-0 event.
+        let r1 = ledger.compact(SeasonNumber(5));
+        assert_eq!(r1, 1, "first compact should report 1 in-window event");
+        let len_after_first = ledger.len();
+
+        // Second compact at season 6 → season-1 event is now in window (1+5<=6).
+        let r2 = ledger.compact(SeasonNumber(6));
+        assert_eq!(
+            r2, 2,
+            "second compact should report 2 in-window events (season 0 + season 1)"
+        );
+        assert_eq!(
+            ledger.len(),
+            len_after_first + 1,
+            "one additional Compaction event for the new boundary"
+        );
     }
 }

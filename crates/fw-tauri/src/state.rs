@@ -11,6 +11,12 @@
 //! `get_fixtures`) without blocking each other, while single-writer
 //! mutations (`advance_week`, `play_fixtures`) take the write lock.
 //!
+//! T3-9 fix-pass: Three separate `RwLock`s (`season`, `memory_ledger`,
+//! `season_number`) are collapsed into one `RwLock<CareerState>`. This
+//! makes `advance_season` atomic — the entire N→N+1 transition happens
+//! under one write guard so there is no torn-read window between the
+//! three fields.
+//!
 //! The `Arc<BTreeMap<...>>` for signature_definitions is extracted at
 //! construction time — Arc-clone per command avoids re-borrowing the whole
 //! ContentStore across the async command boundary.
@@ -23,6 +29,7 @@ use fw_content::{
     ContentLoadError, ContentStore, SeasonState, SignatureDefinition, generate_league,
 };
 use fw_core::{Seed, SeedLayer, seed_fn};
+use fw_memory::event::SeasonNumber;
 use fw_memory::ledger::MemoryLedger;
 
 /// The default career seed used when no explicit seed is provided.
@@ -31,13 +38,28 @@ use fw_memory::ledger::MemoryLedger;
 /// supply a random seed generated at career-creation time.
 const DEFAULT_CAREER_SEED: u64 = 0xfeed_beef_cafe_fade;
 
-/// Application-level state managed by Tauri.
-///
-/// T2-5 shape: content store (read-only after construction) + career seed +
-/// mutable season state behind an `RwLock`.
+/// All mutable career state. Held behind one `RwLock` in `AppState` so that
+/// `advance_season` can mutate all three fields atomically under a single
+/// write guard — no torn-read window between season, ledger, and season number.
 ///
 /// Read commands (`get_standings`, `get_fixtures`) acquire a read lock.
-/// Write commands (`advance_week`, `play_fixtures`) acquire the write lock.
+/// Write commands (`advance_week`, `play_fixtures`, `advance_season`)
+/// acquire the write lock.
+pub struct CareerState {
+    /// The current season's match schedule and results.
+    pub season: SeasonState,
+    /// Append-only event ledger. Written during `advance_season`; read by
+    /// `get_player_detail` and `get_career_overview`.
+    pub ledger: MemoryLedger,
+    /// Ordinal of the current season. Starts at `SeasonNumber(0)`.
+    /// Incremented by `advance_season`.
+    pub season_number: SeasonNumber,
+}
+
+/// Application-level state managed by Tauri.
+///
+/// T3-9 shape: content store (read-only after construction) + career seed +
+/// all mutable career state behind a single `RwLock<CareerState>`.
 ///
 /// Fields are `pub(crate)` — external consumers go through the accessor
 /// methods so the invariant "season mutations go through `SeasonState` API" is
@@ -49,17 +71,16 @@ pub struct AppState {
     pub(crate) signature_definitions: Arc<BTreeMap<String, SignatureDefinition>>,
     /// The career seed used to generate the current league + fixture seeds.
     pub(crate) career_seed: Seed,
-    /// Mutable season state. `RwLock` allows concurrent reads (standings,
-    /// fixtures) while serialising writes (advance_week, play_fixtures).
-    pub(crate) season: RwLock<SeasonState>,
-    /// Career memory ledger. Empty at runtime until the career-loop integration
-    /// lands in T4+. Architecture slot for IPC reads + fixture injection in tests.
+    /// All mutable career state: season, ledger, season_number.
     ///
-    /// Wrapped in `RwLock` so concurrent read commands (`get_player_detail`)
-    /// can call `SalienceReader::top_n` — which takes `&mut MemoryLedger` for
-    /// lazy index rebuilds — without blocking. Writes (`advance_week`) will
-    /// acquire write lock when the career system emits events in T4+.
-    pub(crate) memory_ledger: RwLock<MemoryLedger>,
+    /// One lock means `advance_season` is atomic — all three fields move
+    /// together under one write guard, eliminating the torn-read window that
+    /// the prior three-lock design had.
+    ///
+    /// Poison-error discipline: IPC handlers must map a poisoned lock to
+    /// `IpcError::LockPoisoned { lock: "career".to_string() }` rather than
+    /// `.expect()` (Tauri/RULES.md §4 forbids panics in handlers).
+    pub(crate) career: RwLock<CareerState>,
 }
 
 impl AppState {
@@ -99,8 +120,11 @@ impl AppState {
             content,
             signature_definitions,
             career_seed,
-            season: RwLock::new(season),
-            memory_ledger: RwLock::new(MemoryLedger::new()),
+            career: RwLock::new(CareerState {
+                season,
+                ledger: MemoryLedger::new(),
+                season_number: SeasonNumber(0),
+            }),
         })
     }
 
@@ -125,34 +149,23 @@ impl AppState {
         self.career_seed
     }
 
-    /// Access to the mutable season state.
+    /// Access to all mutable career state (season + ledger + season_number).
     ///
-    /// Callers acquire read or write locks as appropriate. Post-T2-5
-    /// silent-failure-hunter P1-3 fix: do NOT `.expect()` on a poisoned
-    /// lock from inside an IPC handler (that violates Tauri/RULES.md §4
-    /// "Never panic in a handler"). Instead, map the poison error to
+    /// Callers acquire read or write locks as appropriate.
+    ///
+    /// Per Tauri/RULES.md §4 ("Never panic in a handler"), do NOT `.expect()`
+    /// on a poisoned lock from inside an IPC handler. Map the poison error to
     /// [`IpcError::LockPoisoned`] so the frontend can surface a structured
     /// "internal state corrupted — restart" message:
     ///
     /// ```ignore
-    /// let season = state
-    ///     .season()
+    /// let career = state
+    ///     .career()
     ///     .read()
-    ///     .map_err(|_| IpcError::LockPoisoned { lock: "season".to_string() })?;
+    ///     .map_err(|_| IpcError::LockPoisoned { lock: "career".to_string() })?;
     /// ```
-    pub fn season(&self) -> &RwLock<SeasonState> {
-        &self.season
-    }
-
-    /// Access to the career memory ledger.
-    ///
-    /// The ledger is empty at runtime until the career-loop integration (T4+)
-    /// populates it. IPC handlers call `SalienceReader::top_n` which takes
-    /// `&mut MemoryLedger` for lazy index rebuilds — hence the `RwLock`.
-    ///
-    /// Same poison-error discipline as `season()`: map to `IpcError::LockPoisoned`.
-    pub fn memory_ledger(&self) -> &RwLock<MemoryLedger> {
-        &self.memory_ledger
+    pub fn career(&self) -> &RwLock<CareerState> {
+        &self.career
     }
 }
 
@@ -229,12 +242,15 @@ mod tests {
     #[test]
     fn new_initialises_season_state_at_match_day_one() {
         let state = AppState::new(&workspace_content_path()).expect("AppState::new");
-        let season = state.season().read().expect("season lock");
+        let career = state.career().read().expect("career lock");
         assert_eq!(
-            season.current_match_day, 1,
+            career.season.current_match_day, 1,
             "fresh season starts at match-day 1"
         );
-        assert!(!season.is_complete(), "fresh season should not be complete");
+        assert!(
+            !career.season.is_complete(),
+            "fresh season should not be complete"
+        );
     }
 
     #[test]
@@ -244,12 +260,13 @@ mod tests {
         let state_a = AppState::new_with_career_seed(&content_root, seed).expect("state_a");
         let state_b = AppState::new_with_career_seed(&content_root, seed).expect("state_b");
 
-        let season_a = state_a.season().read().expect("lock a");
-        let season_b = state_b.season().read().expect("lock b");
+        let career_a = state_a.career().read().expect("lock a");
+        let career_b = state_b.career().read().expect("lock b");
 
         // Same seed → same first club name in the generated league.
         assert_eq!(
-            season_a.league.clubs[0].display_name, season_b.league.clubs[0].display_name,
+            career_a.season.league.clubs[0].display_name,
+            career_b.season.league.clubs[0].display_name,
             "same career seed must produce the same league"
         );
     }
@@ -277,9 +294,9 @@ mod tests {
     fn league_fixture_index_finds_first_fixture() {
         let content_root = workspace_content_path();
         let state = AppState::new(&content_root).expect("AppState::new");
-        let season = state.season().read().expect("season lock");
-        let first = &season.league.fixtures[0];
-        let idx = league_fixture_index(&season.league.fixtures, first);
+        let career = state.career().read().expect("career lock");
+        let first = &career.season.league.fixtures[0];
+        let idx = league_fixture_index(&career.season.league.fixtures, first);
         assert_eq!(idx, 0);
     }
 }
