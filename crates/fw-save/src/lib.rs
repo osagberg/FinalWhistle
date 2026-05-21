@@ -13,7 +13,14 @@
 //! events had no real semantics; `migrate_v1_to_v2` translates any V1 ledger
 //! to an EMPTY V2 ledger.
 //!
-//! Migration chain: V0 → migrate_v0_to_v1 → V1 → migrate_v1_to_v2 → V2.
+//! ## T3-R-E: V3 schema — career-state persistence
+//!
+//! V3 adds the in-progress career state the V2 ledger alone cannot
+//! reconstruct: `season_number`, an `Option<SeasonState>` snapshot, and the
+//! per-player `BreakthroughState` map. See `SaveV3`.
+//!
+//! Migration chain: V0 → migrate_v0_to_v1 → V1 → migrate_v1_to_v2 → V2 →
+//! migrate_v2_to_v3 → V3.
 //!
 //! Four-test migration discipline (per `design/specs/save-migration-fixtures.md`):
 //!
@@ -22,10 +29,10 @@
 //!   3. forward-incompat-failure  — unknown-future-discriminant FAILS LOUDLY
 //!   4. round-trip-byte-identical — encode(decode(x))) bytes ≡ original
 //!
-//! `load_envelope(bytes) -> Result<SaveV2, SaveError>` is the production
+//! `load_envelope(bytes) -> Result<SaveV3, SaveError>` is the production
 //! load entry point. It decodes the envelope, runs the full migration chain,
 //! calls `MemoryLedger::restore_transient_state()` on the decoded ledger, and
-//! returns the V2 payload. Unknown discriminants surface as `SaveError::Decode`.
+//! returns the V3 payload. Unknown discriminants surface as `SaveError::Decode`.
 //!
 //! ## Format
 //!
@@ -33,15 +40,19 @@
 //! enum; new variants append a tag rather than shifting an existing one,
 //! so old saves remain parseable.
 //!
-//! Saves are NOT canonical-state-equivalent — they hold the career-level
-//! state (career seed + ledger + content-pack version), not per-tick state.
-//! A loaded save replays its match history from the seed to reproduce
-//! canonical state on demand (T2-5's `SeasonState` is regenerated from the
-//! `career_seed` by `generate_league`, so it's intentionally NOT in the
-//! save payload).
+//! Saves are NOT canonical-state-equivalent — they hold career-level state
+//! (seed + ledger + content-pack version + season progress), not per-tick
+//! match state. The seed regenerates the league STRUCTURE via
+//! `generate_league`; it does NOT regenerate a season's PROGRESS (which
+//! match-days are played, the live standings). Through V2 the season was
+//! intentionally omitted; T3-R-E's V3 persists it (`Option<SeasonState>`)
+//! because Codex review E5 found a V2 save could not resume mid-season.
 
-use fw_core::Seed;
-use fw_memory::MemoryLedger;
+use std::collections::BTreeMap;
+
+use fw_content::SeasonState;
+use fw_core::{PlayerId, Seed};
+use fw_memory::{BreakthroughState, MemoryLedger, SeasonNumber};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -87,6 +98,13 @@ pub enum SaveEnvelope {
     ///
     /// Wire tag `0x02` is pinned by `smoke::v2_envelope_wire_first_byte_is_locked_at_0x02`.
     V2(SaveV2) = 2,
+    /// Schema v3 — T3-R-E. Adds the career-progress state the V2 ledger alone
+    /// cannot reconstruct: `season_number`, an `Option<SeasonState>` snapshot,
+    /// and the per-player `BreakthroughState` map. V3 is the CURRENT
+    /// production schema.
+    ///
+    /// Wire tag `0x03` is pinned by `smoke::v3_envelope_wire_first_byte_is_locked_at_0x03`.
+    V3(SaveV3) = 3,
 }
 
 /// Schema v0 payload — the fictional pre-T2-9 stub. Carries only the
@@ -132,6 +150,48 @@ pub struct SaveV2 {
     /// `load_envelope` after deserialisation to rebuild the `next_id`
     /// counter and mark indexes dirty.
     pub ledger: MemoryLedger,
+}
+
+/// Schema v3 payload — T3-R-E (career-state persistence).
+///
+/// V2 stored only `career_seed + content_pack_version + ledger`. A career's
+/// IN-PROGRESS season (which match-days are played, the live standings) and
+/// its `season_number` are NOT derivable from the seed alone — `generate_league`
+/// regenerates the league STRUCTURE, not the season's PROGRESS. V3 adds:
+///
+/// - `season_number` — which season the career is currently on.
+/// - `season` — an `Option<SeasonState>` snapshot. `Some` for a genuine V3
+///   career save; `None` for a save migrated up from V2 (which never persisted
+///   a season — the loader regenerates a fresh one from the seed).
+/// - `breakthrough_states` — the per-player `BreakthroughState` map (empty
+///   until the career system is wired in T4+; the schema carries the slot now).
+///
+/// V3 is the CURRENT production schema. All new saves are V3.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveV3 {
+    /// The career's deterministic seed.
+    pub career_seed: Seed,
+
+    /// Content-pack version this save was authored against.
+    pub content_pack_version: u32,
+
+    /// The career ledger — rich `MemoryEvent` rows per ADR-0005.
+    /// `MemoryLedger::restore_transient_state()` is called by `load_envelope`
+    /// after deserialisation.
+    pub ledger: MemoryLedger,
+
+    /// Which season the career is currently on.
+    pub season_number: SeasonNumber,
+
+    /// Snapshot of the active season's progress. `None` on a save migrated
+    /// from V2 (no season was ever persisted) — the loader regenerates a
+    /// fresh season from `career_seed`. `Some` for a genuine V3 career save.
+    pub season: Option<SeasonState>,
+
+    /// Per-player breakthrough meter + cooldown state. Empty until the career
+    /// system is wired (T4+); the schema carries the slot now so future saves
+    /// need no further bump.
+    pub breakthrough_states: BTreeMap<PlayerId, BreakthroughState>,
 }
 
 /// Errors the save loader can raise.
@@ -227,13 +287,34 @@ pub fn migrate_v1_to_v2(v1: SaveV1) -> SaveV2 {
     }
 }
 
+/// Forward-migrate a `SaveV2` payload to the `SaveV3` schema.
+///
+/// Preserves `career_seed`, `content_pack_version`, and `ledger` exactly.
+/// Supplies the V3-only defaults: `season_number = SeasonNumber(0)` (a promoted
+/// V2 save begins a fresh career at season 0), `season = None` (V2 never
+/// persisted a season — the loader/caller regenerates one from the seed), and
+/// an empty `breakthrough_states` map.
+///
+/// Pure function: the same `v2` always produces the same `SaveV3`.
+pub fn migrate_v2_to_v3(v2: SaveV2) -> SaveV3 {
+    SaveV3 {
+        career_seed: v2.career_seed,
+        content_pack_version: v2.content_pack_version,
+        ledger: v2.ledger,
+        season_number: SeasonNumber(0),
+        season: None,
+        breakthrough_states: BTreeMap::new(),
+    }
+}
+
 /// Production load entry point. Decode bytes → run the full migration chain
-/// → return the latest-schema payload (`SaveV2`).
+/// → return the latest-schema payload (`SaveV3`).
 ///
 /// Variant dispatch:
-///   - `V0(v0)` → `migrate_v0_to_v1(v0)` → `migrate_v1_to_v2(...)`
-///   - `V1(v1)` → `migrate_v1_to_v2(v1)`
-///   - `V2(v2)` → returned as-is (after `restore_transient_state`)
+///   - `V0(v0)` → `migrate_v0_to_v1` → `migrate_v1_to_v2` → `migrate_v2_to_v3`
+///   - `V1(v1)` → `migrate_v1_to_v2` → `migrate_v2_to_v3`
+///   - `V2(v2)` → `migrate_v2_to_v3(v2)`
+///   - `V3(v3)` → returned as-is (after `restore_transient_state`)
 ///   - unknown discriminant → `SaveError::Decode(...)` (bincode's
 ///     `DecodeError::UnexpectedVariant`). This IS the four-test-discipline
 ///     "forward-incompat-failure" path: a future V99 save loaded by an
@@ -245,15 +326,16 @@ pub fn migrate_v1_to_v2(v1: SaveV1) -> SaveV2 {
 ///
 /// Callers that need to introspect WHICH variant a save was authored as
 /// should call `decode()` directly and match the envelope.
-#[must_use = "the loaded SaveV2 is discarded; load_envelope is the only path that runs the V0→V1→V2 migration chain"]
-pub fn load_envelope(bytes: &[u8]) -> Result<SaveV2, SaveError> {
-    let mut v2 = match decode(bytes)? {
-        SaveEnvelope::V0(v0) => migrate_v1_to_v2(migrate_v0_to_v1(v0)),
-        SaveEnvelope::V1(v1) => migrate_v1_to_v2(v1),
-        SaveEnvelope::V2(v2) => v2,
+#[must_use = "the loaded SaveV3 is discarded; load_envelope is the only path that runs the V0→V1→V2→V3 migration chain"]
+pub fn load_envelope(bytes: &[u8]) -> Result<SaveV3, SaveError> {
+    let mut v3 = match decode(bytes)? {
+        SaveEnvelope::V0(v0) => migrate_v2_to_v3(migrate_v1_to_v2(migrate_v0_to_v1(v0))),
+        SaveEnvelope::V1(v1) => migrate_v2_to_v3(migrate_v1_to_v2(v1)),
+        SaveEnvelope::V2(v2) => migrate_v2_to_v3(v2),
+        SaveEnvelope::V3(v3) => v3,
     };
-    v2.ledger.restore_transient_state();
-    Ok(v2)
+    v3.ledger.restore_transient_state();
+    Ok(v3)
 }
 
 // -------------------------------------------------------------------------
@@ -429,6 +511,45 @@ mod smoke {
         assert_eq!(b1, 0x01);
         assert_eq!(b2, 0x02);
     }
+
+    // ----- T3-R-E: V3 variant constructs + round-trips -----
+
+    /// `SaveEnvelope::V3` compiles, encodes, and decodes back to itself.
+    #[test]
+    fn v3_variant_constructs_and_round_trips() {
+        let env = SaveEnvelope::V3(SaveV3 {
+            career_seed: Seed::from_u64(0xF00D_BEEF_2026_0521),
+            content_pack_version: 3,
+            ledger: MemoryLedger::new(),
+            season_number: SeasonNumber(2),
+            season: None,
+            breakthrough_states: BTreeMap::new(),
+        });
+        let bytes = encode(&env).expect("encode v3");
+        let decoded = decode(&bytes).expect("decode v3");
+        assert_eq!(decoded, env, "V3 must round-trip through encode/decode");
+    }
+
+    /// Pin the EXACT first byte of an encoded V3 envelope at `0x03`.
+    /// Re-ordering SaveEnvelope variants or a bincode varint-encoding change
+    /// for discriminant 3 fails this test. Schema is locked FOREVER; the wire
+    /// bytes are part of the lock.
+    #[test]
+    fn v3_envelope_wire_first_byte_is_locked_at_0x03() {
+        let env = SaveEnvelope::V3(SaveV3 {
+            career_seed: Seed::from_u64(0),
+            content_pack_version: 1,
+            ledger: MemoryLedger::new(),
+            season_number: SeasonNumber(0),
+            season: None,
+            breakthrough_states: BTreeMap::new(),
+        });
+        let bytes = encode(&env).expect("encode v3");
+        assert_eq!(
+            bytes[0], 0x03,
+            "V3 wire tag is LOCKED at 0x03 — schema-lock invariant"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -464,25 +585,22 @@ mod migration {
     }
 
     // ----- T2-9: AC3 + AC4a — load_envelope auto-migrates V0 bytes -----
-    // Updated at T3-1: load_envelope now returns SaveV2.
+    // Updated at T3-R-E: load_envelope now returns SaveV3.
 
-    /// AC3 + AC4a (T3-1 update) — `load_envelope` decodes V0 bytes and
-    /// emerges with the migrated V2 payload; same for V1 bytes; V2 bytes
-    /// return as-is.
-    ///
-    /// Now covered by the dedicated `load_envelope_returns_v2_via_full_chain`
-    /// test in the v1_to_v2 migration suite; this test retained for the V0
-    /// path (keeping the existing V0→chain coverage alive).
+    /// AC3 + AC4a (T3-R-E update) — `load_envelope` decodes V0 bytes and
+    /// emerges with the migrated V3 payload (V0→V1→V2→V3 chain).
     #[test]
-    fn load_envelope_returns_v2_for_v0_bytes() {
+    fn load_envelope_returns_v3_for_v0_bytes() {
         let seed = Seed::from_u64(0x0F0F_0F0F_0F0F_0F0F);
         let v0_env = SaveEnvelope::V0(SaveV0 { career_seed: seed });
         let v0_bytes = encode(&v0_env).expect("encode v0");
         let loaded = load_envelope(&v0_bytes).expect("load v0");
-        // V0→V1→V2 chain: seed preserved, pack version defaulted to 1, ledger empty.
+        // V0→V1→V2→V3 chain: seed preserved, pack version defaulted to 1,
+        // ledger empty, season absent (no season was ever persisted).
         assert_eq!(loaded.career_seed, seed);
         assert_eq!(loaded.content_pack_version, 1);
         assert!(loaded.ledger.is_empty());
+        assert!(loaded.season.is_none());
     }
 
     // ----- T2-9: AC4b — callback-preservation -----
@@ -537,7 +655,7 @@ mod migration {
         // SERDE-layer rejection of an unknown variant index produces
         // `DecodeError::OtherString("invalid value: integer `99`, expected
         // variant index 0 <= i < N")` where N is the current variant count.
-        // At T3-1, N = 3 (V0/V1/V2). The initial silent-failure-hunter
+        // At T3-R-E, N = 4 (V0/V1/V2/V3). The initial silent-failure-hunter
         // recommendation to pattern-match `UnexpectedVariant { found }` was
         // structurally exact but bincode-2-with-serde does not produce that
         // variant. We assert on the outer `SaveError::Decode` PLUS a
@@ -590,20 +708,20 @@ mod migration {
 
     // ----- T3-1: AC9 — full migration chain via load_envelope -----
 
-    /// AC9 — `load_envelope` returns `SaveV2` for V0 bytes (V0→V1→V2 chain),
-    /// V1 bytes (V1→V2 chain), and V2 bytes (as-is). All three paths preserve
-    /// `career_seed`.
+    /// AC9 (T3-R-E update) — `load_envelope` returns `SaveV3` for V0 bytes
+    /// (V0→V1→V2→V3 chain), V1 bytes (V1→V2→V3), V2 bytes (V2→V3), and V3
+    /// bytes (as-is). All paths preserve `career_seed`.
     #[test]
-    fn load_envelope_returns_v2_via_full_chain() {
+    fn load_envelope_returns_v3_via_full_chain() {
         let seed = Seed::from_u64(0x1234_5678);
 
-        // V0 → V1 → V2
+        // V0 → V1 → V2 → V3
         let v0_bytes = encode(&SaveEnvelope::V0(SaveV0 { career_seed: seed })).expect("encode v0");
         let from_v0 = load_envelope(&v0_bytes).expect("load v0");
         assert_eq!(from_v0.career_seed, seed);
         assert!(from_v0.ledger.is_empty());
 
-        // V1 → V2
+        // V1 → V2 → V3
         let v1_bytes = encode(&SaveEnvelope::V1(SaveV1 {
             career_seed: seed,
             content_pack_version: 7,
@@ -615,7 +733,7 @@ mod migration {
         assert_eq!(from_v1.content_pack_version, 7);
         assert!(from_v1.ledger.is_empty());
 
-        // V2 as-is
+        // V2 → V3
         let v2_bytes = encode(&SaveEnvelope::V2(SaveV2 {
             career_seed: seed,
             content_pack_version: 3,
@@ -625,6 +743,20 @@ mod migration {
         let from_v2 = load_envelope(&v2_bytes).expect("load v2");
         assert_eq!(from_v2.career_seed, seed);
         assert_eq!(from_v2.content_pack_version, 3);
+
+        // V3 as-is
+        let v3_bytes = encode(&SaveEnvelope::V3(SaveV3 {
+            career_seed: seed,
+            content_pack_version: 9,
+            ledger: MemoryLedger::new(),
+            season_number: SeasonNumber(0),
+            season: None,
+            breakthrough_states: BTreeMap::new(),
+        }))
+        .expect("encode v3");
+        let from_v3 = load_envelope(&v3_bytes).expect("load v3");
+        assert_eq!(from_v3.career_seed, seed);
+        assert_eq!(from_v3.content_pack_version, 9);
     }
 
     // ----- T3-1: AC11 — V1→V2 callback-preservation -----

@@ -8,7 +8,7 @@
 
 ## Active task
 
-(none — T3-R-D (pack-level player-bio roster validation — `validate-structural` rejects a too-small roster) closed. Next `/next` picks **T3-R-E** — SaveV3 career-state persistence. The `T3-R-E..F` cleanup rows land before T4's first user-facing-polish row.)
+(none — T3-R-E (SaveV3 career-state persistence — `SaveEnvelope::V3` + V2→V3 migration + frozen fixture) closed. Next `/next` picks **T3-R-F** — career clock for salience decay, the last post-T3 cleanup row before T4.)
 
 ## Blockers
 
@@ -16,7 +16,7 @@
 
 ## Last green verify
 
-2026-05-21 (T3-R-D close): `scripts/fw verify` exit 0; full workspace + 154 frontend tests; clippy + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
+2026-05-21 (T3-R-E close): `scripts/fw verify` exit 0; full workspace + 154 frontend tests; clippy + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
 
 ## Last canonical hash
 
@@ -24,7 +24,7 @@
 
 **Second corpus pin:** `blake3:aa7efe9b2a567d5e87d12c7da6a4ea928271429729884f38819baed85c3be5ae` (600-tick extended seed; T2-1-codex-fix rebaseline; UNCHANGED through T3).
 
-**Save-format wire-byte pins** (T2-9 + T3-1): SaveEnvelope V0=0x00 / V1=0x01 / V2=0x02. Locked FOREVER.
+**Save-format wire-byte pins** (T2-9 + T3-1 + T3-R-E): SaveEnvelope V0=0x00 / V1=0x01 / V2=0x02 / V3=0x03. Locked FOREVER. V3 is the current production schema (career-state persistence).
 
 ## Post-T3 cleanup + Phase T4 pointer
 

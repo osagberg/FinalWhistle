@@ -1455,6 +1455,7 @@ name = "fw-save"
 version = "0.1.0"
 dependencies = [
  "bincode 2.0.1",
+ "fw-content",
  "fw-core",
  "fw-memory",
  "proptest",

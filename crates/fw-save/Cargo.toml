@@ -14,11 +14,12 @@ repository.workspace = true
 float_arithmetic = "deny"
 
 [dependencies]
-fw-core   = { workspace = true }
-fw-memory = { workspace = true }
-serde     = { workspace = true }
-bincode   = { workspace = true }
-thiserror = { workspace = true }
+fw-content = { workspace = true }
+fw-core    = { workspace = true }
+fw-memory  = { workspace = true }
+serde      = { workspace = true }
+bincode    = { workspace = true }
+thiserror  = { workspace = true }
 
 [dev-dependencies]
 # T2-R7(e) post-T2 ultimate-review Track D: proptest for SaveV1

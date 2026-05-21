@@ -18,9 +18,9 @@
 //!   3. forward-incompat-failure  — unknown-future-discriminant FAILS LOUDLY
 //!   4. round-trip-byte-identical — encode(decode(frozen_bytes)) == frozen_bytes
 //!
-//! T3-7 adds a fifth test for the V0→V1→V2 full chain; T3-R-C adds three more
-//! for the frozen non-empty-ledger V2 fixture (decode, byte-identical
-//! re-encode, load + transient-state restore).
+//! T3-7 adds a fifth test for the full V0→V1→V2→V3 chain; T3-R-C adds three
+//! more for the frozen non-empty-ledger V2 fixture; T3-R-E adds three more for
+//! the frozen V3 career fixture (decode, byte-identical re-encode, resume).
 //!
 //! ## Fixture definitions (load-bearing; must match README.md)
 //!
@@ -56,24 +56,41 @@
 //!   fixtures carry empty ledgers and so cannot catch a `MemoryEvent` serde
 //!   regression against frozen bytes.
 //!
+//! `v3_career_sample.fwsave` (T3-R-E):
+//!   SaveEnvelope::V3(SaveV3 {
+//!       career_seed: Seed::from_u64(0x7E57_C0DE_0003_0004),
+//!       content_pack_version: 1,
+//!       ledger: <2 plain MemoryEvents>,
+//!       season_number: SeasonNumber(2),
+//!       season: Some(<SeasonState from generate_league(0xCAFE_F00D)>),
+//!       breakthrough_states: empty,
+//!   })
+//!   Wire bytes: [0x03, ...] (V3 tag = 0x03). The ONLY frozen fixture that
+//!   carries a `Some(SeasonState)` — it catches a `SeasonState` serde
+//!   regression against frozen bytes, which the season-less v0/v1/v2 fixtures
+//!   cannot.
+//!
 //! ## Regeneration
 //!
 //! Run:
 //!   cargo test -p fw-save --test migration_fixtures_test -- --ignored regenerate_fixtures
 //!
-//! The `#[ignore]`-gated `regenerate_fixtures` test writes all four files.
+//! The `#[ignore]`-gated `regenerate_fixtures` test writes all five files.
 //! Run it once to bootstrap; re-run any time the encoder changes (requires an
 //! intentional schema bump + re-pin, per T3-7 discipline).
 
 use std::path::PathBuf;
 
+use fw_content::{ContentStore, SeasonState, generate_league};
 use fw_core::{MatchId, PlayerId, Q32, Seed, Tick};
 use fw_memory::{
     CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter, EmitterKind, Emotion,
     EntityRef, EventClass, EventId, MemoryEvent, MemoryLedger, Participant, ParticipantRole,
     SeasonNumber, SourceId,
 };
-use fw_save::{SaveEnvelope, SaveError, SaveV0, SaveV1, SaveV2, decode, encode, load_envelope};
+use fw_save::{
+    SaveEnvelope, SaveError, SaveV0, SaveV1, SaveV2, SaveV3, decode, encode, load_envelope,
+};
 
 // -------------------------------------------------------------------------
 // Fixture path helpers
@@ -107,6 +124,19 @@ fn v2_nonempty_path() -> PathBuf {
     fixtures_dir().join("v2_nonempty_ledger_sample.fwsave")
 }
 
+fn v3_career_path() -> PathBuf {
+    fixtures_dir().join("v3_career_sample.fwsave")
+}
+
+/// Workspace-root `content/` directory — for building the V3 fixture's real
+/// `SeasonState` snapshot via `generate_league`.
+fn content_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("content")
+}
+
 // -------------------------------------------------------------------------
 // Documented fixture values (single source of truth; mirror README.md)
 // -------------------------------------------------------------------------
@@ -129,6 +159,15 @@ const V2_NONEMPTY_CONTENT_PACK_VERSION: u32 = 1;
 /// Total row count of the frozen `v2_nonempty_ledger_sample.fwsave` ledger:
 /// 2 plain `MemoryEvent`s + 1 `Compaction` event.
 const V2_NONEMPTY_LEDGER_LEN: usize = 3;
+
+/// The career seed encoded into `v3_career_sample.fwsave`.
+const V3_CAREER_SEED: u64 = 0x7E57_C0DE_0003_0004;
+
+/// The `season_number` encoded into `v3_career_sample.fwsave`.
+const V3_CAREER_SEASON_NUMBER: u16 = 2;
+
+/// Seed handed to `generate_league` when building the V3 fixture's `SeasonState`.
+const V3_CAREER_LEAGUE_SEED: u64 = 0xCAFE_F00D;
 
 // -------------------------------------------------------------------------
 // Non-empty V2 ledger fixture construction
@@ -183,6 +222,32 @@ fn build_v2_nonempty_ledger() -> MemoryLedger {
     ledger
 }
 
+/// Build the `SaveEnvelope::V3` frozen into `v3_career_sample.fwsave`: a
+/// 2-event ledger, `season_number = 2`, and a real `Some(SeasonState)`
+/// snapshot generated from the shipped content pack. The `Some(SeasonState)`
+/// exercises the V3-only `Option<SeasonState>` serde surface against frozen
+/// bytes — the v0/v1/v2 fixtures cannot (V2 has no season field).
+fn build_v3_career_envelope() -> SaveEnvelope {
+    let content = ContentStore::load_sources(&content_root())
+        .expect("load content/ for the V3 fixture's SeasonState snapshot");
+    let league = generate_league(Seed::from_u64(V3_CAREER_LEAGUE_SEED), &content)
+        .expect("generate_league must succeed against the shipped pack");
+    let season = SeasonState::new(league, &content);
+
+    let mut ledger = MemoryLedger::new();
+    ledger.append(sample_memory_event(0, EventClass::DebutSenior));
+    ledger.append(sample_memory_event(1, EventClass::LegacyGoal));
+
+    SaveEnvelope::V3(SaveV3 {
+        career_seed: Seed::from_u64(V3_CAREER_SEED),
+        content_pack_version: 1,
+        ledger,
+        season_number: SeasonNumber(V3_CAREER_SEASON_NUMBER),
+        season: Some(season),
+        breakthrough_states: std::collections::BTreeMap::new(),
+    })
+}
+
 // -------------------------------------------------------------------------
 // Chunk 1: #[ignore]-gated fixture regeneration
 // -------------------------------------------------------------------------
@@ -206,7 +271,7 @@ fn build_v2_nonempty_ledger() -> MemoryLedger {
 /// The fixture values written here are the canonical definitions; the
 /// README.md and the constants above mirror them. If you change the
 /// constants, re-run this test to update the binaries, then verify
-/// all eight committed-fixture verifier tests still pass.
+/// all eleven committed-fixture verifier tests still pass.
 #[test]
 #[ignore = "fixture regeneration — run manually to bootstrap or re-pin; not for CI"]
 fn regenerate_fixtures() {
@@ -264,6 +329,18 @@ fn regenerate_fixtures() {
     );
     std::fs::write(v2_nonempty_path(), &v2_bytes).expect("write v2_nonempty_ledger_sample.fwsave");
 
+    // --- v3_career_sample.fwsave ---
+    // A V3 career save: a 2-event ledger + season_number 2 + a real
+    // Some(SeasonState) snapshot. This is the only frozen fixture that
+    // exercises the V3 Option<SeasonState> serde surface against drift.
+    let v3_env = build_v3_career_envelope();
+    let v3_bytes = encode(&v3_env).expect("encode V3 fixture");
+    assert_eq!(
+        v3_bytes[0], 0x03,
+        "V3 wire tag must be 0x03 — schema-lock invariant"
+    );
+    std::fs::write(v3_career_path(), &v3_bytes).expect("write v3_career_sample.fwsave");
+
     println!("Fixtures written to: {}", dir.display());
     println!(
         "  v1_sample.fwsave  {} bytes  (first byte 0x{:02x})",
@@ -285,10 +362,15 @@ fn regenerate_fixtures() {
         v2_bytes.len(),
         v2_bytes[0]
     );
+    println!(
+        "  v3_career_sample.fwsave {} bytes  (first byte 0x{:02x})",
+        v3_bytes.len(),
+        v3_bytes[0]
+    );
 }
 
 // -------------------------------------------------------------------------
-// Chunk 2: committed-fixture verifier tests (8 tests)
+// Chunk 2: committed-fixture verifier tests (11 tests)
 // -------------------------------------------------------------------------
 // These tests READ the committed frozen binaries and assert migration
 // behavior. Each must fail if:
@@ -304,32 +386,33 @@ fn regenerate_fixtures() {
 // -------------------------------------------------------------------------
 
 /// `load_envelope` on the committed `v1_sample.fwsave` bytes produces a
-/// `SaveV2` with the exact documented `career_seed` + `content_pack_version`
-/// and an empty ledger (V1 placeholder ledger drops on migration).
+/// current-schema payload with the exact documented `career_seed` +
+/// `content_pack_version` and an empty ledger (V1 placeholder ledger drops on
+/// migration).
 ///
 /// Non-vacuousness: mutating `migrate_v1_to_v2` to zero `career_seed` would
-/// fail the `assert_eq!(v2.career_seed.to_u64(), V1_SAMPLE_SEED)`. Mutating
+/// fail the `assert_eq!(loaded.career_seed.to_u64(), V1_SAMPLE_SEED)`. Mutating
 /// it to change `content_pack_version` would fail the pack-version assertion.
 /// Replacing the fixture with bytes encoding a different seed would fail both.
 #[test]
-fn fixture_v1_forward_migrates_to_v2() {
+fn fixture_v1_forward_migrates() {
     let bytes = std::fs::read(v1_sample_path())
         .expect("read v1_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap");
-    let v2 = load_envelope(&bytes)
-        .expect("v1_sample.fwsave must load via V1→V2 migration without error");
+    let loaded = load_envelope(&bytes)
+        .expect("v1_sample.fwsave must load via the V1→V2→V3 migration chain without error");
 
     assert_eq!(
-        v2.career_seed.to_u64(),
+        loaded.career_seed.to_u64(),
         V1_SAMPLE_SEED,
         "forward-migration: career_seed from committed v1 fixture must match documented value"
     );
     assert_eq!(
-        v2.content_pack_version, V1_SAMPLE_CONTENT_PACK_VERSION,
+        loaded.content_pack_version, V1_SAMPLE_CONTENT_PACK_VERSION,
         "forward-migration: content_pack_version from committed v1 fixture must match documented value"
     );
     assert!(
-        v2.ledger.is_empty(),
-        "forward-migration: V1 placeholder ledger must migrate to an empty V2 ledger"
+        loaded.ledger.is_empty(),
+        "forward-migration: V1 placeholder ledger must migrate to an empty ledger"
     );
 }
 
@@ -342,7 +425,7 @@ fn fixture_v1_forward_migrates_to_v2() {
 /// and `content_pack_version` (all 32 bits) against the README-documented
 /// fixture values.
 ///
-/// Non-vacuousness: this is a separate test from `fixture_v1_forward_migrates_to_v2`
+/// Non-vacuousness: this is a separate test from `fixture_v1_forward_migrates`
 /// so a future refactor that forgets to assert `content_pack_version` in the
 /// forward-migration test doesn't leave callback-preservation unchecked.
 /// Mutating `migrate_v1_to_v2` to drop or transform any V1 field must fail
@@ -351,28 +434,28 @@ fn fixture_v1_forward_migrates_to_v2() {
 fn fixture_v1_all_fields_preserved() {
     let bytes = std::fs::read(v1_sample_path())
         .expect("read v1_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap");
-    let v2 = load_envelope(&bytes)
+    let loaded = load_envelope(&bytes)
         .expect("v1_sample.fwsave must load cleanly for callback-preservation check");
 
     // career_seed: all 64 bits preserved
     assert_eq!(
-        v2.career_seed.to_u64(),
+        loaded.career_seed.to_u64(),
         V1_SAMPLE_SEED,
-        "callback-preservation: career_seed must be BIT-EXACT across V1→V2 (all 64 bits)"
+        "callback-preservation: career_seed must be BIT-EXACT across the V1→V3 chain (all 64 bits)"
     );
 
     // content_pack_version: all 32 bits preserved
     assert_eq!(
-        v2.content_pack_version, V1_SAMPLE_CONTENT_PACK_VERSION,
-        "callback-preservation: content_pack_version must be BIT-EXACT across V1→V2 (all 32 bits)"
+        loaded.content_pack_version, V1_SAMPLE_CONTENT_PACK_VERSION,
+        "callback-preservation: content_pack_version must be BIT-EXACT across the V1→V3 chain (all 32 bits)"
     );
 
-    // ledger: V1 placeholder events → empty V2 ledger (no data dropped, because
+    // ledger: V1 placeholder events → empty ledger (no data dropped, because
     // V1 placeholder events had no real semantics — the empty mapping IS
     // preservation of the intent).
     assert!(
-        v2.ledger.is_empty(),
-        "callback-preservation: placeholder ledger maps to empty V2 ledger (no data lost)"
+        loaded.ledger.is_empty(),
+        "callback-preservation: placeholder ledger maps to an empty ledger (no data lost)"
     );
 }
 
@@ -454,15 +537,16 @@ fn fixture_v1_round_trip_byte_identical() {
 }
 
 // -------------------------------------------------------------------------
-// AC6: V0→V1→V2 full chain (T3-7 extension beyond CLAUDE.md §9 core four)
+// AC6: V0→V1→V2→V3 full chain (T3-7 extension beyond CLAUDE.md §9 core four)
 // -------------------------------------------------------------------------
 
 /// Loading the committed `v0_sample.fwsave` via `load_envelope` traverses the
-/// full V0→V1→V2 chain and produces a `SaveV2` with the documented seed.
+/// full V0→V1→V2→V3 chain and produces a current-schema payload with the
+/// documented seed.
 ///
 /// V0→V1 defaults `content_pack_version = 1` and `ledger = empty`.
-/// V1→V2 preserves those defaults. The final payload must reflect all three
-/// hops.
+/// V1→V2 and V2→V3 preserve those defaults. The final payload must reflect
+/// every hop.
 ///
 /// Non-vacuousness: mutating `migrate_v0_to_v1` to drop `career_seed` would
 /// fail the seed assertion. Mutating it to set a non-1 `content_pack_version`
@@ -483,22 +567,22 @@ fn fixture_v0_traverses_full_chain() {
         "v0_sample.fwsave first byte must be 0x00 (V0 tag) — wrong fixture loaded?"
     );
 
-    let v2 =
-        load_envelope(&bytes).expect("v0_sample.fwsave must load via V0→V1→V2 chain without error");
+    let loaded = load_envelope(&bytes)
+        .expect("v0_sample.fwsave must load via the V0→V1→V2→V3 chain without error");
 
     assert_eq!(
-        v2.career_seed.to_u64(),
+        loaded.career_seed.to_u64(),
         V0_SAMPLE_SEED,
         "full-chain: career_seed from committed v0 fixture must match documented value"
     );
     // V0→V1 migration defaults content_pack_version to 1.
     assert_eq!(
-        v2.content_pack_version, 1,
+        loaded.content_pack_version, 1,
         "full-chain: V0→V1 migration must default content_pack_version to 1"
     );
     assert!(
-        v2.ledger.is_empty(),
-        "full-chain: V0→V1→V2 chain must produce an empty ledger"
+        loaded.ledger.is_empty(),
+        "full-chain: the V0→V1→V2→V3 chain must produce an empty ledger"
     );
 }
 
@@ -590,10 +674,10 @@ fn fixture_v2_nonempty_round_trip_byte_identical() {
     );
 }
 
-/// `load_envelope` on the committed `v2_nonempty_ledger_sample.fwsave` passes
-/// the V2 payload through (V2 is the current schema — no migration hop) and
-/// `restore_transient_state` rebuilds the transient `next_id` from the 3
-/// frozen rows, so the next appended event takes `EventId(3)`.
+/// `load_envelope` on the committed `v2_nonempty_ledger_sample.fwsave` migrates
+/// the V2 payload up to the current schema (V2→V3 carries the ledger through
+/// unchanged) and `restore_transient_state` rebuilds the transient `next_id`
+/// from the 3 frozen rows, so the next appended event takes `EventId(3)`.
 ///
 /// Non-vacuousness: if `load_envelope` skipped `restore_transient_state`,
 /// `next_id` would stay at its `#[serde(skip)]` default of 0 and the new
@@ -604,18 +688,18 @@ fn fixture_v2_nonempty_loads_and_restores_transient_state() {
         "read v2_nonempty_ledger_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap",
     );
 
-    let mut v2 = load_envelope(&bytes)
+    let mut loaded = load_envelope(&bytes)
         .expect("v2_nonempty_ledger_sample.fwsave must load via load_envelope without error");
 
     assert_eq!(
-        v2.ledger.len(),
+        loaded.ledger.len(),
         V2_NONEMPTY_LEDGER_LEN,
-        "loaded V2 ledger must carry {V2_NONEMPTY_LEDGER_LEN} rows"
+        "the loaded ledger must carry {V2_NONEMPTY_LEDGER_LEN} rows"
     );
 
     // restore_transient_state (run by load_envelope) rebuilt next_id from the
     // 3 frozen rows — the next append must take EventId(3), not EventId(0).
-    let new_id = v2
+    let new_id = loaded
         .ledger
         .append(sample_memory_event(6, EventClass::LegacyGoal));
     assert_eq!(
@@ -623,4 +707,99 @@ fn fixture_v2_nonempty_loads_and_restores_transient_state() {
         EventId(3),
         "load_envelope must restore next_id so a post-load append continues the EventId sequence"
     );
+}
+
+// -------------------------------------------------------------------------
+// AC8: frozen V3 career fixture (T3-R-E — career-state persistence)
+// -------------------------------------------------------------------------
+
+/// `decode` on the committed `v3_career_sample.fwsave` yields a
+/// `SaveEnvelope::V3` carrying the documented `season_number`, a `Some`
+/// season snapshot, and a 2-row ledger. This is the only frozen fixture that
+/// exercises the V3 `Option<SeasonState>` serde surface — the v0/v1/v2
+/// fixtures predate the season field.
+///
+/// Non-vacuousness: a fixture with `season: None` fails the `season.is_some()`
+/// assertion; a fixture encoding a different season_number or seed fails those
+/// assertions; an empty-ledger fixture fails the `ledger.len()` assertion.
+#[test]
+fn fixture_v3_career_decodes() {
+    let bytes = std::fs::read(v3_career_path()).expect(
+        "read v3_career_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap",
+    );
+
+    assert_eq!(
+        bytes[0], 0x03,
+        "v3_career_sample.fwsave first byte must be 0x03 (V3 tag) — wrong fixture loaded?"
+    );
+
+    let env = decode(&bytes).expect("decode of committed v3_career_sample.fwsave must succeed");
+    let SaveEnvelope::V3(v3) = env else {
+        panic!("v3_career_sample.fwsave must decode as SaveEnvelope::V3, got {env:?}");
+    };
+
+    assert_eq!(
+        v3.career_seed.to_u64(),
+        V3_CAREER_SEED,
+        "decoded V3 career_seed must match the documented fixture value"
+    );
+    assert_eq!(
+        v3.season_number,
+        SeasonNumber(V3_CAREER_SEASON_NUMBER),
+        "decoded V3 season_number must match the documented fixture value"
+    );
+    assert!(
+        v3.season.is_some(),
+        "the frozen V3 fixture must carry a Some(SeasonState) snapshot"
+    );
+    assert_eq!(v3.ledger.len(), 2, "the frozen V3 ledger must carry 2 rows");
+}
+
+/// `encode(decode(committed_v3_bytes))` is byte-identical to the committed
+/// bytes. A `SeasonState` serde regression (a field reorder in the league /
+/// standings types) produces different bytes here where the season-less
+/// v0/v1/v2 fixtures stay silent.
+#[test]
+fn fixture_v3_career_round_trip_byte_identical() {
+    let bytes = std::fs::read(v3_career_path()).expect(
+        "read v3_career_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap",
+    );
+
+    let envelope =
+        decode(&bytes).expect("decode of committed v3_career_sample.fwsave must succeed");
+    let re_encoded =
+        encode(&envelope).expect("re-encode of decoded v3_career_sample.fwsave must succeed");
+
+    assert_eq!(
+        bytes, re_encoded,
+        "round-trip-byte-identical: encode(decode(committed_v3_bytes)) must equal committed_v3_bytes"
+    );
+}
+
+/// `load_envelope` on the committed `v3_career_sample.fwsave` resumes the
+/// career at the saved season — `season_number` + the `Some(SeasonState)`
+/// snapshot + the ledger all survive a real frozen-file load.
+#[test]
+fn fixture_v3_career_resumes_at_correct_season() {
+    let bytes = std::fs::read(v3_career_path()).expect(
+        "read v3_career_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap",
+    );
+
+    let v3 = load_envelope(&bytes).expect("v3_career_sample.fwsave must load via load_envelope");
+
+    assert_eq!(
+        v3.season_number,
+        SeasonNumber(V3_CAREER_SEASON_NUMBER),
+        "the frozen V3 career must resume at the saved season number"
+    );
+    assert!(
+        v3.season.is_some(),
+        "the frozen V3 season snapshot must survive a load_envelope round-trip"
+    );
+    assert_eq!(
+        v3.career_seed.to_u64(),
+        V3_CAREER_SEED,
+        "career_seed intact on resume"
+    );
+    assert_eq!(v3.ledger.len(), 2, "the ledger is intact on resume");
 }

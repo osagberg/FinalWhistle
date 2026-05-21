@@ -522,7 +522,7 @@ pub enum NarrativeFlag {
 /// serialized in the career save.
 ///
 /// Field layout is stable; do not reorder without bumping save schema.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BreakthroughState {
     /// Per-family positive readiness meters, in [0, 1].
     /// Missing key means readiness == 0 (BTreeMap default semantics).

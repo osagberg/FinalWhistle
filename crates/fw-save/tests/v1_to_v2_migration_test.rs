@@ -3,7 +3,7 @@
 //! Per `design/specs/save-migration-fixtures.md` + `CLAUDE.md` §9, every
 //! schema version bump owes four tests:
 //!
-//!   1. forward-migration — V1 bytes load + emerge as V2
+//!   1. forward-migration — V1 bytes load + traverse the migration chain
 //!   2. callback-preservation — every V1 field maps to V2 (no silent drops)
 //!   3. forward-incompat-failure — shared with the existing V0/V1 path;
 //!      the `load_envelope_rejects_unsupported_future_version` in-crate test
@@ -21,11 +21,11 @@ use fw_save::{SaveEnvelope, SaveV1, SaveV2, decode, encode, load_envelope, migra
 // AC11-1: Forward-migration — V1 bytes load as V2 via `load_envelope`
 // -------------------------------------------------------------------------
 
-/// V1 bytes loaded via `load_envelope` emerge as a V2 payload with the same
-/// `career_seed` + `content_pack_version` and an EMPTY ledger (V1 placeholder
-/// events are discarded).
+/// V1 bytes loaded via `load_envelope` traverse the migration chain and emerge
+/// with the V1 `career_seed` + `content_pack_version` preserved and an EMPTY
+/// ledger (V1 placeholder events are discarded at the V1→V2 hop).
 #[test]
-fn v1_bytes_load_as_v2_via_load_envelope() {
+fn v1_bytes_load_via_load_envelope() {
     let seed = Seed::from_u64(0xAB_CD_00_11_22_33_44_55);
     let v1 = SaveV1 {
         career_seed: seed,
@@ -33,19 +33,19 @@ fn v1_bytes_load_as_v2_via_load_envelope() {
         ledger: MemoryLedger::new(),
     };
     let bytes = encode(&SaveEnvelope::V1(v1)).expect("encode V1");
-    let v2 = load_envelope(&bytes).expect("load V1 bytes as V2");
+    let loaded = load_envelope(&bytes).expect("load V1 bytes via the migration chain");
 
     assert_eq!(
-        v2.career_seed, seed,
-        "forward-migration: career_seed must survive V1→V2 exactly"
+        loaded.career_seed, seed,
+        "forward-migration: career_seed must survive the V1→V2→V3 chain exactly"
     );
     assert_eq!(
-        v2.content_pack_version, 17,
-        "forward-migration: content_pack_version must survive V1→V2 exactly"
+        loaded.content_pack_version, 17,
+        "forward-migration: content_pack_version must survive the chain exactly"
     );
     assert!(
-        v2.ledger.is_empty(),
-        "forward-migration: V1 placeholder ledger must migrate to empty V2 ledger"
+        loaded.ledger.is_empty(),
+        "forward-migration: V1 placeholder ledger must migrate to an empty ledger"
     );
 }
 
@@ -176,16 +176,16 @@ fn v2_round_trip_byte_identical_with_populated_ledger() {
 // AC9: V0 → V1 → V2 full chain via load_envelope
 // -------------------------------------------------------------------------
 
-/// Explicitly test the three-hop chain V0 → V1 → V2 in a single call
+/// Explicitly test the full chain V0 → V1 → V2 → V3 in a single call
 /// to `load_envelope`.
 #[test]
-fn v0_bytes_traverse_full_chain_to_v2() {
+fn v0_bytes_traverse_full_chain() {
     let seed = Seed::from_u64(0x11_22_33_44_55_66_77_88);
     let bytes =
         encode(&SaveEnvelope::V0(fw_save::SaveV0 { career_seed: seed })).expect("encode V0");
-    let v2 = load_envelope(&bytes).expect("V0 bytes must load via V0→V1→V2 chain");
+    let loaded = load_envelope(&bytes).expect("V0 bytes must load via the V0→V1→V2→V3 chain");
 
-    assert_eq!(v2.career_seed, seed);
-    assert_eq!(v2.content_pack_version, 1); // V0→V1 default
-    assert!(v2.ledger.is_empty()); // V1→V2 drops placeholder ledger
+    assert_eq!(loaded.career_seed, seed);
+    assert_eq!(loaded.content_pack_version, 1); // V0→V1 default
+    assert!(loaded.ledger.is_empty()); // V1→V2 drops the placeholder ledger
 }

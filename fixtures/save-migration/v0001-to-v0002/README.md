@@ -39,7 +39,7 @@ bincode 2 standard config encodes u64 as a variable-length integer: values ≥ 2
 use a multi-byte prefix. 0xfd (253) signals "8-byte u64 follows."
 
 Used by tests:
-- `fixture_v1_forward_migrates_to_v2` (AC2 — forward-migration)
+- `fixture_v1_forward_migrates` (AC2 — forward-migration)
 - `fixture_v1_all_fields_preserved` (AC3 — callback-preservation)
 - `fixture_v1_round_trip_byte_identical` (AC5 — round-trip-byte-identical)
 
@@ -56,7 +56,7 @@ A `SaveEnvelope::V0` save. Wire tag: `0x00`.
 Encoded via `bincode 2` / `standard` config.
 
 Used by tests:
-- `fixture_v0_traverses_full_chain` (AC6 — V0→V1→V2 full chain)
+- `fixture_v0_traverses_full_chain` (AC6 — V0→V1→V2→V3 full chain)
 
 ---
 
@@ -68,7 +68,8 @@ This is the bincode-2 varint for discriminant 99. Since 99 < 128, no
 continuation bit is needed; the entire "save file" is the single byte `0x63`.
 `load_envelope` must reject this with `SaveError::Decode` whose message
 mentions both `"99"` and `"variant"` (bincode 2's serde adapter error shape:
-`invalid value: integer \`99\`, expected variant index 0 <= i < 3`).
+`invalid value: integer \`99\`, expected variant index 0 <= i < 4` — N is the
+current `SaveEnvelope` variant count, 4 as of V3).
 
 This fixture exercises the forward-incompat-failure path: an old binary must
 loudly reject a save written by a future binary it doesn't understand.
@@ -105,6 +106,34 @@ Used by tests:
 
 ---
 
+### `v3_career_sample.fwsave` (~2.7 KB)
+
+A `SaveEnvelope::V3` career save with a persisted season. Wire tag: `0x03`.
+
+| Field                  | Value                                                |
+|------------------------|------------------------------------------------------|
+| `career_seed`          | `0x7E57C0DE00030004` (u64)                           |
+| `content_pack_version` | `1` (u32)                                            |
+| `ledger`               | 2 plain `MemoryEvent`s                               |
+| `season_number`        | `SeasonNumber(2)`                                    |
+| `season`               | `Some(SeasonState)` — `generate_league(0xCAFEF00D)`  |
+| `breakthrough_states`  | empty `BTreeMap`                                     |
+
+The `season` snapshot is built by `generate_league` against the shipped
+content pack, then `SeasonState::new`. This is the ONLY frozen fixture that
+carries a `Some(SeasonState)` — it catches a `SeasonState` (league / standings)
+serde regression against frozen bytes, which the season-less `v0`/`v1`/`v2`
+fixtures cannot. Because the snapshot embeds the shipped league, the fixture's
+exact bytes depend on the content pack; a content-pack change requires a
+`regenerate_fixtures` re-run (the documented manual process).
+
+Used by tests:
+- `fixture_v3_career_decodes` (AC8 — decode + season / ledger assertions)
+- `fixture_v3_career_round_trip_byte_identical` (AC8 — round-trip-byte-identical)
+- `fixture_v3_career_resumes_at_correct_season` (AC8 — load + resume)
+
+---
+
 ## Regeneration
 
 Run this once to bootstrap or re-pin after a schema bump:
@@ -113,7 +142,7 @@ Run this once to bootstrap or re-pin after a schema bump:
 cargo test -p fw-save --test migration_fixtures_test -- --ignored regenerate_fixtures
 ```
 
-Then commit the four `.fwsave` files. After regeneration, verify all eight
+Then commit the five `.fwsave` files. After regeneration, verify all eleven
 committed-fixture verifier tests still pass:
 
 ```sh
@@ -134,8 +163,10 @@ regression to investigate, not a regen prompt.
 | `v0_sample.fwsave`                | `V0(SaveV0) = 0`       | `0x00`   |
 | `v1_sample.fwsave`                | `V1(SaveV1) = 1`       | `0x01`   |
 | `v2_nonempty_ledger_sample.fwsave`| `V2(SaveV2) = 2`       | `0x02`   |
+| `v3_career_sample.fwsave`         | `V3(SaveV3) = 3`       | `0x03`   |
 | `v99_future.fwsave`               | N/A (discriminant 99)  | `0x63`   |
 
-The current production schema is `V2` (T3-1). `V1` is the locked first real
+The current production schema is `V3` (T3-R-E — career-state persistence).
+`V2` (T3-1) added the rich `MemoryLedger`. `V1` is the locked first real
 schema (T2-9). `V0` is the fictional pre-T2-9 stub kept forever to exercise
 the migration chain.
