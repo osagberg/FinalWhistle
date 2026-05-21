@@ -15,6 +15,7 @@ pub mod gene;
 pub mod league;
 pub mod manager;
 pub mod markov;
+pub mod memory_callback;
 pub mod news;
 pub mod player;
 pub mod player_bio;
@@ -43,6 +44,11 @@ pub use manager::{
     ManagerArchetypeIdError,
 };
 pub use markov::{MAX_NAME_LEN, MarkovError, MarkovNameChain};
+pub use memory_callback::{
+    MemoryCallbackBankBuildError, MemoryCallbackContext, MemoryCallbackGrammarBank,
+    MemoryCallbackLoadError, SITE_MEMORY_CALLBACK, discriminant_to_family_key,
+    render_memory_callback,
+};
 pub use news::{
     HeadlineContext, NewsBankBuildError, NewsGrammarBank, NewsRenderError, QuoteContext,
     render_headline, render_manager_quote,

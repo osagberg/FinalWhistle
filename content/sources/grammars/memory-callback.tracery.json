@@ -1,0 +1,220 @@
+{
+  "_comment": [
+    "Memory-callback phrase bank (T3-6). One sentence per career event — surfaces in press callbacks, fan recall, and scout reports. Slot variables (#player_name#, #club_name#, #opponent_name#, #competition_name#, #season_label#, #score_line#, #outcome_phrase#, #role_label#, #detail_phrase#) are substituted at runtime via fw-content::memory_callback::render_memory_callback. Families keyed by EventClass discriminant (0–29). See docs/CONTENT_PIPELINE.md and docs/design/ui-vocabulary.md for banned-terms rules."
+  ],
+
+  "origin": ["#callback#"],
+
+  "callback": [
+    "#breakthrough_moment#",
+    "#signature_first_fired#",
+    "#legacy_goal#",
+    "#hat_trick_scored#",
+    "#big_match_scar#",
+    "#regressive_collapse#",
+    "#promised_youth_minutes#",
+    "#broken_promise#",
+    "#contract_renewal_rejected#",
+    "#contract_renewal_accepted#",
+    "#transfer_requested#",
+    "#transfer_refused#",
+    "#sold_under_protest#",
+    "#bought_on_deadline_day#",
+    "#rivalry_formed#",
+    "#mentor_teammate#",
+    "#derby_controversy#",
+    "#former_club_reunion#",
+    "#cup_final_win#",
+    "#cup_final_loss#",
+    "#promotion_won#",
+    "#relegation_suffered#",
+    "#title_won#",
+    "#unbeaten_run_ended#",
+    "#debut_senior#",
+    "#debut_club#",
+    "#retirement#",
+    "#injury_long_term#",
+    "#international_call_up#",
+    "#compaction#"
+  ],
+
+  "breakthrough_moment": [
+    "Something clicked for #player_name# at #club_name# — looked a different player after that",
+    "#player_name# found another gear at #club_name# and never went back",
+    "That was the week #player_name# stopped doubting himself and started proving a point"
+  ],
+
+  "signature_first_fired": [
+    "#player_name# pulled off that move at #club_name# — nobody saw it coming",
+    "First time #player_name# did it in a real match for #club_name#, and it worked",
+    "#club_name# fans saw something new from #player_name# that day"
+  ],
+
+  "legacy_goal": [
+    "Scored the winner for #club_name# against #opponent_name# — a goal people still talk about",
+    "#player_name# found the net against #opponent_name# when #club_name# needed it most",
+    "That goal against #opponent_name# in #season_label# is the one everyone remembers"
+  ],
+
+  "hat_trick_scored": [
+    "Bagged a hat-trick for #club_name# against #opponent_name# — unstoppable that afternoon",
+    "#player_name# hit three past #opponent_name# and the whole ground knew it was something special",
+    "Three goals against #opponent_name# in #season_label# — one of those days you don't forget"
+  ],
+
+  "big_match_scar": [
+    "#player_name# had a rough one against #opponent_name# when it counted",
+    "Didn't deliver against #opponent_name# in #season_label# — the kind of game that stays with you",
+    "#club_name# needed more from #player_name# that night against #opponent_name#"
+  ],
+
+  "regressive_collapse": [
+    "Form dropped sharply at #club_name# in #season_label# — painful to watch",
+    "#player_name# had a spell where nothing went right and the doubts started to creep in",
+    "Things unravelled for #player_name# at #club_name# — took a while to find the way back"
+  ],
+
+  "promised_youth_minutes": [
+    "#player_name# was told he'd get his chance at #club_name# — the manager shook hands on it",
+    "#club_name# made a commitment to #player_name# about first-team minutes",
+    "Word came down from the manager: #player_name# would be involved"
+  ],
+
+  "broken_promise": [
+    "Those minutes never came — #player_name# had every right to feel hard done by",
+    "#club_name# made a promise to #player_name# and didn't keep it",
+    "#player_name# waited for his chance at #club_name# and it never arrived"
+  ],
+
+  "contract_renewal_rejected": [
+    "#player_name# turned down #club_name#'s offer — ready for something different",
+    "The contract was on the table but #player_name# said no",
+    "#player_name# decided his future lay elsewhere — couldn't be talked around"
+  ],
+
+  "contract_renewal_accepted": [
+    "#player_name# committed his future to #club_name# — no hesitation",
+    "Signed on at #club_name# for another stretch — exactly what the fans wanted",
+    "#player_name# put pen to paper and #club_name# breathed easy"
+  ],
+
+  "transfer_requested": [
+    "#player_name# put in a formal request to leave #club_name#",
+    "The request came in writing — #player_name# wanted out of #club_name#",
+    "#player_name# made it official: he wanted a move away from #club_name#"
+  ],
+
+  "transfer_refused": [
+    "#club_name# knocked back #player_name#'s request — not for sale",
+    "The manager told #player_name# he was staying put at #club_name#",
+    "#player_name# asked to leave #club_name# and was told no"
+  ],
+
+  "sold_under_protest": [
+    "#player_name# didn't want to go but #club_name# accepted the offer anyway",
+    "The club's decision, not his — #player_name# left #club_name# against his wishes",
+    "#player_name# was sold on by #club_name# even after making clear he wanted to stay"
+  ],
+
+  "bought_on_deadline_day": [
+    "Last-day deal — #player_name# arrived at #club_name# when the window was closing",
+    "#club_name# scrambled to get #player_name# through the door before midnight",
+    "A frantic finish to the window brought #player_name# to #club_name#"
+  ],
+
+  "rivalry_formed": [
+    "#player_name# and #opponent_name# — that feud started in #season_label# and never really cooled",
+    "After the #opponent_name# match in #season_label# things between #player_name# and that side were never the same",
+    "Bad blood with #opponent_name# — #player_name# carries that one around"
+  ],
+
+  "mentor_teammate": [
+    "#player_name# took a younger lad under his wing at #club_name# — helped him find his feet",
+    "A senior head looking out for a kid coming through the ranks at #club_name#",
+    "#player_name# was the one who made the difference for a young player at #club_name# that season"
+  ],
+
+  "derby_controversy": [
+    "#player_name# was at the centre of it in the #opponent_name# match — still a talking point",
+    "Flashpoint against #opponent_name# in #season_label# — the matchday report wasn't pretty",
+    "The incident against #opponent_name# followed #player_name# for months after"
+  ],
+
+  "former_club_reunion": [
+    "First time back at #opponent_name# since leaving — #player_name# kept things professional",
+    "#player_name# faced his old club #opponent_name# in #season_label#",
+    "Strange afternoon for #player_name# — playing against #opponent_name# for the first time"
+  ],
+
+  "cup_final_win": [
+    "Won the #competition_name# with #club_name# — the whole squad on the pitch at the final whistle",
+    "#player_name# was there when #club_name# lifted the #competition_name# in #season_label#",
+    "One of the great days — #club_name# beat #opponent_name# to take the #competition_name#"
+  ],
+
+  "cup_final_loss": [
+    "So close to the #competition_name# with #club_name# — the loss still stings",
+    "#club_name# fell at the final hurdle in the #competition_name# against #opponent_name#",
+    "#player_name# was in the side that lost the #competition_name# final in #season_label#"
+  ],
+
+  "promotion_won": [
+    "#club_name# went up in #season_label# and #player_name# was part of the side that got them there",
+    "Promotion secured — one of those changing-room moments you remember for years",
+    "#player_name# played his part as #club_name# earned their place in the next division"
+  ],
+
+  "relegation_suffered": [
+    "#club_name# went down in #season_label# — a long summer followed",
+    "#player_name# was in the side when #club_name# were relegated — nobody took it well",
+    "Relegated with #club_name# in #season_label# — the dressing room was silent at the end"
+  ],
+
+  "title_won": [
+    "#club_name# won the title in #season_label# — #player_name# was there for every game of it",
+    "Champions. #club_name# saw off the rest in #season_label# and #player_name# was part of it",
+    "That #season_label# title with #club_name# — the one that still means everything"
+  ],
+
+  "unbeaten_run_ended": [
+    "The run finally ended against #opponent_name# — #club_name# had kept it going a long time",
+    "#player_name# was in the #club_name# side when #opponent_name# ended the unbeaten streak",
+    "After all those games without a loss, #opponent_name# put a stop to it in #season_label#"
+  ],
+
+  "debut_senior": [
+    "First senior appearance for #club_name# — #player_name# didn't look out of place",
+    "#player_name# made his senior debut for #club_name# and held his own",
+    "The debut at #club_name# — nervous before kick-off, better as the game went on"
+  ],
+
+  "debut_club": [
+    "First game for #club_name# after the move — #player_name# was keen to make an impression",
+    "#player_name# pulled on the #club_name# shirt for the first time and got stuck in",
+    "New club, first appearance — #player_name# settling in at #club_name#"
+  ],
+
+  "retirement": [
+    "#player_name# called it a day — finished at #club_name# after everything",
+    "Last game for #player_name# — one last run-out and then that was that",
+    "#player_name# retired in #season_label# — ended where it mattered most"
+  ],
+
+  "injury_long_term": [
+    "#player_name# was out for months — #club_name# had to manage without him",
+    "Long spell on the sidelines for #player_name# — missed a big chunk of #season_label#",
+    "#player_name# picked up a serious one and #club_name# felt his absence"
+  ],
+
+  "international_call_up": [
+    "#player_name# got the call-up — first time representing his country",
+    "The national side came calling for #player_name# out of #club_name#",
+    "#club_name# were proud — #player_name# got his first international recognition"
+  ],
+
+  "compaction": [
+    "Memories from those years at #club_name# — the detail fades but the important moments stay",
+    "Much of #season_label# is a blur now — but the moments that counted left a mark",
+    "Years pass and the day-to-day slips away — what #player_name# did at #club_name# is what stays"
+  ]
+}

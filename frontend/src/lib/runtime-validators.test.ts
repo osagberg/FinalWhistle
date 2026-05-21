@@ -27,6 +27,7 @@ import {
   isMatchEvent,
   isMatchFrameDTO,
   isMatchResult,
+  isPlayerDetail,
   isScore,
   isSquadPlayer,
   isSquadPlayerArray,
@@ -289,6 +290,84 @@ describe("isSquadPlayerArray", () => {
 
   it("rejects a non-array", () => {
     expect(isSquadPlayerArray(validPlayer)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isPlayerDetail — T3-6
+// ---------------------------------------------------------------------------
+
+describe("isPlayerDetail", () => {
+  const validPhenotype = {
+    playerId: "fwh.core:player_00001",
+    name: "Emeka Thorne",
+    role: "Striker",
+    birthRegion: "Ashvale",
+    phenotypeLabels: ["Pure finisher", "Poacher"],
+  };
+
+  const valid = {
+    phenotype: validPhenotype,
+    memoryCallbacks: ["Made his debut on a wet Tuesday.", "First senior goal."],
+    contractStatus: null,
+  };
+
+  it("accepts a fully-valid PlayerDetail with null contractStatus", () => {
+    expect(isPlayerDetail(valid)).toBe(true);
+  });
+
+  it("accepts PlayerDetail with a string contractStatus", () => {
+    expect(isPlayerDetail({ ...valid, contractStatus: "2 years remaining" })).toBe(true);
+  });
+
+  it("accepts PlayerDetail with empty memoryCallbacks array", () => {
+    expect(isPlayerDetail({ ...valid, memoryCallbacks: [] })).toBe(true);
+  });
+
+  it("accepts PlayerDetail with empty phenotypeLabels", () => {
+    expect(
+      isPlayerDetail({
+        ...valid,
+        phenotype: { ...validPhenotype, phenotypeLabels: [] },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects when phenotype is missing", () => {
+    const bad = { ...valid } as Record<string, unknown>;
+    delete bad.phenotype;
+    expect(isPlayerDetail(bad)).toBe(false);
+  });
+
+  it("rejects when phenotype.playerId is a number", () => {
+    expect(
+      isPlayerDetail({
+        ...valid,
+        phenotype: { ...validPhenotype, playerId: 42 },
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects when phenotype.name is missing", () => {
+    const badPhenotype = { ...validPhenotype } as Record<string, unknown>;
+    delete badPhenotype.name;
+    expect(isPlayerDetail({ ...valid, phenotype: badPhenotype })).toBe(false);
+  });
+
+  it("rejects when memoryCallbacks contains a non-string element", () => {
+    expect(isPlayerDetail({ ...valid, memoryCallbacks: ["ok", 99] })).toBe(false);
+  });
+
+  it("rejects when contractStatus is a number (not string | null)", () => {
+    expect(isPlayerDetail({ ...valid, contractStatus: 42 })).toBe(false);
+  });
+
+  it("rejects null", () => {
+    expect(isPlayerDetail(null)).toBe(false);
+  });
+
+  it("rejects a non-object primitive", () => {
+    expect(isPlayerDetail("string")).toBe(false);
   });
 });
 

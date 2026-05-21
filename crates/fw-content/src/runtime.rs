@@ -18,6 +18,7 @@ use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::commentary::{CommentaryGrammarBank, MatchEventDiscriminant};
+use crate::memory_callback::{MemoryCallbackGrammarBank, MemoryCallbackLoadError};
 use crate::news::NewsGrammarBank;
 
 /// Walk `dir` and return every file with the given extension, sorted
@@ -471,6 +472,11 @@ pub struct ContentStore {
     /// Missing either file is a hard load error
     /// (`ContentLoadError::MissingNarrativeGrammar`).
     pub news_grammars: crate::news::NewsGrammarBank,
+    /// Memory-callback phrase bank. Loaded from
+    /// `content/sources/grammars/memory-callback.tracery.json`.
+    /// Missing the file is a hard load error
+    /// (`ContentLoadError::MissingNarrativeGrammar`).
+    pub memory_callback_grammars: crate::memory_callback::MemoryCallbackGrammarBank,
     // TODO(T2-3): bios, scout phrases, fan reactions — wired in as each
     // baker subcommand lands.
 }
@@ -520,6 +526,17 @@ impl Default for ContentStore {
         let news_grammars = crate::news::NewsGrammarBank::from_parts(headline_rules, quote_rules)
             .expect("default ContentStore: news grammar placeholder must construct cleanly");
 
+        // Build placeholder memory-callback grammar bank for tests that
+        // construct a ContentStore without going through load_sources.
+        let mut mc_rules: std::collections::BTreeMap<String, Vec<String>> =
+            std::collections::BTreeMap::new();
+        mc_rules.insert(
+            "origin".into(),
+            vec!["(default memory-callback placeholder)".into()],
+        );
+        let memory_callback_grammars = MemoryCallbackGrammarBank::try_from_rules(mc_rules)
+            .expect("default ContentStore: memory-callback placeholder must construct cleanly");
+
         Self {
             corpus_version: 0,
             cultures: BTreeMap::new(),
@@ -531,6 +548,7 @@ impl Default for ContentStore {
             commentary_grammars,
             managers: BTreeMap::new(),
             news_grammars,
+            memory_callback_grammars,
         }
     }
 }
@@ -812,6 +830,48 @@ impl ContentStore {
         // load error (fail-loud; the news renderer is broken without them).
         let grammars_dir = sources_dir.join("grammars");
         store.news_grammars = load_narrative_grammars(&grammars_dir)?;
+
+        // Memory-callback grammar (T3-6). Required — missing the file is a
+        // hard load error. Uses `MemoryCallbackGrammarBank::load_from_dir`
+        // which validates origin-rule discipline at construction time.
+        //
+        // Each error variant maps to a distinct `ContentLoadError` so callers
+        // can distinguish "file missing" (operator problem) from "file present
+        // but malformed JSON" (content-authoring problem) from "file valid JSON
+        // but origin-rule broken" (grammar-structure problem). A blanket map to
+        // `MissingNarrativeGrammar` was used before T3-6 self-review P1 — that
+        // silently reported a parse failure as a missing file, obscuring the
+        // real cause.
+        store.memory_callback_grammars = MemoryCallbackGrammarBank::load_from_dir(&grammars_dir)
+            .map_err(|e| {
+                eprintln!("fw-content: failed to load memory-callback grammar: {e}");
+                match e {
+                    MemoryCallbackLoadError::MissingFile(_) => {
+                        ContentLoadError::MissingNarrativeGrammar {
+                            filename: "memory-callback.tracery.json",
+                        }
+                    }
+                    MemoryCallbackLoadError::Io { path, source } => {
+                        ContentLoadError::Io { path, source }
+                    }
+                    MemoryCallbackLoadError::Parse { path, source } => {
+                        ContentLoadError::TraceryParse { path, source }
+                    }
+                    MemoryCallbackLoadError::InvalidBank { path, source } => {
+                        // Grammar file present + valid JSON but fails origin-
+                        // rule invariant. `TraceryParse` is the closest honest
+                        // `ContentLoadError` variant — it signals a grammar-
+                        // level content error (not a missing file). The source
+                        // detail is preserved via the `eprintln!` above; the
+                        // `tracery::Error::ParseError` wrapping provides the
+                        // message to any downstream error reporter.
+                        ContentLoadError::TraceryParse {
+                            path,
+                            source: tracery::Error::ParseError(source.to_string()),
+                        }
+                    }
+                }
+            })?;
 
         // Manager archetypes (T1-7). Optional — old content packs may not
         // have a managers/ dir; silently skip if absent. ID conversion

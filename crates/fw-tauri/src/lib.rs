@@ -37,8 +37,8 @@ pub mod season;
 pub mod state;
 
 pub use commands::{
-    advance_week, get_backend_handshake, get_fixtures, get_squad, get_standings, match_frames,
-    play_fixtures, play_match,
+    advance_week, get_backend_handshake, get_fixtures, get_player_detail, get_squad, get_standings,
+    match_frames, play_fixtures, play_match,
 };
 pub use error::IpcError;
 pub use handshake::BackendHandshakeDto;
@@ -232,6 +232,45 @@ fn q32_to_f64(raw_bits: i64) -> f64 {
 // ---------------------------------------------------------------------------
 
 pub use fw_match_sim::{BallFrameDto, MatchFrameDto, PlayerFrameDto};
+
+// -------------------------------------------------------------------------
+// T3-6 Player detail DTOs
+// -------------------------------------------------------------------------
+
+/// Player phenotype block — name, role, region, and scout labels.
+///
+/// Sourced from `PlayerBio`. Age and contract are absent — T4+ career-roster
+/// state that `PlayerBio` does not carry.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerPhenotypeDto {
+    /// Content-pack-qualified player ID (`fwh.core:player_00042`).
+    pub player_id: String,
+    /// Full display name.
+    pub name: String,
+    /// Human-readable role family label (e.g. "Striker").
+    pub role: String,
+    /// Fantasy birth region string.
+    pub birth_region: String,
+    /// Scout phenotype labels in BTreeSet iteration order.
+    pub phenotype_labels: Vec<String>,
+}
+
+/// Returned by `get_player_detail`. Three logical blocks:
+///
+/// - `phenotype` — bio data from the content store.
+/// - `memory_callbacks` — rendered career moment strings from the memory ledger.
+///   Empty when the runtime ledger is empty (honest — no fabricated copy).
+/// - `contract_status` — deferred placeholder (T4+ career-roster layer).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerDetailDto {
+    pub phenotype: PlayerPhenotypeDto,
+    /// Football-grade rendered callback sentences (one per salient memory event).
+    pub memory_callbacks: Vec<String>,
+    /// Contract information. `None` until the T4 career-roster layer lands.
+    pub contract_status: Option<String>,
+}
 
 // -------------------------------------------------------------------------
 // Smoke

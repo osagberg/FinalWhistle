@@ -23,6 +23,7 @@ use fw_content::{
     ContentLoadError, ContentStore, SeasonState, SignatureDefinition, generate_league,
 };
 use fw_core::{Seed, SeedLayer, seed_fn};
+use fw_memory::ledger::MemoryLedger;
 
 /// The default career seed used when no explicit seed is provided.
 ///
@@ -51,6 +52,14 @@ pub struct AppState {
     /// Mutable season state. `RwLock` allows concurrent reads (standings,
     /// fixtures) while serialising writes (advance_week, play_fixtures).
     pub(crate) season: RwLock<SeasonState>,
+    /// Career memory ledger. Empty at runtime until the career-loop integration
+    /// lands in T4+. Architecture slot for IPC reads + fixture injection in tests.
+    ///
+    /// Wrapped in `RwLock` so concurrent read commands (`get_player_detail`)
+    /// can call `SalienceReader::top_n` — which takes `&mut MemoryLedger` for
+    /// lazy index rebuilds — without blocking. Writes (`advance_week`) will
+    /// acquire write lock when the career system emits events in T4+.
+    pub(crate) memory_ledger: RwLock<MemoryLedger>,
 }
 
 impl AppState {
@@ -91,6 +100,7 @@ impl AppState {
             signature_definitions,
             career_seed,
             season: RwLock::new(season),
+            memory_ledger: RwLock::new(MemoryLedger::new()),
         })
     }
 
@@ -132,6 +142,17 @@ impl AppState {
     /// ```
     pub fn season(&self) -> &RwLock<SeasonState> {
         &self.season
+    }
+
+    /// Access to the career memory ledger.
+    ///
+    /// The ledger is empty at runtime until the career-loop integration (T4+)
+    /// populates it. IPC handlers call `SalienceReader::top_n` which takes
+    /// `&mut MemoryLedger` for lazy index rebuilds — hence the `RwLock`.
+    ///
+    /// Same poison-error discipline as `season()`: map to `IpcError::LockPoisoned`.
+    pub fn memory_ledger(&self) -> &RwLock<MemoryLedger> {
+        &self.memory_ledger
     }
 }
 

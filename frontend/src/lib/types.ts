@@ -112,7 +112,8 @@ export type IpcError =
   | { kind: "matchInitFailed"; reason: string }
   | { kind: "seasonComplete" }
   | { kind: "clubNotFound"; clubId: number }
-  | { kind: "lockPoisoned"; lock: string };
+  | { kind: "lockPoisoned"; lock: string }
+  | { kind: "playerNotFound"; playerId: string };
 
 // ---------------------------------------------------------------------------
 // Frame-cap constant — mirrors `fw_tauri::MAX_FRAMES_PER_REQUEST`.
@@ -190,6 +191,38 @@ export interface SquadPlayer {
   role: string;
   birthRegion: string;
   phenotypeLabels: string[];
+}
+
+// ---------------------------------------------------------------------------
+// T3-6 Player detail DTO — mirrors fw-tauri::PlayerDetailDto (camelCase serde)
+// ---------------------------------------------------------------------------
+
+/**
+ * Player phenotype block — name, role, region, phenotype labels.
+ *
+ * Sourced from PlayerBio in the content store. Age and contract are absent
+ * by design — they are T4+ career-roster state.
+ */
+export interface PlayerPhenotype {
+  playerId: string;
+  name: string;
+  role: string;
+  birthRegion: string;
+  phenotypeLabels: string[];
+}
+
+/**
+ * Full player detail returned by `get_player_detail`.
+ *
+ * Three blocks:
+ * - `phenotype`: bio data from the content store.
+ * - `memoryCallbacks`: rendered career moment strings (empty when ledger is empty).
+ * - `contractStatus`: `null` until T4 career-roster layer.
+ */
+export interface PlayerDetail {
+  phenotype: PlayerPhenotype;
+  memoryCallbacks: string[];
+  contractStatus: string | null;
 }
 
 // ---------------------------------------------------------------------------

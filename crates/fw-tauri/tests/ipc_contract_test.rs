@@ -14,8 +14,12 @@
 
 use std::path::PathBuf;
 
-use fw_core::Seed;
+use fw_core::{MatchId, PlayerId, Q32, Seed, Tick};
 use fw_match_sim::{MatchState, tick_match};
+use fw_memory::event::{
+    CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter, EmitterKind, Emotion,
+    EntityRef, EventClass, MemoryEvent, Participant, ParticipantRole, SeasonNumber, SourceId,
+};
 use fw_tauri::{IpcError, MAX_FRAMES_PER_REQUEST};
 
 fn workspace_content_path() -> PathBuf {
@@ -270,6 +274,229 @@ fn get_squad_returns_22_players() {
         squad.len(),
         22,
         "hand-authored content has exactly 22 player bios"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// T3-6: get_player_detail — fixture-ledger end-to-end test
+// ---------------------------------------------------------------------------
+
+/// Helper to build a representative MemoryEvent for a given player + class.
+fn make_fixture_event(
+    player_id: PlayerId,
+    season: u16,
+    class: EventClass,
+    stakes: Q32,
+) -> MemoryEvent {
+    MemoryEvent {
+        event_id: fw_memory::event::EventId(0), // overwritten by ledger.append
+        schema_version: 1,
+        season: SeasonNumber(season),
+        tick: Some(Tick::ZERO),
+        career_date: CareerDate {
+            year: 1,
+            day_of_year: 42,
+        },
+        emitter: Emitter {
+            kind: EmitterKind::MatchEngine,
+            source_id: SourceId::Match(MatchId::new(0)),
+        },
+        participants: vec![Participant {
+            role: ParticipantRole::Subject,
+            entity: EntityRef::Player(player_id),
+        }],
+        event_class: class,
+        stakes,
+        emotion: Emotion::Joy,
+        consequence: vec![Consequence::None],
+        callback_eligibility: CallbackEligibility::Immediate,
+        salience: stakes,
+        decay_function: DecayFunction::Never,
+    }
+}
+
+/// Fixture-ledger test: build AppState, inject ≥3 MemoryEvents for a known
+/// player, assert `get_player_detail_inner` returns football-grade callbacks.
+///
+/// Acceptance criteria verified here:
+/// - `memoryCallbacks` is non-empty when the ledger has events.
+/// - No `{{` or `#` template seams in any callback string (renderer ran fully).
+/// - Callback strings are non-empty and contain football-native text.
+/// - The DTO serialises with camelCase keys (`memoryCallbacks` not `memory_callbacks`).
+#[test]
+fn get_player_detail_fixture_ledger_returns_football_grade_callbacks() {
+    let state = test_app_state();
+
+    // Pick the first player from the content store so we have a real bio.
+    let first_id = state
+        .content()
+        .player_bios
+        .keys()
+        .next()
+        .expect("content store has at least one player bio")
+        .clone();
+
+    // Extract the numeric suffix for PlayerId construction.
+    let raw_suffix: u32 = first_id
+        .split(':')
+        .nth(1)
+        .and_then(|s| s.split('_').next_back())
+        .and_then(|s| s.parse().ok())
+        .expect("first player id must have a numeric _NNNNN suffix");
+    let player_fw_id = PlayerId::new(raw_suffix);
+
+    // Inject 3 varied events into the ledger.
+    {
+        let mut ledger = state.memory_ledger().write().expect("ledger write lock");
+
+        ledger.append(make_fixture_event(
+            player_fw_id,
+            0,
+            EventClass::DebutSenior,
+            Q32::from_raw(1i64 << 31), // 0.5
+        ));
+        ledger.append(make_fixture_event(
+            player_fw_id,
+            1,
+            EventClass::LegacyGoal,
+            Q32::from_raw(3i64 << 30), // 0.75
+        ));
+        ledger.append(make_fixture_event(
+            player_fw_id,
+            2,
+            EventClass::TitleWon,
+            Q32::ONE,
+        ));
+    }
+
+    let dto = fw_tauri::commands::get_player_detail_inner(&first_id, &state)
+        .expect("get_player_detail_inner must succeed with populated ledger");
+
+    // Callbacks must be non-empty.
+    assert!(
+        !dto.memory_callbacks.is_empty(),
+        "ledger has 3 events → memoryCallbacks must be non-empty"
+    );
+
+    for cb in &dto.memory_callbacks {
+        // Non-empty.
+        assert!(!cb.is_empty(), "callback string must not be empty");
+        // No template seams — renderer ran to completion.
+        assert!(
+            !cb.contains("{{"),
+            "callback contains unresolved '{{{{' template seam: {cb:?}"
+        );
+        assert!(
+            !cb.contains('#'),
+            "callback contains unresolved '#' tracery substitution: {cb:?}"
+        );
+    }
+
+    // DTO serialises with camelCase keys.
+    let json = serde_json::to_string(&dto).expect("serialize PlayerDetailDto");
+    let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
+    let obj = v.as_object().expect("PlayerDetailDto is object");
+
+    assert!(
+        obj.contains_key("memoryCallbacks"),
+        "wire key must be 'memoryCallbacks' (camelCase), not 'memory_callbacks'"
+    );
+    assert!(
+        !obj.contains_key("memory_callbacks"),
+        "snake_case key 'memory_callbacks' must not appear in wire JSON"
+    );
+    let callbacks_arr = obj["memoryCallbacks"]
+        .as_array()
+        .expect("memoryCallbacks must be a JSON array");
+    assert!(
+        !callbacks_arr.is_empty(),
+        "memoryCallbacks array must be non-empty"
+    );
+    for v in callbacks_arr {
+        assert!(
+            v.is_string(),
+            "each memoryCallbacks element must be a string"
+        );
+    }
+}
+
+/// Discriminant-30 guard: an `UnknownEventClass` event in the ledger must produce
+/// the static fallback phrase `"an unusual moment in the career"` — NOT a render
+/// error propagated as an IPC error, and NOT an empty string.
+///
+/// This exercises the `if discriminant_to_family_key(disc).is_none()` branch in
+/// `get_player_detail_inner`, which is the guard for discriminant 30.
+#[test]
+fn get_player_detail_unknown_event_class_returns_static_fallback() {
+    use fw_memory::event::ModEventTag;
+
+    let state = test_app_state();
+
+    let first_id = state
+        .content()
+        .player_bios
+        .keys()
+        .next()
+        .expect("content store has at least one player bio")
+        .clone();
+
+    let raw_suffix: u32 = first_id
+        .split(':')
+        .nth(1)
+        .and_then(|s| s.split('_').next_back())
+        .and_then(|s| s.parse().ok())
+        .expect("first player id must have a numeric _NNNNN suffix");
+    let player_fw_id = PlayerId::new(raw_suffix);
+
+    // Inject a single UnknownEventClass event — discriminant 30, no grammar family.
+    {
+        let mut ledger = state.memory_ledger().write().expect("ledger write lock");
+        ledger.append(make_fixture_event(
+            player_fw_id,
+            0,
+            EventClass::UnknownEventClass {
+                tag: ModEventTag("mod.test:unknown_class".to_string()),
+                payload: Vec::new(),
+            },
+            Q32::from_raw(1i64 << 31), // 0.5 salience — will surface in top_n
+        ));
+    }
+
+    let dto = fw_tauri::commands::get_player_detail_inner(&first_id, &state)
+        .expect("get_player_detail_inner must succeed even with an UnknownEventClass event");
+
+    // The callback must be the discriminant-30 static fallback, not empty and not an error.
+    assert_eq!(
+        dto.memory_callbacks.len(),
+        1,
+        "one injected event → exactly one callback string"
+    );
+    assert_eq!(
+        dto.memory_callbacks[0], "an unusual moment in the career",
+        "discriminant-30 (UnknownEventClass) must produce the static fallback phrase"
+    );
+}
+
+/// Known-id → PlayerNotFound wire shape test: `{ kind: "playerNotFound", playerId: "..." }`.
+#[test]
+fn player_not_found_error_serializes_as_ts_discriminated_union() {
+    let err = IpcError::PlayerNotFound {
+        player_id: "fwh.core:player_99999".to_string(),
+    };
+    let json = serde_json::to_string(&err).expect("serialize");
+    let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
+
+    assert_eq!(
+        v["kind"], "playerNotFound",
+        "kind discriminant must be camelCase"
+    );
+    assert_eq!(
+        v["playerId"], "fwh.core:player_99999",
+        "playerId field must be present"
+    );
+    assert!(
+        !v.as_object().unwrap().contains_key("player_id"),
+        "snake_case 'player_id' must not appear"
     );
 }
 

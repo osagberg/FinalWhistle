@@ -47,6 +47,8 @@ import type {
   MatchFrameDTO,
   MatchResult,
   PlayFixturesSummary,
+  PlayerDetail,
+  PlayerPhenotype,
   Score,
   SquadPlayer,
   StandingsRow,
@@ -337,6 +339,33 @@ export function isSquadPlayer(v: unknown): v is SquadPlayer {
 
 export function isSquadPlayerArray(v: unknown): v is SquadPlayer[] {
   return Array.isArray(v) && v.every(isSquadPlayer);
+}
+
+// ---------------------------------------------------------------------------
+// T3-6 PlayerDetail guards
+// ---------------------------------------------------------------------------
+
+function isPlayerPhenotype(v: unknown): v is PlayerPhenotype {
+  if (!isObject(v)) return false;
+  if (typeof v.playerId !== "string") return false;
+  if (typeof v.name !== "string") return false;
+  if (typeof v.role !== "string") return false;
+  if (typeof v.birthRegion !== "string") return false;
+  if (!Array.isArray(v.phenotypeLabels)) return false;
+  if (!v.phenotypeLabels.every((l) => typeof l === "string")) return false;
+  return true;
+}
+
+export function isPlayerDetail(v: unknown): v is PlayerDetail {
+  if (!isObject(v)) return false;
+  if (!isPlayerPhenotype(v.phenotype)) return false;
+  if (!Array.isArray(v.memoryCallbacks)) return false;
+  if (!v.memoryCallbacks.every((s) => typeof s === "string")) return false;
+  // contractStatus is string | null
+  if (v.contractStatus !== null && typeof v.contractStatus !== "string") {
+    return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------

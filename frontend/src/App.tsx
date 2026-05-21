@@ -6,6 +6,7 @@ import Layout from "./components/Layout";
 // Match page paying their cost only when reached is a meaningful win.
 const Home = lazy(() => import("./routes/Home"));
 const Squad = lazy(() => import("./routes/Squad"));
+const Player = lazy(() => import("./routes/Player"));
 const Tactics = lazy(() => import("./routes/Tactics"));
 const Transfers = lazy(() => import("./routes/Transfers"));
 const League = lazy(() => import("./routes/League"));
@@ -26,6 +27,7 @@ export default function App(): JSX.Element {
     <Route path="/" component={Root}>
       <Route path="/" component={Home} />
       <Route path="/squad" component={Squad} />
+      <Route path="/player/:id" component={Player} />
       <Route path="/tactics" component={Tactics} />
       <Route path="/transfers" component={Transfers} />
       <Route path="/league" component={League} />

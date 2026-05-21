@@ -45,6 +45,7 @@ const KNOWN_IPC_ERROR_KINDS = new Set([
   "seasonComplete",
   "clubNotFound",
   "lockPoisoned",
+  "playerNotFound",
 ] as const) satisfies ReadonlySet<IpcError["kind"]>;
 
 function isIpcError(e: unknown): e is IpcError {
@@ -77,6 +78,8 @@ function formatIpcError(err: IpcError): string {
       return `Club id ${err.clubId} was not found in the current league.`;
     case "lockPoisoned":
       return `Internal state was corrupted by a prior error (lock: ${err.lock}). Please restart the app.`;
+    case "playerNotFound":
+      return `Player "${err.playerId}" was not found in the content store.`;
     default: {
       const _exhaustive: never = err;
       throw new Error(

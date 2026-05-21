@@ -53,6 +53,17 @@ pub enum IpcError {
     #[error("club id {club_id} not found in current league")]
     ClubNotFound { club_id: u32 },
 
+    /// A player ID was not found in the content store's `player_bios` map.
+    ///
+    /// Named-field variant so the wire shape is:
+    /// `{ kind: "playerNotFound", playerId: "fwh.core:player_00042" }` — clean
+    /// TS pattern-match on `playerId` (string, content-pack-qualified).
+    #[error("player id {player_id:?} not found in content store")]
+    PlayerNotFound {
+        #[serde(rename = "playerId")]
+        player_id: String,
+    },
+
     /// An internal `RwLock` / `Mutex` was poisoned by a prior writer panic.
     ///
     /// Post-T2-5 silent-failure-hunter P1-3 fix: prior code used

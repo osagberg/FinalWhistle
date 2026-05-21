@@ -4,19 +4,19 @@
 
 ## Phase
 
-**Phase T3 (Career + Memory) IN PROGRESS.** T3-1/T3-2/T3-3 closed 2026-05-18; T3-4 (breakthrough mechanism) 2026-05-20; T3-7 + T2-4 + T2-7 + T3-5 (`fw-scouting` scout-uncertainty model) closed 2026-05-21. Remaining T3 build rows: T3-6, then T3-8 (phase-gate).
+**Phase T3 (Career + Memory) — ALL BUILD ROWS DONE.** T3-1/T3-2/T3-3 closed 2026-05-18; T3-4 (breakthrough mechanism) 2026-05-20; T3-7 + T2-4 + T2-7 + T3-5 + T3-6 (Player detail page) closed 2026-05-21. Every T3 build row is DONE. Only T3-8 (phase-gate Codex review #2) remains — that is the phase-close step, run via `/done`.
 
 ## Active task
 
-(none — T3-5 closed. Next `/next` picks **T3-6** (Frontend Player detail page) — earliest TODO in declared order, deps T3-2 + T2-7 both DONE.)
+(none — T3-6 closed; Phase T3 build rows all complete. Next step is **`/done`** — runs the T3 acceptance gate + multi-track ultimate review + opens the T3-8 phase-gate Codex PR. Not a `/next` task.)
 
 ## Blockers
 
-- **T2-1d2** rolled to T3 as `DEFERRED-ROLLED-TO-T3`; promote at T3 midpoint after BT-runner matures per `personality-bias-weights.md` cadence.
+- **T2-1d2** rolled to T3 as `DEFERRED-ROLLED-TO-T3`; not promoted this phase. Carry to T4 or schedule alongside an end-of-phase rebalance row.
 
 ## Last green verify
 
-2026-05-21 (post-T3-5): `scripts/fw verify` exit 0; `fw-scouting` Path-B scout-uncertainty model (32 tests incl. proptest + insta snapshot); clippy + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
+2026-05-21 (post-T3-6): `scripts/fw verify` exit 0; `fw-content` memory-callback renderer + `fw-tauri` `get_player_detail` IPC + `Player.tsx` route; 127 frontend tests; clippy + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
 
 ## Last canonical hash
 
@@ -28,8 +28,6 @@
 
 ## Phase T3 pointer
 
-**Remaining build sequence** (T3-5 DONE 2026-05-21):
-- **T3-6** (Frontend Player detail page) — eligible NOW (deps T3-2 + T2-7 both DONE); the next `/next` target.
-- **T3-8** (phase-gate Codex review #2) — the phase-close step; run via `/done` after T3-6 lands.
+**All T3 build rows DONE (T3-6 closed 2026-05-21).** The only remaining row is **T3-8** (phase-gate Codex review #2 — multi-season-determinism + memory-ledger-integrity review), which is the phase-close step itself.
 
-`/next` ships T3-6 next. Phase T3 closes genuinely complete once T3-6 is DONE — then `/done` opens the T3-8 Codex phase-gate review.
+Next action: run **`/done`** — it verifies the T3 acceptance gate, runs the multi-track ultimate review, syncs the ledgers, and prints the `gh pr create` command for the T3-8 Codex phase-gate review. `/next` has no eligible implementation row left in T3.

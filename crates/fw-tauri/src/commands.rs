@@ -18,15 +18,18 @@
 //! `_inner` variant; the `#[tauri::command]` wrappers are thin forwarding
 //! shells validated by the integration test in `crates/fw-tauri/tests/`.
 
-use fw_content::Fixture;
-use fw_core::Seed;
+use fw_content::{
+    Fixture, MemoryCallbackContext, discriminant_to_family_key, render_memory_callback,
+};
+use fw_core::{PlayerId, Seed, Tick};
 use fw_match_sim::{MatchState, tick_match};
+use fw_memory::readers::{SalienceFilter, salience::SalienceReader};
 
 use crate::state::{fixture_seed, league_fixture_index};
 use crate::{
     AdvanceWeekSummaryDto, AppState, BackendHandshakeDto, FixtureWithResultDto, IpcError,
-    MAX_FRAMES_PER_REQUEST, MatchFrameDto, MatchResult, PlayFixturesSummaryDto, SquadPlayerDto,
-    StandingsRowDto, season,
+    MAX_FRAMES_PER_REQUEST, MatchFrameDto, MatchResult, PlayFixturesSummaryDto, PlayerDetailDto,
+    PlayerPhenotypeDto, SquadPlayerDto, StandingsRowDto, season,
 };
 
 // ---------------------------------------------------------------------------
@@ -78,6 +81,23 @@ pub async fn match_frames(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<MatchFrameDto>, IpcError> {
     match_frames_inner(seed_hex, tick_count, &state).await
+}
+
+/// `get_player_detail(player_id)` — return the player detail DTO for one player.
+///
+/// Returns:
+/// - `phenotype`: bio data from the content store (name, role, region, labels).
+/// - `memoryCallbacks`: rendered career moment strings from the memory ledger
+///   (empty when the runtime ledger is empty — honest, not fabricated).
+/// - `contractStatus`: `None` until the T4 career-roster layer lands.
+///
+/// Returns `IpcError::PlayerNotFound` if `player_id` is not in the content store.
+#[tauri::command]
+pub async fn get_player_detail(
+    player_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<PlayerDetailDto, IpcError> {
+    get_player_detail_inner(&player_id, &state)
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +497,194 @@ pub fn get_squad_inner(state: &AppState) -> Result<Vec<SquadPlayerDto>, IpcError
     Ok(dtos)
 }
 
+pub fn get_player_detail_inner(
+    player_id: &str,
+    state: &AppState,
+) -> Result<PlayerDetailDto, IpcError> {
+    // 1. Look up the PlayerBio in the content store.
+    let bio =
+        state
+            .content()
+            .player_bios
+            .get(player_id)
+            .ok_or_else(|| IpcError::PlayerNotFound {
+                player_id: player_id.to_string(),
+            })?;
+
+    // 2. Build the phenotype block.
+    let phenotype_labels: Vec<String> = bio
+        .scout_labels
+        .iter()
+        .map(|label| label.display_label().to_string())
+        .collect();
+
+    let phenotype = PlayerPhenotypeDto {
+        player_id: bio.player_id.clone(),
+        name: bio.display_name_full.clone(),
+        role: bio.role_family.display_label().to_string(),
+        birth_region: bio.birth_region.clone(),
+        phenotype_labels,
+    };
+
+    // 3. Memory callbacks — derive PlayerId from the `_NNNNN` suffix.
+    //    Best-effort: the runtime ledger is empty so this matters only in
+    //    fixture-ledger tests that control both sides. Unknown suffix → skip
+    //    the salience query and return an empty callbacks vec.
+    let numeric_player_id: Option<u32> = parse_player_id_suffix(player_id);
+
+    let memory_callbacks: Vec<String> = if let Some(raw_id) = numeric_player_id {
+        let player_fw_id = PlayerId::new(raw_id);
+        let bank = &state.content().memory_callback_grammars;
+        let career_seed = state.career_seed().to_u64();
+
+        // Collect into owned events BEFORE acquiring the season read lock.
+        //
+        // Deadlock prevention: `SalienceReader::top_n` requires `&mut MemoryLedger`
+        // (write lock). If we held the memory_ledger write lock while then acquiring
+        // the season read lock, and a future T4 career-loop path acquires
+        // season-write then memory-write, the inverse order would deadlock.
+        // Collecting into owned `MemoryEvent` values here drops the ledger guard
+        // before the season lock is ever taken, eliminating the ordering hazard.
+        let top_events: Vec<fw_memory::event::MemoryEvent> = {
+            let mut ledger = state
+                .memory_ledger()
+                .write()
+                .map_err(|_| IpcError::LockPoisoned {
+                    lock: "memory_ledger".to_string(),
+                })?;
+
+            // TODO(T4): wire the career clock — Tick::ZERO disables salience decay.
+            SalienceReader::top_n(
+                &mut ledger,
+                5,
+                SalienceFilter::BySubject(player_fw_id),
+                Tick::ZERO,
+            )
+            .into_iter()
+            .cloned()
+            .collect()
+        }; // ledger write guard dropped here — safe to acquire season read lock below.
+
+        let season_read = state.season().read().map_err(|_| IpcError::LockPoisoned {
+            lock: "season".to_string(),
+        })?;
+
+        // Build ClubId → display_name map for participant resolution.
+        // Keyed by ClubId (not by name string) to avoid silent dedup when two
+        // procedurally-generated clubs happen to share a display_name.
+        let club_names: std::collections::BTreeMap<fw_core::ClubId, String> = season_read
+            .league
+            .clubs
+            .iter()
+            .map(|c| (c.id, c.display_name.clone()))
+            .collect();
+
+        top_events
+            .iter()
+            .map(|event| {
+                let disc = event.event_class.discriminant();
+
+                // Guard: UnknownEventClass (discriminant 30) — no grammar family.
+                // Fall back to a static phrase rather than propagating a render error.
+                if discriminant_to_family_key(disc).is_none() {
+                    return "an unusual moment in the career".to_string();
+                }
+
+                // Resolve the first Club participant by ClubId (not by name string).
+                // An unresolved ClubId produces an empty slot — this is legitimate
+                // for multi-season career references where a club no longer appears
+                // in the current top-flight league snapshot; the grammar tolerates
+                // empty context slots.
+                let first_club_cid: Option<fw_core::ClubId> =
+                    event.participants.iter().find_map(|p| {
+                        if let fw_memory::event::EntityRef::Club(cid) = p.entity {
+                            Some(cid)
+                        } else {
+                            None
+                        }
+                    });
+                let club_name = first_club_cid
+                    .and_then(|cid| club_names.get(&cid).map(|s| s.to_string()))
+                    .unwrap_or_default();
+
+                // Resolve opponent: the second Club participant with a different ClubId
+                // than `first_club_cid` (dedup by ID, not by display string).
+                let opponent_name = event
+                    .participants
+                    .iter()
+                    .filter_map(|p| {
+                        if let fw_memory::event::EntityRef::Club(cid) = p.entity {
+                            if Some(cid) == first_club_cid {
+                                return None;
+                            }
+                            club_names.get(&cid).map(|s| s.to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .next()
+                    .unwrap_or_default();
+
+                let season_label = format!("Season {}", event.season.0 + 1);
+
+                let ctx = MemoryCallbackContext {
+                    player_name: bio.display_name_full.clone(),
+                    club_name,
+                    opponent_name,
+                    competition_name: String::new(),
+                    season_label,
+                    score_line: String::new(),
+                    outcome_phrase: String::new(),
+                    role_label: bio.role_family.display_label().to_string(),
+                    detail_phrase: String::new(),
+                };
+
+                match render_memory_callback(career_seed, event.event_id.0, disc, &ctx, bank) {
+                    Ok(s) => s,
+                    // Render failure past the discriminant-30 guard is a genuine
+                    // grammar-authoring bug (missing rule referenced from the family).
+                    // Keep the static fallback so the UI degrades gracefully, but log
+                    // the error so content authors see it immediately.
+                    Err(e) => {
+                        log::error!(
+                            "memory-callback render failed for event {} disc {}: {}",
+                            event.event_id.0,
+                            disc,
+                            e
+                        );
+                        "a notable moment in the career".to_string()
+                    }
+                }
+            })
+            .collect()
+    } else {
+        log::warn!(
+            "get_player_detail: could not derive numeric PlayerId from {:?}; \
+             returning empty memoryCallbacks",
+            player_id
+        );
+        Vec::new()
+    };
+
+    Ok(PlayerDetailDto {
+        phenotype,
+        memory_callbacks,
+        contract_status: None,
+    })
+}
+
+/// Extract the numeric suffix from a content-pack-qualified player ID.
+///
+/// `"fwh.core:player_00042"` → `Some(42)`.
+/// Returns `None` if the suffix is absent, non-numeric, or the ID has no
+/// `_` after the `:` segment (best-effort — the caller handles `None` by
+/// skipping the salience query).
+fn parse_player_id_suffix(player_id: &str) -> Option<u32> {
+    let after_colon = player_id.split(':').nth(1)?;
+    let suffix = after_colon.split('_').next_back()?;
+    suffix.parse::<u32>().ok()
+}
+
 // ---------------------------------------------------------------------------
 // Shared helper
 // ---------------------------------------------------------------------------
@@ -709,5 +917,116 @@ mod tests {
         assert_eq!(v["kind"], "tooManyFrames");
         assert_eq!(v["requested"], MAX_FRAMES_PER_REQUEST + 1);
         assert_eq!(v["max"], MAX_FRAMES_PER_REQUEST);
+    }
+
+    // ---- get_player_detail_inner ----
+
+    #[test]
+    fn get_player_detail_inner_known_id_returns_phenotype() {
+        let state = test_app_state();
+        // Pick the first player from the content store.
+        let first_id = state
+            .content()
+            .player_bios
+            .keys()
+            .next()
+            .expect("content store has at least one player bio")
+            .clone();
+
+        let dto = get_player_detail_inner(&first_id, &state)
+            .expect("get_player_detail_inner must succeed for a known player_id");
+
+        assert_eq!(dto.phenotype.player_id, first_id);
+        assert!(!dto.phenotype.name.is_empty(), "name must be non-empty");
+        assert!(!dto.phenotype.role.is_empty(), "role must be non-empty");
+        // Runtime ledger is empty → callbacks is empty (honest, not fabricated).
+        assert!(
+            dto.memory_callbacks.is_empty(),
+            "empty runtime ledger must yield no callbacks"
+        );
+        // Contract deferred until T4.
+        assert!(
+            dto.contract_status.is_none(),
+            "contract_status must be None at T3"
+        );
+    }
+
+    #[test]
+    fn get_player_detail_inner_unknown_id_returns_player_not_found() {
+        let state = test_app_state();
+        let err = get_player_detail_inner("fwh.core:player_99999", &state)
+            .expect_err("unknown id must return Err");
+        match err {
+            IpcError::PlayerNotFound { player_id } => {
+                assert_eq!(player_id, "fwh.core:player_99999");
+            }
+            other => panic!("expected PlayerNotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn player_detail_dto_serializes_camel_case_keys() {
+        let state = test_app_state();
+        let first_id = state
+            .content()
+            .player_bios
+            .keys()
+            .next()
+            .expect("at least one bio")
+            .clone();
+        let dto = get_player_detail_inner(&first_id, &state).expect("detail");
+        let json = serde_json::to_string(&dto).expect("serialize");
+        let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
+        let obj = v.as_object().expect("object");
+
+        assert!(obj.contains_key("phenotype"), "missing key 'phenotype'");
+        assert!(
+            obj.contains_key("memoryCallbacks"),
+            "missing key 'memoryCallbacks'"
+        );
+        assert!(
+            obj.contains_key("contractStatus"),
+            "missing key 'contractStatus'"
+        );
+
+        let pheno = obj["phenotype"].as_object().expect("phenotype is object");
+        assert!(pheno.contains_key("playerId"), "missing key 'playerId'");
+        assert!(pheno.contains_key("name"), "missing key 'name'");
+        assert!(pheno.contains_key("role"), "missing key 'role'");
+        assert!(
+            pheno.contains_key("birthRegion"),
+            "missing key 'birthRegion'"
+        );
+        assert!(
+            pheno.contains_key("phenotypeLabels"),
+            "missing key 'phenotypeLabels'"
+        );
+        // No snake_case leakage.
+        assert!(
+            !pheno.contains_key("player_id"),
+            "snake_case leak: player_id"
+        );
+        assert!(
+            !pheno.contains_key("birth_region"),
+            "snake_case leak: birth_region"
+        );
+    }
+
+    #[test]
+    fn parse_player_id_suffix_extracts_numeric_suffix() {
+        assert_eq!(parse_player_id_suffix("fwh.core:player_00042"), Some(42));
+        assert_eq!(parse_player_id_suffix("fwh.core:player_00001"), Some(1));
+        assert_eq!(parse_player_id_suffix("fwh.core:player_99999"), Some(99999));
+    }
+
+    #[test]
+    fn parse_player_id_suffix_returns_none_for_malformed() {
+        // No colon → None.
+        assert_eq!(parse_player_id_suffix("nodots"), None);
+        // Non-numeric suffix → None.
+        assert_eq!(parse_player_id_suffix("fwh.core:player_abc"), None);
+        // Hand-authored dotted-form IDs (no underscore in the local part after colon).
+        // "fwh.core:culture.anglo" → last '_' split finds "culture.anglo", no parse → None.
+        // This is fine — hand-authored IDs don't go through this path.
     }
 }
