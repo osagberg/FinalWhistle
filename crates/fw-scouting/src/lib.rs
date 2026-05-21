@@ -1,36 +1,36 @@
-//! `fw-scouting` — scouting model.
+//! `fw-scouting` — scout uncertainty model (Path B MVP, T3-5).
 //!
-//! Phase-0 scope: empty type surface that compiles. T3 introduces the
-//! disagreeing-biased-scouts model per DESIGN_DOC §3 (Pillar 4) and
-//! `design/scouting.md` (owed Phase-3).
+//! Implements the `design/scouting.md` type contract + Path-B report generator.
+//! A scout is a biased observer with a model; the player never sees the canonical
+//! `GeneSnapshot` — truth emerges from scout reports over seasons (DESIGN_DOC §3 Pillar 4).
+//!
+//! ## Module layout
+//! - `band` — `UncertaintyBand` + threshold constants + `GeneCategoryEstimate::band`
+//! - `report` — `GeneCategory`, `GeneCategoryEstimate`, `LabelEstimate`, `ScoutReport`
+//! - `scout` — `ScoutArchetypeKind`, `CategoryBiases`, `Scout` + tuning constants
+//! - `observe` — `observe_player` Path-B generator
+//!
+//! ## Determinism contract
+//! `float_arithmetic = "deny"` (clippy). All numerics are `Q32`. `BTreeMap`/`BTreeSet`/`Vec` only.
+//! No `HashMap`, no clocks, no `thread_rng`. One `ChaCha8Rng` per `observe_player` call,
+//! seeded via `seed_fn(.., SeedLayer::ScoutObservation, 0)` per ADR-0009.
 
-use fw_core::{PlayerId, Q32};
-use serde::{Deserialize, Serialize};
+pub mod band;
+pub mod observe;
+pub mod report;
+pub mod scout;
 
-/// A single scout's noisy observation of a player gene.
-///
-/// T0 placeholder shape. T3 expands with bias terms, recency, and the
-/// per-scout per-region noise model.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ScoutReport {
-    /// The player observed.
-    pub player_id: PlayerId,
+// ---------------------------------------------------------------------------
+// Public surface re-exports
+// ---------------------------------------------------------------------------
 
-    /// The gene index reported on. Real schema in T3.
-    pub gene_index: u16,
-
-    /// The scout's estimate of that gene's value, in Q32.
-    pub estimate: Q32,
-}
-
-// -------------------------------------------------------------------------
-// Smoke
-// -------------------------------------------------------------------------
-
-#[cfg(test)]
-mod smoke {
-    #[test]
-    fn smoke() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+pub use band::UncertaintyBand;
+pub use observe::observe_player;
+pub use report::{
+    GeneCategory, GeneCategoryEstimate, GeneCategoryEstimateError, LabelEstimate, ScoutReport,
+};
+pub use scout::{
+    BASIC_SCOUT_BAND_HALF_WIDTH, BASIC_SCOUT_OBSERVATION_NOISE, CategoryBiases,
+    CategoryBiasesError, LABEL_CONFIDENCE_MAX, LABEL_CONFIDENCE_MIN, NO_LABEL_DEFAULT_CONFIDENCE,
+    Scout, ScoutArchetypeKind,
+};

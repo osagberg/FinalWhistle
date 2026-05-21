@@ -15,6 +15,14 @@ repository.workspace = true
 float_arithmetic = "deny"
 
 [dependencies]
-fw-core   = { workspace = true }
-serde     = { workspace = true }
-thiserror = { workspace = true }
+fw-core     = { workspace = true }
+fw-content  = { workspace = true }
+serde       = { workspace = true }
+thiserror   = { workspace = true }
+rand        = { workspace = true }
+rand_chacha = { workspace = true }
+
+[dev-dependencies]
+insta    = { workspace = true }
+proptest = { workspace = true }
+ron      = { workspace = true }

@@ -4,11 +4,11 @@
 
 ## Phase
 
-**Phase T3 (Career + Memory) IN PROGRESS.** T3-1/T3-2/T3-3 closed 2026-05-18; T3-4 (breakthrough mechanism) 2026-05-20; T3-7 (save-migration fixtures) + T2-4 (PlayerBio type contract + 22 fixtures) + T2-7 (Frontend Squad page) 2026-05-21. T2-4 + T2-7 (both promoted back from DEFERRED) are now DONE. Remaining T3 build rows: T3-5, T3-6, T3-8.
+**Phase T3 (Career + Memory) IN PROGRESS.** T3-1/T3-2/T3-3 closed 2026-05-18; T3-4 (breakthrough mechanism) 2026-05-20; T3-7 + T2-4 + T2-7 + T3-5 (`fw-scouting` scout-uncertainty model) closed 2026-05-21. Remaining T3 build rows: T3-6, then T3-8 (phase-gate).
 
 ## Active task
 
-(none — T2-7 closed. Next `/next` picks **T3-5** (`fw-scouting` scout-uncertainty model) — earliest TODO in declared order, dep T2-4 DONE.)
+(none — T3-5 closed. Next `/next` picks **T3-6** (Frontend Player detail page) — earliest TODO in declared order, deps T3-2 + T2-7 both DONE.)
 
 ## Blockers
 
@@ -16,7 +16,7 @@
 
 ## Last green verify
 
-2026-05-21 (post-T2-7): `scripts/fw verify` exit 0; fw-content + fw-tauri tests green (`display_label` methods + `get_squad` command + `SquadPlayerDto`); 106 frontend tests green (8 new Squad page); clippy + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
+2026-05-21 (post-T3-5): `scripts/fw verify` exit 0; `fw-scouting` Path-B scout-uncertainty model (32 tests incl. proptest + insta snapshot); clippy + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
 
 ## Last canonical hash
 
@@ -28,9 +28,8 @@
 
 ## Phase T3 pointer
 
-**Remaining build sequence** (T2-4 + T2-7 DONE 2026-05-21):
-- **T3-5** (`fw-scouting` scout-uncertainty model) — eligible NOW (dep T2-4 DONE); the next `/next` target.
-- **T3-6** (Frontend Player detail page) — eligible NOW (deps T2-7 + T3-2 both DONE).
-- **T3-8** (phase-gate Codex review #2) — the phase-close step; run via `/done` after T3-5 / T3-6 land.
+**Remaining build sequence** (T3-5 DONE 2026-05-21):
+- **T3-6** (Frontend Player detail page) — eligible NOW (deps T3-2 + T2-7 both DONE); the next `/next` target.
+- **T3-8** (phase-gate Codex review #2) — the phase-close step; run via `/done` after T3-6 lands.
 
-`/next` walks declared order so it ships T3-5 next, then T3-6. Phase T3 closes genuinely complete once T3-5 / T3-6 are DONE — then `/done` opens the T3-8 Codex phase-gate review.
+`/next` ships T3-6 next. Phase T3 closes genuinely complete once T3-6 is DONE — then `/done` opens the T3-8 Codex phase-gate review.

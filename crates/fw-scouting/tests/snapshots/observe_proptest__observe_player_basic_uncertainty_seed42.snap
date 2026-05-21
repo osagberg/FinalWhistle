@@ -1,0 +1,41 @@
+---
+source: crates/fw-scouting/tests/observe_proptest.rs
+expression: report
+---
+ScoutReport(
+  scout_archetype_id: "fwh.core:scout.basic-uncertainty",
+  player_id: "fwh.core:player_00001",
+  confidence: FixedI64(
+    bits: 2147483648,
+  ),
+  label_estimates: [],
+  category_estimates: [
+    GeneCategoryEstimate(
+      category: Physical,
+      low: FixedI64(
+        bits: 1365596361,
+      ),
+      high: FixedI64(
+        bits: 2396388513,
+      ),
+    ),
+    GeneCategoryEstimate(
+      category: Mental,
+      low: FixedI64(
+        bits: 1927682876,
+      ),
+      high: FixedI64(
+        bits: 2958475028,
+      ),
+    ),
+    GeneCategoryEstimate(
+      category: Technical,
+      low: FixedI64(
+        bits: 981475729,
+      ),
+      high: FixedI64(
+        bits: 2012267881,
+      ),
+    ),
+  ],
+)
