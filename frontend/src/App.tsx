@@ -14,6 +14,9 @@ const Match = lazy(() => import("./routes/Match"));
 const Career = lazy(() => import("./routes/Career"));
 // Dev-only board — T1-2a tactical board with frame scrubber + window.fwDev.
 const DevBoard = lazy(() => import("./routes/Dev/TacticalBoard"));
+// Dev-only harness — browser-previewable mount of the production
+// `<TacticalBoard>` against a committed dump_frames fixture (T4-1 preview).
+const DevBoardPreview = lazy(() => import("./routes/Dev/BoardPreview"));
 
 // Root component receives nested route output via `props.children`. Pattern
 // lifted from the @solidjs/router v0.15 root-layout recipe — it's the only
@@ -35,6 +38,7 @@ export default function App(): JSX.Element {
       <Route path="/match" component={Match} />
       <Route path="/career" component={Career} />
       <Route path="/dev/board" component={DevBoard} />
+      <Route path="/dev/board-preview" component={DevBoardPreview} />
     </Route>
   );
 }

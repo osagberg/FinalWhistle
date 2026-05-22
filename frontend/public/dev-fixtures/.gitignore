@@ -11,4 +11,9 @@
 #
 #   http://localhost:1420/dev/board?source=fixture:/dev-fixtures/smoke.json
 *.json
+# board-sample.json is intentionally tracked: it's the committed fixture the
+# /dev/board-preview harness mounts so the production <TacticalBoard> is
+# browser-previewable (and Claude-Preview-MCP screenshottable) with no Tauri
+# IPC. Regenerate per the header comment in src/routes/Dev/BoardPreview.tsx.
+!board-sample.json
 !.gitignore

@@ -7,7 +7,7 @@
  * route boundaries.
  */
 
-import { createSignal, createMemo } from "solid-js";
+import { createSignal, createMemo, createRoot } from "solid-js";
 
 // Active save/career identifier. `null` until the user starts/loads a career.
 const [careerIdSignal, setCareerIdSignal] = createSignal<string | null>(null);
@@ -32,7 +32,19 @@ export function setTheme(next: "light" | "dark"): void {
   }
 }
 
-/** True when both a career and a managed club are selected. */
-export const isCareerActive = createMemo(
-  () => careerId() !== null && selectedClubId() !== null,
-);
+/*
+ * True when both a career and a managed club are selected.
+ *
+ * Wrapped in `createRoot` because this memo lives at module scope — outside
+ * any component's reactive owner. Without an owner Solid logs "computations
+ * created outside a `createRoot` or `render` will never be disposed" on every
+ * page load. The root is intentionally never disposed: this is app-lifetime
+ * global state, so it lives as long as the page. Signals above need no root
+ * (a plain signal creates no computation); only the memo does.
+ */
+export const isCareerActive = createRoot(() => {
+  const active = createMemo(
+    () => careerId() !== null && selectedClubId() !== null,
+  );
+  return active;
+});

@@ -226,6 +226,25 @@ scripts/fw verify
 - If drift is UNAUTHORIZED: **PAUSE**. Report to user. Do not auto-rebaseline.
 - **Multi-pin rebaseline or behavior-change-driven drift: main-thread review required BEFORE rebaseline.** Post-T1-15 incident rule (Codex Tier-3 2026-05-16): if a subagent's diff drifts BOTH pins (60-tick smoke + 600-tick extended) OR if the drift is behavior-change-driven rather than schema-bump-driven (i.e. ADR-0012 trigger #3 not #1), the SUBAGENT MUST RETURN to main thread BEFORE rebaselining. Main thread reads the diff, independently runs `scripts/fw verify` + the 5-seed empirical sweep, confirms the empirical envelope still holds (e.g. T1 exit-gate Bullet 1's 2-5 goals on smoke seed), THEN authorizes the rebaseline (either by main thread doing the pin updates directly OR by re-dispatching the subagent with explicit rebaseline-bake-only scope). Rationale: T1-15's 5-axis behavioral retune rebaselined both pins autonomously, which would have escaped review entirely without the post-hoc audit catching it.
 
+### Step 5.1 — Preview screenshot (frontend/UI rows only)
+
+Added 2026-05-22 alongside the `/dev/board-preview` harness (T4-1 follow-up). Phase T4 ships UI rows; a green `tsc` + `pnpm test` proves the code compiles and unit-passes but says nothing about whether the screen actually renders. This step closes that gap with a real browser screenshot.
+
+**Trigger:** the task touched `frontend/**` AND changed something visually observable (a component, a route, styling, board behavior). Pure type-only or test-only frontend edits skip this.
+
+Tauri-dependent routes (`/match`, and anything that calls `invoke` — `match_frames`, `get_squad`, etc.) cannot render in a plain browser: `invoke` is undefined outside the Tauri runtime. So preview-verify against a **browser-safe route**:
+
+- `/dev/board-preview` — the production `<TacticalBoard>` mounted on a committed `dump_frames` fixture, no IPC. Use this for any tactical-board change.
+- Any other route that does not call `invoke` at mount.
+
+Procedure (Claude Preview MCP):
+1. `mcp__Claude_Preview__preview_start` with `name: "frontend-dev"` — reuses the server if already running; returns a `serverId`.
+2. Navigate via `mcp__Claude_Preview__preview_eval`: set `window.location.hash` to the route hash (e.g. `"#/dev/board-preview"`), then let it settle.
+3. `mcp__Claude_Preview__preview_screenshot` — eyeball layout + the feature under test.
+4. `mcp__Claude_Preview__preview_console_logs` with `level: "error"` — MUST be clean of any NEW error introduced by this task. Pre-existing IPC errors on Tauri routes are expected; a *new* error on the route you changed is a Step-5 failure (one fix attempt, then pause).
+
+If the change is genuinely not browser-previewable (a Tauri-only IPC surface with no fixture harness), record `preview screenshot: n/a (Tauri-only route, no browser harness)` in the commit body's `Verification:` block and rely on the build gates. Do NOT invent or fake a screenshot.
+
 ### Step 6 — Self-review (auto, no user action)
 
 **Trigger:** the staged diff (post-Step 5, pre-commit) is ≥100 LoC of code (`.rs`, `.ts`, `.tsx`, `.js`, `.json` schema files; excludes pure `.md` doc changes).
@@ -323,6 +342,7 @@ Verification:
 - just test: PASS (<N> tests, +<delta> new)
 - just lint: PASS
 - canonical hash: <UNCHANGED | REBASELINED-authorized | n/a>
+- preview screenshot: <route + result | n/a if not a frontend/UI row>
 - self-review: <silent-failure-hunter OK | type-design-analyzer OK | code-reviewer OK | n/a if <100 LoC>
 
 Known follow-ups (P2/P3 from self-review, optional):
