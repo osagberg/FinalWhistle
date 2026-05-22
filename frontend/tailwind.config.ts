@@ -8,9 +8,10 @@ import type { Config } from "tailwindcss";
 //   Data:      JetBrains Mono     — tables, replay hashes, technical surfaces
 //   Body:      Inter              — press, commentary, NPC dialog
 //
-// Anton + JetBrains Mono + Inter aren't loaded yet; system fallback chains
-// render fine for T0-2. Real `@font-face` declarations land at T4-3 in
-// `styles.css` (Phase-4 visual-identity lock).
+// Anton + Inter + JetBrains Mono are loaded at T4-3 via @fontsource imports
+// in `src/main.tsx` (self-hosted woff2, no CDN — Tauri-CSP-safe). The fallback
+// chains below still cover the brief window before the woff2 finishes loading.
+// The locked visual identity is documented in `docs/visual/style-guide.md`.
 
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],

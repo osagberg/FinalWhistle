@@ -3,9 +3,11 @@
 @tailwind utilities;
 
 /*
- * Global styles. DESIGN_DOC.md §9 sets the typographic + color seeds.
- * Font-face declarations are deferred to T4-3 (visual-identity lock);
- * Tailwind's fontFamily fallback chains keep T0-2 renderable on bare metal.
+ * Global styles. DESIGN_DOC.md §9 sets the typographic + color seeds;
+ * the locked visual identity is documented in docs/visual/style-guide.md.
+ * The three identity fonts (Anton / Inter / JetBrains Mono) are loaded at
+ * T4-3 via @fontsource imports in main.tsx; the fontFamily fallback chains
+ * in tailwind.config.ts cover the gap before the woff2 finishes loading.
  */
 
 @layer base {

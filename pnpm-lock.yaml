@@ -14,6 +14,15 @@ importers:
 
   frontend:
     dependencies:
+      '@fontsource/anton':
+        specifier: ^5.2.7
+        version: 5.2.7
+      '@fontsource/inter':
+        specifier: ^5.2.8
+        version: 5.2.8
+      '@fontsource/jetbrains-mono':
+        specifier: ^5.2.8
+        version: 5.2.8
       '@solidjs/router':
         specifier: ^0.15.0
         version: 0.15.4(solid-js@1.9.12)
@@ -66,6 +75,9 @@ importers:
       jsdom:
         specifier: ^29.1.1
         version: 29.1.1
+      playwright-core:
+        specifier: ^1.60.0
+        version: 1.60.0
       postcss:
         specifier: ^8.4.49
         version: 8.5.14
@@ -557,6 +569,15 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
+
+  '@fontsource/anton@5.2.7':
+    resolution: {integrity: sha512-fiPl7Kx0HC50Ws2uRkNC+QLVK8xPFUB9E+IxFdSA6tbNTZWe7HOq8IxYqkERIzsIBvYj6nrU+7uNMUM9vNLxig==}
+
+  '@fontsource/inter@5.2.8':
+    resolution: {integrity: sha512-P6r5WnJoKiNVV+zvW2xM13gNdFhAEpQ9dQJHt3naLvfg+LkF2ldgSLiF4T41lf1SQCM9QmkqPTn4TH568IRagg==}
+
+  '@fontsource/jetbrains-mono@5.2.8':
+    resolution: {integrity: sha512-6w8/SG4kqvIMu7xd7wt6x3idn1Qux3p9N62s6G3rfldOUYHpWcc2FKrqf+Vo44jRvqWj2oAtTHrZXEP23oSKwQ==}
 
   '@humanwhocodes/config-array@0.13.0':
     resolution: {integrity: sha512-DZLEEqFWQFiyK6h5YIeynKx7JlvCYWL0cImfSRXZ9l4Sg2efkFGTuFf6vzXjK1cq6IYkU+Eg/JizXw+TD2vRNw==}
@@ -1682,6 +1703,11 @@ packages:
   pixi.js@8.18.1:
     resolution: {integrity: sha512-6LUPWYgulZhp/w4kam2XHXB0QedISZIqrJbRdHLLQ3csn5a38uzKxAp6B5j6s89QFYaIJbg95kvgTRcbgpO1ow==}
 
+  playwright-core@1.60.0:
+    resolution: {integrity: sha512-9bW6zvX/m0lEbgTKJ6YppOKx8H3VOPBMOCFh2irXFOT4BbHgrx5hPjwJYLT40Lu+4qtD36qKc/Hn56StUW57IA==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   postcss-import@15.1.0:
     resolution: {integrity: sha512-hpr+J05B2FVYUAXHeK1YyI267J/dDDhMU6B6civm8hSY1jYJnBXxzKDKDswzJmtLHryrjhnDjqqp/49t8FALew==}
     engines: {node: '>=14.0.0'}
@@ -2487,6 +2513,12 @@ snapshots:
   '@eslint/js@8.57.1': {}
 
   '@exodus/bytes@1.15.0': {}
+
+  '@fontsource/anton@5.2.7': {}
+
+  '@fontsource/inter@5.2.8': {}
+
+  '@fontsource/jetbrains-mono@5.2.8': {}
 
   '@humanwhocodes/config-array@0.13.0':
     dependencies:
@@ -3573,6 +3605,8 @@ snapshots:
       ismobilejs: 1.1.1
       parse-svg-path: 0.1.2
       tiny-lru: 11.4.7
+
+  playwright-core@1.60.0: {}
 
   postcss-import@15.1.0(postcss@8.5.14):
     dependencies:

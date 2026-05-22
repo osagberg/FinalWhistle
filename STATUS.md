@@ -4,11 +4,11 @@
 
 ## Phase
 
-**Phase T4 — Beautiful UI + Tactical Viewer — IN PROGRESS.** Phase T3 (Career + Memory) CLOSED 2026-05-21 (Codex phase-gate ACCEPT, tag `v0.3.0-career`); the post-T3 cleanup cluster T3-R-A..F all DONE. T4 began 2026-05-21 — **T4-1 (PixiJS tactical board) + T4-2 (ECharts per-team stat dashboard) DONE.** T4 ships 8 MVP rows (T4-1..T4-8) + a Stretch T4-9; the T4 Exit Gate is locked in `docs/MASTER_PLAN.md`.
+**Phase T4 — Beautiful UI + Tactical Viewer — IN PROGRESS.** Phase T3 (Career + Memory) CLOSED 2026-05-21 (Codex phase-gate ACCEPT, tag `v0.3.0-career`); the post-T3 cleanup cluster T3-R-A..F all DONE. T4 began 2026-05-21 — **T4-1 (PixiJS tactical board) + T4-2 (ECharts per-team stat dashboard) + T4-3 (visual-identity lock) DONE.** T4 ships 8 MVP rows (T4-1..T4-8) + a Stretch T4-9; the T4 Exit Gate is locked in `docs/MASTER_PLAN.md`.
 
 ## Active task
 
-(none — T4-2 (ECharts per-team stat dashboard at `/stats`) closed 2026-05-22; scope-corrected to per-team-only — per-player + per-season stat views split to DEFERRED row T4-2b (career-roster-gated). Next `/next` picks **T4-3** — Tailwind theming pass.)
+(none — T4-3 (Tailwind theming pass — visual-identity lock) closed 2026-05-22; the 3 identity fonts loaded self-hosted via `@fontsource`, `docs/visual/style-guide.md` + 3 reference screenshots shipped. Next `/next` picks **T4-4** — loading / empty / error states for every screen.)
 
 ## Blockers
 
@@ -16,7 +16,7 @@
 
 ## Last green verify
 
-2026-05-22 (T4-2 close): `scripts/fw verify` exit 0; full workspace + 202 frontend tests (+23 from T4-2); clippy + eslint + tsc + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
+2026-05-22 (T4-3 close): `scripts/fw verify` exit 0; full workspace + 202 frontend tests; clippy + eslint + tsc + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
 
 ## Last canonical hash
 

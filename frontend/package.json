@@ -10,9 +10,13 @@
     "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "screenshots": "node scripts/capture-visual-screenshots.mjs"
   },
   "dependencies": {
+    "@fontsource/anton": "^5.2.7",
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@solidjs/router": "^0.15.0",
     "@tanstack/solid-table": "^8.20.0",
     "@tauri-apps/api": "^2.1.0",
@@ -32,6 +36,7 @@
     "eslint": "^8.57.1",
     "eslint-plugin-solid": "^0.14.5",
     "jsdom": "^29.1.1",
+    "playwright-core": "^1.60.0",
     "postcss": "^8.4.49",
     "prettier": "^3.4.2",
     "tailwindcss": "^3.4.16",
