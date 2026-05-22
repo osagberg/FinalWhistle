@@ -7,7 +7,7 @@
  */
 
 import * as echarts from "echarts/core";
-import { LineChart, BarChart } from "echarts/charts";
+import { LineChart, BarChart, ScatterChart } from "echarts/charts";
 import {
   GridComponent,
   TooltipComponent,
@@ -15,11 +15,12 @@ import {
   TitleComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
-import { onCleanup, onMount, type JSX } from "solid-js";
+import { createEffect, onCleanup, onMount, type JSX } from "solid-js";
 
 echarts.use([
   LineChart,
   BarChart,
+  ScatterChart,
   GridComponent,
   TooltipComponent,
   LegendComponent,
@@ -41,7 +42,13 @@ export default function Stat(props: StatProps): JSX.Element {
 
   onMount(() => {
     chart = echarts.init(host, undefined, { renderer: "canvas" });
-    chart.setOption(props.option);
+
+    // React to option changes (second arg true = notMerge, clears stale series).
+    // This is what makes the sortable/filterable controls re-render the chart
+    // when the user picks a different stat or club.
+    createEffect(() => {
+      chart?.setOption(props.option, true);
+    });
 
     // Resize on window-resize. ECharts has no built-in observer.
     const resize = () => chart?.resize();
