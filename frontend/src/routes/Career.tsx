@@ -25,7 +25,10 @@
 
 import { createResource, createSignal, For, Show, type JSX } from "solid-js";
 import { advanceSeason, getCareerOverview } from "~/lib/api/career";
+import ErrorBoundary from "~/components/ErrorBoundary";
+import Loading from "~/components/Loading";
 import { IpcShapeError } from "~/lib/runtime-validators";
+import { describeRouteError } from "~/lib/route-errors";
 import type {
   AdvanceSeasonSummary,
   CareerOverview,
@@ -70,48 +73,19 @@ function isIpcError(e: unknown): e is IpcError {
 }
 
 /**
- * Format an IpcError into a human-readable string.
+ * Describe any thrown value as a single-line, football-native display string
+ * for the action-button outcome aria-live row.
  *
- * Exhaustive switch — adding a new IpcError variant forces a compile error at
- * the `never` default arm unless the arm is handled AND the runtime guard
- * above is updated.
+ * Routes through `describeRouteError` (the T4-4 shared helper) — that
+ * function holds the exhaustive `IpcError` switch + the narrative-director
+ * voice + the no-raw-`err.message`-leak guarantee. The local
+ * `formatIpcError`/IpcShapeError-specific path was deleted at T4-4 self-
+ * review fix-pass; the generic fallback now covers IpcShapeError and any
+ * other non-IpcError throw with football-native copy.
  */
-function formatIpcError(err: IpcError): string {
-  switch (err.kind) {
-    case "tooManyFrames":
-      return `Too many ticks requested (${err.requested}; max ${err.max}).`;
-    case "invalidSeed":
-      return `Invalid seed "${err.input}": ${err.reason}`;
-    case "matchInitFailed":
-      return `Match could not start: ${err.reason}`;
-    case "seasonComplete":
-      return "The season is already complete — no more match-days to play.";
-    case "clubNotFound":
-      return `Club id ${err.clubId} was not found in the current league.`;
-    case "lockPoisoned":
-      return `Internal state was corrupted by a prior error (lock: ${err.lock}). Please restart the app.`;
-    case "playerNotFound":
-      return `Player "${err.playerId}" was not found in the content store.`;
-    case "seasonNotComplete":
-      return "Finish the current season first — play all remaining fixtures before advancing.";
-    default: {
-      const _exhaustive: never = err;
-      throw new Error(
-        `formatIpcError: unhandled IpcError variant — KNOWN_IPC_ERROR_KINDS / formatIpcError drift. err=${JSON.stringify(_exhaustive)}`,
-      );
-    }
-  }
-}
-
-/** Describe any thrown value as a display string. */
 function describeError(e: unknown): string {
-  if (isIpcError(e)) return formatIpcError(e);
-  // IpcShapeError is the backend-contract-drift signal — surface it distinctly.
-  if (e instanceof IpcShapeError) {
-    return `The backend sent an unexpected response shape for '${e.command}'. This is a version mismatch between the app and the sim — please report it.`;
-  }
-  if (e instanceof Error) return e.message;
-  return String(e);
+  const copy = describeRouteError(e, { what: "the action" });
+  return `${copy.headline}. ${copy.detail}`;
 }
 
 /** Normalise any thrown value into the structured shape ActionOutcome wants. */
@@ -135,6 +109,14 @@ function describeActionOutcome(outcome: ActionOutcome): string {
 // ---------------------------------------------------------------------------
 
 export default function Career(): JSX.Element {
+  return (
+    <ErrorBoundary label="Career">
+      <CareerInner />
+    </ErrorBoundary>
+  );
+}
+
+function CareerInner(): JSX.Element {
   // Fetch error — typed signal so it's fully reactive in the jsdom test env.
   const [overviewError, setOverviewError] = createSignal<IpcError | Error | null>(
     null,
@@ -226,19 +208,18 @@ export default function Career(): JSX.Element {
         )}
       </Show>
 
-      {/* Overview panels: loading / error / data states. */}
-      <Show
-        when={overviewError()}
-        fallback={
-          <Show
-            when={!overview.loading && overview() !== null}
-            fallback={
-              <div class="fw-panel p-4 text-sm text-ink-mute dark:text-paper-subtle">
-                Loading career overview…
-              </div>
-            }
-          >
-            <Show when={overview()}>
+      {/* Loading state first — no white-flash before spinner. */}
+      <Show when={overview.loading}>
+        <Loading message="Loading career overview…" />
+      </Show>
+
+      {/* Overview panels: error / data states (only when not loading). */}
+      <Show when={!overview.loading}>
+        <Show
+          when={overviewError()}
+          fallback={
+            <Show when={overview() !== null}>
+              <Show when={overview()}>
               {(ov) => (
                 <div class="space-y-4">
                   {/* Panel 1: Champion history */}
@@ -312,15 +293,20 @@ export default function Career(): JSX.Element {
             </Show>
           </Show>
         }
-      >
-        {(err) => (
-          <div
-            class="fw-panel p-4 text-sm font-mono text-flag-red"
-            role="alert"
-          >
-            Failed to load career overview: {describeError(err())}
-          </div>
-        )}
+        >
+          {(err) => {
+            const copy = describeRouteError(err(), { what: "the career overview" });
+            return (
+              <div
+                class="fw-panel p-4 text-sm text-rose-600 dark:text-rose-400"
+                role="alert"
+              >
+                <p class="font-semibold">{copy.headline}</p>
+                <p class="mt-1 text-ink-subtle dark:text-paper-subtle">{copy.detail}</p>
+              </div>
+            );
+          }}
+        </Show>
       </Show>
     </div>
   );

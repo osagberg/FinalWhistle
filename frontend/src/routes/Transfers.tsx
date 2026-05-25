@@ -18,6 +18,7 @@
  */
 
 import { createResource, Show, type JSX } from "solid-js";
+import ErrorBoundary from "~/components/ErrorBoundary";
 import { getStandings } from "~/lib/api/season";
 import {
   computeTransferWindowState,
@@ -81,6 +82,14 @@ function describeStandingsError(e: unknown): string {
 }
 
 export default function Transfers(): JSX.Element {
+  return (
+    <ErrorBoundary label="Transfers">
+      <TransfersInner />
+    </ErrorBoundary>
+  );
+}
+
+function TransfersInner(): JSX.Element {
   // Post-T2-8 silent-failure-hunter P1 fix: NO try/catch around getStandings.
   // The prior shape laundered every backend failure into `[]` → "Summer
   // window — open" — a confidently-wrong UI that hid lockPoisoned / IPC

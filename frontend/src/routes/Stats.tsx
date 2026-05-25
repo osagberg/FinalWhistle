@@ -28,14 +28,26 @@ import {
 } from "solid-js";
 import Stat from "~/components/Stat";
 import Loading from "~/components/Loading";
+import ErrorBoundary from "~/components/ErrorBoundary";
 import { getStandings, getFixtures } from "~/lib/api/season";
+import { describeRouteError, isIpcError } from "~/lib/route-errors";
 import {
   buildRankedBarOption,
   buildScatterOption,
   buildTrendOption,
   type StatKey,
 } from "~/lib/stats-charts";
-import type { StandingsRow } from "~/lib/types";
+import type { IpcError, StandingsRow } from "~/lib/types";
+
+// Normalize any thrown value into the IpcError | Error union the error
+// signals carry. `unknown` would lie about what the signal contains; this
+// guarantees describeRouteError gets a typed input and matches the pattern
+// used by Squad / League / Career / Player.
+function normaliseError(e: unknown): IpcError | Error {
+  if (isIpcError(e)) return e;
+  if (e instanceof Error) return e;
+  return new Error(String(e));
+}
 
 // ---------------------------------------------------------------------------
 // Stat selector options
@@ -53,23 +65,20 @@ const STAT_OPTS: Array<{ key: StatKey; label: string }> = [
 ];
 
 // ---------------------------------------------------------------------------
-// Error helpers — reuse League.tsx normalisation pattern
-// ---------------------------------------------------------------------------
-
-function describeError(e: unknown): string {
-  if (typeof e === "object" && e !== null && "message" in e) {
-    return String((e as { message: unknown }).message);
-  }
-  return String(e);
-}
-
-// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export default function Stats(): JSX.Element {
+  return (
+    <ErrorBoundary label="Stats">
+      <StatsInner />
+    </ErrorBoundary>
+  );
+}
+
+function StatsInner(): JSX.Element {
   // Standings resource: drives ranked bar + scatter.
-  const [standingsError, setStandingsError] = createSignal<Error | null>(null);
+  const [standingsError, setStandingsError] = createSignal<IpcError | Error | null>(null);
 
   const [standings] = createResource<StandingsRow[] | null>(async () => {
     setStandingsError(null);
@@ -78,8 +87,10 @@ export default function Stats(): JSX.Element {
     } catch (e: unknown) {
       // eslint-disable-next-line no-console
       console.error("[Stats] getStandings failed:", e);
-      const err = e instanceof Error ? e : new Error(String(e));
-      setStandingsError(err);
+      // Normalise to the IpcError | Error union the signal carries; preserves
+      // the IpcError shape for describeRouteError + the Error class for
+      // any non-IPC throw.
+      setStandingsError(normaliseError(e));
       return null;
     }
   });
@@ -101,7 +112,7 @@ export default function Stats(): JSX.Element {
   });
 
   // Trend resource: re-fetches when the effective club changes.
-  const [fixturesError, setFixturesError] = createSignal<Error | null>(null);
+  const [fixturesError, setFixturesError] = createSignal<IpcError | Error | null>(null);
 
   const [fixtures] = createResource(effectiveClubId, async (clubId) => {
     if (clubId === null) return null;
@@ -123,8 +134,8 @@ export default function Stats(): JSX.Element {
     } catch (e: unknown) {
       // eslint-disable-next-line no-console
       console.error("[Stats] getFixtures failed:", e);
-      const err = e instanceof Error ? e : new Error(String(e));
-      setFixturesError(err);
+      // Normalise to the IpcError | Error union the signal carries.
+      setFixturesError(normaliseError(e));
       return null;
     }
   });
@@ -172,14 +183,18 @@ export default function Stats(): JSX.Element {
 
       {/* Standings error */}
       <Show when={standingsError()}>
-        {(err) => (
-          <div
-            class="fw-panel p-4 text-sm font-mono text-rose-600 dark:text-rose-400"
-            role="alert"
-          >
-            Failed to load standings: {describeError(err())}
-          </div>
-        )}
+        {(err) => {
+          const copy = describeRouteError(err(), { what: "the standings" });
+          return (
+            <div
+              class="fw-panel p-4 text-sm text-rose-600 dark:text-rose-400"
+              role="alert"
+            >
+              <p class="font-semibold">{copy.headline}</p>
+              <p class="mt-1 text-ink-subtle dark:text-paper-subtle">{copy.detail}</p>
+            </div>
+          );
+        }}
       </Show>
 
       {/* Loading */}
@@ -278,14 +293,18 @@ export default function Stats(): JSX.Element {
 
           {/* Fixtures error */}
           <Show when={fixturesError()}>
-            {(err) => (
-              <div
-                class="fw-panel p-4 text-sm font-mono text-rose-600 dark:text-rose-400"
-                role="alert"
-              >
-                Failed to load fixtures: {describeError(err())}
-              </div>
-            )}
+            {(err) => {
+              const copy = describeRouteError(err(), { what: "the fixtures" });
+              return (
+                <div
+                  class="fw-panel p-4 text-sm text-rose-600 dark:text-rose-400"
+                  role="alert"
+                >
+                  <p class="font-semibold">{copy.headline}</p>
+                  <p class="mt-1 text-ink-subtle dark:text-paper-subtle">{copy.detail}</p>
+                </div>
+              );
+            }}
           </Show>
 
           <Show when={fixtures.loading}>

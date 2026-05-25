@@ -1,6 +1,15 @@
 import type { JSX } from "solid-js";
+import ErrorBoundary from "~/components/ErrorBoundary";
 
 export default function Tactics(): JSX.Element {
+  return (
+    <ErrorBoundary label="Tactics">
+      <TacticsInner />
+    </ErrorBoundary>
+  );
+}
+
+function TacticsInner(): JSX.Element {
   return (
     <div class="space-y-4">
       <header>

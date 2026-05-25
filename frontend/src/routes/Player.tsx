@@ -22,8 +22,11 @@
 
 import { createResource, createSignal, For, Show, type JSX } from "solid-js";
 import { useParams } from "@solidjs/router";
+import ErrorBoundary from "~/components/ErrorBoundary";
+import Loading from "~/components/Loading";
 import { getPlayerDetail } from "~/lib/api/player";
 import { IpcShapeError } from "~/lib/runtime-validators";
+import { describeRouteError } from "~/lib/route-errors";
 import type { IpcError, PlayerDetail } from "~/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -55,52 +58,6 @@ function isIpcError(e: unknown): e is IpcError {
   );
 }
 
-/**
- * Format an IpcError into a human-readable string.
- *
- * Exhaustive switch — adding a new IpcError variant forces a compile error at
- * the `never` default arm unless the arm is handled AND the runtime guard
- * above is updated.
- */
-function formatIpcError(err: IpcError): string {
-  switch (err.kind) {
-    case "tooManyFrames":
-      return `Too many ticks requested (${err.requested}; max ${err.max}).`;
-    case "invalidSeed":
-      return `Invalid seed "${err.input}": ${err.reason}`;
-    case "matchInitFailed":
-      return `Match could not start: ${err.reason}`;
-    case "seasonComplete":
-      return "The season is already complete — no more match-days to play.";
-    case "clubNotFound":
-      return `Club id ${err.clubId} was not found in the current league.`;
-    case "lockPoisoned":
-      return `Internal state was corrupted by a prior error (lock: ${err.lock}). Please restart the app.`;
-    case "playerNotFound":
-      return `Player "${err.playerId}" was not found in the content store.`;
-    case "seasonNotComplete":
-      return "The current season is not yet complete — finish all fixtures before advancing.";
-    default: {
-      const _exhaustive: never = err;
-      throw new Error(
-        `formatIpcError: unhandled IpcError variant — KNOWN_IPC_ERROR_KINDS / formatIpcError drift. err=${JSON.stringify(_exhaustive)}`,
-      );
-    }
-  }
-}
-
-/** Describe any thrown value as a display string. */
-function describeError(e: unknown): string {
-  if (isIpcError(e)) return formatIpcError(e);
-  // IpcShapeError is the backend-contract-drift signal — surface it as its
-  // own message class rather than flattening it into the generic Error path.
-  if (e instanceof IpcShapeError) {
-    return `The backend sent an unexpected response shape for '${e.command}'. This is a version mismatch between the app and the sim — please report it.`;
-  }
-  if (e instanceof Error) return e.message;
-  return String(e);
-}
-
 /** Normalise an arbitrary thrown value into the structured shape the error signal wants. */
 function normaliseError(e: unknown): IpcError | Error {
   if (isIpcError(e)) return e;
@@ -113,6 +70,14 @@ function normaliseError(e: unknown): IpcError | Error {
 // ---------------------------------------------------------------------------
 
 export default function Player(): JSX.Element {
+  return (
+    <ErrorBoundary label="Player">
+      <PlayerInner />
+    </ErrorBoundary>
+  );
+}
+
+function PlayerInner(): JSX.Element {
   const params = useParams<{ id: string }>();
 
   // Fetch error — typed signal so it's fully reactive in the jsdom test env.
@@ -155,18 +120,16 @@ export default function Player(): JSX.Element {
 
   return (
     <div class="space-y-6">
-      {/* Error path — shown when the resource fetch threw (IpcError or drift). */}
-      <Show
-        when={playerError()}
-        fallback={
-          <Show
-            when={!detail.loading && detail() !== null}
-            fallback={
-              <div class="fw-panel p-4 text-sm text-ink-mute dark:text-paper-subtle">
-                Loading player…
-              </div>
-            }
-          >
+      {/* Loading state first — no white-flash before spinner. */}
+      <Show when={detail.loading}>
+        <Loading message="Loading player…" />
+      </Show>
+
+      {/* Error / data paths (only when not loading). */}
+      <Show when={!detail.loading}>
+        <Show
+          when={playerError()}
+          fallback={
             <Show
               when={detail()}
               fallback={
@@ -257,17 +220,21 @@ export default function Player(): JSX.Element {
                 </>
               )}
             </Show>
-          </Show>
-        }
-      >
-        {(err) => (
-          <div
-            class="fw-panel p-4 text-sm font-mono text-flag-red"
-            role="alert"
-          >
-            Failed to load player: {describeError(err())}
-          </div>
-        )}
+          }
+        >
+          {(err) => {
+            const copy = describeRouteError(err(), { what: "the player" });
+            return (
+              <div
+                class="fw-panel p-4 text-sm text-rose-600 dark:text-rose-400"
+                role="alert"
+              >
+                <p class="font-semibold">{copy.headline}</p>
+                <p class="mt-1 text-ink-subtle dark:text-paper-subtle">{copy.detail}</p>
+              </div>
+            );
+          }}
+        </Show>
       </Show>
     </div>
   );

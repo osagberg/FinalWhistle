@@ -172,8 +172,8 @@ describe("Squad page", () => {
     expect(screen.getByText(/loading squad/i)).toBeInTheDocument();
   });
 
-  // AC4b: IPC error shows the error alert.
-  it("shows error state when getSquad rejects", async () => {
+  // AC4b: IPC error shows the error alert with football-native copy.
+  it("shows error state when getSquad rejects with IpcError", async () => {
     vi.mocked(getSquad).mockRejectedValue({
       kind: "lockPoisoned",
       lock: "season",
@@ -186,8 +186,27 @@ describe("Squad page", () => {
     });
 
     const alert = screen.getByRole("alert");
-    expect(alert.textContent).toContain("Failed to load squad");
+    // Must show the football-native placeholder headline (not raw err.message).
+    expect(alert.textContent).not.toContain("Cannot read properties");
+    // The lockPoisoned copy mentions the lock name in the detail.
     expect(alert.textContent).toContain("season");
+  });
+
+  // AC4b-extra: error state must NOT show raw technical exception strings.
+  it("error alert does not contain raw err.message on generic failure", async () => {
+    vi.mocked(getSquad).mockRejectedValue(
+      new Error("Cannot read properties of undefined (reading 'invoke')"),
+    );
+
+    render(() => <Squad />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).not.toContain("Cannot read properties");
+    expect(alert.textContent).not.toContain("invoke");
   });
 
   // AC4c: empty state when getSquad returns an empty array.

@@ -247,7 +247,7 @@ describe("League page", () => {
     expect(screen.getByText(/loading standings/i)).toBeInTheDocument();
   });
 
-  // AC5b: error from getStandings shows the error state.
+  // AC5b: error from getStandings shows the error state with football-native copy.
   it("shows error state when getStandings rejects", async () => {
     vi.mocked(getStandings).mockRejectedValue({
       kind: "lockPoisoned",
@@ -261,9 +261,10 @@ describe("League page", () => {
     });
 
     const alert = screen.getByRole("alert");
-    expect(alert.textContent).toContain("Failed to load standings");
-    // The lockPoisoned message should be surfaced.
+    // lockPoisoned copy mentions the lock name in the detail.
     expect(alert.textContent).toContain("season");
+    // Must NOT show raw err.message.
+    expect(alert.textContent).not.toContain("Cannot read properties");
   });
 
   // AC5c: IpcError from advanceWeek renders inline below buttons.
@@ -286,7 +287,15 @@ describe("League page", () => {
 
     await waitFor(() => {
       const statusRegion = screen.getByRole("status");
-      expect(statusRegion.textContent).toContain("season is already complete");
+      // T4-4 self-review fix-pass: action-button outcome now routes through
+      // describeRouteError. The seasonComplete copy is football-native
+      // ("Full time on the season" / "There are no more match-days left
+      // this season...") — assert the load-bearing match-days phrase.
+      expect(statusRegion.textContent?.toLowerCase()).toContain(
+        "match-days left",
+      );
+      // Must not leak raw exception text from the old e.message path.
+      expect(statusRegion.textContent).not.toContain("Cannot read properties");
     });
   });
 

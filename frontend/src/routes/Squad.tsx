@@ -22,9 +22,12 @@
 
 import { createResource, createSignal, Show, type JSX } from "solid-js";
 import DataTable from "~/components/DataTable";
+import ErrorBoundary from "~/components/ErrorBoundary";
+import Loading from "~/components/Loading";
 import { getSquad } from "~/lib/api/squad";
 import { squadColumns } from "~/lib/columns/squad.columns";
 import { IpcShapeError } from "~/lib/runtime-validators";
+import { describeRouteError } from "~/lib/route-errors";
 import type { IpcError, SquadPlayer } from "~/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -59,54 +62,6 @@ function isIpcError(e: unknown): e is IpcError {
   );
 }
 
-/**
- * Format an IpcError into a human-readable string.
- *
- * Exhaustive switch — adding a new IpcError variant forces a compile error at
- * the `never` default arm unless the arm is handled AND the runtime guard
- * above is updated.
- */
-function formatIpcError(err: IpcError): string {
-  switch (err.kind) {
-    case "tooManyFrames":
-      return `Too many ticks requested (${err.requested}; max ${err.max}).`;
-    case "invalidSeed":
-      return `Invalid seed "${err.input}": ${err.reason}`;
-    case "matchInitFailed":
-      return `Match could not start: ${err.reason}`;
-    case "seasonComplete":
-      return "The season is already complete — no more match-days to play.";
-    case "clubNotFound":
-      return `Club id ${err.clubId} was not found in the current league.`;
-    case "lockPoisoned":
-      return `Internal state was corrupted by a prior error (lock: ${err.lock}). Please restart the app.`;
-    case "playerNotFound":
-      return `Player "${err.playerId}" was not found in the content store.`;
-    case "seasonNotComplete":
-      return "The current season is not yet complete — finish all fixtures before advancing.";
-    default: {
-      const _exhaustive: never = err;
-      throw new Error(
-        `formatIpcError: unhandled IpcError variant — KNOWN_IPC_ERROR_KINDS / formatIpcError drift. err=${JSON.stringify(_exhaustive)}`,
-      );
-    }
-  }
-}
-
-/** Describe any thrown value as a display string. */
-function describeError(e: unknown): string {
-  if (isIpcError(e)) return formatIpcError(e);
-  // IpcShapeError is the backend-contract-drift signal — surface it as its
-  // own message class rather than flattening it into the generic Error path,
-  // so a SquadPlayerDto ↔ SquadPlayer mismatch reads as a version skew, not
-  // a transient runtime fault.
-  if (e instanceof IpcShapeError) {
-    return `The backend sent an unexpected response shape for '${e.command}'. This is a version mismatch between the app and the sim — please report it.`;
-  }
-  if (e instanceof Error) return e.message;
-  return String(e);
-}
-
 /** Normalise an arbitrary thrown value into the structured shape the error signal wants. */
 function normaliseError(e: unknown): IpcError | Error {
   if (isIpcError(e)) return e;
@@ -119,6 +74,14 @@ function normaliseError(e: unknown): IpcError | Error {
 // ---------------------------------------------------------------------------
 
 export default function Squad(): JSX.Element {
+  return (
+    <ErrorBoundary label="Squad">
+      <SquadInner />
+    </ErrorBoundary>
+  );
+}
+
+function SquadInner(): JSX.Element {
   // Fetch error — typed signal so it's fully reactive in the jsdom test env.
   const [squadError, setSquadError] = createSignal<IpcError | Error | null>(
     null,
@@ -165,34 +128,38 @@ export default function Squad(): JSX.Element {
         </p>
       </header>
 
-      {/* Player list: loading / error / data states. */}
-      <Show
-        when={squadError()}
-        fallback={
-          <Show
-            when={!squad.loading && squad() !== null}
-            fallback={
-              <div class="fw-panel p-4 text-sm text-ink-mute dark:text-paper-subtle">
-                Loading squad…
+      {/* Loading state first — no white-flash before spinner. */}
+      <Show when={squad.loading}>
+        <Loading message="Loading squad…" />
+      </Show>
+
+      {/* Player list: error / data states (only when not loading). */}
+      <Show when={!squad.loading}>
+        <Show
+          when={squadError()}
+          fallback={
+            <Show when={squad() !== null}>
+              <DataTable
+                columns={squadColumns}
+                data={squad() ?? []}
+                emptyMessage="No players in the pool — content store may be empty."
+              />
+            </Show>
+          }
+        >
+          {(err) => {
+            const copy = describeRouteError(err(), { what: "the squad" });
+            return (
+              <div
+                class="fw-panel p-4 text-sm text-rose-600 dark:text-rose-400"
+                role="alert"
+              >
+                <p class="font-semibold">{copy.headline}</p>
+                <p class="mt-1 text-ink-subtle dark:text-paper-subtle">{copy.detail}</p>
               </div>
-            }
-          >
-            <DataTable
-              columns={squadColumns}
-              data={squad() ?? []}
-              emptyMessage="No players in the pool — content store may be empty."
-            />
-          </Show>
-        }
-      >
-        {(err) => (
-          <div
-            class="fw-panel p-4 text-sm font-mono text-flag-red"
-            role="alert"
-          >
-            Failed to load squad: {describeError(err())}
-          </div>
-        )}
+            );
+          }}
+        </Show>
       </Show>
     </div>
   );

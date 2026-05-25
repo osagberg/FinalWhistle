@@ -288,9 +288,15 @@ describe("Career page", () => {
 
     await waitFor(() => {
       const statusRegion = screen.getByRole("status");
-      // The message starts with capital "Finish" — match case-insensitively via
-      // a substring that's unambiguous without being case-sensitive.
-      expect(statusRegion.textContent?.toLowerCase()).toContain("finish the current season");
+      // T4-4 self-review fix-pass: action-button outcome now routes through
+      // describeRouteError. The seasonNotComplete copy is football-native
+      // ("There are still fixtures to play" / "Play out the remaining games
+      // first.") — assert the load-bearing fixtures phrase.
+      expect(statusRegion.textContent?.toLowerCase()).toContain(
+        "fixtures to play",
+      );
+      // Must not leak raw exception text from the old e.message path.
+      expect(statusRegion.textContent).not.toContain("Cannot read properties");
     });
   });
 
@@ -305,7 +311,7 @@ describe("Career page", () => {
     expect(screen.getByText(/loading career overview/i)).toBeInTheDocument();
   });
 
-  // IPC error from getCareerOverview shows alert panel.
+  // IPC error from getCareerOverview shows alert panel with football-native copy.
   it("shows error alert when getCareerOverview rejects", async () => {
     vi.mocked(getCareerOverview).mockRejectedValue({
       kind: "lockPoisoned",
@@ -319,7 +325,9 @@ describe("Career page", () => {
     });
 
     const alert = screen.getByRole("alert");
-    expect(alert.textContent).toContain("Failed to load career overview");
+    // lockPoisoned copy mentions the lock name in the detail.
     expect(alert.textContent).toContain("career");
+    // Must NOT show raw err.message.
+    expect(alert.textContent).not.toContain("Cannot read properties");
   });
 });

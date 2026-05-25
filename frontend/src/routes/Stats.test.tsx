@@ -121,8 +121,8 @@ describe("Stats page", () => {
     expect(screen.getByText(/loading stats/i)).toBeInTheDocument();
   });
 
-  it("shows error notice when getStandings rejects", async () => {
-    vi.mocked(getStandings).mockRejectedValue(new Error("Network failure"));
+  it("shows error notice when getStandings rejects with football-native copy", async () => {
+    vi.mocked(getStandings).mockRejectedValue({ kind: "lockPoisoned", lock: "season" });
 
     render(() => <Stats />);
 
@@ -131,8 +131,10 @@ describe("Stats page", () => {
     });
 
     const alert = screen.getByRole("alert");
-    expect(alert.textContent).toContain("Failed to load standings");
-    expect(alert.textContent).toContain("Network failure");
+    // lockPoisoned detail mentions the lock name.
+    expect(alert.textContent).toContain("season");
+    // Must NOT show raw exception strings.
+    expect(alert.textContent).not.toContain("Cannot read properties");
   });
 
   it("shows empty state when standings resolve to an empty array", async () => {
@@ -182,9 +184,11 @@ describe("Stats page", () => {
 
     await waitFor(() => {
       const alerts = screen.getAllByRole("alert");
-      expect(
-        alerts.some((a) => a.textContent?.includes("Failed to load fixtures")),
-      ).toBe(true);
+      // The fixtures error alert must be present (with football-native copy).
+      expect(alerts.length).toBeGreaterThan(0);
+      // Must NOT contain raw exception text.
+      const alertTexts = alerts.map((a) => a.textContent ?? "");
+      expect(alertTexts.some((t) => t.includes("Cannot read properties"))).toBe(false);
     });
   });
 });

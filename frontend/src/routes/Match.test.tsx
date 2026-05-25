@@ -226,8 +226,10 @@ describe("Match page", () => {
 
     await waitFor(() => {
       const alertText = screen.getByRole("alert").textContent ?? "";
+      // describeRouteError for invalidSeed includes the input in the detail.
       expect(alertText).toContain("0xbad");
-      expect(alertText).toContain("not a valid u64");
+      // Must not include raw technical exception strings.
+      expect(alertText).not.toContain("Cannot read properties");
     });
   });
 
@@ -243,7 +245,10 @@ describe("Match page", () => {
 
     await waitFor(() => {
       const alertText = screen.getByRole("alert").textContent ?? "";
-      expect(alertText).toContain("content not loaded");
+      // describeRouteError for matchInitFailed returns a generic "couldn't start" message.
+      expect(alertText).toBeTruthy();
+      // Must not include raw technical exception strings.
+      expect(alertText).not.toContain("Cannot read properties");
     });
   });
 

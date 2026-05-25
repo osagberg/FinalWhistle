@@ -160,7 +160,7 @@ describe("Player detail page", () => {
     expect(screen.getByText(/loading player/i)).toBeInTheDocument();
   });
 
-  // AC5a: IPC error (lockPoisoned) shows role="alert".
+  // AC5a: IPC error (lockPoisoned) shows role="alert" with football-native copy.
   it("shows error alert when getPlayerDetail rejects with IpcError", async () => {
     vi.mocked(getPlayerDetail).mockRejectedValue({
       kind: "lockPoisoned",
@@ -174,8 +174,10 @@ describe("Player detail page", () => {
     });
 
     const alert = screen.getByRole("alert");
-    expect(alert.textContent).toContain("Failed to load player");
+    // lockPoisoned copy mentions the lock name in the detail.
     expect(alert.textContent).toContain("memory_ledger");
+    // Must NOT show raw err.message.
+    expect(alert.textContent).not.toContain("Cannot read properties");
   });
 
   // AC5b: playerNotFound error surfaces the player id in the message.

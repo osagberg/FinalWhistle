@@ -35,6 +35,12 @@ const CAPTURES = [
     dark: false,
     settleMs: 2500,
   },
+  // T4-4: error-state references. Routes without a live Tauri backend naturally
+  // produce their loading/error states in the browser preview — useful for
+  // visual regression on the ErrorBoundary + describeRouteError copy layout.
+  { route: "/squad", file: "squad-error.png", dark: false },
+  { route: "/league", file: "league-error.png", dark: false },
+  { route: "/career", file: "career-error.png", dark: false },
 ];
 
 async function main() {

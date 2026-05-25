@@ -34,9 +34,9 @@ import {
   type JSX,
 } from "solid-js";
 import ErrorBoundary from "~/components/ErrorBoundary";
+import { describeRouteError } from "~/lib/route-errors";
 import { isTauri, playMatch } from "~/lib/tauri";
 import type {
-  IpcError,
   MatchEvent,
   MatchEventKind,
   MatchResult,
@@ -52,93 +52,10 @@ import { TauriFrameSource } from "~/routes/Dev/FrameSource";
 // ---------------------------------------------------------------------------
 const ProductionTacticalBoard = lazy(() => import("~/components/TacticalBoard"));
 
-// ---------------------------------------------------------------------------
-// IpcError type guard + exhaustiveness helper
-// ---------------------------------------------------------------------------
-
-/**
- * Closed set of known IpcError discriminants.
- *
- * T1-6 fix-pass per type-design P2: the prior `isIpcError` accepted any
- * object with a `kind: string` field, so a backend variant the frontend
- * doesn't know about would pass the guard, fall through `formatIpcError`'s
- * default arm, and bypass the compile-time exhaustiveness check at runtime.
- * The `satisfies` annotation pins this set to `IpcError["kind"]` so adding
- * a new variant in `lib/types.ts` produces a compile error HERE — forcing
- * a coordinated update of both the type definition and the runtime guard.
- */
-const KNOWN_IPC_ERROR_KINDS = new Set([
-  "tooManyFrames",
-  "invalidSeed",
-  "matchInitFailed",
-  // T2-5: season-controller variants added to IpcError union.
-  "seasonComplete",
-  "clubNotFound",
-  "lockPoisoned",
-  // T3-6: player-detail variant.
-  "playerNotFound",
-  // T3-9: career-loop variant.
-  "seasonNotComplete",
-] as const) satisfies ReadonlySet<IpcError["kind"]>;
-
-function isIpcError(e: unknown): e is IpcError {
-  if (typeof e !== "object" || e === null || !("kind" in e)) return false;
-  const kind = (e as Record<string, unknown>).kind;
-  return typeof kind === "string" && (KNOWN_IPC_ERROR_KINDS as ReadonlySet<string>).has(kind);
-}
-
-/**
- * Format an IpcError into a human-readable string.
- *
- * The switch is exhaustive — adding a new variant to IpcError forces a
- * compile error at the `never` default arm unless the new arm is handled
- * AND the runtime guard above is updated (the two updates are coupled via
- * the `satisfies` constraint on KNOWN_IPC_ERROR_KINDS).
- */
-function formatIpcError(err: IpcError): string {
-  switch (err.kind) {
-    case "tooManyFrames":
-      return `Too many ticks requested (${err.requested}; max ${err.max}). Reduce tick count.`;
-    case "invalidSeed":
-      return `Invalid seed "${err.input}": ${err.reason}`;
-    case "matchInitFailed":
-      return `Match could not start: ${err.reason}`;
-    // T2-5: season-controller variants — not produced by the play_match /
-    // match_frames commands this page invokes, but the exhaustive `IpcError`
-    // union forces a handler here. Friendly fallbacks so a future cross-page
-    // error propagation surfaces the user-readable text.
-    case "seasonComplete":
-      return "The season is already complete — no more match-days to play.";
-    case "clubNotFound":
-      return `Club id ${err.clubId} was not found in the current league.`;
-    case "lockPoisoned":
-      return `Internal state was corrupted by a prior error (lock: ${err.lock}). Please restart the app.`;
-    case "playerNotFound":
-      return `Player "${err.playerId}" was not found in the content store.`;
-    case "seasonNotComplete":
-      return "The current season is not yet complete — finish all fixtures before advancing.";
-    default: {
-      // Post-T2-close Track C-1 gate-blocker fix: prior code returned
-      // `_exhaustive` which is typed `never` at compile-time but at runtime
-      // evaluates to the actual `err` object — concatenating into a template
-      // literal yields `[object Object]` instead of useful diagnostic text.
-      // The whole point of this pattern is to fail LOUD on a future variant
-      // drift, not feed garbage to the alert region. Mirrors the post-T2-6
-      // silent-failure-hunter P1 fix landed on League.tsx.
-      const _exhaustive: never = err;
-      throw new Error(
-        `formatIpcError: unhandled IpcError variant — KNOWN_IPC_ERROR_KINDS / formatIpcError drift. err=${JSON.stringify(_exhaustive)}`,
-      );
-    }
-  }
-}
-
-/** Parse a thrown value into a display string. */
-function describeError(e: unknown): string {
-  if (isIpcError(e)) return formatIpcError(e);
-  if (e instanceof Error) return e.message;
-  return String(e);
-}
+// IpcError type was imported above for the existing `IpcError`-typed imports.
+// T4-4: isIpcError / formatIpcError were only used by describeError which is
+// now replaced by describeRouteError from ~/lib/route-errors. The IpcError
+// union import is still needed for the type annotation in Match.tsx's imports.
 
 // ---------------------------------------------------------------------------
 // Event-list helpers
@@ -457,7 +374,10 @@ export default function Match(): JSX.Element {
         })();
       }
     } catch (e: unknown) {
-      setErrorMsg(describeError(e));
+      // Use describeRouteError for the match-play error — avoids leaking raw
+      // err.message into the UI for non-IpcError throws.
+      const copy = describeRouteError(e, { what: "the match" });
+      setErrorMsg(`${copy.headline}: ${copy.detail}`);
     } finally {
       setBusy(false);
     }
@@ -468,6 +388,12 @@ export default function Match(): JSX.Element {
   );
 
   return (
+    // ErrorBoundary catches only synchronous throws from the reactive graph
+    // (createResource fetchers, createMemo, JSX render). The Match route's
+    // async work — `onPlay` and the fire-and-forget frame-load — handles its
+    // own failures imperatively via `errorMsg()` / `framesError`; this
+    // boundary is the safety net for any future render-time throw inside the
+    // route, not for those async paths.
     <ErrorBoundary>
       <div class="space-y-4">
         {/* T1-6 fix-pass per silent-failure P3: in browser-preview mode
