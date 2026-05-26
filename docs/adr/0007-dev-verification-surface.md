@@ -18,8 +18,8 @@ The pinned canonical-state BLAKE3 hash test (`crates/fw-replay/tests/canonical_h
 
 This ADR formalizes the strategy that was first written up at `docs/design/dev-verification.md` and has since been ratified by appearing as concrete rows in `docs/MASTER_PLAN.md` Phase T1 (T1-2a board, T1-4 commentary, T1-9 behavioral assertions). Research inputs:
 
-- `docs/research/sports-sims/06-verification-qa-in-sims.md` — FM / OOTP / EHM / FOF / EA QA practices, including the 9 behavioral assertions adopted into T1-9, plus the OOTP stat-distribution and EHM two-engine techniques noted as T2 candidates.
-- `docs/research/existing-rust-sims/03-openfootmanager-tests.md` — OFM's ~816 hand-rolled `#[test]`s, in particular the pair-seed knob-isolation pattern (`home_advantage_helps` runs the same seeds twice with one config flipped) we adopt as a 10th Layer-3 technique.
+- Prior-art research (archived privately) — FM / OOTP / EHM / FOF / EA QA practices, including the 9 behavioral assertions adopted into T1-9, plus the OOTP stat-distribution and EHM two-engine techniques noted as T2 candidates.
+- Prior-art research (archived privately) — one of the surveyed prior-art Rust football sims has ~816 hand-rolled `#[test]`s; in particular the pair-seed knob-isolation pattern (industry-standard property-testing methodology) is adopted as a 10th Layer-3 technique.
 
 ## Decision
 
@@ -47,8 +47,8 @@ The seed set authored in T1-9:
 - Team width during in-possession phases 35-65 m in 90%+ of windows.
 - No player sustains >12 m/s for >4 consecutive seconds.
 - Average defender depth during opponent in-possession within 8 m of the line height set by tactical archetype.
-- The nine behavioral assertions from `docs/research/sports-sims/06-verification-qa-in-sims.md` (seasonal goal rate, shots/match, pass completion, top-scorer concentration, card distribution, home advantage, signature-move diversity, breakthrough trigger rate, scout-disagreement spread).
-- **Pair-seed knob-isolation tests** (adopted from openfootmanager's `home_advantage_helps` pattern): run N seeds twice with a single config flag flipped, assert the directional delta. Cheap to write, hard to fake, isolates one knob at a time.
+- The nine behavioral assertions catalogued in prior-art research (archived privately) — seasonal goal rate, shots/match, pass completion, top-scorer concentration, card distribution, home advantage, signature-move diversity, breakthrough trigger rate, scout-disagreement spread.
+- **Pair-seed knob-isolation tests** (industry-standard property-testing methodology): run N seeds twice with a single config flag flipped, assert the directional delta. Cheap to write, hard to fake, isolates one knob at a time.
 
 **Cadence:** every push, via the cross-OS CI matrix. The proptest suite is part of `scripts/fw verify` and gates merges.
 
@@ -60,7 +60,7 @@ The seed set authored in T1-9:
 
 Two stronger verification techniques are deferred to Phase T2 (which adds league + season). Both are documented here so the option is preserved; both will be added as explicit T2 rows in the next MASTER_PLAN update touching that phase.
 
-- **Stat-distribution CI gate (OOTP-inspired).** Run an N-season simulation at fixed seed and KS-test the resulting goals/match, shots/match, pass-completion %, possession %, and card distribution against a pinned `docs/design/reference-distributions.ron` of real-world envelopes. Stronger than scalar invariants: catches systemic drift that scalar bounds (the 0.5-8.0-goal trap OFM falls into) cannot see.
+- **Stat-distribution CI gate (OOTP-inspired).** Run an N-season simulation at fixed seed and KS-test the resulting goals/match, shots/match, pass-completion %, possession %, and card distribution against a pinned `docs/design/reference-distributions.ron` of real-world envelopes. Stronger than scalar invariants: catches systemic drift that scalar bounds (the 0.5-8.0-goal trap observed in one of the surveyed prior-art Rust football sims) cannot see.
 - **Two-engine cross-check (EHM-inspired).** A lean Dixon-Coles closed-form stat sim, calibrated against real-world totals, used as a reference distribution: the full match engine's aggregate output over many seasons must match the closed-form sim's distributions within a designed band. Catches the failure mode where the pinned hash is stable but the sim has quietly drifted away from football.
 
 Neither lands in T1 — both require a league loop to be meaningful. Both are mentioned in this ADR so they are not lost.
@@ -73,7 +73,7 @@ Neither lands in T1 — both require a league loop to be meaningful. Both are me
 - **Three independent failure modes covered.** Bit-for-bit regression (canonical hash), human-legible regression (commentary + board), and statistical regression (proptest invariants + future T2 stat-gate) catch different bugs.
 - **The board pays for itself twice.** Built minimally in T1-2a as the dev-tier viewer; the same component is polished into the shipped 2D viewer in T4. No wasted work.
 - **The 9-assertion catalog from research lands as code.** Most shipped sports sims (FM, OOTP, EHM, FOF) have nothing equivalent committed; Final Whistle gets this for the cost of authoring the assertions once.
-- **Pair-seed knob-isolation tests** (the OFM technique) extend Layer 3 with cheap directional checks ("this knob actually does something") that complement the absolute invariants.
+- **Pair-seed knob-isolation tests** (industry-standard property-testing methodology) extend Layer 3 with cheap directional checks ("this knob actually does something") that complement the absolute invariants.
 
 ### Negative
 
@@ -98,8 +98,8 @@ Neither lands in T1 — both require a league loop to be meaningful. Both are me
 - `docs/DESIGN_DOC.md` §3 (pillars) and §6 (presentation rules — text-first for shipped game)
 - `docs/design/dev-verification.md` (the original design doc this ADR formalizes)
 - `docs/MASTER_PLAN.md` Phase T1 rows T1-2a, T1-2b, T1-4, T1-9, plus T1 sequencing note
-- `docs/research/sports-sims/06-verification-qa-in-sims.md` (9 behavioral assertions + OOTP stat-gate + EHM two-engine techniques)
-- `docs/research/existing-rust-sims/03-openfootmanager-tests.md` (pair-seed knob-isolation pattern; cautionary `f64` + `HashMap` + 0.5-8.0-goal band counter-examples)
+- Prior-art research (archived privately) — 9 behavioral assertions + OOTP stat-gate + EHM two-engine techniques.
+- Prior-art research (archived privately) — pair-seed knob-isolation pattern (industry-standard property-testing methodology); cautionary `f64` + `HashMap` + 0.5-8.0-goal band counter-examples observed in one of the surveyed prior-art Rust football sims.
 - `docs/postmortems/phase-T0.md` (the FW v1 "we couldn't verify behavior" lesson)
 - `.claude/rules/Sim/RULES.md` §7 (canonical-hash regression — the bedrock this ADR sits beside, not inside)
 - `.claude/agents/qa-lead.md`, `.claude/agents/ui-programmer.md`, `.claude/agents/narrative-director.md` (owning agents)

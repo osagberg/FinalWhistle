@@ -16,7 +16,7 @@
 
 ## Last green verify
 
-2026-05-22 (T4-4 close): `scripts/fw verify` exit 0; full workspace + 225 frontend tests (+23 from T4-4); clippy + eslint + tsc + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
+2026-05-22 (post-T4-4 licence cleanup): `scripts/fw verify` exit 0; full workspace + 225 frontend tests; clippy + eslint + tsc + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins. (Out-of-band: licence posture clarified — `LICENSE` + `NOTICE.md` added; `docs/research/**` moved offline + git-rm'd; named OFM/open-football references sanitized across ADRs / MEMORY / MASTER_PLAN / DESIGN_DOC. Two independent code-comparison audits confirmed the shipped code is independent of both surveyed prior-art Rust sims.)
 
 ## Last canonical hash
 

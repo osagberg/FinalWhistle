@@ -28,12 +28,13 @@ The non-negotiables predate this ADR:
    boundary; f64 never returns to canonical state.
 3. **Async lives only here** (`Tauri/RULES.md` §1). Sim crates stay sync.
 4. **Typed errors** (`Tauri/RULES.md` §4). `Result<T, IpcError>`, never
-   `Result<T, String>` (OFM's choice — `docs/research/existing-rust-sims/02-openfootmanager-data-and-tauri.md`
-   §"Tauri command surface").
+   `Result<T, String>` (the choice made in one of the surveyed prior-art
+   Rust football sims; prior-art research, archived privately).
 
-Two references were read end-to-end before drafting: **OpenFootManager**
-(Rust + Tauri 2 + React; the live-match command shape we want) and
-**ZOXEXIVO open-football** (PixiJS v8 reference for T1-2a; HTTP-chunk
+Two prior-art Rust football sims (surveyed during T1 design research,
+research wave 2; archived privately) were read end-to-end before
+drafting: one (Rust + Tauri 2 + React) for the live-match command shape
+we want, and a second one (PixiJS v8 reference for T1-2a; HTTP-chunk
 post-match replay model not applicable to a live match).
 
 This ADR locks the live-match command quintet, the `MatchCommand` intent
@@ -45,19 +46,19 @@ wire shapes — those belong elsewhere.
 
 ## Decision
 
-We adopt **OFM's live-match command quintet, retyped for FW's determinism
+We adopt **a live-match command quintet, designed for FW's determinism
 + DTO discipline**, and consolidate every `#[tauri::command]` in
 `crates/fw-tauri/`. The shell binary at `src-tauri/` becomes a thin
 re-export.
 
 ### §1. The command quintet
 
-The shape mirrors OFM (`src-tauri/src/lib.rs:84-159` +
-`application/live_match.rs:35-95`), narrowed: `step` takes a tick count
-(our cadence is `Tick(u32)`), not minutes (OFM's coarse-minute model is
-one of the things we are not adopting —
-`docs/research/existing-rust-sims/01-openfootmanager-engine.md`
-§"Tick structure"):
+The shape mirrors the corresponding command set from one of the surveyed
+prior-art Rust football sims (`src-tauri/src/lib.rs:84-159` +
+`application/live_match.rs:35-95` in that project), narrowed: `step`
+takes a tick count (our cadence is `Tick(u32)`), not minutes — the
+surveyed project's coarse-minute model is one of the things we are not
+adopting (prior-art research, archived privately):
 
 ```rust
 #[tauri::command]
@@ -97,14 +98,16 @@ pub async fn finish_live_match(
 seed_hex: String }` — `id` keys into `AppState`'s `BTreeMap<u32,
 LiveMatchSession>`; `seed_hex` is informational (replay links, bug
 reports). Frontend treats the handle as opaque. Handle-based dispatch
-(rather than OFM's "one current match" model in
-`src-tauri/src/state.rs:42-47`) lets T2-5's season fast-forward run
-multiple matches concurrently without an ADR addendum.
+(rather than the "one current match" model used by the surveyed
+prior-art Rust sim in its `src-tauri/src/state.rs:42-47`) lets T2-5's
+season fast-forward run multiple matches concurrently without an ADR
+addendum.
 
 ### §2. MatchCommand — between-tick intents
 
-Modeled on OFM's `MatchCommand` (`live_match/mod.rs:39-75`); narrowed to
-FW vocabulary and tagged-union for clean TS narrowing:
+Modeled on the `MatchCommand` shape from the surveyed prior-art Rust sim
+(`live_match/mod.rs:39-75` in that project); narrowed to FW vocabulary
+and tagged-union for clean TS narrowing:
 
 ```rust
 #[derive(Debug, Deserialize)]
@@ -124,10 +127,11 @@ pub enum MatchCommand {
 
 The set is **closed**: new intents need an ADR addendum or a logged
 decision. Intents apply at the next tick boundary, never mid-tick —
-matches OFM (`live_match/mod.rs:294-336`). `PressLevel` and `TempoBias`
-are typed enums (closed sets), not numeric sliders — avoids OFM's
-`f64`-in-config trap and respects football-native vocabulary
-(`Frontend/RULES.md` §9).
+matches the surveyed prior-art Rust sim's handling
+(`live_match/mod.rs:294-336` in that project). `PressLevel` and
+`TempoBias` are typed enums (closed sets), not numeric sliders — avoids
+the `f64`-in-config trap seen in the surveyed prior-art project and
+respects football-native vocabulary (`Frontend/RULES.md` §9).
 
 ### §3. MatchSnapshot DTO
 
@@ -143,7 +147,7 @@ pub struct MatchSnapshot {
     pub phase: MatchPhase,                    // FirstHalf | HalfTime | ...
     pub score: ScoreDto,
     pub possession_pct: PossessionDto,
-    pub ball_zone: BallZone,                  // 5-bucket (OFM)
+    pub ball_zone: BallZone,                  // 5-bucket (pattern from surveyed prior-art)
     pub home_lineup: LineupDto,
     pub away_lineup: LineupDto,
     pub recent_events: Vec<MatchEventDto>,    // last 16 by default
@@ -198,14 +202,13 @@ pub struct PlayerPosDTO {
 }
 ```
 
-Fixed-size `[_; 22]` array matches open-football's "dense parallel
-arrays indexed by slot" guidance
-(`docs/research/.../06-frontend-rendering.md`). Sim emits at ~10Hz; the
-PixiJS renderer interpolates to 30fps using the
-`(timestamp, x, y, z)`-pair pattern from open-football
-(`index.html:388-404`). Backpressure: Tauri events are fire-and-forget;
-canonical state is re-derivable from `(seed, tick)` so dropped frames
-are recoverable.
+Fixed-size `[_; 22]` array matches the "dense parallel arrays indexed by
+slot" guidance from the second surveyed prior-art Rust sim (prior-art
+research, archived privately). Sim emits at ~10Hz; the PixiJS renderer
+interpolates to 30fps using the `(timestamp, x, y, z)`-pair pattern from
+that same project (`index.html:388-404` in its tree). Backpressure:
+Tauri events are fire-and-forget; canonical state is re-derivable from
+`(seed, tick)` so dropped frames are recoverable.
 
 Scoreboard + event-feed panels keep polling `get_match_snapshot` at
 ~1Hz — different cadence, different channel.
@@ -229,15 +232,16 @@ pub struct DiagnosticFrameDTO {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerDecisionDTO {
-    pub current_action: &'static str,         // tagged-decisions (ZOXEXIVO)
+    pub current_action: &'static str,         // tagged-decisions (pattern from surveyed prior-art)
     pub reason: &'static str,
     pub utility_top3: [(&'static str, f64); 3],
 }
 ```
 
-`&'static str` tags are the ZOXEXIVO pattern: no allocations, greppable,
-serde-friendly. Diagnostic emission paths + types are feature-gated out
-of release builds.
+`&'static str` tags are a pattern observed in one of the surveyed
+prior-art Rust football sims: no allocations, greppable, serde-friendly.
+Diagnostic emission paths + types are feature-gated out of release
+builds.
 
 ### §6. Async vs sync handlers
 
@@ -245,9 +249,9 @@ of release builds.
 (`Sim/RULES.md` §5); handler bodies wrap the sync API.
 `start_live_match` and `finish_live_match` do I/O (content packs, save
 files); making every handler `async fn` is cleaner than mixed-stance and
-the IPC layer pays the async cost regardless. OFM's sync-only stance
-works for them because every load is sync sqlite — our save + content
-load story is async-friendlier.
+the IPC layer pays the async cost regardless. The sync-only stance taken
+by the surveyed prior-art Rust sim works for them because every load is
+sync sqlite — our save + content load story is async-friendlier.
 
 The non-negotiable: **async does not cross into sim crates**. Handler
 wraps sim's sync API; sim does not become async.
@@ -280,8 +284,9 @@ the Rust side, and the TS file is updated in the same commit.
 **Re-evaluate `ts-rs` / `specta` at T4 kickoff.** Rationale for not
 adopting now: DTO count at T1-5 is ~10 (tractable); a derive-macro stack
 adds an unaudited dep tree; T4 brings ~30 more DTOs for the tabular
-surfaces — that's the right inflection. OFM ships 49 hand-mirrored
-commands with no public drift bugs — pattern is proven at our scale.
+surfaces — that's the right inflection. One of the surveyed prior-art
+Rust football sims ships 49 hand-mirrored commands with no public drift
+bugs — pattern is proven at our scale.
 
 ## Consequences
 
@@ -299,14 +304,15 @@ commands with no public drift bugs — pattern is proven at our scale.
 ## Alternatives considered
 
 - **Polling-only (no event streaming) for the tactical board.** Rejected
-  per `docs/research/.../06-frontend-rendering.md` — full-snapshot pulls
-  at 30Hz are the wrong shape; OFM gets away with it only because their
-  event-feed is sub-Hz.
+  per prior-art research (archived privately) — full-snapshot pulls
+  at 30Hz are the wrong shape; one of the surveyed prior-art Rust sims
+  gets away with it only because its event-feed is sub-Hz.
 - **Single fat `tick_and_get` command.** Rejected — conflates "advance"
-  with "read"; OFM cleanly separates them and we benefit from copying.
-- **`Result<T, String>` errors (OFM's choice).** Rejected per
-  `Tauri/RULES.md` §4. `IpcError` gives the frontend
-  discriminated-union narrowing; strings don't.
+  with "read"; one of the surveyed prior-art Rust sims cleanly separates
+  them and we benefit from copying the split.
+- **`Result<T, String>` errors (the choice in one of the surveyed
+  prior-art Rust sims).** Rejected per `Tauri/RULES.md` §4. `IpcError`
+  gives the frontend discriminated-union narrowing; strings don't.
 - **Auto-generated TS types now via `ts-rs` / `specta`.** Rejected for
   T1; revisit at T4 per §8.
 - **`HashMap` in DTOs (allowed by brief).** Rejected anyway — same rule
@@ -322,12 +328,10 @@ commands with no public drift bugs — pattern is proven at our scale.
 - `.claude/rules/Tauri/RULES.md` §1–§8
 - `.claude/rules/Sim/RULES.md` §1, §2, §5, §6
 - `.claude/rules/Frontend/RULES.md` §1, §4, §7
-- `docs/research/existing-rust-sims/01-openfootmanager-engine.md`
-  §"Tick structure"
-- `docs/research/existing-rust-sims/02-openfootmanager-data-and-tauri.md`
-  §"Tauri command surface", §"DTO / IPC boundary"
-- `docs/research/existing-rust-sims/06-frontend-rendering.md`
-  §"IPC + state-streaming patterns"
+- Prior-art research (archived privately): tick-structure analysis of one
+  surveyed prior-art Rust football sim; its Tauri command surface +
+  DTO / IPC boundary writeup; IPC + state-streaming patterns from the
+  second surveyed prior-art Rust football sim.
 - `docs/MASTER_PLAN.md` rows T1-2a, T1-5
 - `docs/postmortems/phase-T0.md:55` (Codex Imp #10 deferral)
 - `crates/fw-tauri/src/{lib.rs,commands.rs}` (Phase-0 scaffold)

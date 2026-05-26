@@ -1,0 +1,23 @@
+Final Whistle
+
+Copyright (c) 2026 Vibelogic. All rights reserved.
+
+This repository is public for development visibility, not because the game
+or source code is released under an open-source license. No license —
+express, implied, or by estoppel — is granted to any person to use, copy,
+modify, merge, publish, distribute, sublicense, or sell copies of this
+software or any portion of it, except by prior written permission of the
+copyright holder.
+
+Source visibility exists for transparency, inspection, and review only.
+Reading this code does not grant the right to incorporate it into other
+projects, fork it for derivative works, or redistribute it in any form.
+
+Where this software depends on third-party open-source libraries, those
+dependencies retain their respective licenses. See NOTICE.md and the
+dependency manifests (Cargo.toml, pnpm-lock.yaml) for the third-party
+attribution catalogue. The "All Rights Reserved" declaration above covers
+the Final Whistle source code itself — not the third-party code it links
+against.
+
+For licensing inquiries: osagberg@proton.me

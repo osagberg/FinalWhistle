@@ -12,7 +12,7 @@
 
 T1-1 is the first canonical-state surface in the Rust workspace — `PlayerAttributes` plus the surrounding per-player record. Every downstream system reads it: the BT runner consumes attributes for utility scoring (T1-2b), the match engine resolves contests from them (T1-5+), scouts surface biased projections (T2-7), the memory ledger triggers breakthroughs that redraw the ceiling (T3-4), and the commentary banks translate them into football-native prose (T1-6+). Locking the schema wrong forces a save-migration on every downstream phase.
 
-The "Scope ambition" framing in `docs/DESIGN_DOC.md` §1 (2026-05-13 reframe) explicitly retracts the earlier "~3000 LoC match-sim budget" constraint. The research synthesis (`docs/research/sports-sims/00-synthesis.md` lines 5–10) follows up: "attribute count grows from '24+8 recommended for tight budget' to 'whatever the design needs' — FM-class (~56) or beyond is on the table; 32 was a research-paper midpoint, not a cap." DESIGN_DOC §1 line 37 names FM-scale (~56) or beyond as in-scope. This ADR is the formal reconciliation.
+The "Scope ambition" framing in `docs/DESIGN_DOC.md` §1 (2026-05-13 reframe) explicitly retracts the earlier "~3000 LoC match-sim budget" constraint. The research synthesis (prior-art research, archived privately) follows up: "attribute count grows from '24+8 recommended for tight budget' to 'whatever the design needs' — FM-class (~56) or beyond is on the table; 32 was a research-paper midpoint, not a cap." DESIGN_DOC §1 line 37 names FM-scale (~56) or beyond as in-scope. This ADR is the formal reconciliation.
 
 The pillar constraints (`docs/DESIGN_DOC.md` §3) remain binding:
 - **Pillar 1 — Procedural fantasy world.** No real licensed attribute names if any are trademarked; FM's attribute names are generic football vocabulary and safe.
@@ -111,7 +111,7 @@ pub struct GoalkeeperAttributes {
 
 /// The personality bias vector — also called "hidden attributes" in FM. These
 /// drive scout disagreement (Pillar 4), bias BT utility scores (per
-/// `00-synthesis.md` "personality = small scalar vector"), and gate breakthrough
+/// prior-art research, archived privately — "personality = small scalar vector"), and gate breakthrough
 /// triggers (Pillar 3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersonalityVector {
@@ -166,23 +166,23 @@ pub struct PlayerCondition {
 
 ### Choices, item by item
 
-1. **Visible count + split: 14 technical / 10 mental / 8 physical / 6 goalkeeper = 38 visible.** FM ships 36 outfield-visible (14/14/8) plus 13 GK-technical for keepers; ZOXEXIVO ships 37 (14/14/9). We split the difference and add the GK group as a flat sub-struct on every player (no sum type — eliminates BT pattern-match branches). The mental column compresses to 10 by folding leadership + sportsmanship + controversy into the personality vector where they semantically belong (those are not match-time decision inputs).
+1. **Visible count + split: 14 technical / 10 mental / 8 physical / 6 goalkeeper = 38 visible.** FM ships 36 outfield-visible (14/14/8) plus 13 GK-technical for keepers; one of the surveyed prior-art Rust football sims ships 37 (14/14/9). We split the difference and add the GK group as a flat sub-struct on every player (no sum type — eliminates BT pattern-match branches). The mental column compresses to 10 by folding leadership + sportsmanship + controversy into the personality vector where they semantically belong (those are not match-time decision inputs).
 
-2. **Hidden count + content: 14 personality + 3 durability = 17 hidden.** FM's ~16 hidden are the public reference; our 14-field personality vector covers FM's headliners (Determination, Pressure Tolerance, Big-Match Temperament, Consistency, Versatility, Adaptability, Ambition, Loyalty, Professionalism, Temperament, Controversy folded into Temperament). We add Aggression + RiskAppetite + Selflessness + WorkRate from the synthesis bias-vector pattern (`00-synthesis.md` lines 22–24, `03-non-sport-emergent-sims.md` lines 30–34, 49–54). Durability gets its own struct because injury-proneness drives the simulation differently from disposition.
+2. **Hidden count + content: 14 personality + 3 durability = 17 hidden.** FM's ~16 hidden are the public reference; our 14-field personality vector covers FM's headliners (Determination, Pressure Tolerance, Big-Match Temperament, Consistency, Versatility, Adaptability, Ambition, Loyalty, Professionalism, Temperament, Controversy folded into Temperament). We add Aggression + RiskAppetite + Selflessness + WorkRate from the synthesis bias-vector pattern (prior-art research, archived privately). Durability gets its own struct because injury-proneness drives the simulation differently from disposition.
 
 3. **Value type + range: `Q32` in `[Q32::ZERO, Q32::ONE]`.** Internal sim arithmetic stays multiplicative-friendly (utility scores compose without rescaling). The UI projects to 1–20 at the DTO boundary (`Tauri/RULES.md` §3) so the player-facing surface is FM-familiar. `u8` was rejected because BT utility multipliers (`finishing × composure × technique_pressure_modifier`) need fractional precision below `1/255`. Per `Sim/RULES.md` §1, `f32` / `f64` are banned in canonical state.
 
-4. **CA vs PA: keep both, mutable PA gated by breakthroughs only.** `AbilityCeiling { current, potential }`. CA is a derived weighted sum at read time — not a stored cache — so attribute changes propagate without invalidation logic. PA is stored. PA mutation is restricted to `MemoryEvent::Breakthrough` writes through a typed API on `AbilityCeiling` (`pub(crate) fn redraw_ceiling(...)`). Aging curves move CA toward PA pre-peak (~age 27) and away from PA post-peak (`07-player-attributes-progression.md` lines 33–37) without touching PA itself. This satisfies Pillar 3's "growth lives in the ledger first" framing.
+4. **CA vs PA: keep both, mutable PA gated by breakthroughs only.** `AbilityCeiling { current, potential }`. CA is a derived weighted sum at read time — not a stored cache — so attribute changes propagate without invalidation logic. PA is stored. PA mutation is restricted to `MemoryEvent::Breakthrough` writes through a typed API on `AbilityCeiling` (`pub(crate) fn redraw_ceiling(...)`). Aging curves move CA toward PA pre-peak (~age 27) and away from PA post-peak (prior-art research, archived privately) without touching PA itself. This satisfies Pillar 3's "growth lives in the ledger first" framing.
 
-5. **Form / morale / fatigue / chemistry layers: 5 separate `PlayerCondition` fields.** FM ships four condition layers (Condition, Fatigue, Sharpness, Morale per `07-player-attributes-progression.md` line 63); we ship five by adding `signature_readiness` as the pillar-3 breakthrough accumulator. Each is Q32 in `[0, 1]` with its own decay rate (form weekly, morale daily, match_fitness per-tick, sharpness weekly, signature_readiness event-driven). Chemistry lives on the `Squad` / `Club` aggregate, not the player record — it's a relationship metric, not a per-player scalar.
+5. **Form / morale / fatigue / chemistry layers: 5 separate `PlayerCondition` fields.** FM ships four condition layers (Condition, Fatigue, Sharpness, Morale per prior-art research, archived privately); we ship five by adding `signature_readiness` as the pillar-3 breakthrough accumulator. Each is Q32 in `[0, 1]` with its own decay rate (form weekly, morale daily, match_fitness per-tick, sharpness weekly, signature_readiness event-driven). Chemistry lives on the `Squad` / `Club` aggregate, not the player record — it's a relationship metric, not a per-player scalar.
 
 6. **Role-affinity weights: content-pack RON, not hardcoded.** Per-role weight tables live in `content/sources/<pack>/role-affinities.ron` keyed by `RoleId`. A CB role weights `{ tackling: 0.18, marking: 0.18, strength: 0.12, jumping_reach: 0.10, positioning: 0.10, ... }`; an AM role weights `{ vision: 0.15, passing: 0.15, dribbling: 0.12, off_the_ball: 0.10, technique: 0.10, ... }`. Weights sum to 1.0 per role; clippy lint enforces. This keeps balancing in RON-edit land (per `CLAUDE.md` §7 "tuning coefficients stay out of SPEC and source") rather than recompile land, and lets mod overlays (`Content/RULES.md` §6) introduce custom roles without source patches.
 
-7. **Hidden trait surfacing for scouts: FOF-style ranges keyed to scout skill.** Per `07-player-attributes-progression.md` lines 51–53, FOF surfaces attribute *ranges* whose width tightens as scout skill rises. We adopt that model rather than OOTP's parallel `true_ratings` / `scout_ratings` tables. Rationale: it surfaces uncertainty in the UI without duplicating canonical state (one table, computed projections), and it maps directly onto Pillar 4's "biased scouts disagree" framing — two scouts of equal skill produce overlapping-but-non-identical ranges because their `scout_bias_vector` differs (`03-non-sport-emergent-sims.md` line 68). Implementation lands in T2-7 as `ScoutObservation { attribute: AttributeKey, range: (Q32, Q32), confidence: Q32 }` — a pure projection of canonical truth + scout-specific bias + observation count.
+7. **Hidden trait surfacing for scouts: FOF-style ranges keyed to scout skill.** Per prior-art research (archived privately), FOF surfaces attribute *ranges* whose width tightens as scout skill rises. We adopt that model rather than OOTP's parallel `true_ratings` / `scout_ratings` tables. Rationale: it surfaces uncertainty in the UI without duplicating canonical state (one table, computed projections), and it maps directly onto Pillar 4's "biased scouts disagree" framing — two scouts of equal skill produce overlapping-but-non-identical ranges because their `scout_bias_vector` differs (prior-art research, archived privately). Implementation lands in T2-7 as `ScoutObservation { attribute: AttributeKey, range: (Q32, Q32), confidence: Q32 }` — a pure projection of canonical truth + scout-specific bias + observation count.
 
 ### Revisions to prior research recommendations
 
-The original "24 visible + 8 hidden = 32" recommendation in `07-player-attributes-progression.md` lines 68–70 was explicitly LoC-budget-constrained. With the budget retracted (`00-synthesis.md` lines 5–10, `DESIGN_DOC.md` §1 lines 32–37), we revise upward:
+The original "24 visible + 8 hidden = 32" recommendation in prior-art research (archived privately) was explicitly LoC-budget-constrained. With the budget retracted (prior-art research, archived privately; `DESIGN_DOC.md` §1 lines 32–37), we revise upward:
 
 - Visible **24 → 38** (FM-class breadth; keeper attributes promoted from research footnote to first-class).
 - Hidden **8 → 17** (personality vector grows from 8 to 14 to cover FM's full hidden set; durability gets its own 3-field struct).
@@ -202,8 +202,8 @@ This is a deliberate upward revision documented in `docs/DECISIONS.md` (the 2026
 
 **Negative:**
 - 55-field player record is heavy on save size. At `Q32` = 8 bytes per field, ~440 bytes per player attribute block; ~50k players × 440 bytes = ~22 MB just for attribute state. Mitigation: bincode + zstd in `fw-save` (the save-format ADR will land before T2-9 schema work; ADR-0003 in this batch is decision-utility math, not save format); compresses to ~6 MB in practice given attribute-value entropy.
-- BT decision sites now have more candidate attributes to read. Mitigation: per-decision attribute binding is documented in `docs/specs/bt-attribute-binding.md` (Open question, `00-synthesis.md` line 153). 2–4 attributes per decision keeps the binding tight.
-- Generation pipeline (T2-4) is more complex than a 32-field record. Mitigation: ZOXEXIVO's group-by-group generation pattern (`05-open-football-data.md` lines 14–28) maps directly; we re-implement deterministically (no `rand::random()`, no `rayon`) but the structure carries over.
+- BT decision sites now have more candidate attributes to read. Mitigation: per-decision attribute binding is documented in `docs/specs/bt-attribute-binding.md` (Open question, prior-art research, archived privately). 2–4 attributes per decision keeps the binding tight.
+- Generation pipeline (T2-4) is more complex than a 32-field record. Mitigation: the group-by-group generation pattern (one of the surveyed prior-art Rust sims; prior-art research, archived privately) maps directly; we re-implement deterministically (no `rand::random()`, no `rayon`) but the structure carries over.
 - Bigger schema = bigger save-migration surface when fields change. Mitigation: `fw-save` schema versioning (forward-only) plus the four-test contract per `Sim/RULES.md` §9.
 
 **Neutral:**
@@ -216,11 +216,11 @@ This is a deliberate upward revision documented in `docs/DECISIONS.md` (the 2026
 
 ## Alternatives considered
 
-- **Alternative A: 19 attributes, u8 0–100, no hidden/visible split (OpenFootManager pattern, `02-openfootmanager-data-and-tauri.md` lines 12–20).** Rejected because it forecloses Pillar 4 — without a hidden axis, scout disagreement reduces to "how close to true value did your scout guess," not "scouts disagree about different facets of the same player." Also forecloses Pillar 5's signature triggers, which need readable attribute axes the player can recognize ("his finishing was the trigger").
+- **Alternative A: 19 attributes, u8 0–100, no hidden/visible split (a flat-attribute-list pattern, no hidden/visible split, surveyed during research; prior-art research, archived privately).** Rejected because it forecloses Pillar 4 — without a hidden axis, scout disagreement reduces to "how close to true value did your scout guess," not "scouts disagree about different facets of the same player." Also forecloses Pillar 5's signature triggers, which need readable attribute axes the player can recognize ("his finishing was the trigger").
 
-- **Alternative B: 37 attributes in three groups, `f32` 1–20 (ZOXEXIVO pattern, `05-open-football-data.md` lines 6–12).** Rejected on type — `f32` in canonical state breaks `Sim/RULES.md` §1. Schema structurally close to what we adopted, so we lift the group split + generation pipeline shape without lifting the storage type.
+- **Alternative B: 37 attributes in three groups, `f32` 1–20 (pattern from another surveyed prior-art Rust sim; prior-art research, archived privately).** Rejected on type — `f32` in canonical state breaks `Sim/RULES.md` §1. Schema structurally close to what we adopted, so we lift the group split + generation pipeline shape without lifting the storage type.
 
-- **Alternative C: original "24 visible + 8 hidden = 32" budget-constrained recommendation (`07-player-attributes-progression.md` lines 68–70).** Rejected because the LoC budget that motivated it has been retracted (DESIGN_DOC §1 reframe). The recommendation was a *floor*, not a *ceiling* — we revise upward, not because 32 was wrong, but because it was conservatively scoped under a constraint that no longer applies. Path-not-taken: had we shipped 32, the T1-5+ work would have hit "we need more attribute surface" sooner; better to start FM-class and trim if needed.
+- **Alternative C: original "24 visible + 8 hidden = 32" budget-constrained recommendation (prior-art research, archived privately).** Rejected because the LoC budget that motivated it has been retracted (DESIGN_DOC §1 reframe). The recommendation was a *floor*, not a *ceiling* — we revise upward, not because 32 was wrong, but because it was conservatively scoped under a constraint that no longer applies. Path-not-taken: had we shipped 32, the T1-5+ work would have hit "we need more attribute surface" sooner; better to start FM-class and trim if needed.
 
 - **Alternative D: split goalkeepers into a `PlayerRole::Goalkeeper { gk_attrs: GoalkeeperAttributes }` sum type with no GK fields on outfielders.** Rejected because every BT decision site that reads attributes would need pattern-match on the role discriminant, polluting the decision code. Storage overhead of 6 unused fields per outfielder (~48 bytes × 50k players ≈ 2.4 MB pre-compression) is acceptable; it compresses to near-zero given outfielders' GK attrs cluster near `Q32::ZERO`.
 
@@ -232,11 +232,11 @@ This is a deliberate upward revision documented in `docs/DECISIONS.md` (the 2026
 
 - `docs/DESIGN_DOC.md` §1 "Scope ambition" (2026-05-13 reframe — LoC budget retracted)
 - `docs/DESIGN_DOC.md` §3 pillars 3 (breakthroughs), 4 (scouting), 5 (signature identity)
-- `docs/research/sports-sims/00-synthesis.md` lines 5–10 (scope reframe), 81–101 (attribute synthesis)
-- `docs/research/sports-sims/07-player-attributes-progression.md` lines 29–37 (FM/FM aging), 51–53 (FOF ranges), 68–70 (original 24+8 recommendation revised upward by this ADR)
-- `docs/research/sports-sims/03-non-sport-emergent-sims.md` lines 30–34 (CK3 personality vector), 49–54 (composition pattern), 68 (scout-as-biased-observer)
-- `docs/research/existing-rust-sims/02-openfootmanager-data-and-tauri.md` lines 12–20 (19-attr u8 model, considered + rejected)
-- `docs/research/existing-rust-sims/05-open-football-data.md` lines 6–28 (ZOXEXIVO 37-attr f32 model + generation pipeline — structure adopted, types rejected)
+- Prior-art research, archived privately: scope-reframe synthesis + attribute synthesis (sports-sim survey).
+- Prior-art research, archived privately: FM/FM aging curves, FOF range model, and the original 24+8 attribute recommendation revised upward by this ADR.
+- Prior-art research, archived privately: CK3 personality vector, composition pattern, scout-as-biased-observer.
+- Prior-art research, archived privately: 19-attribute u8 model from one of the surveyed prior-art Rust football sims — considered + rejected (see Alternative A).
+- Prior-art research, archived privately: 37-attribute f32 model + generation pipeline from another surveyed prior-art Rust football sim — structure adopted, types rejected (see Alternative B).
 - `crates/fw-core/src/ids.rs` (PlayerId u32 newtype, locked at Codex Q2)
 - `crates/fw-core/src/q32.rs` (Q32 fixed-point primitive)
 - `.claude/rules/Sim/RULES.md` §1–§4 (determinism floor)

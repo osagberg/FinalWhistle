@@ -256,7 +256,9 @@ design intent, tests, lessons, and prior sim behavior.
 
 ## License
 
-Proprietary. All rights reserved.
+Proprietary. All rights reserved. See [`LICENSE`](./LICENSE) for the full
+notice and [`NOTICE.md`](./NOTICE.md) for the third-party attribution
+catalogue.
 
-This repository is public for development visibility, not because the game or
-source code is released under an open-source license.
+This repository is public for development visibility, not because the game
+or source code is released under an open-source license.

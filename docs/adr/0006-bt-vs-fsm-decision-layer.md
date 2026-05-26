@@ -12,11 +12,11 @@
 
 ADR-0001 locks the seven-layer match-engine stack over a 60 Hz integration tick and explicitly defers the **per-player decision representation** to this ADR.
 
-The earlier research recommendation (`docs/research/sports-sims/04-ai-techniques-bt-uai-goap-htn.md`, `docs/research/sports-sims/00-synthesis.md`) strongly favored a Behavior Tree backbone, framed partly by a "~3000 LoC match-sim budget" that has since been retracted (`docs/DESIGN_DOC.md` §1). Under that framing, ZOXEXIVO's per-role FSM was characterised as out of budget — `forwarders/states/running/mod.rs` alone is 2,141 lines. With the budget removed, the choice reopens on **architectural merit**.
+The earlier research recommendation (prior-art research, archived privately) strongly favored a Behavior Tree backbone, framed partly by a "~3000 LoC match-sim budget" that has since been retracted (`docs/DESIGN_DOC.md` §1). Under that framing, the per-role FSM shipped by one of the surveyed prior-art Rust sims was characterised as out of budget — its `forwarders/states/running/mod.rs` alone is 2,141 lines. With the budget removed, the choice reopens on **architectural merit**.
 
 Non-negotiables, unchanged from ADR-0001: deterministic decision layer (no `thread_rng`, no `HashMap`-iteration-dependent logic, no float arithmetic on canonical state); RNG seeded via the canonical `seed_fn(match_seed, tick, layer, site)` per ADR-0009 (typically `SeedLayer::Decision` for per-player BT draws + `SeedLayer::UtilityTieBreak` for on-ball softmax); data-driven where possible so content packs extend behavior without recompiling; composes with the team-tactic FSM (above), utility selector (inside, at on-ball events), influence maps (off-ball targets), and personality bias vector.
 
-Two reference shapes set the poles. **OFM** has no per-player decision layer — out of scope as a model. **ZOXEXIVO** runs a per-role FSM with ~15-20 states per outfield role. State-name visibility is excellent for debugging, but per-state files grow because every state hand-rolls its priority gates, and a new cross-cutting condition requires touching every state where it might fire.
+Two reference shapes set the poles. **One of the surveyed prior-art Rust football sims** has no per-player decision layer — out of scope as a model. **The other surveyed prior-art project** ships a per-role FSM with ~15-20 states per outfield role. State-name visibility is excellent for debugging, but per-state files grow because every state hand-rolls its priority gates, and a new cross-cutting condition requires touching every state where it might fire.
 
 ## Decision
 
@@ -24,7 +24,7 @@ We will use a **hybrid FSM-of-Behavior-Trees**: a per-role finite state machine 
 
 - Each outfield role (defender, midfielder, forward) has a flat enum of **role states** — a coarse catalogue (~6-10 per role) covering the legible "what is this player doing" labels: `Defending`, `Pressing`, `Recovering`, `Supporting`, `InPossession`, `RunningOffBall`, `SetPieceWaiting`. Final per-role lists land in `docs/specs/decision-layer-state-catalogue.md` under T1-2b.
 - Each role state owns a **Behavior Tree** that runs when that state is active — selector / sequence / decorator / leaf nodes in a small (~10-30 leaf) tree. Trees share subtrees across states and roles via a content-pack-loaded library of named subtrees (`fwh.core:subtree_pressure_carrier`, etc.).
-- **Role-state transitions** evaluate at dispatch time, before the active state's BT runs. Each state declares a short priority-ordered list of `(predicate, target_state)`. Cross-cutting concerns route through a small set of **universal pre-emption hooks** at the dispatcher (analogous to ZOXEXIVO's `should_force_takeball` / `should_yield_takeball`, but defined once rather than per-state).
+- **Role-state transitions** evaluate at dispatch time, before the active state's BT runs. Each state declares a short priority-ordered list of `(predicate, target_state)`. Cross-cutting concerns route through a small set of **universal pre-emption hooks** at the dispatcher (analogous to the `should_force_takeball` / `should_yield_takeball` predicates in one of the surveyed prior-art Rust sims, but defined once rather than per-state).
 - **Goalkeeper is pure FSM**, no inner BT. GK behavior is mode-dominated (in-box positioning, sweeper-keeper rush, penalty stance, shot-stopping, distribution); ~10-12 states each implemented as a small Rust function read more clearly than they would as trees.
 - **Outfield roles use FSM-of-BTs.** Defender / midfielder / forward share the same runner trait; role-state enum and subtree library differ per role.
 - **Utility-scored selector nodes** are a first-class BT node type at on-ball decision points (pass / shoot / dribble / hold), per ADR-0001. The same utility scorer fires regardless of which role state owns the surrounding BT.
@@ -36,7 +36,7 @@ We will use a **hybrid FSM-of-Behavior-Trees**: a per-role finite state machine 
 ### Positive
 
 - **State name + tree composability.** The current role state is a readable enum variant — free symbolic handle for logs, commentary salience tagging, and the replay viewer. Inside the state, the BT is small and authored as data: new behavior is "add a leaf plus a subtree", not "edit every state file".
-- **Cross-cutting concerns route once.** Universal pre-emption hooks (single-chaser claim, foul reaction, set-piece switchover) live at the dispatcher, not duplicated per state. This is the load-bearing fix for ZOXEXIVO's per-state-file bloat.
+- **Cross-cutting concerns route once.** Universal pre-emption hooks (single-chaser claim, foul reaction, set-piece switchover) live at the dispatcher, not duplicated per state. This is the load-bearing fix for the per-state-file bloat observed in one of the surveyed prior-art Rust sims.
 - **Content packs extend behavior.** Modders and the bake-time content compiler can ship new BT subtrees without recompiling. Adding a new role state requires Rust — correct boundary, since role states are structural, subtrees are content.
 - **Determinism is straightforward.** Transitions are pure predicates over canonical state. BT leaf execution consumes RNG via the canonical `seed_fn(match_seed, tick, SeedLayer::Decision, site)` draw per ADR-0009, identical in shape to other ADR-0001 layers.
 - **Goalkeeper gets the representation that fits.** Pure FSM avoids inventing BT leaves like "decide if this is a sweeper-keeper moment" that are clearer as a state transition.
@@ -55,7 +55,7 @@ We will use a **hybrid FSM-of-Behavior-Trees**: a per-role finite state machine 
 ## Alternatives considered
 
 - **Pure Behavior Tree** (the original research recommendation). Uniform runner; subtrees compose; new behavior is a new leaf. Rejected because "what is this player doing?" has no first-class answer — debugging and commentary salience tagging want a symbolic role state, and a pure BT requires synthesising one from the active leaf path. Goalkeeper especially does not fit a flat tree (mode-dominated behavior reads as named states, not decorator gates).
-- **Pure per-role FSM (ZOXEXIVO-style).** Named states for every behavior; per-state file is a unit of debugging. Rejected because per-state files become priority cascades that re-implement the same gates everywhere (the 2,141-line `forwarders/states/running/mod.rs` cautionary tale), and shared cross-role behaviors must be re-implemented per state rather than authored once as a subtree.
+- **Pure per-role FSM (style of one of the surveyed prior-art Rust sims).** Named states for every behavior; per-state file is a unit of debugging. Rejected because per-state files become priority cascades that re-implement the same gates everywhere (the 2,141-line `forwarders/states/running/mod.rs` cautionary tale from that surveyed project), and shared cross-role behaviors must be re-implemented per state rather than authored once as a subtree.
 - **Single global ENUM of states, each a BT.** Structurally close to the pick, but mixing forward and defender states into one type pessimises pattern-matching and scopes the subtree library poorly. Splitting by role gives the same shape with cleaner types.
 - **HTN at the team layer, BTs per player (Killzone 2/3).** Rejected per the research recommendation: football's action space is too shallow to justify planner machinery; the tactic FSM plus utility selector covers the same authoring space at lower complexity.
 - **GOAP per player (F.E.A.R.).** Same rejection as HTN, plus replanning at 8 Hz across 22 agents would be bursty work for 1-2-deep action chains.
@@ -202,11 +202,11 @@ This amendment closes ultimate-review Track A's "preempt_check is the 4-of-5 RED
 
 - `docs/DESIGN_DOC.md` §3 (pillars), §1 (scope ambition reframe)
 - `docs/adr/0001-match-engine-architecture.md` (the seven-layer stack this ADR specialises)
-- `docs/research/sports-sims/04-ai-techniques-bt-uai-goap-htn.md` (BT recommendation; HTN/GOAP rejection rationale)
-- `docs/research/sports-sims/00-synthesis.md` (BT-centric proposal; budget-reframe caveat)
-- `docs/research/existing-rust-sims/04-open-football-engine.md` (ZOXEXIVO FSM-per-role taxonomy, universal pre-emption hooks, priority-cascade pathology)
-- `docs/research/existing-rust-sims/01-openfootmanager-engine.md` (no per-player decision layer; out of scope as a model)
-- `docs/research/existing-rust-sims/00-synthesis.md` (BT-vs-FSM tradeoff under the budget reframe)
+- Prior-art research (archived privately): BT recommendation + HTN/GOAP rejection rationale.
+- Prior-art research (archived privately): BT-centric proposal + budget-reframe caveat.
+- Prior-art research (archived privately): FSM-per-role taxonomy, universal pre-emption hooks, and priority-cascade pathology from one of the surveyed prior-art Rust football sims.
+- Prior-art research (archived privately): the other surveyed prior-art Rust football sim has no per-player decision layer; out of scope as a model.
+- Prior-art research (archived privately): BT-vs-FSM tradeoff write-up under the budget reframe.
 - `.claude/rules/Sim/RULES.md` §1-§10 (determinism contract this ADR must hold)
 - `.claude/rules/Content/RULES.md` (content-pack ID + schema-versioning rules for BT subtree data)
 - Future spec docs to author alongside T1-2b: `docs/specs/decision-layer-state-catalogue.md`, `docs/specs/decision-layer-authoring.md`

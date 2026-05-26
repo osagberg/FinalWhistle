@@ -37,7 +37,7 @@ What this means in practice:
 - **Player model**: rich attribute system (visible + hidden + personality bias vector + form/morale/fatigue + chemistry + memories) with whatever attribute count the design pillars need. The 24+8 number in earlier scoping was a research-paper recommendation, not a cap. Bumping to FM-scale (~56) or beyond is on the table.
 - **Subsystems**: psychology, chemistry, coach AI, referee model, training, scouting, transfer market, media, board relations — each as a fully-realized module when its phase lands, not "scaffolded stubs that maybe expand later."
 - **Signature moves**: the 24 in the design doc is the initial catalogue. The architecture supports unbounded growth via content packs.
-- **AI architecture**: behavior trees + utility scoring + influence maps + steering + personality bias vector compose as planned. FSM per-role state taxonomies (ZOXEXIVO-style) are also viable now that we're not budget-constrained — the choice is about clarity vs composability, not bytes.
+- **AI architecture**: behavior trees + utility scoring + influence maps + steering + personality bias vector compose as planned. FSM per-role state taxonomies (a prior-art alternative surveyed during T1 design research) are also viable now that we're not budget-constrained — the choice is about clarity vs composability, not bytes.
 
 What this does NOT lift:
 - **Determinism contract** — cross-OS BLAKE3 canonical-hash regression, Q32.32 fixed-point in canonical state, BTreeMap-only in sim crates, `ChaCha8Rng` seeded via the canonical `seed_fn(match_seed, tick, layer, site)` (ADR-0009), no `tokio`/`async` in `fw-match-sim` or `fw-memory`. These are pillars.
