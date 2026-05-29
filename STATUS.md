@@ -18,7 +18,7 @@ Previously: T2-1d2 (xg_utility honesty / cross-band oscillation) re-anchored to 
 
 ## Last green verify
 
-2026-05-29 (T4-2.5a close): `scripts/fw verify` exit 0; +19 tests (15 fw-content breakthrough_input + 4 fw-core attribute_family); clippy + fmt + determinism-audit + banned-terms + cargo audit/deny clean.
+2026-05-29 (T4-P2-fixes close): `scripts/fw verify` exit 0. Prior major: T4-2.5a close (+19 tests; 15 fw-content breakthrough_input + 4 fw-core attribute_family). T4-P2-fixes = 4 handler/tooling/frontend fixes (no canonical-state touch). Clippy + fmt + determinism-audit + banned-terms + cargo audit/deny clean throughout.
 
 ## Last canonical hash
 

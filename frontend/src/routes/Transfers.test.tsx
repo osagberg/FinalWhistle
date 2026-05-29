@@ -110,12 +110,13 @@ describe("Transfers page", () => {
     });
   });
 
-  // Post-T2-8 silent-failure-hunter P1 fix: getStandings error renders an
-  // EXPLICIT error message — NOT a confidently-wrong "Summer window" default.
-  // The prior shape laundered backend failures into a friendly pill which
-  // hid lockPoisoned / IPC failures from the user; this test pins the
-  // honest-display contract.
-  it("renders explicit error message when getStandings errors", async () => {
+  // Post-T2-8 silent-failure-hunter P1 fix + T4-P2-fixes (2026-05-29):
+  // a getStandings error renders an EXPLICIT, FOOTBALL-NATIVE error message —
+  // NOT a confidently-wrong "Summer window" default, AND NOT a raw IpcError
+  // kind / payload leak. The copy is routed through the shared
+  // `describeRouteError` (T4-4), so the player sees prose, never the
+  // `lockPoisoned` discriminator. This pins the honest-display contract.
+  it("renders explicit football-native error when getStandings errors", async () => {
     vi.mocked(getStandings).mockRejectedValue({
       kind: "lockPoisoned",
       lock: "season",
@@ -128,10 +129,11 @@ describe("Transfers page", () => {
       // silently-wrong outcome.
       expect(screen.queryByText(/summer window/i)).not.toBeInTheDocument();
     });
-    // Must show the error region with the IpcError context.
+    // Must show the error region with football-native copy...
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toContain("window status unavailable");
-    expect(alert.textContent).toContain("lockPoisoned");
+    // ...and must NOT leak the raw IpcError kind into player-facing text.
+    expect(alert.textContent).not.toContain("lockPoisoned");
   });
 
   // Post-T2-8 silent-failure-hunter P1 fix: empty standings array is

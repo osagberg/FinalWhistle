@@ -182,11 +182,15 @@ clean:
 # Content baker (T2+ — see MASTER_PLAN T2-3)
 # ----------------------------------------------------------------
 
-# Regenerate the content corpus from base templates. Runs the bake-time
-# Claude API loop; output is reviewed + committed manually per CLAUDE.md
-# §3 (bake-time only, no runtime LLM).
+# Regenerate the content corpus. The full LLM bake pipeline (bios / headlines /
+# scout-phrases / manager-quotes / fan-reactions / commentary) lands at T4.5-D
+# (see docs/MASTER_PLAN.md ## Tier 4.5); only offline name-bank baking is
+# implemented today, and it is per-culture. There is no blanket `bake`
+# subcommand — invoke the real per-culture recipe directly.
 bake-content:
-    cargo run -p fw-content-baker -- bake --output content/baked
+    @echo "Full LLM bake pipeline is scheduled at T4.5-D — see docs/MASTER_PLAN.md ## Tier 4.5."
+    @echo "Implemented today: offline name banks, per culture. Example:"
+    @echo "  cargo run -p fw-content-baker -- bake-names --culture fwh.core:culture.anglo --output content/baked"
 
 # ----------------------------------------------------------------
 # Snapshot maintenance

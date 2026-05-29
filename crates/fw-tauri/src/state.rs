@@ -340,11 +340,11 @@ pub fn fixture_seed(career_seed: Seed, fixture_index: u32) -> Seed {
 pub fn league_fixture_index(
     fixtures: &[fw_content::Fixture],
     fixture: &fw_content::Fixture,
-) -> usize {
-    fixtures
-        .iter()
-        .position(|f| f == fixture)
-        .expect("fixture must exist in league.fixtures; caller supplied a fixture from fixtures_for_match_day")
+) -> Option<usize> {
+    // `None` = a league-integrity violation (caller supplied a fixture not from
+    // `fixtures_for_match_day`). Handler-context callers map it to an
+    // `IpcError` rather than panicking (Tauri/RULES.md §4).
+    fixtures.iter().position(|f| f == fixture)
 }
 
 #[cfg(test)]
@@ -435,7 +435,8 @@ mod tests {
         let state = AppState::new(&content_root).expect("AppState::new");
         let career = state.career().read().expect("career lock");
         let first = &career.season.league.fixtures[0];
-        let idx = league_fixture_index(&career.season.league.fixtures, first);
+        let idx = league_fixture_index(&career.season.league.fixtures, first)
+            .expect("first fixture must be present");
         assert_eq!(idx, 0);
     }
 

@@ -383,10 +383,36 @@ pub fn advance_week_inner(state: &AppState) -> Result<AdvanceWeekSummaryDto, Ipc
     let results_snapshot = career.season.results.clone();
 
     for fixture in &fixtures {
-        let idx = league_fixture_index(&career.season.league.fixtures, fixture) as u32;
+        let idx =
+            league_fixture_index(&career.season.league.fixtures, fixture).ok_or_else(|| {
+                IpcError::LeagueGenerationFailed {
+                    reason: "fixture not present in league.fixtures (generate_league invariant)"
+                        .to_string(),
+                }
+            })? as u32;
         let seed = fixture_seed(career_seed, idx);
-        let home_arch = career.season.tactical_archetype_ids[&fixture.home].clone();
-        let away_arch = career.season.tactical_archetype_ids[&fixture.away].clone();
+        let home_arch = career
+            .season
+            .tactical_archetype_ids
+            .get(&fixture.home)
+            .cloned()
+            .ok_or_else(|| IpcError::LeagueGenerationFailed {
+                reason: format!(
+                    "no tactical archetype for club {} (generate_league invariant)",
+                    fixture.home.raw()
+                ),
+            })?;
+        let away_arch = career
+            .season
+            .tactical_archetype_ids
+            .get(&fixture.away)
+            .cloned()
+            .ok_or_else(|| IpcError::LeagueGenerationFailed {
+                reason: format!(
+                    "no tactical archetype for club {} (generate_league invariant)",
+                    fixture.away.raw()
+                ),
+            })?;
         match season::play_one_match(
             seed,
             state.content(),
@@ -566,13 +592,20 @@ pub fn get_fixtures_inner(
             // built FROM `season.league.fixtures` — which `generate_league`
             // guarantees only references clubs present in `season.league.clubs`.
             // The `unwrap_or_default` therefore masked an impossible-state bug
-            // as silent UI corruption. Promote to `expect` so the violation
-            // surfaces at the moment of breakage rather than as a blank cell.
-            let opponent_name = club_names.get(&opponent_id).map(|s| s.to_string()).expect(
-                "fixture opponent must be in league.clubs \
-                     (generate_league invariant)",
-            );
-            FixtureWithResultDto {
+            // as silent UI corruption. A missing opponent is a league-integrity
+            // violation — map it to a structured `IpcError` rather than
+            // panicking in a handler (Tauri/RULES.md §4); the prior `.expect()`
+            // would crash the command and poison the lock.
+            let opponent_name = club_names
+                .get(&opponent_id)
+                .map(|s| s.to_string())
+                .ok_or_else(|| IpcError::LeagueGenerationFailed {
+                    reason: format!(
+                        "fixture opponent {} missing from league.clubs (generate_league invariant)",
+                        opponent_id.raw()
+                    ),
+                })?;
+            Ok(FixtureWithResultDto {
                 match_day: fixture.match_day,
                 opponent_club_id: opponent_id.raw(),
                 opponent_club_name: opponent_name,
@@ -580,9 +613,9 @@ pub fn get_fixtures_inner(
                 played: outcome.is_some(),
                 home_score: outcome.map(|o| o.home_score),
                 away_score: outcome.map(|o| o.away_score),
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, IpcError>>()?;
 
     Ok(dtos)
 }

@@ -25,6 +25,7 @@ import {
   type WindowState,
 } from "~/lib/transfer-window";
 import type { StandingsRow } from "~/lib/types";
+import { describeRouteError } from "~/lib/route-errors";
 
 /**
  * Tailwind class for the window-state pill. Distinct colors for open vs
@@ -58,27 +59,14 @@ function currentMatchDayFromStandings(
   return standings[0]!.played;
 }
 
-/** Friendly text for any thrown standings-fetch failure.
+/** Friendly, football-native text for any thrown standings-fetch failure.
  *
- * SolidJS's createResource wraps non-Error rejections via
- * `castError(err) = new Error("Unknown error", { cause: err })`, so the
- * original IpcError lives in `.cause`. We try `cause.kind` first (the
- * IpcError discriminator), then fall back to `e.kind` for the unwrapped
- * case, then `e.message`, then `String(e)`. This keeps the user-visible
- * text informative regardless of how the error was thrown. */
+ * Routes through the shared `describeRouteError` (T4-4) so production never
+ * surfaces a raw `err.message` / IpcShapeError payload — the same path the
+ * Squad and League routes use. `.headline` is the short phrase rendered
+ * inline in the window-status fallback. */
 function describeStandingsError(e: unknown): string {
-  // Solid-wrapped IpcError: look inside .cause for the kind discriminator.
-  if (e instanceof Error && typeof e.cause === "object" && e.cause !== null && "kind" in e.cause) {
-    const kind = (e.cause as Record<string, unknown>).kind;
-    if (typeof kind === "string") return `IPC error (${kind})`;
-  }
-  // Raw IpcError-shaped object (unwrapped path; defensive).
-  if (typeof e === "object" && e !== null && "kind" in e) {
-    const kind = (e as Record<string, unknown>).kind;
-    if (typeof kind === "string") return `IPC error (${kind})`;
-  }
-  if (e instanceof Error) return e.message;
-  return String(e);
+  return describeRouteError(e, { what: "the transfer window" }).headline;
 }
 
 export default function Transfers(): JSX.Element {
