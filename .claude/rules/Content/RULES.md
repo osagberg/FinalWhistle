@@ -78,8 +78,8 @@ auto_load: when_editing_matching_path
 
 ## §7. Bake-time pipeline
 
-- `crates/fw-content-baker/` is a CLI that calls Claude API at bake-time, validates output against `crates/fw-content/` schema, and emits validated RON to `content/baked/`.
-- `content/baked/` is gitignored — regenerate via `just bake-content` (needs `ANTHROPIC_API_KEY`).
+- `crates/fw-content-baker/` is a bake-time CLI that VALIDATES content packs against `crates/fw-content/` schema and emits validated RON to `content/baked/`. **The EA content packs are authored by Claude in working sessions** (the `narrative-director` agent), NOT via a paid Anthropic API call (DECISIONS 2026-05-29); an optional API-bake path may be added post-EA.
+- `content/baked/` is gitignored — regenerated from the committed content packs. The EA session-authored corpus needs NO `ANTHROPIC_API_KEY`; only the optional post-EA API path would.
 - **NO** runtime LLM calls. All LLM output is committed RON.
 
 ## §8. FW-VAL checks
