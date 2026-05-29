@@ -31,17 +31,21 @@ pub mod readers;
 // -------------------------------------------------------------------------
 
 pub use breakthrough::{
-    AttributeFamily, BREAKTHROUGH_COOLDOWN_DAYS, BREAKTHROUGH_THRESHOLD, BreakthroughContext,
-    BreakthroughKind, BreakthroughOutcome, BreakthroughState, GATE_MIN_STAKES, NarrativeFlag,
-    READINESS_RESIDUE, REGRESSIVE_COOLDOWN_DAYS, REGRESSIVE_RESIDUE, REGRESSIVE_THRESHOLD,
-    accumulate, evaluate, family_relevance, is_positive_gate, is_regressive_gate,
-    positive_redraw_range, regressive_redraw_range,
+    BREAKTHROUGH_COOLDOWN_DAYS, BREAKTHROUGH_THRESHOLD, BreakthroughContext, BreakthroughKind,
+    BreakthroughOutcome, BreakthroughState, GATE_MIN_STAKES, NarrativeFlag, READINESS_RESIDUE,
+    REGRESSIVE_COOLDOWN_DAYS, REGRESSIVE_RESIDUE, REGRESSIVE_THRESHOLD, accumulate, evaluate,
+    family_relevance, is_positive_gate, is_regressive_gate, positive_redraw_range,
+    regressive_redraw_range,
 };
+// AttributeFamily relocated to fw-core at T4-2.5a. Re-exported here so
+// existing `fw_memory::AttributeFamily` import paths continue to resolve
+// without changes to fw-save, fw-tauri, or any other consumer.
 pub use event::{
     CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter, EmitterKind, Emotion,
     EntityRef, EventClass, EventId, MemoryEvent, ModEventTag, Participant, ParticipantRole,
     SeasonNumber, SourceId,
 };
+pub use fw_core::AttributeFamily;
 pub use ledger::MemoryLedger;
 pub use readers::{
     EmotionTally, FAN_CULTURE_CLASS_DISCRIMINANTS, FanReaderOutput, PressTopic, SalienceFilter,

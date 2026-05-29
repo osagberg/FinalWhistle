@@ -9,6 +9,7 @@
 //! migration only — no in-place mutation of disk content.
 
 pub mod archetype;
+pub mod breakthrough_input;
 pub mod commentary;
 pub mod event;
 pub mod gene;
@@ -26,6 +27,7 @@ pub mod signature;
 pub mod team;
 
 pub use archetype::BehaviorArchetype;
+pub use breakthrough_input::{FamilyPaCa, apply_family_delta, gene_family_pa_ca};
 pub use commentary::{
     CommentaryBankBuildError, CommentaryGrammarBank, CommentaryRenderError, render_event,
 };

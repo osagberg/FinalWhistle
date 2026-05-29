@@ -21,6 +21,7 @@
 //!
 //! See `docs/specs/determinism-gate.md` for the full contract.
 
+pub mod attribute_family;
 pub mod ids;
 pub mod math;
 // T1-10: committed-source LUT raw bits consumed by math.rs at compile time.
@@ -35,6 +36,7 @@ pub mod tick;
 // Public re-exports — the canonical surface every other crate imports.
 // -------------------------------------------------------------------------
 
+pub use attribute_family::AttributeFamily;
 pub use ids::{ClubId, MatchId, PlayerId};
 pub use math::{exp_q32, sigmoid_q32};
 pub use player_attributes::{

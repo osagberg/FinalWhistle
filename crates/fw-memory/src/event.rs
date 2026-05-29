@@ -477,7 +477,7 @@ pub enum Consequence {
     /// event so commentary / scout / press readers can phrase the lift.
     PaRedraw {
         /// The attribute family that was redrawn upward.
-        family: crate::breakthrough::AttributeFamily,
+        family: fw_core::AttributeFamily,
         /// PA delta (positive integer, PA-scale units 1..=200).
         delta_pa: i16,
         /// CA delta (positive integer, PA-scale units 1..=200).
@@ -490,7 +490,7 @@ pub enum Consequence {
     /// `delta_ca` is also negative. Carried on the `RegressiveCollapse` event.
     PaReductionRedraw {
         /// The attribute family that was redrawn downward.
-        family: crate::breakthrough::AttributeFamily,
+        family: fw_core::AttributeFamily,
         /// PA delta (negative integer, bounded by `max(20, ca − 30)`).
         delta_pa: i16,
         /// CA delta (negative integer, partial catch-down).

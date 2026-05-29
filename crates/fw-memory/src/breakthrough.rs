@@ -23,7 +23,7 @@
 
 use std::collections::BTreeMap;
 
-use fw_core::{PlayerId, Q32, SeedLayer, Tick, seed_fn};
+use fw_core::{AttributeFamily, PlayerId, Q32, SeedLayer, Tick, seed_fn};
 use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -36,70 +36,8 @@ use crate::event::{
 use crate::ledger::MemoryLedger;
 use crate::readers::project_salience;
 
-// -------------------------------------------------------------------------
-// AttributeFamily — 10 coarse families per progression.md
-// -------------------------------------------------------------------------
-
-/// Coarse attribute-family grouping used by the breakthrough meter.
-///
-/// The 10 families from `docs/design/progression.md` §"Attribute-family list".
-///
-/// ## Tag-stability (LOAD-BEARING FOREVER)
-///
-/// `#[repr(u32)]` + explicit discriminants 0..9 pin the canonical career-state
-/// encoding. Re-ordering variants or changing discriminants is a schema-breaking
-/// change. The wire discriminants are further pinned by
-/// `attribute_family_discriminants_locked` test.
-///
-/// Mod content packs do NOT add families — the family set is closed at T3-4.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[repr(u32)]
-pub enum AttributeFamily {
-    /// Conversion, composure in the box. Strikers, AMs.
-    Finishing = 0,
-    /// Range, vision, precision. Midfielders, full-backs.
-    Passing = 1,
-    /// Reading the game, positioning. Centre-backs, DMs.
-    DefensiveAnticipation = 2,
-    /// Heading, physical duels. Centre-backs, target men.
-    AerialPresence = 3,
-    /// Pressure response, decision quality under duress. All positions.
-    Composure = 4,
-    /// Explosive speed, acceleration. Wingers, strikers, attacking full-backs.
-    Pace = 5,
-    /// Late-match intensity, injury-load resilience. All positions.
-    Stamina = 6,
-    /// Pressing, tracking-back, shuttle runs. Pressing mids, box-to-box.
-    WorkRate = 7,
-    /// Set-pieces, free kicks, penalties. Specialist DM / AM / full-back.
-    DeadBallDelivery = 8,
-    /// Dressing-room influence, mentoring yield. Captains, senior figures.
-    Leadership = 9,
-}
-
-impl AttributeFamily {
-    /// The `#[repr(u32)]` discriminant for this variant.
-    ///
-    /// Pinned by `attribute_family_discriminants_locked` test.
-    #[must_use]
-    pub fn discriminant(self) -> u32 {
-        self as u32
-    }
-
-    /// All 10 families in discriminant order. Canonical for iteration.
-    pub const ALL: [AttributeFamily; 10] = [
-        AttributeFamily::Finishing,
-        AttributeFamily::Passing,
-        AttributeFamily::DefensiveAnticipation,
-        AttributeFamily::AerialPresence,
-        AttributeFamily::Composure,
-        AttributeFamily::Pace,
-        AttributeFamily::Stamina,
-        AttributeFamily::WorkRate,
-        AttributeFamily::DeadBallDelivery,
-        AttributeFamily::Leadership,
-    ];
-}
+// AttributeFamily relocated to fw-core::attribute_family at T4-2.5a.
+// Imported above via `use fw_core::AttributeFamily`.
 
 // -------------------------------------------------------------------------
 // Progression constants — ported from docs/design/progression.md
