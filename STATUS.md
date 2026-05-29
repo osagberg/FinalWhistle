@@ -4,11 +4,11 @@
 
 ## Phase
 
-**Phase T4 — Beautiful UI + Tactical Viewer — IN PROGRESS.** Phase T3 (Career + Memory) CLOSED 2026-05-21 (Codex phase-gate ACCEPT, tag `v0.3.0-career`); the post-T3 cleanup cluster T3-R-A..F all DONE. T4 began 2026-05-21 — **T4-1 (PixiJS tactical board) + T4-2 (ECharts per-team stat dashboard) + T4-3 (visual-identity lock) + T4-4 (loading / empty / error states for every screen) DONE.** T4 ships 8 MVP rows (T4-1..T4-8) + a Stretch T4-9; the T4 Exit Gate is locked in `docs/MASTER_PLAN.md`.
+**Phase T4 — Beautiful UI + Tactical Viewer — IN PROGRESS.** Phase T3 (Career + Memory) CLOSED 2026-05-21 (Codex phase-gate ACCEPT, tag `v0.3.0-career`); the post-T3 cleanup cluster T3-R-A..F all DONE. T4 began 2026-05-21 — **T4-1 (PixiJS tactical board) + T4-2 (ECharts per-team stat dashboard) + T4-3 (visual-identity lock) + T4-4 (loading / empty / error states) + T4-5a (ADR-0004 live-match IPC quintet) DONE.** T4 ships 8 MVP rows (T4-1..T4-8) + a Stretch T4-9; the T4 Exit Gate is locked in `docs/MASTER_PLAN.md`.
 
 ## Active task
 
-(none — T4-4 (loading / empty / error states for every screen — football-native voice + ErrorBoundary wrapping every route) closed 2026-05-22; new shared `lib/route-errors.ts` exhaustive against the closed `IpcError` union, narrative-director copy, Career/League action-button raw-`err.message` leak closed at self-review. Next `/next` picks **T4-5** — match-day live mode.)
+(none — T4-5a (ADR-0004 live-match IPC quintet) closed 2026-05-22; new `fw-tauri::live_match` module + 5 IPC commands + `LiveMatchSession` handle store + closed 9-variant `MatchCommand` + `MatchSnapshot` DTO; AC4 determinism-equivalence holds (step×N == batched `play_match(N)`); `apply_match_command` fail-loud-stubbed. T4-5b (frontend live UI + salience jump) split off DEFERRED. Next `/next` picks **T4-6** — settings screen.)
 
 ## Blockers
 
@@ -16,7 +16,7 @@
 
 ## Last green verify
 
-2026-05-22 (post-T4-4 licence cleanup): `scripts/fw verify` exit 0; full workspace + 225 frontend tests; clippy + eslint + tsc + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins. (Out-of-band: licence posture clarified — `LICENSE` + `NOTICE.md` added; `docs/research/**` moved offline + git-rm'd; named OFM/open-football references sanitized across ADRs / MEMORY / MASTER_PLAN / DESIGN_DOC. Two independent code-comparison audits confirmed the shipped code is independent of both surveyed prior-art Rust sims.)
+2026-05-22 (T4-5a close): `scripts/fw verify` exit 0; full workspace + 60 fw-tauri tests (9 new live-match integration incl. AC4 determinism-equivalence) + 248 frontend tests; clippy + eslint + tsc + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
 
 ## Last canonical hash
 

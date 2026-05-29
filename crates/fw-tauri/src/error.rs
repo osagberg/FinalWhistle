@@ -81,6 +81,24 @@ pub enum IpcError {
         player_id: String,
     },
 
+    /// A `MatchCommand` was received and recorded, but its implementation has
+    /// not yet been wired up in the sim layer.
+    ///
+    /// All 9 `MatchCommand` variants return this error at T4-5a — the command
+    /// is deserialized + stored in the session's audit trail, then rejected
+    /// here. The `command_kind` field carries the camelCase discriminant string
+    /// (e.g. `"substitute"`) so the frontend can display a targeted message.
+    ///
+    /// Wire shape: `{ kind: "liveMatchCommandUnimplemented", commandKind: "substitute" }`.
+    /// `commandKind` is used (not a second `kind`) to avoid the field-name
+    /// collision that `#[serde(tag = "kind")]` would produce if both the outer
+    /// tag and the inner field were named `kind`.
+    #[error("live-match command not yet implemented (commandKind: {command_kind})")]
+    LiveMatchCommandUnimplemented {
+        #[serde(rename = "commandKind")]
+        command_kind: String,
+    },
+
     /// An internal `RwLock` / `Mutex` was poisoned by a prior writer panic.
     ///
     /// Post-T2-5 silent-failure-hunter P1-3 fix: prior code used

@@ -114,7 +114,12 @@ export type IpcError =
   | { kind: "clubNotFound"; clubId: number }
   | { kind: "lockPoisoned"; lock: string }
   | { kind: "playerNotFound"; playerId: string }
-  | { kind: "seasonNotComplete" };
+  | { kind: "seasonNotComplete" }
+  | {
+      kind: "liveMatchCommandUnimplemented";
+      /** camelCase command kind, e.g. `"substitute"`. */
+      commandKind: string;
+    };
 
 // ---------------------------------------------------------------------------
 // Frame-cap constant — mirrors `fw_tauri::MAX_FRAMES_PER_REQUEST`.
@@ -266,6 +271,138 @@ export interface MatchFrameDTO {
    */
   possession: number | null;
 }
+
+// ---------------------------------------------------------------------------
+// T4-5a live-match DTOs — mirrors fw-tauri::live_match::types (camelCase serde)
+// ---------------------------------------------------------------------------
+
+/**
+ * An opaque reference to an active live-match session.
+ *
+ * `id` is the key in AppState's live-match map. `seedHex` is informational.
+ * The frontend treats the handle as opaque (ADR-0004 §1).
+ */
+export interface MatchHandle {
+  id: number;
+  seedHex: string;
+}
+
+/** Score pair within a live-match context (separate from `Score` in MatchResult). */
+export interface LiveScoreDto {
+  home: number;
+  away: number;
+}
+
+/** Possession percentages. `homePct + awayPct === 100` (within rounding). */
+export interface PossessionDto {
+  homePct: number;
+  awayPct: number;
+}
+
+/** Coarse match phase derived from tick + emitted events. */
+export type MatchPhase = "firstHalf" | "halfTime" | "secondHalf" | "fullTime";
+
+/**
+ * 5-bucket pitch zone from home's perspective.
+ * Derived from ball pos_x (home defends negative X, attacks positive X).
+ */
+export type BallZone =
+  | "ownDefensiveThird"
+  | "ownMidThird"
+  | "center"
+  | "oppMidThird"
+  | "oppAttackingThird";
+
+/** 11-slot team lineup. `players[i]` is the raw PlayerId u32 for slot `i`. */
+export interface LineupDto {
+  players: number[];
+}
+
+/** Returned by `step_live_match`. */
+export interface StepResult {
+  handle: MatchHandle;
+  /** Events emitted during this step only (delta since the previous call). */
+  newEvents: MatchEvent[];
+  score: LiveScoreDto;
+  tick: number;
+  isFinished: boolean;
+}
+
+/**
+ * Fat read DTO returned by `get_match_snapshot`.
+ *
+ * Powers scoreboard, lineup, and event-feed panels (ADR-0004 §3).
+ * `yellowCards` and `sentOff` are empty at T1 (no card system).
+ */
+export interface MatchSnapshot {
+  handle: MatchHandle;
+  tick: number;
+  minute: number;
+  phase: MatchPhase;
+  score: LiveScoreDto;
+  possessionPct: PossessionDto;
+  ballZone: BallZone;
+  homeLineup: LineupDto;
+  awayLineup: LineupDto;
+  /** Last 16 events in chronological order. */
+  recentEvents: MatchEvent[];
+  /** Per-player yellow-card count. Empty at T1. */
+  yellowCards: Record<number, number>;
+  /** Players sent off (raw PlayerId u32 values). Empty at T1. */
+  sentOff: number[];
+}
+
+/** Returned by `finish_live_match`. */
+export interface FinalMatchResult {
+  handle: MatchHandle;
+  finalScore: LiveScoreDto;
+  tick: number;
+  totalEvents: number;
+}
+
+// ---------------------------------------------------------------------------
+// MatchCommand — closed discriminated union (ADR-0004 §2)
+// ---------------------------------------------------------------------------
+
+export type PressLevel = "low" | "mid" | "high";
+export type TempoBias = "slow" | "even" | "fast";
+
+/**
+ * Manager intent, enqueued between ticks.
+ *
+ * Closed set: new variants need a logged decision (ADR-0004 §2).
+ * All 9 variants currently return `IpcError::LiveMatchCommandUnimplemented`.
+ * `playerId` fields carry raw u32 values matching `PlayerState::slot`.
+ */
+export type MatchCommand =
+  | { kind: "substitute"; playerIn: number; playerOut: number }
+  | { kind: "changeFormation"; formation: string }
+  | { kind: "changePressLevel"; level: PressLevel }
+  | { kind: "changeTempoBias"; bias: TempoBias }
+  | { kind: "setCornerTaker"; player: number }
+  | { kind: "setFreeKickTaker"; player: number }
+  | { kind: "setPenaltyTaker"; player: number }
+  | { kind: "setCaptain"; player: number }
+  | { kind: "teamTalk"; messageId: string };
+
+/**
+ * Canonical `kind` strings for all 9 `MatchCommand` variants.
+ *
+ * Mirrors `KNOWN_MATCH_COMMAND_KINDS` in `crates/fw-tauri/src/live_match/types.rs`.
+ * The `satisfies` clause pins this tuple to the `MatchCommand["kind"]` union
+ * so a new variant in Rust produces a TS compile error here.
+ */
+export const KNOWN_LIVE_MATCH_COMMAND_KINDS = [
+  "substitute",
+  "changeFormation",
+  "changePressLevel",
+  "changeTempoBias",
+  "setCornerTaker",
+  "setFreeKickTaker",
+  "setPenaltyTaker",
+  "setCaptain",
+  "teamTalk",
+] as const satisfies readonly MatchCommand["kind"][];
 
 // ---------------------------------------------------------------------------
 // T3-9 career-loop DTOs — mirrors fw-tauri career command return types

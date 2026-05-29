@@ -32,16 +32,21 @@ use serde::Serialize;
 pub mod commands;
 pub mod error;
 pub mod handshake;
+pub mod live_match;
 pub mod result;
 pub mod season;
 pub mod state;
 
 pub use commands::{
-    advance_season, advance_week, get_backend_handshake, get_career_overview, get_fixtures,
-    get_player_detail, get_squad, get_standings, match_frames, play_fixtures, play_match,
+    advance_season, advance_week, apply_match_command, finish_live_match, get_backend_handshake,
+    get_career_overview, get_fixtures, get_match_snapshot, get_player_detail, get_squad,
+    get_standings, match_frames, play_fixtures, play_match, start_live_match, step_live_match,
 };
 pub use error::IpcError;
 pub use handshake::BackendHandshakeDto;
+pub use live_match::types::{
+    FinalMatchResult, MatchCommand, MatchHandle, MatchSnapshot, StepResult,
+};
 pub use result::{MatchEventDto, MatchResult, Score};
 pub use state::AppState;
 

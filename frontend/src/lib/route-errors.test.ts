@@ -119,12 +119,28 @@ describe("describeRouteError", () => {
     expect(headline(err)).not.toBe(headline(GENERIC_SHAPE));
   });
 
+  it("liveMatchCommandUnimplemented: variant-specific headline, NOT the generic fallback", () => {
+    const err = {
+      kind: "liveMatchCommandUnimplemented",
+      commandKind: "substitute",
+    };
+    expect(headline(err)).not.toBe(headline(GENERIC_SHAPE));
+  });
+
+  it("liveMatchCommandUnimplemented: detail contains the commandKind verbatim", () => {
+    const err = {
+      kind: "liveMatchCommandUnimplemented",
+      commandKind: "changeFormation",
+    };
+    expect(detail(err)).toContain("changeFormation");
+  });
+
   // ---------------------------------------------------------------------------
   // Uniqueness: no two variants produce identical headlines (coarse catch-all
   // for collapsed-branch regressions not caught by individual assertions).
   // ---------------------------------------------------------------------------
 
-  it("all 8 known variants produce distinct headlines from each other", () => {
+  it("all 9 known variants produce distinct headlines from each other", () => {
     const variants = [
       { kind: "tooManyFrames", requested: 9000, max: 7200 },
       { kind: "invalidSeed", input: "0xGGGG", reason: "not hex" },
@@ -134,6 +150,7 @@ describe("describeRouteError", () => {
       { kind: "lockPoisoned", lock: "season" },
       { kind: "playerNotFound", playerId: "fwh.core:player_99999" },
       { kind: "seasonNotComplete" },
+      { kind: "liveMatchCommandUnimplemented", commandKind: "substitute" },
     ];
     const headlines = variants.map((v) => headline(v));
     const unique = new Set(headlines);

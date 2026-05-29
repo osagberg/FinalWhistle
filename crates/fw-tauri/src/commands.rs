@@ -23,10 +23,15 @@ use fw_content::{
     render_memory_callback,
 };
 use fw_core::{PlayerId, Seed};
-use fw_match_sim::{MatchState, tick_match};
+use fw_match_sim::{MatchState, PLAYERS_PER_TEAM, tick_match};
 use fw_memory::event::{EventClass, SeasonNumber};
 use fw_memory::readers::{SalienceFilter, salience::SalienceReader};
 
+use crate::live_match::session::LiveMatchSession;
+use crate::live_match::snapshot::{project_final, project_snapshot};
+use crate::live_match::types::{
+    FinalMatchResult, MatchCommand, MatchHandle, MatchSnapshot, StepResult,
+};
 use crate::state::{fixture_seed, league_fixture_index};
 use crate::{
     AdvanceSeasonSummaryDto, AdvanceWeekSummaryDto, AppState, BackendHandshakeDto,
@@ -126,6 +131,81 @@ pub async fn get_career_overview(
     state: tauri::State<'_, AppState>,
 ) -> Result<CareerOverviewDto, IpcError> {
     get_career_overview_inner(&state)
+}
+
+// ---------------------------------------------------------------------------
+// Live-match command quintet (T4-5a) — ADR-0004 §1
+// ---------------------------------------------------------------------------
+
+/// `start_live_match(seedHex)` — allocate a new live-match session.
+///
+/// Parses the seed, initialises a fresh `MatchState`, inserts a
+/// `LiveMatchSession` into `AppState::live_matches`, and returns a
+/// `MatchHandle { id, seedHex }`.
+#[tauri::command]
+pub async fn start_live_match(
+    seed_hex: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<MatchHandle, IpcError> {
+    start_live_match_inner(seed_hex, &state)
+}
+
+/// `step_live_match(handle, ticks)` — advance the live match by `ticks` ticks.
+///
+/// Returns a `StepResult` containing the events emitted during this call
+/// (delta since the previous `step_live_match`), current score, tick, and
+/// a `isFinished` flag.
+///
+/// Returns `IpcError::TooManyFrames` when `ticks > MAX_FRAMES_PER_REQUEST`.
+/// Returns `IpcError::MatchInitFailed` when `handle.id` is not found.
+#[tauri::command]
+pub async fn step_live_match(
+    handle: MatchHandle,
+    ticks: u32,
+    state: tauri::State<'_, AppState>,
+) -> Result<StepResult, IpcError> {
+    step_live_match_inner(handle, ticks, &state)
+}
+
+/// `get_match_snapshot(handle)` — read the current match state as a fat DTO.
+///
+/// Powers scoreboard, lineup, and event-feed panels. Non-mutating.
+///
+/// Returns `IpcError::MatchInitFailed` when `handle.id` is not found.
+#[tauri::command]
+pub async fn get_match_snapshot(
+    handle: MatchHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<MatchSnapshot, IpcError> {
+    get_match_snapshot_inner(handle, &state)
+}
+
+/// `finish_live_match(handle)` — remove the live-match session and return the
+/// final result.
+///
+/// After this call the handle is invalid. Returns `IpcError::MatchInitFailed`
+/// when `handle.id` is not found.
+#[tauri::command]
+pub async fn finish_live_match(
+    handle: MatchHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<FinalMatchResult, IpcError> {
+    finish_live_match_inner(handle, &state)
+}
+
+/// `apply_match_command(handle, command)` — enqueue a manager intent.
+///
+/// All 9 `MatchCommand` variants currently return
+/// `IpcError::LiveMatchCommandUnimplemented`. The command is deserialized and
+/// recorded in the session's `pending_commands` audit trail before the error
+/// is returned. Returns `IpcError::MatchInitFailed` when `handle.id` is not found.
+#[tauri::command]
+pub async fn apply_match_command(
+    handle: MatchHandle,
+    command: MatchCommand,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), IpcError> {
+    apply_match_command_inner(handle, command, &state)
 }
 
 // ---------------------------------------------------------------------------
@@ -894,6 +974,194 @@ pub fn get_career_overview_inner(state: &AppState) -> Result<CareerOverviewDto, 
         history,
         cross_season_callbacks,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Live-match inner helpers (T4-5a)
+// ---------------------------------------------------------------------------
+
+pub fn start_live_match_inner(seed_hex: String, state: &AppState) -> Result<MatchHandle, IpcError> {
+    let seed = parse_seed_hex(&seed_hex)?;
+    let sim_state = MatchState::initial_with_content(
+        seed,
+        state.content(),
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+    )?;
+
+    let id = state.alloc_live_match_id();
+    let handle = MatchHandle {
+        id,
+        seed_hex: seed_hex.clone(),
+    };
+    let session = LiveMatchSession::new(id, seed.to_u64(), seed_hex, sim_state);
+
+    state
+        .live_matches()
+        .write()
+        .map_err(|_| IpcError::LockPoisoned {
+            lock: "live_matches".to_string(),
+        })?
+        .insert(id, session);
+
+    Ok(handle)
+}
+
+pub fn step_live_match_inner(
+    handle: MatchHandle,
+    ticks: u32,
+    state: &AppState,
+) -> Result<StepResult, IpcError> {
+    if ticks > MAX_FRAMES_PER_REQUEST {
+        return Err(IpcError::TooManyFrames {
+            requested: ticks,
+            max: MAX_FRAMES_PER_REQUEST,
+        });
+    }
+
+    let mut live = state
+        .live_matches()
+        .write()
+        .map_err(|_| IpcError::LockPoisoned {
+            lock: "live_matches".to_string(),
+        })?;
+
+    let session = live
+        .get_mut(&handle.id)
+        .ok_or_else(|| IpcError::MatchInitFailed {
+            reason: format!("unknown live-match handle id={}", handle.id),
+        })?;
+
+    // `state.match_events()` is the single append-only source (canonical state,
+    // `fw-match-sim` encoder VERSION 7); record its length before the loop to
+    // slice the per-step delta after. No separate session-side event mirror.
+    //
+    // Note: this loop intentionally does NOT stop at FullTime — it must stay
+    // bit-for-bit equivalent to `play_match_inner`, which runs the full tick
+    // budget unconditionally (the sim keeps integrating past the whistle today).
+    // Making the sim halt at FullTime is a future `fw-match-sim` concern; doing
+    // it here would diverge live mode from the batched path and break AC4.
+    let events_before = session.state.match_events().len();
+
+    for _ in 0..ticks {
+        // Snapshot possession before tick for the tally update.
+        let possession_before = session.state.possession();
+
+        session.state = tick_match(session.state.clone(), state.signature_definitions());
+
+        // Update possession tally.
+        let possession_after = session.state.possession();
+        if let Some(slot) = possession_after {
+            // Tally for the slot that HAD possession at end of tick.
+            // slot < PLAYERS_PER_TEAM = home; else away.
+            let team = if (slot as usize) < PLAYERS_PER_TEAM {
+                0
+            } else {
+                1
+            };
+            session.possession_ticks[team] = session.possession_ticks[team].saturating_add(1);
+        } else if let Some(slot) = possession_before {
+            // Ball was released this tick — credit the team that had it at start.
+            let team = if (slot as usize) < PLAYERS_PER_TEAM {
+                0
+            } else {
+                1
+            };
+            session.possession_ticks[team] = session.possession_ticks[team].saturating_add(1);
+        }
+    }
+
+    let new_events: Vec<crate::result::MatchEventDto> = session.state.match_events()
+        [events_before..]
+        .iter()
+        .map(crate::result::MatchEventDto::from_match_event)
+        .collect();
+
+    let result = StepResult {
+        handle,
+        new_events,
+        score: crate::live_match::types::ScoreDto {
+            home: session.state.home_score,
+            away: session.state.away_score,
+        },
+        tick: session.state.tick.to_raw().max(0) as u32,
+        is_finished: session.is_finished(),
+    };
+
+    Ok(result)
+}
+
+pub fn get_match_snapshot_inner(
+    handle: MatchHandle,
+    state: &AppState,
+) -> Result<MatchSnapshot, IpcError> {
+    let live = state
+        .live_matches()
+        .read()
+        .map_err(|_| IpcError::LockPoisoned {
+            lock: "live_matches".to_string(),
+        })?;
+
+    let session = live
+        .get(&handle.id)
+        .ok_or_else(|| IpcError::MatchInitFailed {
+            reason: format!("unknown live-match handle id={}", handle.id),
+        })?;
+
+    let echo_handle = MatchHandle {
+        id: handle.id,
+        seed_hex: session.seed_hex.clone(),
+    };
+    Ok(project_snapshot(session, echo_handle))
+}
+
+pub fn finish_live_match_inner(
+    handle: MatchHandle,
+    state: &AppState,
+) -> Result<FinalMatchResult, IpcError> {
+    let mut live = state
+        .live_matches()
+        .write()
+        .map_err(|_| IpcError::LockPoisoned {
+            lock: "live_matches".to_string(),
+        })?;
+
+    let session = live
+        .remove(&handle.id)
+        .ok_or_else(|| IpcError::MatchInitFailed {
+            reason: format!("unknown live-match handle id={}", handle.id),
+        })?;
+
+    let echo_handle = MatchHandle {
+        id: handle.id,
+        seed_hex: session.seed_hex.clone(),
+    };
+    Ok(project_final(&session, echo_handle))
+}
+
+pub fn apply_match_command_inner(
+    handle: MatchHandle,
+    command: MatchCommand,
+    state: &AppState,
+) -> Result<(), IpcError> {
+    let mut live = state
+        .live_matches()
+        .write()
+        .map_err(|_| IpcError::LockPoisoned {
+            lock: "live_matches".to_string(),
+        })?;
+
+    let session = live
+        .get_mut(&handle.id)
+        .ok_or_else(|| IpcError::MatchInitFailed {
+            reason: format!("unknown live-match handle id={}", handle.id),
+        })?;
+
+    let kind = command.kind_str().to_string();
+    // Record for audit trail before returning the error.
+    session.pending_commands.push(command);
+
+    Err(IpcError::LiveMatchCommandUnimplemented { command_kind: kind })
 }
 
 /// Extract the numeric suffix from a content-pack-qualified player ID.

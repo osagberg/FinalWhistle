@@ -23,6 +23,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 
 use fw_content::{
@@ -33,6 +34,7 @@ use fw_core::{Seed, SeedLayer, Tick, seed_fn};
 use fw_memory::event::SeasonNumber;
 use fw_memory::ledger::MemoryLedger;
 
+use crate::live_match::LiveMatchSession;
 use crate::season::SEASON_MATCH_TICK_BUDGET;
 
 /// The default career seed used when no explicit seed is provided.
@@ -83,6 +85,9 @@ impl CareerState {
 /// T3-9 shape: content store (read-only after construction) + career seed +
 /// all mutable career state behind a single `RwLock<CareerState>`.
 ///
+/// T4-5a adds `live_matches` (active live-match sessions) and
+/// `next_live_match_id` (lock-free handle allocation).
+///
 /// Fields are `pub(crate)` — external consumers go through the accessor
 /// methods so the invariant "season mutations go through `SeasonState` API" is
 /// doc-enforced, not just convention.
@@ -103,6 +108,28 @@ pub struct AppState {
     /// `IpcError::LockPoisoned { lock: "career".to_string() }` rather than
     /// `.expect()` (Tauri/RULES.md §4 forbids panics in handlers).
     pub(crate) career: RwLock<CareerState>,
+
+    // ---- T4-5a: live-match session store ----
+    /// All currently active live-match sessions, keyed by handle ID.
+    ///
+    /// `BTreeMap` for deterministic iteration order (Sim/RULES.md §2 —
+    /// although this map is non-canonical, keeping one rule avoids the
+    /// "which DTO was canonical-feeding again?" confusion).
+    ///
+    /// Handlers that read (get_match_snapshot) take a read lock.
+    /// Handlers that mutate (step, finish, apply_command) take a write lock.
+    ///
+    /// Poison-error discipline: same as `career` — map to `IpcError::LockPoisoned`.
+    pub(crate) live_matches: RwLock<BTreeMap<u32, LiveMatchSession>>,
+
+    /// Monotonically increasing counter for allocating live-match handle IDs.
+    ///
+    /// `AtomicU32` with `Ordering::Relaxed` is sufficient here: handle IDs
+    /// only need to be unique (not sequentially ordered across threads), and
+    /// the map insertion under the write lock provides the sequencing guarantee
+    /// that prevents two concurrent `start_live_match` calls from overwriting
+    /// each other.
+    pub(crate) next_live_match_id: AtomicU32,
 }
 
 impl AppState {
@@ -147,6 +174,8 @@ impl AppState {
                 ledger: MemoryLedger::new(),
                 season_number: SeasonNumber(0),
             }),
+            live_matches: RwLock::new(BTreeMap::new()),
+            next_live_match_id: AtomicU32::new(0),
         })
     }
 
@@ -188,6 +217,35 @@ impl AppState {
     /// ```
     pub fn career(&self) -> &RwLock<CareerState> {
         &self.career
+    }
+
+    /// Access to the live-match session store (T4-5a).
+    ///
+    /// Handlers that only read (get_match_snapshot) acquire a read lock.
+    /// Handlers that mutate (step_live_match, finish_live_match,
+    /// apply_match_command) acquire a write lock.
+    ///
+    /// Poison discipline: same as `career()` — map to
+    /// `IpcError::LockPoisoned { lock: "live_matches".to_string() }`.
+    pub fn live_matches(&self) -> &RwLock<BTreeMap<u32, LiveMatchSession>> {
+        &self.live_matches
+    }
+
+    /// Allocate a new live-match handle ID (T4-5a).
+    ///
+    /// `Ordering::Relaxed` is sufficient — uniqueness is guaranteed by the
+    /// fetch_add atomic increment; ordering relative to the subsequent map
+    /// insertion is guaranteed by the write lock on `live_matches`.
+    ///
+    /// OVERFLOW: `fetch_add` wraps at `u32::MAX`. Reaching it requires ~4.3
+    /// billion `start_live_match` calls within a single app process — a
+    /// live match is a foregrounded, user-initiated session, so this is
+    /// unreachable in practice. A wrap would only alias an id if a session
+    /// allocated 2^32 starts ago were somehow still open; finished matches
+    /// are removed from the map, so the realistic blast radius is nil. Wrap
+    /// (vs panic) is the accepted behaviour here.
+    pub fn alloc_live_match_id(&self) -> u32 {
+        self.next_live_match_id.fetch_add(1, Ordering::Relaxed)
     }
 }
 

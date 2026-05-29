@@ -36,6 +36,12 @@ fn main() {
             fw_tauri::commands::get_player_detail,
             fw_tauri::commands::advance_season,
             fw_tauri::commands::get_career_overview,
+            // T4-5a: live-match command quintet (ADR-0004 §1)
+            fw_tauri::commands::start_live_match,
+            fw_tauri::commands::step_live_match,
+            fw_tauri::commands::get_match_snapshot,
+            fw_tauri::commands::finish_live_match,
+            fw_tauri::commands::apply_match_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -48,6 +48,7 @@ const KNOWN_IPC_ERROR_KINDS = [
   "lockPoisoned",
   "playerNotFound",
   "seasonNotComplete",
+  "liveMatchCommandUnimplemented",
 ] as const satisfies readonly IpcError["kind"][];
 
 const KNOWN_IPC_ERROR_KINDS_SET: ReadonlySet<string> = new Set(
@@ -136,6 +137,11 @@ export function describeRouteError(
       return {
         headline: "There are still fixtures to play",
         detail: "The season can't wrap up while matches remain on the fixture list. Play out the remaining games first.",
+      };
+    case "liveMatchCommandUnimplemented":
+      return {
+        headline: "That instruction hasn't landed yet",
+        detail: `The in-match command system isn't fully wired up — that particular instruction (${err.commandKind}) will land in a future build.`,
       };
     default: {
       // Exhaustiveness gate: TypeScript flags this if a new IpcError variant

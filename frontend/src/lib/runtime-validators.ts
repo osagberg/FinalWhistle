@@ -42,19 +42,28 @@ import type {
   AdvanceSeasonSummary,
   AdvanceWeekSummary,
   BackendHandshake,
+  BallZone,
   CareerOverview,
   ChampionHistoryEntry,
+  FinalMatchResult,
   FixtureWithResult,
+  LineupDto,
+  LiveScoreDto,
   MatchEvent,
   MatchEventKind,
   MatchFrameDTO,
+  MatchHandle,
+  MatchPhase,
   MatchResult,
+  MatchSnapshot,
   PlayFixturesSummary,
   PlayerDetail,
   PlayerPhenotype,
+  PossessionDto,
   Score,
   SquadPlayer,
   StandingsRow,
+  StepResult,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -428,5 +437,117 @@ export function isCareerOverview(v: unknown): v is CareerOverview {
   if (!v.history.every(isChampionHistoryEntry)) return false;
   if (!Array.isArray(v.crossSeasonCallbacks)) return false;
   if (!v.crossSeasonCallbacks.every((s) => typeof s === "string")) return false;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// T4-5a live-match guards
+// ---------------------------------------------------------------------------
+
+export function isMatchHandle(v: unknown): v is MatchHandle {
+  if (!isObject(v)) return false;
+  if (!isU32(v.id)) return false;
+  if (typeof v.seedHex !== "string" || v.seedHex.length === 0) return false;
+  return true;
+}
+
+function isLiveScoreDto(v: unknown): v is LiveScoreDto {
+  if (!isObject(v)) return false;
+  return (
+    typeof v.home === "number" &&
+    Number.isInteger(v.home) &&
+    v.home >= 0 &&
+    v.home <= 255 &&
+    typeof v.away === "number" &&
+    Number.isInteger(v.away) &&
+    v.away >= 0 &&
+    v.away <= 255
+  );
+}
+
+function isPossessionDto(v: unknown): v is PossessionDto {
+  if (!isObject(v)) return false;
+  const h = v.homePct;
+  const a = v.awayPct;
+  return (
+    typeof h === "number" &&
+    Number.isInteger(h) &&
+    h >= 0 &&
+    h <= 100 &&
+    typeof a === "number" &&
+    Number.isInteger(a) &&
+    a >= 0 &&
+    a <= 100
+  );
+}
+
+const KNOWN_MATCH_PHASES = new Set<MatchPhase>([
+  "firstHalf",
+  "halfTime",
+  "secondHalf",
+  "fullTime",
+]);
+
+function isMatchPhase(v: unknown): v is MatchPhase {
+  return typeof v === "string" && KNOWN_MATCH_PHASES.has(v as MatchPhase);
+}
+
+const KNOWN_BALL_ZONES = new Set<BallZone>([
+  "ownDefensiveThird",
+  "ownMidThird",
+  "center",
+  "oppMidThird",
+  "oppAttackingThird",
+]);
+
+function isBallZone(v: unknown): v is BallZone {
+  return typeof v === "string" && KNOWN_BALL_ZONES.has(v as BallZone);
+}
+
+function isLineupDto(v: unknown): v is LineupDto {
+  if (!isObject(v)) return false;
+  if (!Array.isArray(v.players)) return false;
+  if (v.players.length !== 11) return false;
+  return v.players.every((p) => isU32(p));
+}
+
+export function isStepResult(v: unknown): v is StepResult {
+  if (!isObject(v)) return false;
+  if (!isMatchHandle(v.handle)) return false;
+  if (!Array.isArray(v.newEvents)) return false;
+  if (!v.newEvents.every(isMatchEvent)) return false;
+  if (!isLiveScoreDto(v.score)) return false;
+  if (!isU32(v.tick)) return false;
+  if (typeof v.isFinished !== "boolean") return false;
+  return true;
+}
+
+export function isMatchSnapshot(v: unknown): v is MatchSnapshot {
+  if (!isObject(v)) return false;
+  if (!isMatchHandle(v.handle)) return false;
+  if (!isU32(v.tick)) return false;
+  if (typeof v.minute !== "number" || !Number.isInteger(v.minute)) return false;
+  if (!isMatchPhase(v.phase)) return false;
+  if (!isLiveScoreDto(v.score)) return false;
+  if (!isPossessionDto(v.possessionPct)) return false;
+  if (!isBallZone(v.ballZone)) return false;
+  if (!isLineupDto(v.homeLineup)) return false;
+  if (!isLineupDto(v.awayLineup)) return false;
+  if (!Array.isArray(v.recentEvents)) return false;
+  if (!v.recentEvents.every(isMatchEvent)) return false;
+  // yellowCards is a Record<number, number> — check it's an object.
+  if (!isObject(v.yellowCards)) return false;
+  // sentOff is an array of numbers (raw PlayerId u32 values).
+  if (!Array.isArray(v.sentOff)) return false;
+  if (!v.sentOff.every((id) => isU32(id))) return false;
+  return true;
+}
+
+export function isFinalMatchResult(v: unknown): v is FinalMatchResult {
+  if (!isObject(v)) return false;
+  if (!isMatchHandle(v.handle)) return false;
+  if (!isLiveScoreDto(v.finalScore)) return false;
+  if (!isU32(v.tick)) return false;
+  if (!isU32(v.totalEvents)) return false;
   return true;
 }
