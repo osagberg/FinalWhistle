@@ -15,9 +15,11 @@ default:
 # ----------------------------------------------------------------
 
 # Launch Tauri dev mode (Rust backend + SolidJS frontend with HMR).
+# Uses the npm-distributed Tauri CLI (@tauri-apps/cli, a frontend devDep) via
+# `pnpm exec` — NOT a global `cargo tauri`, which is not installed/required.
 dev:
     cd frontend && pnpm install
-    cargo tauri dev
+    pnpm exec tauri dev
 
 # ----------------------------------------------------------------
 # Tests
@@ -75,7 +77,7 @@ build-release:
 bundle:
     cd frontend && pnpm install --frozen-lockfile
     cd frontend && pnpm build
-    cargo tauri build
+    pnpm exec tauri build
 
 # ----------------------------------------------------------------
 # Local CI mirror
