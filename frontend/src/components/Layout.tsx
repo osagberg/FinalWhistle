@@ -17,6 +17,7 @@ const NAV: readonly NavItem[] = [
   { to: "/league", label: "League", hotkey: "5" },
   { to: "/career", label: "Career", hotkey: "6" },
   { to: "/stats", label: "Stats", hotkey: "7" },
+  { to: "/settings", label: "Settings", hotkey: "8" },
   { to: "/match", label: "Match", hotkey: "M" },
 ] as const;
 

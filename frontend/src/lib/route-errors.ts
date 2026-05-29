@@ -49,6 +49,7 @@ const KNOWN_IPC_ERROR_KINDS = [
   "playerNotFound",
   "seasonNotComplete",
   "liveMatchCommandUnimplemented",
+  "settingsLoadFailed",
 ] as const satisfies readonly IpcError["kind"][];
 
 const KNOWN_IPC_ERROR_KINDS_SET: ReadonlySet<string> = new Set(
@@ -142,6 +143,11 @@ export function describeRouteError(
       return {
         headline: "That instruction hasn't landed yet",
         detail: `The in-match command system isn't fully wired up — that particular instruction (${err.commandKind}) will land in a future build.`,
+      };
+    case "settingsLoadFailed":
+      return {
+        headline: "Preferences couldn't be loaded",
+        detail: "The settings file looks to be damaged. The app will use the defaults. If this keeps happening, try removing the settings file and restarting.",
       };
     default: {
       // Exhaustiveness gate: TypeScript flags this if a new IpcError variant

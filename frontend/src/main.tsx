@@ -18,11 +18,26 @@ import "@fontsource/jetbrains-mono/700.css";
 
 import "./styles.css";
 import App from "./App";
+import { getSettings } from "./lib/api/settings";
+import { setTheme, setReduceMotion } from "./lib/state";
 
 const root = document.getElementById("root");
 if (!root) {
   throw new Error("Root element #root not found in index.html");
 }
+
+// Apply persisted settings before first render where feasible.
+// Best-effort: if this fails (e.g. no Tauri in browser-preview), fall back
+// to the signal defaults (light, no reduce-motion) and do NOT crash.
+getSettings()
+  .then((s) => {
+    setTheme(s.theme);
+    setReduceMotion(s.reduceMotion);
+  })
+  .catch(() => {
+    // Silently ignore — browser preview and test environments have no Tauri
+    // runtime. The signal defaults (light, false) are correct fallbacks.
+  });
 
 // <Router>'s children are <Route> definitions. App() returns a <Route>
 // tree; invoke it to get JSX (a plain function reference here would type

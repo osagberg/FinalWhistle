@@ -48,6 +48,11 @@
 //! intentionally omitted; T3-R-E's V3 persists it (`Option<SeasonState>`)
 //! because Codex review E5 found a V2 save could not resume mid-season.
 
+pub mod settings;
+pub use settings::{
+    SettingsEnvelope, SettingsError, SettingsV0, ThemePref, encode_settings, load_settings_envelope,
+};
+
 use std::collections::BTreeMap;
 
 use fw_content::SeasonState;

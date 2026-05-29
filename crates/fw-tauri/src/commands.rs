@@ -26,6 +26,7 @@ use fw_core::{PlayerId, Seed};
 use fw_match_sim::{MatchState, PLAYERS_PER_TEAM, tick_match};
 use fw_memory::event::{EventClass, SeasonNumber};
 use fw_memory::readers::{SalienceFilter, salience::SalienceReader};
+use fw_save;
 
 use crate::live_match::session::LiveMatchSession;
 use crate::live_match::snapshot::{project_final, project_snapshot};
@@ -1162,6 +1163,84 @@ pub fn apply_match_command_inner(
     session.pending_commands.push(command);
 
     Err(IpcError::LiveMatchCommandUnimplemented { command_kind: kind })
+}
+
+// ---------------------------------------------------------------------------
+// Settings commands (T4-6a)
+// ---------------------------------------------------------------------------
+
+/// `get_settings()` — read persisted app settings.
+///
+/// Returns `AppSettingsDto` with the current settings. If the settings file
+/// is **absent** (first-run), returns `SettingsV0::default()` projected to the
+/// DTO — NOT an error. A missing file is normal; a corrupt file IS an error.
+#[tauri::command]
+pub async fn get_settings(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::AppSettingsDto, IpcError> {
+    get_settings_inner(&state)
+}
+
+/// `set_settings(settings)` — persist app settings.
+///
+/// Validates the DTO, encodes to `SettingsEnvelope::V0`, and writes to the
+/// settings file. The write is non-atomic at T4-6a (a plain overwrite); a
+/// write-temp-rename pattern can be added at T4-6b if needed.
+#[tauri::command]
+pub async fn set_settings(
+    settings: crate::AppSettingsDto,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), IpcError> {
+    set_settings_inner(settings, &state)
+}
+
+pub fn get_settings_inner(state: &AppState) -> Result<crate::AppSettingsDto, IpcError> {
+    let path = state.settings_path();
+
+    // First-run: missing file → return defaults, NOT an error.
+    if !path.exists() {
+        return Ok(crate::AppSettingsDto::from_settings_v0(
+            fw_save::SettingsV0::default(),
+        ));
+    }
+
+    let bytes = std::fs::read(path).map_err(|e| IpcError::SettingsLoadFailed {
+        reason: e.to_string(),
+    })?;
+
+    let v0 = fw_save::load_settings_envelope(&bytes).map_err(|e| IpcError::SettingsLoadFailed {
+        reason: e.to_string(),
+    })?;
+
+    Ok(crate::AppSettingsDto::from_settings_v0(v0))
+}
+
+pub fn set_settings_inner(
+    settings: crate::AppSettingsDto,
+    state: &AppState,
+) -> Result<(), IpcError> {
+    let v0 = settings.to_settings_v0();
+    let envelope = fw_save::SettingsEnvelope::V0(v0);
+    let bytes = fw_save::encode_settings(&envelope).map_err(|e| IpcError::SettingsLoadFailed {
+        reason: e.to_string(),
+    })?;
+
+    // Ensure parent directory exists (first write on a fresh install).
+    if let Some(parent) = state
+        .settings_path()
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent).map_err(|e| IpcError::SettingsLoadFailed {
+            reason: format!("could not create settings directory: {e}"),
+        })?;
+    }
+
+    std::fs::write(state.settings_path(), &bytes).map_err(|e| IpcError::SettingsLoadFailed {
+        reason: e.to_string(),
+    })?;
+
+    Ok(())
 }
 
 /// Extract the numeric suffix from a content-pack-qualified player ID.

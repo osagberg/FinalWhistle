@@ -119,7 +119,31 @@ export type IpcError =
       kind: "liveMatchCommandUnimplemented";
       /** camelCase command kind, e.g. `"substitute"`. */
       commandKind: string;
+    }
+  | {
+      kind: "settingsLoadFailed";
+      /** Human-readable decode failure reason. Not shown in player-facing UI. */
+      reason: string;
     };
+
+// ---------------------------------------------------------------------------
+// T4-6a settings DTOs — mirrors fw-tauri::AppSettingsDto (camelCase serde)
+// ---------------------------------------------------------------------------
+
+/** Colour scheme preference. Mirrors `ThemePrefDto` in fw-tauri. */
+export type ThemePref = "light" | "dark";
+
+/**
+ * App settings payload returned by `get_settings` / accepted by `set_settings`.
+ *
+ * `theme`: `"light"` or `"dark"`.
+ * `reduceMotion`: when `true`, the UI applies `.reduce-motion` to suppress
+ * CSS transitions and animations.
+ */
+export interface AppSettingsDto {
+  theme: ThemePref;
+  reduceMotion: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Frame-cap constant — mirrors `fw_tauri::MAX_FRAMES_PER_REQUEST`.

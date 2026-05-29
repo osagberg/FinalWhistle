@@ -4,11 +4,11 @@
 
 ## Phase
 
-**Phase T4 — Beautiful UI + Tactical Viewer — IN PROGRESS.** Phase T3 (Career + Memory) CLOSED 2026-05-21 (Codex phase-gate ACCEPT, tag `v0.3.0-career`); the post-T3 cleanup cluster T3-R-A..F all DONE. T4 began 2026-05-21 — **T4-1 (PixiJS tactical board) + T4-2 (ECharts per-team stat dashboard) + T4-3 (visual-identity lock) + T4-4 (loading / empty / error states) + T4-5a (ADR-0004 live-match IPC quintet) DONE.** T4 ships 8 MVP rows (T4-1..T4-8) + a Stretch T4-9; the T4 Exit Gate is locked in `docs/MASTER_PLAN.md`.
+**Phase T4 — Beautiful UI + Tactical Viewer — IN PROGRESS.** Phase T3 (Career + Memory) CLOSED 2026-05-21 (Codex phase-gate ACCEPT, tag `v0.3.0-career`); the post-T3 cleanup cluster T3-R-A..F all DONE. T4 began 2026-05-21 — **T4-1 (PixiJS tactical board) + T4-2 (ECharts per-team stat dashboard) + T4-3 (visual-identity lock) + T4-4 (loading / empty / error states) + T4-5a (ADR-0004 live-match IPC quintet) + T4-6a (settings persistence foundation) DONE.** T4 ships 8 MVP rows (T4-1..T4-8) + a Stretch T4-9; the T4 Exit Gate is locked in `docs/MASTER_PLAN.md`.
 
 ## Active task
 
-(none — T4-5a (ADR-0004 live-match IPC quintet) closed 2026-05-22; new `fw-tauri::live_match` module + 5 IPC commands + `LiveMatchSession` handle store + closed 9-variant `MatchCommand` + `MatchSnapshot` DTO; AC4 determinism-equivalence holds (step×N == batched `play_match(N)`); `apply_match_command` fail-loud-stubbed. T4-5b (frontend live UI + salience jump) split off DEFERRED. Next `/next` picks **T4-6** — settings screen.)
+(none — T4-6a (settings persistence foundation) closed 2026-05-22; NEW versioned `SettingsEnvelope::V0` in `fw-save` (wire byte `0x00`, locked forever; SEPARATE app-global envelope from the SaveEnvelope game-save chain) + `get_settings`/`set_settings` IPC persisting theme + reduce-motion to `settings.fwcfg` in the Tauri app-config dir + a `/settings` route + load-on-startup + reduce-motion animation gating; AC4 persist-across-restart holds. T4-6b (text-scale / colorblind / key rebinds / save-folder) split off DEFERRED. Next `/next` picks **T4-7** — game-shell polish.)
 
 ## Blockers
 
@@ -16,7 +16,7 @@
 
 ## Last green verify
 
-2026-05-22 (T4-5a close): `scripts/fw verify` exit 0; full workspace + 60 fw-tauri tests (9 new live-match integration incl. AC4 determinism-equivalence) + 248 frontend tests; clippy + eslint + tsc + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
+2026-05-22 (T4-6a close): `scripts/fw verify` exit 0; full workspace (incl. 6 new fw-save settings tests + 4 new fw-tauri settings integration tests) + 265 frontend tests (+17 settings); clippy + eslint + tsc + banned-terms + determinism-audit clean; canonical match-state hashes UNCHANGED on both pins.
 
 ## Last canonical hash
 
@@ -25,6 +25,8 @@
 **Second corpus pin:** `blake3:aa7efe9b2a567d5e87d12c7da6a4ea928271429729884f38819baed85c3be5ae` (600-tick extended seed; T2-1-codex-fix rebaseline; UNCHANGED through T3).
 
 **Save-format wire-byte pins** (T2-9 + T3-1 + T3-R-E): SaveEnvelope V0=0x00 / V1=0x01 / V2=0x02 / V3=0x03. Locked FOREVER. V3 is the current production schema (career-state persistence).
+
+**Settings-format wire-byte pin** (T4-6a): SettingsEnvelope V0=0x00. Locked FOREVER. A SEPARATE app-global envelope (`settings.fwcfg` in the Tauri app-config dir) — NOT the per-save game-save chain. V0 = theme + reduce-motion.
 
 ## Phase T4 notes
 

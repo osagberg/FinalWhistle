@@ -99,6 +99,17 @@ pub enum IpcError {
         command_kind: String,
     },
 
+    /// Settings file exists but could not be decoded — likely corrupted.
+    ///
+    /// A missing settings file is NOT this variant — missing → first-run
+    /// defaults (see `get_settings_inner`). This variant fires only when the
+    /// file is present but malformed (bad bincode, unknown future version, or
+    /// a splice/truncation).
+    ///
+    /// Wire shape: `{ kind: "settingsLoadFailed", reason: "..." }`.
+    #[error("settings load failed: {reason}")]
+    SettingsLoadFailed { reason: String },
+
     /// An internal `RwLock` / `Mutex` was poisoned by a prior writer panic.
     ///
     /// Post-T2-5 silent-failure-hunter P1-3 fix: prior code used

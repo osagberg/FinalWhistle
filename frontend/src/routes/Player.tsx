@@ -49,6 +49,8 @@ const KNOWN_IPC_ERROR_KINDS = new Set([
   "seasonNotComplete",
   // T4-5a: live-match command variant.
   "liveMatchCommandUnimplemented",
+  // T4-6a: settings variant.
+  "settingsLoadFailed",
 ] as const) satisfies ReadonlySet<IpcError["kind"]>;
 
 function isIpcError(e: unknown): e is IpcError {

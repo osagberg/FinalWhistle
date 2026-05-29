@@ -13,6 +13,7 @@ const League = lazy(() => import("./routes/League"));
 const Match = lazy(() => import("./routes/Match"));
 const Career = lazy(() => import("./routes/Career"));
 const Stats = lazy(() => import("./routes/Stats"));
+const Settings = lazy(() => import("./routes/Settings"));
 // Dev-only board — T1-2a tactical board with frame scrubber + window.fwDev.
 const DevBoard = lazy(() => import("./routes/Dev/TacticalBoard"));
 // Dev-only harness — browser-previewable mount of the production
@@ -39,6 +40,7 @@ export default function App(): JSX.Element {
       <Route path="/match" component={Match} />
       <Route path="/career" component={Career} />
       <Route path="/stats" component={Stats} />
+      <Route path="/settings" component={Settings} />
       <Route path="/dev/board" component={DevBoard} />
       <Route path="/dev/board-preview" component={DevBoardPreview} />
     </Route>

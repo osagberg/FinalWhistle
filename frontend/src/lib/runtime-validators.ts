@@ -41,6 +41,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AdvanceSeasonSummary,
   AdvanceWeekSummary,
+  AppSettingsDto,
   BackendHandshake,
   BallZone,
   CareerOverview,
@@ -64,6 +65,7 @@ import type {
   SquadPlayer,
   StandingsRow,
   StepResult,
+  ThemePref,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -549,5 +551,25 @@ export function isFinalMatchResult(v: unknown): v is FinalMatchResult {
   if (!isLiveScoreDto(v.finalScore)) return false;
   if (!isU32(v.tick)) return false;
   if (!isU32(v.totalEvents)) return false;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// T4-6a AppSettings guard
+// ---------------------------------------------------------------------------
+
+const KNOWN_THEME_PREFS = new Set<ThemePref>([
+  "light",
+  "dark",
+]) satisfies ReadonlySet<ThemePref>;
+
+function isThemePref(v: unknown): v is ThemePref {
+  return typeof v === "string" && (KNOWN_THEME_PREFS as ReadonlySet<string>).has(v);
+}
+
+export function isAppSettings(v: unknown): v is AppSettingsDto {
+  if (!isObject(v)) return false;
+  if (!isThemePref(v.theme)) return false;
+  if (typeof v.reduceMotion !== "boolean") return false;
   return true;
 }

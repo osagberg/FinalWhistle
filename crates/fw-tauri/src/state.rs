@@ -22,7 +22,7 @@
 //! ContentStore across the async command boundary.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 
@@ -109,6 +109,14 @@ pub struct AppState {
     /// `.expect()` (Tauri/RULES.md §4 forbids panics in handlers).
     pub(crate) career: RwLock<CareerState>,
 
+    // ---- T4-6a: settings persistence ----
+    /// Path to the settings file (`settings.fwcfg` in the Tauri app-config dir).
+    ///
+    /// Resolved at construction time. Production code passes the Tauri
+    /// app-config dir; integration tests inject a temp-dir path so no live
+    /// Tauri runtime is required.
+    pub(crate) settings_path: PathBuf,
+
     // ---- T4-5a: live-match session store ----
     /// All currently active live-match sessions, keyed by handle ID.
     ///
@@ -141,16 +149,52 @@ impl AppState {
     /// which `load_sources` already validated. A failure here means the
     /// content directory is corrupted post-load, so `expect` is the right
     /// escalation — not a fallible `Result` variant.
+    ///
+    /// `settings_path` defaults to `./settings.fwcfg` relative to the working
+    /// directory. Production code (`main.rs`) overrides this with the Tauri
+    /// app-config dir after construction — see `set_settings_path`.
     pub fn new(content_root: &Path) -> Result<Self, ContentLoadError> {
         Self::new_with_career_seed(content_root, Seed::from_u64(DEFAULT_CAREER_SEED))
     }
 
     /// Construct `AppState` with an explicit career seed.
     ///
-    /// Used by integration tests to supply a known seed for determinism checks.
+    /// `settings_path` defaults to `./settings.fwcfg`. Integration tests that
+    /// need a custom path should call `new_with_settings_path` instead.
     pub fn new_with_career_seed(
         content_root: &Path,
         career_seed: Seed,
+    ) -> Result<Self, ContentLoadError> {
+        Self::new_with_settings_path(content_root, career_seed, PathBuf::from("settings.fwcfg"))
+    }
+
+    /// Construct `AppState` with the default career seed and an explicit
+    /// settings file path.
+    ///
+    /// This is the PRODUCTION constructor — `src-tauri/main.rs` resolves the
+    /// Tauri app-config dir inside `.setup()` (where the `AppHandle` exists)
+    /// and passes `<app-config-dir>/settings.fwcfg` here, so settings persist
+    /// to the OS-correct location rather than the process working directory.
+    pub fn new_with_settings_file(
+        content_root: &Path,
+        settings_path: PathBuf,
+    ) -> Result<Self, ContentLoadError> {
+        Self::new_with_settings_path(
+            content_root,
+            Seed::from_u64(DEFAULT_CAREER_SEED),
+            settings_path,
+        )
+    }
+
+    /// Construct `AppState` with an explicit career seed AND an explicit
+    /// settings file path.
+    ///
+    /// This is the primary constructor used by integration tests that need to
+    /// inject a temp-dir path so no live Tauri runtime is required.
+    pub fn new_with_settings_path(
+        content_root: &Path,
+        career_seed: Seed,
+        settings_path: PathBuf,
     ) -> Result<Self, ContentLoadError> {
         let content = ContentStore::load_sources(content_root)?;
         let signature_definitions = Arc::new(content.signature_definitions.clone());
@@ -174,9 +218,24 @@ impl AppState {
                 ledger: MemoryLedger::new(),
                 season_number: SeasonNumber(0),
             }),
+            settings_path,
             live_matches: RwLock::new(BTreeMap::new()),
             next_live_match_id: AtomicU32::new(0),
         })
+    }
+
+    /// Override the settings file path after construction.
+    ///
+    /// Called by `main.rs` after the Tauri app-config directory is resolved —
+    /// the Tauri API is not available until the builder runs, so we cannot
+    /// resolve it during `AppState::new`.
+    pub fn set_settings_path(&mut self, path: PathBuf) {
+        self.settings_path = path;
+    }
+
+    /// Read-only reference to the settings file path.
+    pub fn settings_path(&self) -> &PathBuf {
+        &self.settings_path
     }
 
     /// Read-only access to the loaded [`ContentStore`].

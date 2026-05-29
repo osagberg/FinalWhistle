@@ -39,9 +39,12 @@ pub mod state;
 
 pub use commands::{
     advance_season, advance_week, apply_match_command, finish_live_match, get_backend_handshake,
-    get_career_overview, get_fixtures, get_match_snapshot, get_player_detail, get_squad,
-    get_standings, match_frames, play_fixtures, play_match, start_live_match, step_live_match,
+    get_career_overview, get_fixtures, get_match_snapshot, get_player_detail, get_settings,
+    get_squad, get_standings, match_frames, play_fixtures, play_match, set_settings,
+    start_live_match, step_live_match,
 };
+// AppSettingsDto and ThemePrefDto are defined in this module below; they are
+// already pub and visible to integration tests via `fw_tauri::AppSettingsDto`.
 pub use error::IpcError;
 pub use handshake::BackendHandshakeDto;
 pub use live_match::types::{
@@ -316,6 +319,73 @@ pub struct PlayerDetailDto {
     pub memory_callbacks: Vec<String>,
     /// Contract information. `None` until the T4 career-roster layer lands.
     pub contract_status: Option<String>,
+}
+
+// -------------------------------------------------------------------------
+// T4-6a Settings DTO
+// -------------------------------------------------------------------------
+
+/// App settings DTO returned by `get_settings` and accepted by `set_settings`.
+///
+/// Maps directly to `fw_save::SettingsV0` but uses serde-camelCase so TS
+/// receives `{ theme: "light", reduceMotion: false }`.
+///
+/// `theme` encodes as a lowercase string — TS union `"light" | "dark"`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettingsDto {
+    /// Colour scheme preference. `"light"` or `"dark"` on the wire.
+    pub theme: ThemePrefDto,
+    /// When `true` the frontend suppresses CSS transitions + animations.
+    pub reduce_motion: bool,
+}
+
+/// Wire encoding for `ThemePref`.
+///
+/// `#[serde(rename_all = "camelCase")]` on the containing struct covers
+/// field names; the variants here must be explicit since they are enum
+/// string values, not field names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ThemePrefDto {
+    Light,
+    Dark,
+}
+
+impl From<fw_save::ThemePref> for ThemePrefDto {
+    fn from(t: fw_save::ThemePref) -> Self {
+        match t {
+            fw_save::ThemePref::Light => ThemePrefDto::Light,
+            fw_save::ThemePref::Dark => ThemePrefDto::Dark,
+        }
+    }
+}
+
+impl From<ThemePrefDto> for fw_save::ThemePref {
+    fn from(t: ThemePrefDto) -> Self {
+        match t {
+            ThemePrefDto::Light => fw_save::ThemePref::Light,
+            ThemePrefDto::Dark => fw_save::ThemePref::Dark,
+        }
+    }
+}
+
+impl AppSettingsDto {
+    /// Build from the canonical `SettingsV0` payload.
+    pub fn from_settings_v0(v0: fw_save::SettingsV0) -> Self {
+        AppSettingsDto {
+            theme: ThemePrefDto::from(v0.theme),
+            reduce_motion: v0.reduce_motion,
+        }
+    }
+
+    /// Convert to the canonical `SettingsV0` payload for persistence.
+    pub fn to_settings_v0(self) -> fw_save::SettingsV0 {
+        fw_save::SettingsV0 {
+            theme: fw_save::ThemePref::from(self.theme),
+            reduce_motion: self.reduce_motion,
+        }
+    }
 }
 
 // -------------------------------------------------------------------------

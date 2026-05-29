@@ -15,8 +15,12 @@ const [careerIdSignal, setCareerIdSignal] = createSignal<string | null>(null);
 // The club the user is managing within the active career.
 const [selectedClubIdSignal, setSelectedClubIdSignal] = createSignal<string | null>(null);
 
-// Theme. Tailwind reads `.dark` on <html>. Persistence at T4-6 (settings).
+// Theme. Tailwind reads `.dark` on <html>. Persisted via T4-6a settings.
 const [themeSignal, setThemeSignal] = createSignal<"light" | "dark">("light");
+
+// Reduce-motion. Frontend applies `.reduce-motion` to <html> when true.
+// Persisted via T4-6a settings.
+const [reduceMotionSignal, setReduceMotionSignal] = createSignal<boolean>(false);
 
 export const careerId = careerIdSignal;
 export const setCareerId = setCareerIdSignal;
@@ -29,6 +33,22 @@ export function setTheme(next: "light" | "dark"): void {
   setThemeSignal(next);
   if (typeof document !== "undefined") {
     document.documentElement.classList.toggle("dark", next === "dark");
+  }
+}
+
+export const reduceMotion = reduceMotionSignal;
+
+/**
+ * Set the reduce-motion preference and toggle the `.reduce-motion` class on
+ * `document.documentElement` (mirrors the `.dark` pattern in `setTheme`).
+ *
+ * The CSS rule in `styles.css` suppresses all transitions + animations when
+ * `.reduce-motion` is present on `<html>`.
+ */
+export function setReduceMotion(next: boolean): void {
+  setReduceMotionSignal(next);
+  if (typeof document !== "undefined") {
+    document.documentElement.classList.toggle("reduce-motion", next);
   }
 }
 

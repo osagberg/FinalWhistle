@@ -32,6 +32,18 @@
   .dark body {
     @apply text-paper bg-midnight;
   }
+  /* Reduce-motion — applied when the user requests minimised motion (T4-6a).
+   * Collapses all animation + transition durations to near-zero so elements
+   * snap into place instead of animating. Matches the prefers-reduced-motion
+   * OS signal but is also controllable via the Settings screen. */
+  .reduce-motion *,
+  .reduce-motion *::before,
+  .reduce-motion *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
   h1,
   h2,
   h3 {
