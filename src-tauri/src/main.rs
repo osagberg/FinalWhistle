@@ -6,10 +6,26 @@ use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 fn main() {
-    // Content path resolution: FW_CONTENT_PATH env var (used by integration
-    // tests that run from per-crate CWDs) or the default "content" relative
-    // to the app's working directory (`pnpm tauri dev` from project root).
-    let content_path = std::env::var("FW_CONTENT_PATH").unwrap_or_else(|_| "content".to_string());
+    // Content path resolution. `FW_CONTENT_PATH` wins (integration tests set
+    // it from per-crate CWDs). Otherwise prefer a CWD-relative `content/` if it
+    // actually exists (running from the workspace root); else fall back to the
+    // workspace-root `content/` resolved from the build-time manifest dir —
+    // `tauri dev` launches this binary with CWD = `src-tauri/`, where a bare
+    // `content` would miss `content/sources` and panic at startup.
+    // (Shipped/bundled builds resolve content via Tauri's resource dir — that
+    // wiring is T5 bundling, not dev.)
+    let content_path = std::env::var("FW_CONTENT_PATH").unwrap_or_else(|_| {
+        let cwd_rel = PathBuf::from("content");
+        if cwd_rel.join("sources").is_dir() {
+            cwd_rel.to_string_lossy().into_owned()
+        } else {
+            // CARGO_MANIFEST_DIR = .../src-tauri; the workspace root is its parent.
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../content")
+                .to_string_lossy()
+                .into_owned()
+        }
+    });
 
     // Forward Rust log output to the dev console via tauri-plugin-log. Cheap
     // DX win; disabled in release builds via plugin config.
