@@ -15,7 +15,7 @@ function TacticsInner(): JSX.Element {
       <header>
         <h1 class="font-display text-3xl text-pitch-600 dark:text-pitch-300">Tactics</h1>
         <p class="mt-1 text-sm text-ink-subtle dark:text-paper-subtle">
-          T0 placeholder — not yet implemented. Formation + role assignment land at T1-6.
+          Not yet wired.
         </p>
       </header>
       <section class="fw-panel p-4">
@@ -27,7 +27,7 @@ function TacticsInner(): JSX.Element {
       <section class="fw-panel p-4">
         <h2 class="font-display text-lg">Manager archetype</h2>
         <p class="mt-1 text-sm text-ink-subtle dark:text-paper-subtle">
-          20–30 archetypes ship at T2-1. Today: no selection.
+          Not yet wired.
         </p>
       </section>
     </div>

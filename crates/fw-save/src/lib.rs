@@ -141,7 +141,8 @@ pub struct SaveV1 {
 /// `MemoryEvent` schema (EventId, Q32 stakes/salience, 30-variant EventClass,
 /// BTreeMap indexes). V1's placeholder events are discarded on migration.
 ///
-/// V2 is the CURRENT production schema. All new saves are V2.
+/// PRESERVED FOREVER — locked at T3-1, superseded by V3. V2 saves migrate
+/// cleanly to V3 via `migrate_v2_to_v3`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SaveV2 {
     /// The career's deterministic seed.
@@ -167,7 +168,8 @@ pub struct SaveV2 {
 /// - `season_number` — which season the career is currently on.
 /// - `season` — an `Option<SeasonState>` snapshot. `Some` for a genuine V3
 ///   career save; `None` for a save migrated up from V2 (which never persisted
-///   a season — the loader regenerates a fresh one from the seed).
+///   a season — CALLER RESPONSIBILITY: when season is None the caller must
+///   regenerate a fresh SeasonState from the career seed).
 /// - `breakthrough_states` — the per-player `BreakthroughState` map (empty
 ///   until the career system is wired in T4+; the schema carries the slot now).
 ///
@@ -189,8 +191,9 @@ pub struct SaveV3 {
     pub season_number: SeasonNumber,
 
     /// Snapshot of the active season's progress. `None` on a save migrated
-    /// from V2 (no season was ever persisted) — the loader regenerates a
-    /// fresh season from `career_seed`. `Some` for a genuine V3 career save.
+    /// from V2 (no season was ever persisted). CALLER RESPONSIBILITY: when
+    /// season is None the caller must regenerate a fresh SeasonState from
+    /// `career_seed`. `Some` for a genuine V3 career save.
     pub season: Option<SeasonState>,
 
     /// Per-player breakthrough meter + cooldown state. Empty until the career
@@ -297,8 +300,9 @@ pub fn migrate_v1_to_v2(v1: SaveV1) -> SaveV2 {
 /// Preserves `career_seed`, `content_pack_version`, and `ledger` exactly.
 /// Supplies the V3-only defaults: `season_number = SeasonNumber(0)` (a promoted
 /// V2 save begins a fresh career at season 0), `season = None` (V2 never
-/// persisted a season — the loader/caller regenerates one from the seed), and
-/// an empty `breakthrough_states` map.
+/// persisted a season — CALLER RESPONSIBILITY: when season is None the caller
+/// must regenerate a fresh SeasonState from the career seed), and an empty
+/// `breakthrough_states` map.
 ///
 /// Pure function: the same `v2` always produces the same `SaveV3`.
 pub fn migrate_v2_to_v3(v2: SaveV2) -> SaveV3 {

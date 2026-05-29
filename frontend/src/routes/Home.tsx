@@ -25,7 +25,7 @@ export default function Home(): JSX.Element {
             Welcome to Final Whistle
           </h1>
           <p class="mt-1 text-sm text-ink-subtle dark:text-paper-subtle">
-            T0 placeholder — not yet implemented.
+            Backend handshake live. Career start and club selection land at T4-2.5b.
           </p>
         </header>
         <section class="fw-panel p-4">
@@ -56,7 +56,7 @@ export default function Home(): JSX.Element {
         <section class="fw-panel p-4">
           <h2 class="font-display text-lg">Quick actions</h2>
           <p class="mt-1 text-sm text-ink-subtle dark:text-paper-subtle">
-            New career, load save, and quickstart land at T2-5.
+            New career and quickstart wire at T4-2.5b. Load save wires at T4-2.5g.
           </p>
         </section>
       </div>

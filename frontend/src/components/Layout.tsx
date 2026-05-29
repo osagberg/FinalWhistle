@@ -5,7 +5,7 @@ import { theme, setTheme, selectedClubId } from "~/lib/state";
 interface NavItem {
   to: string;
   label: string;
-  /** Hotkey hint shown in the corner. Real key handling lands at T4-6. */
+  /** Hotkey hint shown in the corner. Real key handling lands at T4-6b. */
   hotkey?: string;
 }
 
@@ -44,7 +44,7 @@ function TopBar(): JSX.Element {
           FINAL WHISTLE
         </span>
         <span class="fw-pill bg-paper-subtle dark:bg-midnight-subtle text-ink-mute dark:text-paper-subtle">
-          T0 scaffold
+          T4 in progress
         </span>
       </div>
       <nav class="flex items-center gap-1" aria-label="Primary">
@@ -118,7 +118,7 @@ function Sidebar(): JSX.Element {
 function StatusBar(): JSX.Element {
   return (
     <footer class="border-t border-ink-mute/15 dark:border-midnight-line bg-white dark:bg-midnight-panel px-4 py-1 flex items-center justify-between text-xs text-ink-mute dark:text-paper-subtle font-mono">
-      <span>v0.1.0 · T0 scaffold</span>
+      <span>v0.3.0 · T4 in progress</span>
       <span>determinism: pinned · build: dev</span>
     </footer>
   );

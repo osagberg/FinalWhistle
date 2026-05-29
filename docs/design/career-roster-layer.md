@@ -1,24 +1,25 @@
 # Career-Roster Layer — Design Blueprint
 
-> **Status: PROPOSED** (pending resequence ratification — see §0). Authored 2026-05-29
+> **Status: RATIFIED** (2026-05-29 re-baseline). Authored 2026-05-29
 > as the response to the mid-T4 fresh-eyes review (`docs/audits/mid-t4-fresh-eyes-review-2026-05-29.md`),
 > which found that 4 of 5 pillars produce zero player-visible output in a real career
 > because no per-club player roster with mutable per-player state exists. Blueprint
 > produced by `feature-dev:code-architect` against the live code; grounded in cited
 > files. This is the design home for the work; per-sub-row task specs live in MEMORY.md
-> at implementation time.
+> at implementation time. Re-baseline applied 2026-05-29: EA-scope resolved (T4.5 phase),
+> T4-2.5m/n/p moved to Deferred, Decision 3 + Decision 5 forward-compat clause incorporated.
 
 ---
 
 ## §0. The decision this blueprint asks for
 
-This blueprint proposes **resequencing T4**: build the career-roster layer (sub-rows T4-2.5a..h below) *before* the remaining discretionary polish (T4-7 game-shell, T4-9 stretch viewer). Rationale: the layer is the single unscheduled foundation that gates pillars 3 & 4 plus the already-deferred T4-2b and T4-5b, and the T4 exit gate ("a stranger understands player identity") cannot be met without it.
+This blueprint covers the career-roster layer (sub-rows T4-2.5a..L) inserted ahead of T4-7/T4-8. The layer is the single unscheduled foundation that gates pillars 2/3/4/5 plus the already-deferred T4-2b and T4-5b, and the T4 exit gate ("a stranger understands player identity") cannot be met without it. RATIFIED 2026-05-29 per re-baseline.
 
-Two engineering calls are baked into the plan and should be logged on ratification:
-1. **Match-engine policy (the key open question):** the player's own club's matches run the real 22-player `play_match` tick engine; the other 360 fixtures stay on seeded-procgen scorelines. This keeps a 10-season career at ~20s (under the T5-5 <60s target) while making the player's own stats/breakthroughs/signatures genuine. (See §6.)
-2. **First-increment generation:** populate the 20 clubs by assigning the existing 22 `PlayerTemplate`/`PlayerBio` pool across them (the full procedural ~2000-player compiler stays deferred). (See §3.)
+Two engineering calls are baked into the plan and logged:
+1. **Match-engine policy (Decision 3):** the player's own club's matches run the real 22-player `play_match` tick engine; AI-vs-AI fixtures use seeded-procgen scorelines. This keeps per-season cost manageable while making the player's own stats/breakthroughs/signatures genuine. (See §6.)
+2. **First-increment generation:** populate the 20 clubs by assigning the existing 22 `PlayerTemplate`/`PlayerBio` pool across them (first T4-2.5 increment). The full procedural ~2000-player compiler is T4.5-E1.
 
-**One open product-vision question this does NOT decide:** whether the EA ship target remains the 6-tier ~96-club LLM-baked pyramid promised in `DESIGN_DOC.md §MVP-scope`, or narrows to a hand-authored single-league slice. This blueprint is compatible with either — it builds the slice now and the `BTreeMap<ClubId, Vec<PlayerInstance>>` shape scales to 96 clubs later. That reconciliation is a separate `/log-decision` (ideally with the GPT-5.5 design partner).
+**EA-scope resolved (2026-05-29):** EA ships the 6-tier ~96-club LLM-baked pyramid + ~2000-player compiler (T4.5 phase, rows T4.5-B0/B/E0/E1/G). This blueprint delivers the 20-club first increment; `BTreeMap<ClubId, Vec<PlayerInstance>>` + PlayerId scheme scale to 96 clubs without structural change (Decision 5 forward-compat clause, to be logged before T4-2.5b starts).
 
 ---
 
@@ -63,9 +64,9 @@ PlayerInstance {
 
 ## §3. Generation strategy — Recommendation A (template-assign)
 
-**Option A (recommended for the first increment):** at career start, for each of 20 clubs, draw 22 `PlayerInstance` records from the existing `PlayerTemplate` pool, assign distinct `PlayerId`s derived from `(career_seed, club_idx, slot)`, attach the club affiliation and the name already produced by `generate_team`. Cross-club diversity comes from per-club seed variation in which template lands in which slot. ~50 lines; sufficient to make all four unwired pillars visible.
+**Option A (recommended for the first increment — T4-2.5b):** at career start, for each of 20 clubs, draw 22 `PlayerInstance` records from the existing `PlayerTemplate` pool, assign distinct `PlayerId`s derived from `(career_seed, club_idx, slot)`, attach the club affiliation and the name already produced by `generate_team`. Cross-club diversity comes from per-club seed variation in which template lands in which slot. ~50 lines; sufficient to make all four unwired pillars visible. The `BTreeMap<ClubId, Vec<PlayerInstance>>` shape must NOT assume exactly 20 clubs (Decision 5 forward-compat clause).
 
-**Option B (defer):** the runtime player compiler `(career_seed, club_id, role) → PlayerInstance` via the gene model is the T2-4-deferred work; it needs a gene→attribute mapping that doesn't exist yet and is not required for pillar wiring.
+**Option B — the EA scale (T4.5-E0/E1/G):** the runtime procedural ~2000-player compiler `(career_seed, club, role, cohort) → PlayerInstance` via the gene model. Requires T4.5-E0 (gene→attribute forward compiler) as the prerequisite. Wired into the career at T4.5-G, replacing the 20-club template-assign.
 
 **Feeding `generate_team` output:** modify `generate_league` to return its per-club `ProcGenTeam` (name + manager + 22 names) instead of discarding it, so names aren't recomputed.
 
@@ -89,19 +90,21 @@ PlayerInstance {
 - **Pillar 3 (breakthrough):** `advance_season_inner` write-locks `career`; for every rostered player builds a `BreakthroughContext` via the §4 bridge (+ a by-name `NarrativeFlag` conversion between the duplicate `fw_content`/`fw_memory` enums), calls `evaluate()`, applies deltas, appends `outcome.event` to the ledger, writes `breakthrough_state` into the save slot. Integration test: 5 seasons on seed `0xfeedbeefcafefade` asserts ≥1 `BreakthroughMoment` — the end-to-end proof the T3 gate lacked.
 - **Pillar 4 (scouting):** per match-day, `observe_player` runs for the player's club fixtures; result cached on `PlayerInstance::last_scout_report`. New `get_scout_report(player_id)` IPC command (registered in `src-tauri/main.rs`) projects the Q32 bands → `ScoutReportDto`.
 - **Pillar 5 (signatures):** `play_one_match` gains a `slot_signatures: BTreeMap<PlayerSlot, Vec<SignatureCandidate>>` argument built from both clubs' rosters, so all 22 players' candidates enter the sim (not just slot 7).
-- **Pillar 2 (memory):** new player-subject emissions (`PlayerDebut`, `LegacyGoal` — both already in `EventClass`; `BreakthroughMoment` flows from pillar 3) in `update_player_stats_from_match`, so `/player` career-moments is non-empty. The blank-`player_name` career-overview render is fixed by routing to the player-name-free `title_won` variant.
+- **Pillar 2 (memory):** new player-subject emissions (`DebutSenior` (or `DebutClub`) on first appearance, `LegacyGoal` on goal milestones — both already in `EventClass`; `BreakthroughMoment` flows from pillar 3) in `update_player_stats_from_match`, so `/player` career-moments is non-empty. The blank-`player_name` career-overview render is fixed by routing to the player-name-free `title_won` variant.
 - **Stats (T4-2b prerequisite):** `update_player_stats_from_match` accumulates apps/goals/minutes + a rolling Q32 rating (coarse first increment; full per-match stats need the match-event stream, a later sub-row).
 
 ---
 
 ## §6. Key open question — real engine vs seeded-procgen (RESOLVED: Option 1)
 
-| Option | Per-season sim | 10-season career | T5-5 (<60s)? |
+| Option | Per-season sim | 10-season career | T5-5 budget? |
 |---|---|---|---|
-| **1 (recommended)** — player's club real engine, others seeded | 38 real matches × ~50ms ≈ 2s | ~20s | PASS |
-| 2 — all 380 matches real | 380 × ~50ms ≈ 19s | ~190s | FAIL (3×) |
+| **1 (selected)** — player's club real engine, others seeded | 38 real matches × ~50ms ≈ 2s | ~20s | Re-derived via T4.5-I |
+| 2 — all 380 matches real | 380 × ~50ms ≈ 19s | ~190s | FAIL |
 
-**Recommendation: Option 1.** Matches the FM model (player's club "in full", AI fixtures quick-sim), powers genuine per-player stats/signatures/breakthroughs for the player's own squad, and scales linearly as the league grows (player's club = constant). Log via `/log-decision` with the first roster sub-row.
+**IMPORTANT: Option 1 REDUCES today's all-380-real behavior.** The current codebase (`season.rs:108`) runs the real 22-player tick engine for ALL 380 fixtures, discarding everything except the scoreline. Option 1 is a CODE REDUCTION — AI-vs-AI fixtures switch to seeded-procgen scorelines instead of running the real engine. This reduction is Decision 3 (logged 2026-05-29). T4.5-F's tier-mobility done-criterion and T5-5's perf target are both measured against the Option 1 policy once it is implemented.
+
+**Decision 3 (logged 2026-05-29):** player's club = real engine; AI fixtures = seeded-procgen scorelines. Supersedes the prior implicit "all 380 real" behavior.
 
 ---
 
@@ -119,7 +122,7 @@ PlayerInstance {
 | T4-2.5b | Roster data model + career-start generation | fw-tauri (`roster.rs`,`roster_dto.rs`,`state.rs`), fw-content (`league.rs`) | a | `CareerState::roster` populated 20×22=440 distinct `PlayerId`s; `get_roster_for_club` IPC; `generate_league` returns per-club `ProcGenTeam` | lead-programmer | No |
 | T4-2.5c | Signature candidates onto all 22 slots | fw-tauri (`season.rs`), fw-match-sim (`lib.rs`) | b | `play_one_match` takes `slot_signatures`; `SignatureFirstFired` fires for non-slot-7 in a smoke seed | gameplay-programmer | **Yes — authorized rebaseline** |
 | T4-2.5d | Pillar-3: `evaluate()` into `advance_season_inner` | fw-tauri (`commands.rs`), fw-core (bridge) | a,b | breakthroughs apply deltas + append to ledger; 5-season integration test asserts ≥1 `BreakthroughMoment` | gameplay-programmer | No |
-| T4-2.5e | Pillar-2: player-subject events (debut/goal/breakthrough) | fw-tauri (`roster.rs`,`season.rs`) | b | `PlayerDebut`+`LegacyGoal` emitted; `get_player_detail` non-empty callbacks; blank-name render fixed | gameplay-programmer | No |
+| T4-2.5e | Pillar-2: player-subject events (debut/goal/breakthrough) | fw-tauri (`roster.rs`,`season.rs`) | b | `DebutSenior` (or `DebutClub`)+`LegacyGoal` emitted; `get_player_detail` non-empty callbacks; blank-name render fixed | gameplay-programmer | No |
 | T4-2.5f | Pillar-4: scouting wiring + `get_scout_report` IPC | fw-tauri (`commands.rs`), fw-scouting | b | `observe_player` per-match; report cached; command registered; report differs at 5 vs 0 observations | lead-programmer | No |
 | T4-2.5g | SaveV4 schema + migration + save/load IPC | fw-save, fw-tauri | b,d | `SaveV4` + `migrate_v3_to_v4`; 4 migration tests; `save_career`/`load_career`; round-trip roster count stable | lead-programmer | No |
 | T4-2.5h | Per-player match stats + Squad stats UI | fw-tauri, frontend (`Squad.tsx`) | c,e | stats updated post-match; Squad renders apps/goals/minutes; `pnpm test` green + screenshot | ui-programmer | No |
@@ -130,11 +133,13 @@ Ordering: `a` unblocks all; `b` creates the roster; `c` is independent of d/e/f 
 
 ## §9. Out of scope / later phase (deliberately)
 
-1. Full T2-4 runtime player compiler (gene→attribute derivation).
-2. 6-tier ~96-club pyramid + ~2000-player corpus + LLM bake pipeline (7/8 baker subcommands are stubs).
+1. Full procedural ~2000-player compiler (gene→attribute derivation via T4.5-E0/E1/G — the EA-scale path. The 20-club template-assign is the T4-2.5b first increment.)
+2. 6-tier ~96-club pyramid + LLM bake pipeline — scheduled in T4.5 (rows T4.5-A..J). The `BTreeMap<ClubId, Vec<PlayerInstance>>` shape scales to 96 clubs without structural change.
 3. Transfers / contracts / inter-club movement (the `club_id` field is the hook).
-4. Multi-scout disagreement + accumulating track records (this increment is single-scout).
+4. Multi-scout disagreement + accumulating track records (this layer is single-scout per T4-2.5f). **T4-2.5m/n/p (multi-scout disagreement, track records, scouting-board UI) MOVED TO DEFERRED** — behind the "Month-4 feel-prototype gate (3 external testers per DESIGN_DOC §13 OQ3)". See MASTER_PLAN `## Deferred`.
 5. Training / conditioning decay / aging curves.
 6. Youth academy (DESIGN_DOC §8 defers to Phase 3+).
-7. Compaction-retention corpus test (follow-up after T4-2.5e, once player-subject events flow).
-8. Per-signature commentary routing — cheap + high-leverage but orthogonal (`narrative-director`+`ui-programmer`); can run in parallel with a-c.
+7. Compaction-retention corpus test (T4-2.5L, once player-subject events flow).
+8. Per-signature commentary routing — T4-2.5i (can run in parallel with c-f).
+9. Nation generator (`RegionPriors`) — T4.5-B0.
+10. World-gen pyramid descriptor in save — T4.5-H (SaveV5), NOT in T4-2.5g (SaveV4).

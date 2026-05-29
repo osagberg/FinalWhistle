@@ -1,6 +1,6 @@
 ---
 description: Stable design contract for Final Whistle (Rust + Tauri pivot). Pairs with MASTER_PLAN.md for delivery order. Cross-refs to forthcoming design/* sub-docs.
-last_verified: 2026-05-13
+last_verified: 2026-05-29
 ---
 
 # Final Whistle — Design Doc v1
@@ -220,8 +220,26 @@ At 5-season boundary, older events compact to summarized state (preserves callba
 
 ## 8. Scope Discipline — What's IN and OUT
 
+### MVP scope
+
+The following are confirmed IN for EA / MVP launch (2026-05-29 decision — see DECISIONS.md):
+
+- Single procedurally generated nation, one six-tier pyramid (~96 clubs), ~2000-2400 procedural players — full LLM-baked content pipeline.
+- 22-player matches, BT-driven, deterministic sim, pinned-hash corpus.
+- 2D tactical-board match viewer + text commentary + live numbers.
+- Formation + starting XI selection. Auto-sim or follow-along pacing.
+- Basic scouting with single-scout-report uncertainty (Scout Disagreement is conditional — Month-4 feel-prototype gate per §13 OQ3).
+- League fixtures + one cup competition + promotion/relegation.
+- Transfer window + contracts (basic).
+- Append-only event ledger emitting from match events.
+- 24 authored signatures (3 per role family × 8 role families; ≥8 with implemented predicates at EA, all 24 authored).
+- Multi-season careers with ledger compaction at 5-season boundary.
+- 5-8 salience-gated narrative events per season surfacing via press / fan / NPC templates.
+- Breakthrough development triggers (3 kinds: signature awakening, latent-flag unlock, regressive collapse) — text-recap presentation.
+- 20-30 manager archetypes (BT-authored), rival-manager ecosystem.
+- Save / load with schema versioning + content-pack-qualified IDs.
+
 ### IN — Phase 1-2 (vertical slice through first playable season)
-- Single procedurally generated nation, one six-tier pyramid (~96 clubs), one season.
 - 22-player matches, BT-driven, deterministic sim, pinned-hash corpus.
 - 2D tactical-board match viewer + text commentary + live numbers.
 - Formation + starting XI selection. Auto-sim or follow-along pacing.
@@ -390,7 +408,7 @@ Architecture-bearing system additions require an ADR per `.claude/rules/design-d
 
 ## 13. Open Questions (resolve in next design pass)
 
-1. **Pyramid scope at launch.** One nation (6 tiers, ~96 clubs) is the working assumption. Is a two-nation pyramid feasible inside the EA window, or does it dilute the per-nation depth? Resolution gate: Phase 2 worldbuilding spike.
+1. **Pyramid scope at launch.** RESOLVED 2026-05-29 — one nation, 6 tiers, ~96 clubs; two-nation pyramid is post-EA. See DECISIONS.md 2026-05-29. The full 6-tier ~96-club pyramid + ~2000-player compiler + LLM bake pipeline are EA-critical (T4.5 phase).
 2. **How procedural is too procedural.** Player names + club names + biographies are clearly bake-time. Are tactical doctrines, manager archetypes, and signature presentation banks also procedural, or hand-authored? Working assumption: archetypes + signatures hand-authored; commentary banks procedural. Resolution gate: Phase 1 commentary-bank prototype.
 3. **Scout Disagreement vs Scout Uncertainty.** Inherited as conditional-MVP from the Unity FW. Gate is a feel-prototype with 3 external testers per the original `scout-disagreement.md`. Re-run the gate in the Rust/Tauri prototype or accept the prior outcome? Working assumption: re-run, because the surface (text-first dense UI) changes the affective response.
 4. **Live-pause pacing model.** Real-time-with-pause vs auto-sim-to-event vs both. Working assumption: both, toggleable per match. Resolution gate: Phase 1 first playable.

@@ -4,7 +4,7 @@
 
 ## Phase
 
-**Phase T4 — Beautiful UI + Tactical Viewer — IN PROGRESS.** T4-1/2/3/4/5a/6a DONE. **Career-roster layer underway** (resequenced 2026-05-29 ahead of T4-7/T4-9 per `docs/DECISIONS.md` 2026-05-29 + the mid-T4 fresh-eyes review `docs/audits/mid-t4-fresh-eyes-review-2026-05-29.md`; blueprint `docs/design/career-roster-layer.md`). **T4-2.5a DONE** — `AttributeFamily` moved to `fw-core` + the gene-sourced `fw-content::breakthrough_input` PA/CA bridge (`FamilyPaCa`); formula pinned in `progression.md`.
+**Phase T4 — Pillar Wiring + Polish — IN PROGRESS.** T4-1/2/3/4/5a/6a DONE. Career-roster layer underway (blueprint `docs/design/career-roster-layer.md`). **T4-2.5a DONE** — `AttributeFamily` moved to `fw-core` + the gene-sourced `fw-content::breakthrough_input` PA/CA bridge (`FamilyPaCa`); formula pinned in `progression.md`. T4.5 (World Scale + Content Bake) is the new EA-critical phase between T4 and T5 per re-baseline 2026-05-29 — see `docs/MASTER_PLAN.md ## Tier 4.5`.
 
 ## Active task
 
@@ -12,8 +12,9 @@
 
 ## Blockers
 
-- T2-1d2 still DEFERRED-ROLLED — end-of-T-phase rebalance pass per `personality-bias-weights.md §Re-tuning cadence`.
-- Open product decision (separate `/log-decision`, not blocking): reconcile DESIGN_DOC §MVP-scope's 6-tier ~96-club LLM-baked pyramid with the shipped single-20-club-league reality.
+None live. Pre-task requirement for T4-2.5b: log Decision 5 (forward-compat clause) via `/log-decision` before implementation starts.
+
+Previously: T2-1d2 (xg_utility honesty / cross-band oscillation) re-anchored to Deferred section of MASTER_PLAN. Open EA-scope question resolved 2026-05-29 per DECISIONS.md — DESIGN_DOC `§MVP-scope` anchor added at §8 `### MVP scope`.
 
 ## Last green verify
 

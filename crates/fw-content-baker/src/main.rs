@@ -81,6 +81,7 @@ enum Command {
 
     /// Bake player biographies per culture × role archetype.
     BakeBios {
+        /// T4.5-D: real API client + full implementation lands here.
         #[arg(long)]
         culture: Option<String>,
         #[arg(long)]
@@ -142,9 +143,8 @@ enum Command {
     /// **NOT** a full content-pack validation — `banned_terms`,
     /// `licensed_data`, and `cliche` validators return
     /// `ValidationError::NotImplemented` per T1-12 hardening. The future
-    /// `validate-semantic` + `validate-content-pack` subcommands ship at T2-4
-    /// alongside the real bake pipeline (rolled forward from T2 per Codex
-    /// Tier-3 verdict; see `docs/MASTER_PLAN.md` T2-4).
+    /// `validate-semantic` + `validate-content-pack` subcommands ship at T4.5-D/QA-2
+    /// alongside the real bake pipeline (see `docs/MASTER_PLAN.md` T4.5-D + QA-2).
     ///
     /// **STRUCTURAL ONLY — does NOT prove the content pack is safe to ship.**
     /// Composed-name output (e.g. `first_name × last_name` concatenation) is
@@ -195,23 +195,23 @@ fn main() -> anyhow::Result<()> {
                 archetype,
                 templates_per_cell
             );
-            stub_unimplemented("bake-bios", "T2-4")
+            stub_unimplemented("bake-bios", "T4.5-D")
         }
         Command::BakeHeadlines { event_class } => {
             log::info!("bake-headlines: event_class={:?}", event_class);
-            stub_unimplemented("bake-headlines", "T3-3")
+            stub_unimplemented("bake-headlines", "T4.5-D")
         }
         Command::BakeScoutPhrases { archetype } => {
             log::info!("bake-scout-phrases: archetype={:?}", archetype);
-            stub_unimplemented("bake-scout-phrases", "T3-5")
+            stub_unimplemented("bake-scout-phrases", "T4.5-D")
         }
         Command::BakeManagerQuotes { archetype } => {
             log::info!("bake-manager-quotes: archetype={:?}", archetype);
-            stub_unimplemented("bake-manager-quotes", "T3-3")
+            stub_unimplemented("bake-manager-quotes", "T4.5-D")
         }
         Command::BakeFanReactions => {
             log::info!("bake-fan-reactions");
-            stub_unimplemented("bake-fan-reactions", "T3+ (Stretch)")
+            stub_unimplemented("bake-fan-reactions", "T4.5-D")
         }
         Command::BakeCommentary {
             event_type,
@@ -222,20 +222,20 @@ fn main() -> anyhow::Result<()> {
                 event_type,
                 templates_per_type
             );
-            stub_unimplemented("bake-commentary", "T3-3")
+            stub_unimplemented("bake-commentary", "T4.5-D")
         }
         Command::BakeAll => {
             log::info!("bake-all");
-            stub_unimplemented("bake-all", "T2-4 (full pipeline orchestration)")
+            stub_unimplemented("bake-all", "T4.5-D (full pipeline orchestration)")
         }
         Command::Manifest => {
             log::info!("manifest");
             // Post-T2-3 code-reviewer P1 fix: milestone string was "T2-3" but
             // `Manifest` (a read-and-print-the-baked-manifest command) was
             // never in T2-3 scope — `BakeNamesOffline` writes manifests in
-            // this row but a separate read-side surface lands at T2-4 when
+            // this row but a separate read-side surface lands at T4.5-D when
             // the bake-time pipeline can produce more than one bake artifact.
-            stub_unimplemented("manifest", "T2-4")
+            stub_unimplemented("manifest", "T4.5-D")
         }
         Command::ValidateStructural => {
             log::info!("validate-structural");
@@ -316,7 +316,7 @@ fn run_bake_names(
 /// - `TacticalArchetypeValidator`: formation size + buildup-speed range +
 ///   roster-slot permutation.
 ///
-/// What's NOT in scope (deferred to T3+ `validate-semantic` +
+/// What's NOT in scope (deferred to T4.5-D/QA-2 `validate-semantic` +
 /// `validate-content-pack`):
 /// - `check_banned_terms` / `check_licensed_data` / `check_cliche` (still
 ///   return `ValidationError::NotImplemented` per T1-12 honesty contract).
@@ -326,9 +326,8 @@ fn run_bake_names(
 ///   composes into a banned place-name (Codex Track E-2 "Manchester" exploit:
 ///   20× "Man" + 20× "chester" + `naming_pattern: "{first}{last}"`). The
 ///   semantic validator that samples generated names + lints them against
-///   `scripts/lint-banned-terms.py` lands at T2-4 alongside the real
-///   `BakeNames` consumer (rolled forward from T2 close per Codex Tier-3
-///   verdict; see `docs/MASTER_PLAN.md` T2-4 row).
+///   `scripts/lint-banned-terms.py` lands at T4.5-D/QA-2 alongside the real
+///   bake pipeline (see `docs/MASTER_PLAN.md` QA-2 + T4.5-D rows).
 fn run_validate_structural(workspace: &str) -> anyhow::Result<()> {
     use fw_content::ContentStore;
 
@@ -454,12 +453,14 @@ fn run_validate_structural(workspace: &str) -> anyhow::Result<()> {
         anyhow::bail!("{} validation error(s); see stderr above", errors.len());
     }
 
+    // TODO(T4.5-D/QA-2): remove once validate-semantic lands and replace this
+    // WARNING with a call to the semantic validator.
     println!(
         "fw-content-baker: STRUCTURAL validation passed. \
          NOTE: structural != semantic. Bank-size + range checks succeeded \
          but composed-name output (e.g. first×last concatenation) was NOT \
          linted for banned terms / licensed-data collisions. Semantic \
-         validator lands at T2-4 alongside the real bake pipeline. \
+         validator lands at T4.5-D/QA-2 alongside the real bake pipeline. \
          Do NOT publish a content pack on the basis of this exit code alone."
     );
     Ok(())
