@@ -1,6 +1,7 @@
 import { A } from "@solidjs/router";
 import { For, type JSX, type ParentProps, Show } from "solid-js";
-import { theme, setTheme, selectedClubId } from "~/lib/state";
+import { theme, setTheme, reduceMotion, selectedClubId } from "~/lib/state";
+import { setSettings } from "~/lib/api/settings";
 
 interface NavItem {
   to: string;
@@ -37,6 +38,17 @@ export default function Layout(props: ParentProps): JSX.Element {
 }
 
 function TopBar(): JSX.Element {
+  // Toggle the theme AND persist it. Without the persist, the nav toggle set the
+  // signal only, and visiting /settings (whose onMount re-reads the saved value)
+  // reset it to light. Mirrors the Settings route's persist path.
+  const handleThemeToggle = (): void => {
+    const next = theme() === "light" ? "dark" : "light";
+    setTheme(next);
+    void setSettings({ theme: next, reduceMotion: reduceMotion() }).catch(
+      // eslint-disable-next-line no-console
+      (e: unknown) => console.error("[Layout] theme persist failed:", e),
+    );
+  };
   return (
     <header class="flex items-center justify-between border-b border-ink-mute/15 dark:border-midnight-line bg-white dark:bg-midnight-panel px-4 py-2">
       <div class="flex items-center gap-3">
@@ -69,7 +81,7 @@ function TopBar(): JSX.Element {
       <button
         type="button"
         class="fw-nav-link"
-        onClick={() => setTheme(theme() === "light" ? "dark" : "light")}
+        onClick={handleThemeToggle}
         aria-label="Toggle theme"
       >
         <span class="font-mono text-xs">{theme() === "light" ? "DARK" : "LIGHT"}</span>

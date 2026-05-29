@@ -97,7 +97,10 @@ function PlayerInner(): JSX.Element {
   // Returns null on failure (distinct from missing player, which the server
   // signals via IpcError::PlayerNotFound before the resource ever resolves).
   const [detail] = createResource<PlayerDetail | null, string>(
-    () => params.id,
+    // Squad links use encodeURIComponent (content-pack IDs contain ':'), so the
+    // route param arrives percent-encoded (e.g. `fwh.core%3Aplayer_00001`).
+    // Decode before it reaches the backend, which keys on the raw ':' form.
+    () => decodeURIComponent(params.id),
     async (id) => {
       setPlayerError(null);
       try {
