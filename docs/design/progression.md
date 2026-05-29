@@ -195,6 +195,77 @@ This is within the 1-3 target range. The primary tuning dials for cadence are:
 
 ---
 
+## Gene→family PA/CA bridge (T4-2.5a)
+
+**Status:** Phase-4 tuning seeds (pinned 2026-05-29; `docs/DECISIONS.md` 2026-05-29 T4-2.5a). Expect re-fit after a T4-2.5a balance-harness run.
+
+**Implemented in:** `crates/fw-content/src/breakthrough_input.rs` (new module, T4-2.5a). Consumes `GeneSnapshot` (fw-content) + `AbilityCeiling` (fw-core); produces `(pa_by_family, ca_by_family): (BTreeMap<AttributeFamily, i16>, BTreeMap<AttributeFamily, i16>)` on the 1..=200 scale. All 10 families always present, so `evaluate()`'s `unwrap_or(100)`/`unwrap_or(70)` absent-family defaults never fire for a bridge-initialized player. Pure, deterministic, Q32-only (no `f32`/`f64`, no RNG).
+
+### Anchor table (weights per row sum to 1)
+
+| Family | Anchor (weight) | Anchor (weight) | Anchor (weight) |
+|---|---|---|---|
+| `Finishing` | `technical.striking` (0.45) | `technical.first_touch` (0.35) | `physical.fast_twitch_ratio` (0.20) |
+| `Passing` | `mental.pattern_recognition` (0.40) | `mental.decision_velocity` (0.35) | `technical.first_touch` (0.25) |
+| `DefensiveAnticipation` | `mental.pattern_recognition` (0.50) | `mental.decision_velocity` (0.30) | `mental.composure_floor` (0.20) |
+| `AerialPresence` | `technical.aerial` (0.50) | `physical.height_ceiling` (0.30) | `physical.frame_density` (0.20) |
+| `Composure` | `mental.composure_floor` (0.45) | `mental.mentality`* (0.35) | `mental.ambition` (0.20) |
+| `Pace` | `physical.fast_twitch_ratio` (0.60) | `physical.growth_curve`* (0.40) | — |
+| `Stamina` | `physical.stamina_recovery` (0.45) | `physical.aging_curve` (0.35) | `physical.injury_resilience` (0.20) |
+| `WorkRate` | `mental.ambition` (0.40) | `mental.learning_rate` (0.35) | `mental.mentality`† (0.25) |
+| `DeadBallDelivery` | `technical.dead_ball` (0.55) | `technical.first_touch` (0.25) | `technical.left_foot` (0.20) |
+| `Leadership` | `mental.mentality`* (0.50) | `mental.composure_floor` (0.30) | `mental.ambition` (0.20) |
+
+Anchor field names must be verified against `crates/fw-content/src/gene.rs` at implementation time and corrected if any differ; the mapping intent (each anchor's role) is the binding part.
+
+### Signed-field normalization (Q32, no float)
+
+`mentality` and `growth_curve` are Q32 ∈ [−1,+1]; normalize to [0,1] before weighting:
+- Standard (`*`): `norm = (gene + Q32::ONE) >> 1` — extrovert-charisma / late-bloomer pole → 1.0 (raises Composure, Leadership, Pace).
+- Inverted (`†`, WorkRate `mentality` only): `norm = Q32::ONE − ((gene + Q32::ONE) >> 1)` — introvert-grinder pole → 1.0.
+
+Both are exact in Q32 (add `ONE` → [0,2]; `>>1` → [0,1]).
+
+### PA-per-family formula (→ i16 in 1..=200)
+
+```
+gene_score_f = Σ wᵢ × anchorᵢ_normed          // Q32 ∈ [0,1]; weights as Q32 consts round(w × 2^32)
+GENE_WEIGHT = 0.75, CEIL_WEIGHT = 0.25         // tuning dials
+pa_score = gene_score_f × GENE_WEIGHT + ceiling.potential × CEIL_WEIGHT   // Q32 ∈ [0,1]
+pa_raw   = pa_score × 199 + Q32::ONE           // maps [0,1] → [1,200]
+pa_i16   = pa_raw.to_int().clamp(1, 200) as i16
+```
+
+### CA-per-family formula (→ i16, guaranteed `1 ≤ ca ≤ pa`)
+
+```
+realized_fraction = ceiling.current / ceiling.potential   // Q32 ∈ [0,1]; via 128-bit intermediate, no float;
+                                                          //   ceiling.potential == 0 → realized_fraction = 0
+ca_score = gene_score_f × realized_fraction
+ca_raw   = ca_score × 199 + Q32::ONE
+ca_i16   = ca_raw.to_int().clamp(1, 200) as i16
+ca_i16   = ca_i16.min(pa_i16)                  // guarantee ca ≤ pa
+```
+
+### Edge cases
+
+- All anchor genes 0 → `pa_score = 0.25 × ceiling.potential` (floor ≥ 1, never 0).
+- `ceiling.potential = 0` → PA=1, CA=1 (pathological; `AbilityCeiling::try_new` should bar it).
+- All-max genes + `potential = 1.0` → PA=200, CA ≤ 200. No overflow.
+- Truncation could yield `ca_i16 = pa_i16 + 1` in a 0.999 case → the `.min(pa_i16)` closes it.
+
+### Worked example — Finishing, mid-range striker
+
+`striking=0.60, first_touch=0.45, fast_twitch_ratio=0.60; potential=0.60, current=0.35` →
+`gene_score_f = 0.5475`; `pa_score = 0.5475×0.75 + 0.60×0.25 = 0.5606` → **PA = 112**;
+`realized_fraction = 0.35/0.60 = 0.5833`; `ca_score = 0.5475×0.5833 = 0.3194` → **CA = 64** (headroom 48). Tests assert PA≈112±1, CA≈64±1 (±1 tolerates Q32 truncation).
+
+### Tuning dials
+
+`GENE_WEIGHT` (0.75) widens family divergence; `CEIL_WEIGHT` (0.25) narrows it toward overall PA; per-anchor weights shift which gene dominates; the `mentality` normalization direction picks which pole a family rewards. Re-fit after the balance harness; append a dated re-fit block, do not delete these seeds (audit trail).
+
+---
+
 ## Cross-references
 
 - `docs/adr/0005-memory-ledger-and-breakthroughs.md` — authoritative mechanism schema; `family_relevance` formula; PA redraw formula.

@@ -73,12 +73,13 @@ PlayerInstance {
 
 ---
 
-## §4. AttributeFamily bucketing bridge (the critical missing piece)
+## §4. AttributeFamily PA/CA bridge (the critical missing piece) — RECONCILED 2026-05-29
 
-New `crates/fw-core/src/attribute_family_bridge.rs` (in `fw-core` because both `fw-memory` and `fw-tauri` need it).
+**Source decision (`docs/DECISIONS.md` 2026-05-29 T4-2.5a + `docs/design/progression.md §"Gene→family PA/CA bridge (T4-2.5a)"`):** per-family PA/CA is **gene-sourced**, NOT derived from the 55 visible `PlayerAttributes`. progression.md defines the 10 families by gene-model anchors, so the bridge reads the hidden `GeneSnapshot` (fw-content) + `AbilityCeiling` (fw-core). (The original draft of this section assumed a visible-attribute source in `fw-core` — superseded.)
 
-- A `const` table mapping each of the 10 `AttributeFamily` buckets to the visible attributes that contribute (the 17 hidden personality/durability attributes do not contribute to PA/CA per ADR-0002). The exact attribution weights are a `systems-designer` tuning concern; the structure is fixed.
-- `attrs_to_family_pa_ca(attrs, ceiling, role_weights) -> (BTreeMap<AttributeFamily,i16>, BTreeMap<AttributeFamily,i16>)` — projects the Q32 [0,1] family means onto the 1..=200 scale (`value_200 = (q32_mean * 200).to_int_clamped()`), PA from `ceiling.potential()`, CA from `ceiling.current()`.
+- **`AttributeFamily` moves from `fw-memory` to `fw-core`** (fundamental taxonomy, no deps; serde wire-compat preserved — bincode encodes by variant index, discriminants 0..9 unchanged).
+- **Bridge lives in `crates/fw-content/src/breakthrough_input.rs`** — fw-content owns `GeneSnapshot`, depends on fw-core for `AttributeFamily`/`Q32`/`AbilityCeiling`, and is determinism-linted. NOT `fw-core` (can't see genes) and NOT `fw-tauri` (a gameplay formula doesn't belong in the IPC shell, which isn't float-linted).
+- `gene_family_pa_ca(genes: &GeneSnapshot, ceiling: AbilityCeiling) -> (BTreeMap<AttributeFamily,i16>, BTreeMap<AttributeFamily,i16>)` — emits all 10 families on the 1..=200 scale (so `evaluate()`'s 100/70 absent-family defaults never fire). PA = 75/25 blend of the family's gene-anchor weighted mean and `ceiling.potential`, scaled to 1..=200; CA = `gene_score × (ceiling.current / ceiling.potential)`, clamped so `1 <= ca <= pa <= 200`. Q32 only; signed genes (`mentality`, `growth_curve`) normalized via `(g + 1) >> 1`. Full anchor table + weights + worked example: `progression.md §"Gene→family PA/CA bridge (T4-2.5a)"`.
 - `apply_family_delta_to_ceiling(...)` — the inverse: takes a `BreakthroughOutcome { delta_pa, delta_ca, family }` and bumps the canonical `AbilityCeiling` via the existing `redraw_ceiling` API.
 
 ---
