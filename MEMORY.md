@@ -1,6 +1,6 @@
 # Final Whistle — Working Memory
 
-> Updated: 2026-05-16 | Phase: T1 First Match — **CLOSING.** Codex Tier-2 pre-/done audit returned REVISE; the two `/done` blockers from that review are now closed: T1-18 restored the possession-width proptest discrimination, and T1-16 restored the shoot softmax-domain contract + `GOAL_LINE_X` alignment. T1-17 friction-test discrimination remains deferred as test-quality debt. Current canonical pins: 60-tick `blake3:fcccb840…a751`; 600-tick `blake3:9353bd25…47eb`. The 600-tick smoke seed still finishes 2-2, so T1 exit-gate Bullet 1 remains met. `scripts/fw verify` is green. Next: run `/done`.
+> Updated: 2026-05-22 | Phase: **T4 — Beautiful UI + Tactical Viewer (IN PROGRESS).** T4-1..T4-5a + T4-6a (settings persistence) DONE; next `/next` picks **T4-7** (game-shell polish). Canonical pins UNCHANGED: 60-tick `blake3:eaf842ac…ead46`; 600-tick `blake3:aa7efe9b…e5ae`. `scripts/fw verify` green. **STATUS.md is the authoritative current pointer** (phase / active task / blockers / canonical pins) — read it first; if this banner ever looks stale, trust STATUS.md over it.
 
 ## Project
 
