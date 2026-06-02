@@ -702,13 +702,31 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   per-tick gameplay). Main-thread re-verified the 5-seed envelope (pinned
 ///   in [2,5]; all 5 in [0,7]) before rebaselining per the post-T1-15
 ///   multi-pin discipline. Authorized by the T4-sim-halt spec in MEMORY.md.
+/// - 2026-06-02 (T4-2.5c pillar-5 signatures on role-matched slots) —
+///   **re-baselined to `206bddae…57a9`** per ADR-0012 trigger #3 (sim behavior
+///   change with documented intent). `initial_with_content` now spreads each
+///   content template's `signature_candidates` to ALL slots whose formation
+///   `Role` matches the template's `preferred_role` (was slot-7-only). With the
+///   1 AM template, the 6 MID slots (5-7 home, 16-18 away) now carry candidates
+///   → more `signature_candidates` in canonical state + more signature firings
+///   over the 600-tick run alter player trajectories. **SINGLE-pin drift:** the
+///   60-tick smoke pin uses bare `MatchState::initial` (no content/signatures)
+///   and is UNCHANGED. The pinned seed's final score is coincidentally still
+///   2-2 (4 goals, in [2,5]); main thread independently re-verified the 5-seed
+///   envelope (pinned in [2,5]; all 5 in [0,7]) BEFORE rebaselining per the
+///   post-T1-15 discipline. An indiscriminate all-22-slot spread was tried
+///   first + REJECTED — it collapsed scoring to 0 goals (all 6 mids firing the
+///   AM's pass-heavy `first-time-diagonal-switch`); role-matching keeps the
+///   envelope healthy + is the correct first increment (real per-role/per-player
+///   signature diversity arrives at T4.5-E1). Authorized by the T4-2.5c spec in
+///   MEMORY.md.
 ///
 /// Re-baselining: update this constant AND the `expected_hash` field of
 /// `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron` in the same commit,
 /// per `docs/specs/determinism-gate.md` §9 — the same protocol that
 /// governs PINNED_60_TICK above.
 const PINNED_600_TICK: [u8; 32] =
-    hex!("856a7fede1ab802b88f12a239bdb54e94381348bccfc60c09964d0dfd01dd3fa");
+    hex!("206bddaef4df4fec909b9456e2efb04f6c5120ef4104dbdf6aec9665b45b57a9");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

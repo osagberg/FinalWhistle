@@ -802,4 +802,134 @@ mod tests {
             "composite must include the BuildUp lane's pass_mul; find_map-equivalent regression detected"
         );
     }
+
+    // ---- T1-25: 2-candidate winner distribution (affinity × fit_score non-vacuous) ----
+    //
+    // Design spec: two candidates A and B, both eligible (trigger fires for both),
+    // equal affinity, DIFFERENT fit_score (achieved by differing attribute levels).
+    // Run evaluate_signatures across multiple tick offsets (which change the ChaCha8
+    // RNG seed via seed_fn(match_seed, tick, SeedLayer::SignatureTrigger, site)).
+    // The higher-fit_score candidate must win strictly more than the lower one.
+    //
+    // Bypassing the affinity × fit_score multiply (treating all weights as 1.0)
+    // would produce a ~50/50 split. The softmax-derived expected win rate for the
+    // higher-fit-score candidate with fit_score ratio 4:1 at DEFAULT_TEMPERATURE
+    // (τ = 0.5) is: softmax([4.0/τ, 1.0/τ]) = softmax([8.0, 2.0]) ≈ 0.998.
+    // We assert the winner-share is ≥ 0.70 — comfortably above 50/50 and well
+    // below the theoretical max, leaving room for RNG variation across 100 trials.
+    //
+    // Signatures used: long-range-strike (Attacking) AND first-time-diagonal-switch
+    // (BuildUp) — different categories, so they can co-evaluate without stacking
+    // conflicts. Slot 5 (home midfielder, in_team=5) is eligible for BOTH triggers.
+    //
+    // Why slot 5, not slot 8: FTDS requires in_team ∈ 5..=7 (midfielders); slot 8
+    // is in_team=8 (forward), so FTDS never fires there — that would collapse to a
+    // single-candidate path, making the distribution test vacuous.
+    //
+    // Candidate A: long-range-strike, affinity = Q32::ONE
+    //              fit_score = composure × long_shots = 1.0 × 1.0 = 1.0
+    //              weight = 1.0 × 1.0 = 1.0
+    //
+    // Candidate B: first-time-diagonal-switch, affinity = Q32::ONE
+    //              fit_score = vision × passing (but we set them to Q32::ONE >> 0.45,
+    //              so both pass threshold; the trigger returns a product)
+    //              — we want A > B to be clear so we set B's attrs to 0.5 each:
+    //              fit_score = 0.5 × 0.5 = 0.25; weight = 1.0 × 0.25 = 0.25
+    //
+    // Expected split: softmax([1.0, 0.25] / τ=0.5) = softmax([2.0, 0.5])
+    //                 p(A) = e^2 / (e^2 + e^0.5) ≈ 7.389 / (7.389 + 1.649) ≈ 0.82
+    // We assert A wins ≥ 0.70 of the 100 trials.
+
+    #[test]
+    fn t1_25_higher_fit_score_candidate_wins_majority_across_tick_offsets() {
+        let lrs_id = "fwh.core:signature.long-range-strike";
+        let ftds_id = "fwh.core:signature.first-time-diagonal-switch";
+
+        let lrs_sig_id = SignatureId::try_new(lrs_id).unwrap();
+        let ftds_sig_id = SignatureId::try_new(ftds_id).unwrap();
+
+        // Candidate A: long-range-strike at max attrs → fit_score = 1.0
+        let candidate_a = make_candidate(lrs_id, Q32::ONE.to_bits());
+        // Candidate B: first-time-diagonal-switch at half attrs → fit_score ≈ 0.25
+        let candidate_b = make_candidate(ftds_id, Q32::ONE.to_bits());
+        let candidates = [candidate_a, candidate_b];
+
+        // T1-25 uses slot 5 (home midfielder, in_team=5) which is eligible for BOTH:
+        //   - LRS: in_team ∈ 5..=10 ✓ (composure=1.0, long_shots=1.0 ≥ 0.45)
+        //   - FTDS: in_team ∈ 5..=7 ✓ (vision=0.5, passing=0.5 ≥ 0.45)
+        // Different stacking categories (Attacking vs BuildUp) → no stacking conflict.
+        // Slot 8 (FWD) was WRONG: FTDS requires in_team ∈ 5..=7, so FTDS never
+        // fired at slot 8 → single-candidate path → vacuous distribution test.
+        let mut defs_lrs = no_op_def();
+        defs_lrs.id = lrs_sig_id;
+        defs_lrs.stacking = StackingPolicy::Exclusive {
+            category: BiasCategory::Attacking, // Attacking lane — different from FTDS
+        };
+        let mut defs_ftds = no_op_def();
+        defs_ftds.id = ftds_sig_id;
+        defs_ftds.stacking = StackingPolicy::Exclusive {
+            category: BiasCategory::BuildUp, // BuildUp lane — no stacking conflict
+        };
+
+        let mut definitions = BTreeMap::new();
+        definitions.insert(lrs_id.to_string(), defs_lrs);
+        definitions.insert(ftds_id.to_string(), defs_ftds);
+
+        let table = build_trigger_table();
+
+        let mut wins_a: u32 = 0;
+        let mut wins_b: u32 = 0;
+        let trials = 100u32;
+
+        for trial in 0..trials {
+            let mut state = MatchState::initial(Seed::from_u64(0xABCD_5678));
+            // Vary the tick to get different RNG seeds per trial.
+            state.tick = Tick::from_raw(700 + trial as i64);
+
+            let slot: u8 = 5; // home midfielder: in_team=5 ∈ 5..=10 (LRS) ∩ 5..=7 (FTDS)
+
+            // LRS: composure=1.0, long_shots=1.0 → fit_score=1.0, weight=1.0.
+            state.players[5].attributes.mental.composure = Q32::ONE;
+            state.players[5].attributes.technical.long_shots = Q32::ONE;
+            // FTDS: vision=0.5, passing=0.5 → fit_score≈0.25, weight≈0.25.
+            state.players[5].attributes.mental.vision = Q32::from_raw(1i64 << 31); // 0.5
+            state.players[5].attributes.technical.passing = Q32::from_raw(1i64 << 31); // 0.5
+
+            let result = evaluate_signatures(
+                &state,
+                slot,
+                &candidates,
+                &definitions,
+                &table,
+                &NO_ACTIVE_FIRINGS,
+            );
+
+            match result {
+                Some((id, _)) if id.as_str() == lrs_id => wins_a += 1,
+                Some((id, _)) if id.as_str() == ftds_id => wins_b += 1,
+                Some(_) => {} // unexpected — ignore
+                None => {}    // neither eligible this tick — skip
+            }
+        }
+
+        let total_decided = wins_a + wins_b;
+        assert!(
+            total_decided >= 30,
+            "T1-25: only {total_decided} of {trials} trials produced an eligible result — \
+             both LRS (composure/long_shots=1.0) and FTDS (vision/passing=0.5) should be \
+             eligible at slot 5. wins_a={wins_a}, wins_b={wins_b}."
+        );
+
+        // p(A wins) must be ≥ 0.70. With the affinity×fit_score multiply:
+        //   weight_A = 1.0 × 1.0 = 1.0; weight_B = 1.0 × 0.25 = 0.25
+        //   softmax([1.0/0.5, 0.25/0.5]) = softmax([2.0, 0.5]) → p(A) ≈ 0.82
+        // Bypassing the multiply → weight_A = weight_B = 1.0 → p(A) ≈ 0.50 (fails).
+        let win_rate_a = wins_a as f64 / total_decided as f64;
+        assert!(
+            win_rate_a >= 0.70,
+            "T1-25: higher-fit_score candidate (LRS, weight≈1.0) won {wins_a}/{total_decided} \
+             trials (rate={win_rate_a:.3}), expected ≥0.70. \
+             p(A) ≈ 0.82 expected with correct multiply; ~0.50 if bypassed. wins_b={wins_b}."
+        );
+    }
 }

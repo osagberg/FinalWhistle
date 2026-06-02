@@ -155,6 +155,44 @@ const _: () = assert!(
 pub use fw_core::PlayerSlot;
 
 // -------------------------------------------------------------------------
+// Role-mapping helper (used by initial_with_content)
+// -------------------------------------------------------------------------
+
+/// Map a content-template [`fw_content::RoleId`] to the formation [`Role`]
+/// used by the sim's slot assignment.
+///
+/// Used by [`MatchState::initial_with_content`] to perform role-matched
+/// signature spreading: a template's candidates are assigned only to slots
+/// whose `PlayerState::role()` matches.
+///
+/// Mapping (all string comparisons are case-sensitive and ASCII):
+///
+/// | `preferred_role` string | `Role` |
+/// |---|---|
+/// | `"GK"` | `Goalkeeper` |
+/// | `"DEF"` | `Defender` |
+/// | `"AM"` / `"MID"` / `"CM"` | `Midfielder` |
+/// | `"FWD"` / `"ST"` / `"CF"` | `Forward` |
+/// | anything else | `Forward` (see note) |
+///
+/// The `_ => Forward` arm absorbs all legitimate forward-role variants
+/// (`"FWD"`, `"ST"`, `"CF"`, etc.) as well as any genuinely-unknown string.
+/// A forward-role string falling through here produces correct behaviour
+/// (forward-slot assignment). Genuinely-unknown role strings produce a
+/// silent Forward assignment; the `scripts/fw verify-content` check at T2-3
+/// is the validation gate for unknown strings — NOT a panic here, because a
+/// panic would reject novel-but-legitimate forward role variants.
+pub(crate) fn preferred_role_to_formation_role(preferred_role: &fw_content::RoleId) -> Role {
+    match preferred_role.as_str() {
+        "GK" => Role::Goalkeeper,
+        "DEF" => Role::Defender,
+        "AM" | "MID" | "CM" => Role::Midfielder,
+        // FWD / ST / CF and all other forward-role variants → Forward
+        _ => Role::Forward,
+    }
+}
+
+// -------------------------------------------------------------------------
 // MatchState — the canonical-state struct
 // -------------------------------------------------------------------------
 
@@ -589,45 +627,59 @@ impl MatchState {
     /// Variant of [`MatchState::initial`] that projects `signature_candidates`
     /// from the loaded content corpus onto match players.
     ///
-    /// ## Slot-7 only (T1-11 scope)
+    /// ## Role-matched spread (T4-2.5c)
     ///
-    /// Only slot 7 (home attacking midfielder, the 3rd home midfielder in the
-    /// 4-3-3 formation: slots 5/6 = CM, slot 7 = AM) receives real signature
-    /// candidates in this constructor. Candidates are read from the first
-    /// `PlayerTemplate` with `preferred_role == "AM"` in `content.player_templates`.
+    /// Each template's candidates are assigned **only** to slots whose
+    /// `PlayerState::role()` matches the template's `preferred_role`. The
+    /// mapping is:
     ///
-    /// Slots 0-6 and 8-21 keep empty `signature_candidates` (Vec::new()).
-    /// T1-7 (procgen player population) will assign per-template candidates
-    /// to all 22 slots when real name/attr projection lands.
+    /// | `preferred_role` string | Formation `Role` | Slots (4-3-3) |
+    /// |---|---|---|
+    /// | `"GK"` | `Goalkeeper` | 0, 11 |
+    /// | `"DEF"` | `Defender` | 1-4, 12-15 |
+    /// | `"AM"` / `"MID"` / `"CM"` | `Midfielder` | 5-7, 16-18 |
+    /// | `"FWD"` / `"ST"` / `"CF"` | `Forward` | 8-10, 19-21 |
     ///
-    /// ## Fail-loud on missing template
+    /// With 1 AM template today: home-MID slots 5-7 + away-MID slots 16-18
+    /// receive candidates; all other slots stay empty. This prevents
+    /// cross-role bias contamination (e.g. AM pass/shoot signatures firing
+    /// for GK/DEF slots and collapsing shooting utility). Per-role template
+    /// diversity lands at T4.5-E1; the mapping scales without code changes.
     ///
-    /// If `content.player_templates` contains no template with `preferred_role
-    /// == "AM"`, this constructor returns `Err`. A missing template indicates a
-    /// content-corpus setup problem (e.g. empty ContentStore in a test that
-    /// forgot to load sources), not a recoverable runtime state.
+    /// ## Fail-loud on empty template pool
+    ///
+    /// If `content.player_templates` is empty this constructor returns `Err`.
+    /// An empty template pool indicates a content-corpus setup problem (e.g.
+    /// an empty `ContentStore` in a test that forgot to load sources), not a
+    /// recoverable runtime state.
     ///
     /// ## Canonical-hash note
     ///
-    /// The returned state's canonical encoding differs from `MatchState::initial`
-    /// because slot 7's `signature_candidates` Vec is non-empty. The smoke hash
-    /// is rebaselined at T1-11 chunk 6 (ADR-0012 trigger #1).
+    /// Slots 5-7 and 16-18 now carry non-empty `signature_candidates`
+    /// (was only slot 7 at T1-11). The 600-tick pin is rebaselined at
+    /// T4-2.5c (ADR-0012 trigger #3).
+    ///
+    /// ## Caller-supplied slot overrides
+    ///
+    /// After this constructor, callers that hold per-player roster data may
+    /// call [`.with_slot_signatures`](Self::with_slot_signatures) to override
+    /// specific slots' candidates from the roster (home slots 0-10, away
+    /// slots 11-21).
     pub fn initial_with_content(
         seed: Seed,
         content: &fw_content::ContentStore,
         home_archetype_id: &str,
         away_archetype_id: &str,
     ) -> Result<MatchState, ContentInitError> {
-        // Find the first AM template by preferred_role. player_templates is keyed
-        // by qualified_id (e.g. "fwh.core:player_00042"), not by file stem, so we
-        // search by role. BTreeMap iteration is key-ordered — deterministic.
-        let template = content
-            .player_templates
-            .values()
-            .find(|t| t.preferred_role.as_str() == "AM")
-            .ok_or_else(|| ContentInitError::MissingTemplate {
-                key: "preferred_role=AM".into(),
-            })?;
+        // Template pool: BTreeMap values() is key-ordered (Sim/RULES.md §2),
+        // so pool[i] is deterministic across platforms.
+        let templates: Vec<&fw_content::PlayerTemplate> =
+            content.player_templates.values().collect();
+        if templates.is_empty() {
+            return Err(ContentInitError::MissingTemplate {
+                key: "player_templates (empty pool)".into(),
+            });
+        }
 
         // T2-1a: resolve per-team archetype IDs → TacticalArchetype lookups →
         // ArchetypeParams via the bridge. Fail-loud if either ID is missing
@@ -647,14 +699,25 @@ impl MatchState {
         let home_archetype_params = tactic_fsm::archetype_params_for(home_archetype);
         let away_archetype_params = tactic_fsm::archetype_params_for(away_archetype);
 
-        // Build the baseline state, then project slot 7's candidates + override
-        // the default archetype IDs/params with the caller-supplied pair.
+        // Build the baseline state, then assign candidates role-by-role.
         let mut state = MatchState::initial(seed);
 
-        // Slot 7 = home AM (3rd home midfielder in 4-3-3).
-        // Assign the template's signature_candidates directly. The candidates
-        // Vec is `pub(crate)` (accessible here since we're in the same crate).
-        state.players[7].signature_candidates = template.signature_candidates.clone();
+        // Role-matched spread: for each template, assign its candidates to every
+        // slot whose formation Role matches the template's preferred_role. With 1
+        // AM template, only MID slots (5-7 home, 16-18 away) receive candidates.
+        // GK/DEF/FWD slots stay empty until matching templates are added at T4.5-E1.
+        //
+        // `preferred_role_to_formation_role` is a local match so there are no
+        // new allocations and no HashMap (determinism contract per Sim/RULES.md §2).
+        for template in &templates {
+            let template_role = preferred_role_to_formation_role(&template.preferred_role);
+            for slot_idx in 0..22usize {
+                if state.players[slot_idx].role() == template_role {
+                    state.players[slot_idx].signature_candidates =
+                        template.signature_candidates.clone();
+                }
+            }
+        }
 
         // T2-1a: override the default archetype state with caller-supplied IDs.
         state.home_archetype_id = home_archetype_id.to_string();
@@ -663,6 +726,52 @@ impl MatchState {
         state.away_archetype_params = away_archetype_params;
 
         Ok(state)
+    }
+
+    /// Builder: override per-slot `signature_candidates` from a caller-supplied map.
+    ///
+    /// Only the slots **present** in `slot_signatures` are overridden; slots absent
+    /// from the map keep the candidates already set by
+    /// [`initial_with_content`](Self::initial_with_content) or an earlier
+    /// `with_slot_signatures` call. This "override-present-slots" semantics lets
+    /// the season runner build a map from two clubs' rosters (home slots 0-10,
+    /// away slots 11-21) and pass it without having to supply all 22 entries.
+    ///
+    /// Intended use in `play_one_match`: after `initial_with_content` spreads
+    /// the role-matched defaults across role-appropriate slots, the season runner
+    /// calls `.with_slot_signatures(map)` to install the actual per-player roster
+    /// candidates. With 1 template today the roster candidates equal the
+    /// content-spread defaults, so the override is a deterministic no-op in
+    /// practice — it becomes meaningful at T4.5-E1 when per-player diversity
+    /// arrives.
+    ///
+    /// ## Panics
+    ///
+    /// Panics in both debug and release if any key in `slot_signatures` is
+    /// out of range (≥ 22). A caller-built map with an OOB slot is a programming
+    /// error, not an untrusted-input condition (Sim/RULES §11: canonical
+    /// invariants fail in release, not silently degrade).
+    ///
+    /// ## Determinism
+    ///
+    /// `BTreeMap<PlayerSlot, Vec<SignatureCandidate>>` iteration is key-ordered
+    /// (`PlayerSlot = u8`; ascending). No RNG, no clocks.
+    #[must_use]
+    pub fn with_slot_signatures(
+        mut self,
+        slot_signatures: BTreeMap<PlayerSlot, Vec<fw_content::SignatureCandidate>>,
+    ) -> Self {
+        for (slot, candidates) in slot_signatures {
+            assert!(
+                (slot as usize) < self.players.len(),
+                "with_slot_signatures: slot {slot} is out of range (max {}); \
+                 caller built a map with an invalid slot index — this is a \
+                 programming error (Sim/RULES §11)",
+                self.players.len() - 1
+            );
+            self.players[slot as usize].signature_candidates = candidates;
+        }
+        self
     }
 
     /// Serialize to the canonical byte stream for hashing.
@@ -762,6 +871,17 @@ impl MatchState {
     /// `apply_intent` when a Shot / Pass / Dribble / GK-distribution intent fires.
     pub fn with_last_touched_by(mut self, slot: PlayerSlot) -> Self {
         self.last_touched_by = Some(slot);
+        self
+    }
+
+    /// Builder: set `possession` to `Some(slot)` and return `self`.
+    ///
+    /// Used by integration tests that need to place the ball in a specific
+    /// player's possession without widening `possession` to `pub`. In
+    /// production possession is managed by `apply_intent` and
+    /// `dispatch_tick`'s carrier routing pre-pass.
+    pub fn with_possession(mut self, slot: PlayerSlot) -> Self {
+        self.possession = Some(slot);
         self
     }
 

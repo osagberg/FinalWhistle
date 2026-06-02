@@ -414,6 +414,23 @@ pub fn advance_week_inner(state: &AppState) -> Result<AdvanceWeekSummaryDto, Ipc
                     fixture.away.raw()
                 ),
             })?;
+        // T4-2.5c: build slot_signatures from both clubs' rosters so all 22
+        // players' signature candidates flow into the match sim's canonical state.
+        // home roster instances → match slots 0-10; away → slots 11-21.
+        // If a club is absent from the roster (shouldn't happen post-T4-2.5b),
+        // fall back to None (content-spread defaults).
+        let slot_signatures = {
+            let home_instances = career.roster.get(&fixture.home);
+            let away_instances = career.roster.get(&fixture.away);
+            match (home_instances, away_instances) {
+                (Some(home), Some(away)) => Some(season::build_slot_signatures(
+                    home.as_slice(),
+                    away.as_slice(),
+                )),
+                _ => None,
+            }
+        };
+
         match season::play_one_match(
             seed,
             state.content(),
@@ -421,6 +438,7 @@ pub fn advance_week_inner(state: &AppState) -> Result<AdvanceWeekSummaryDto, Ipc
             &home_arch,
             &away_arch,
             season::SEASON_MATCH_TICK_BUDGET,
+            slot_signatures,
         ) {
             Ok(outcome) => {
                 career

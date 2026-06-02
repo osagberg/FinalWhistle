@@ -1,11 +1,12 @@
 //! Integration tests for `MatchState::initial_with_content` — T1-11 chunk 2.
 //!
 //! These tests verify:
-//! 1. Slot 7 (home AM) gets `signature_candidates` from sample-am.ron.
-//! 2. All other 21 slots still have empty candidates (T1-7 fills the rest).
+//! 1. Slot 7 (home AM/MID) gets `signature_candidates` from sample-am.ron.
+//! 2. Role-matched MID slots (5-7, 16-18) have candidates; GK/DEF/FWD empty.
 //! 3. Same-seed → same canonical bytes (determinism preserved).
-//! 4. Missing `sample-am` template → Err (fail-loud).
+//! 4. Empty ContentStore (no templates) → Err (fail-loud).
 //! 5. initial_with_content + tick_match still advances normally.
+//! 6. with_slot_signatures overrides only the slots present in the map.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -73,11 +74,16 @@ fn slot_7_has_signature_candidates_from_sample_am() {
 }
 
 // ---------------------------------------------------------------------------
-// RED test 2: all other slots have empty signature_candidates
+// T4-2.5c test 2: role-matched MID slots (5-7, 16-18) have candidates;
+//                 GK (0, 11), DEF (1-4, 12-15), FWD (8-10, 19-21) empty.
+//
+// With 1 AM template (preferred_role = "AM" → Role::Midfielder), only the
+// 6 midfielder slots receive candidates. All others remain empty until
+// per-role templates are added at T4.5-E1.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn slots_except_7_have_empty_candidates_after_initial_with_content() {
+fn role_matched_mid_slots_have_candidates_others_empty() {
     let store = load_store();
     let seed = Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
 
@@ -89,16 +95,26 @@ fn slots_except_7_have_empty_candidates_after_initial_with_content() {
     )
     .expect("initial_with_content should succeed");
 
-    for (i, player) in state.players.iter().enumerate() {
-        if i == 7 {
-            continue; // slot 7 is the smoke-anchor — covered by test above
-        }
-        assert_eq!(
-            player.signature_candidates().len(),
-            0,
-            "slot {} should have 0 signature_candidates (T1-7 procgen fills the rest); got {}",
-            i,
-            player.signature_candidates().len()
+    // MID slots in 4-3-3: home 5,6,7 and away 16,17,18 (= 11+5, 11+6, 11+7).
+    // These receive AM candidates because preferred_role="AM" maps to Role::Midfielder.
+    let mid_slots: &[usize] = &[5, 6, 7, 16, 17, 18];
+    for &slot in mid_slots {
+        assert!(
+            !state.players[slot].signature_candidates().is_empty(),
+            "MID slot {slot} should have non-empty candidates from the AM template \
+             (preferred_role=AM → Role::Midfielder); got 0"
+        );
+    }
+
+    // Non-MID slots: GK (0, 11), DEF (1-4, 12-15), FWD (8-10, 19-21) stay empty
+    // until matching templates are added at T4.5-E1.
+    let non_mid_slots: &[usize] = &[0, 1, 2, 3, 4, 8, 9, 10, 11, 12, 13, 14, 15, 19, 20, 21];
+    for &slot in non_mid_slots {
+        assert!(
+            state.players[slot].signature_candidates().is_empty(),
+            "Non-MID slot {slot} should have empty candidates (no template matches its role); \
+             got {} candidates",
+            state.players[slot].signature_candidates().len()
         );
     }
 }
@@ -161,11 +177,11 @@ fn initial_with_content_canonical_differs_from_initial() {
 }
 
 // ---------------------------------------------------------------------------
-// RED test 5: missing sample-am template → Err
+// T4-2.5c test 5: empty ContentStore (no templates) → Err (fail-loud)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn initial_with_content_fails_when_sample_am_missing() {
+fn initial_with_content_fails_when_template_pool_empty() {
     // Use the default ContentStore which has empty player_templates.
     let empty_store = ContentStore::default();
     let seed = Seed::from_u64(0);
@@ -178,8 +194,64 @@ fn initial_with_content_fails_when_sample_am_missing() {
     );
     assert!(
         result.is_err(),
-        "initial_with_content with empty ContentStore should return Err (no sample-am template)"
+        "initial_with_content with empty ContentStore (no templates) should return Err"
     );
+}
+
+// ---------------------------------------------------------------------------
+// T4-2.5c test 6: with_slot_signatures overrides only the slots in the map;
+//                 non-overridden slots keep their role-matched candidates
+// ---------------------------------------------------------------------------
+
+#[test]
+fn with_slot_signatures_overrides_only_present_slots() {
+    use fw_content::SignatureCandidate;
+    use std::collections::BTreeMap;
+
+    let store = load_store();
+    let seed = Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
+
+    // Override slot 7 (home MID — has candidates from AM template) to empty.
+    // Override slot 5 (home MID — also has candidates) to empty.
+    let mut override_map: BTreeMap<u8, Vec<SignatureCandidate>> = BTreeMap::new();
+    override_map.insert(7, Vec::new()); // MID slot 7 → explicitly empty
+    override_map.insert(5, Vec::new()); // MID slot 5 → explicitly empty
+
+    let state = MatchState::initial_with_content(
+        seed,
+        &store,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+        fw_match_sim::DEFAULT_ARCHETYPE_ID,
+    )
+    .expect("initial_with_content should succeed")
+    .with_slot_signatures(override_map);
+
+    // Slots 5 and 7 were overridden to empty.
+    assert!(
+        state.players[7].signature_candidates().is_empty(),
+        "slot 7 should have 0 candidates after override with empty Vec"
+    );
+    assert!(
+        state.players[5].signature_candidates().is_empty(),
+        "slot 5 should have 0 candidates after override with empty Vec"
+    );
+
+    // Slots 6, 16, 17, 18 were NOT in the map — should retain AM candidates.
+    for slot in [6usize, 16, 17, 18] {
+        assert!(
+            !state.players[slot].signature_candidates().is_empty(),
+            "MID slot {slot} was not in override map; should retain role-matched candidates"
+        );
+    }
+
+    // Non-MID slots (GK/DEF/FWD) remain empty — they were already empty from
+    // role-matched spread and no override can add candidates to them here.
+    for slot in [0usize, 1, 2, 3, 4, 8, 9, 10, 11, 12, 13, 14, 15, 19, 20, 21] {
+        assert!(
+            state.players[slot].signature_candidates().is_empty(),
+            "Non-MID slot {slot} should remain empty (no role-matched template)"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

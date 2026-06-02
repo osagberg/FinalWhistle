@@ -487,6 +487,106 @@ fn five_season_career_integration_fast() {
     assert!(compaction >= 1, "≥1 Compaction event; got {compaction}");
 }
 
+// ---------------------------------------------------------------------------
+// T4-2.5c AC-5: season-roster signature wiring
+//
+// Verifies the full path:
+//   CareerState::roster (home + away instances)
+//   → build_slot_signatures (role-match filter)
+//   → MatchState::with_slot_signatures
+//   → MatchState::players[non-slot-7 MID slot].signature_candidates non-empty
+//
+// This is the spec's AC-5 falsifiable gate: "a test asserts a non-slot-7
+// candidate present in the played match's state" from the roster path.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ac5_roster_slot_signatures_delivers_candidates_to_non_slot_7_mid() {
+    use fw_content::ContentStore;
+    use fw_match_sim::{DEFAULT_ARCHETYPE_ID, MatchState};
+    use fw_tauri::season::build_slot_signatures;
+
+    let content_path = workspace_content_path();
+    let state = test_state();
+
+    // Load the content store (needed for initial_with_content).
+    let content = ContentStore::load_sources(&content_path).expect("content load");
+
+    // Read the career roster. The career was built at test_state() construction;
+    // grab any two clubs from the current season's fixture list for home+away.
+    let career = state.career().read().expect("career lock");
+    let league = &career.season.league;
+    assert!(
+        league.clubs.len() >= 2,
+        "need at least 2 clubs to run a fixture"
+    );
+    let home_club_id = league.clubs[0].id;
+    let away_club_id = league.clubs[1].id;
+
+    let home_instances = career
+        .roster
+        .get(&home_club_id)
+        .expect("home club in roster");
+    let away_instances = career
+        .roster
+        .get(&away_club_id)
+        .expect("away club in roster");
+
+    // AC-5: build the slot_signatures map from the two clubs' rosters.
+    let slot_signatures =
+        build_slot_signatures(home_instances.as_slice(), away_instances.as_slice());
+
+    // The map must contain entries for home MID slots (5, 6, 7) — role-match filter.
+    // Away MID slots (16, 17, 18) also get entries.
+    let home_mid_slots: &[u8] = &[5, 6, 7];
+    let away_mid_slots: &[u8] = &[16, 17, 18];
+    for &slot in home_mid_slots.iter().chain(away_mid_slots) {
+        assert!(
+            slot_signatures.contains_key(&slot),
+            "slot_signatures must contain home/away MID slot {slot} (role_receives_candidates \
+             returns true for in_team 5-7); got keys={:?}",
+            slot_signatures.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            !slot_signatures[&slot].is_empty(),
+            "slot {slot}'s candidates in slot_signatures must be non-empty (1 AM template)"
+        );
+    }
+
+    // AC-5 core assertion: apply the override to a real MatchState and verify
+    // a non-slot-7 MID slot carries candidates in the final state.
+    drop(career); // release read lock before calling initial_with_content
+    let sim_state = MatchState::initial_with_content(
+        fw_core::Seed::from_u64(0xABCD_1234),
+        &content,
+        DEFAULT_ARCHETYPE_ID,
+        DEFAULT_ARCHETYPE_ID,
+    )
+    .expect("initial_with_content")
+    .with_slot_signatures(slot_signatures);
+
+    // Slot 5 (home MID) must be non-empty — proving the roster path delivers
+    // candidates to a non-slot-7 player.
+    assert!(
+        !sim_state.players[5].signature_candidates().is_empty(),
+        "AC-5: home MID slot 5 must carry candidates after roster→slot_signatures wiring; \
+         got 0. Check build_slot_signatures + role_receives_candidates."
+    );
+
+    // Slot 18 (away MID = 11+7) must also be non-empty.
+    assert!(
+        !sim_state.players[18].signature_candidates().is_empty(),
+        "AC-5: away MID slot 18 must carry candidates after roster→slot_signatures wiring; \
+         got 0."
+    );
+
+    // GK slot 0 must remain empty (role-match never assigns AM candidates to GK).
+    assert!(
+        sim_state.players[0].signature_candidates().is_empty(),
+        "AC-5: GK slot 0 must remain empty after roster wiring (no GK template exists)"
+    );
+}
+
 /// Full-season fast-forward under 30 seconds.
 ///
 /// Run: `cargo test --release -p fw-tauri --test season_commands_test \

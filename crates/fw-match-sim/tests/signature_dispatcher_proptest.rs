@@ -721,6 +721,142 @@ fn ac5_signature_first_fired_emitted_exactly_once_per_player_per_sig() {
 //  invariant pattern in AC-2/3/4/5 above is non-vacuous by construction.)
 
 // ---------------------------------------------------------------------------
+// T1-26 / AC-4 via dispatch_tick path: opposite-tilted bias maps → divergent
+// vel_x/vel_y or different MatchEvent discriminants after one dispatch_tick.
+//
+// The prior AC-4 test called `select_outfield_intent` DIRECTLY (bypassing
+// dispatch_tick). T1-26 exercises the full PRODUCTION composite-bias path:
+//
+//   initial state
+//   → set signature_firing[slot][Attacking] = Some(active firing)
+//   → two separate definition maps (strong-shoot vs strong-pass)
+//   → call dispatch_tick (NOT select_outfield_intent)
+//   → compare vel_x/vel_y of slot 8 between the two runs
+//
+// If the bias snapshot actually flows from the definition map through
+// `combine_active_biases` → `apply_signature_bias` → `select_outfield_intent`
+// → `apply_intent`, then the player's velocity will differ between the two runs.
+//
+// Pre-condition: both states must be byte-identical before dispatch_tick except
+// for the definition map — same state, same RNG, different bias only.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ac4_via_dispatch_tick_path_opposite_bias_diverges_vel() {
+    use fw_match_sim::{ForwardState, PlayerRoleState};
+
+    let lrs_id = "fwh.core:signature.long-range-strike";
+    let id = SignatureId::try_new(lrs_id).unwrap();
+
+    // Strong-shoot: shoot_mul = 50.0, all others = 0.05.
+    // This extreme tilt ensures the softmax strongly favours AttemptShot.
+    // Q32: 50.0 = 50 × 2^32 = 214748364800; 0.05 = 0.05 × 2^32 ≈ 214748365.
+    let strong_shoot_bias = SimBiasSnapshot {
+        shoot_mul: Q32::from_raw(214_748_364_800_i64), // 50.0
+        pass_mul: Q32::from_raw(214_748_365_i64),      // ≈0.05
+        dribble_mul: Q32::from_raw(214_748_365_i64),
+        press_mul: Q32::from_raw(214_748_365_i64),
+        cover_mul: Q32::from_raw(214_748_365_i64),
+    };
+
+    // Strong-pass: pass_mul = 50.0, all others = 0.05.
+    let strong_pass_bias = SimBiasSnapshot {
+        shoot_mul: Q32::from_raw(214_748_365_i64),
+        pass_mul: Q32::from_raw(214_748_364_800_i64), // 50.0
+        dribble_mul: Q32::from_raw(214_748_365_i64),
+        press_mul: Q32::from_raw(214_748_365_i64),
+        cover_mul: Q32::from_raw(214_748_365_i64),
+    };
+
+    // Build two definition maps — identical except for bias_snapshot.
+    let mut defs_shoot = BTreeMap::new();
+    defs_shoot.insert(
+        lrs_id.to_string(),
+        make_def(lrs_id, BiasCategory::Attacking, strong_shoot_bias),
+    );
+    let mut defs_pass = BTreeMap::new();
+    defs_pass.insert(
+        lrs_id.to_string(),
+        make_def(lrs_id, BiasCategory::Attacking, strong_pass_bias),
+    );
+
+    // Build one canonical setup state (identical for both runs).
+    // Slot 8 = home FWD (InPossession so on-ball intents fire).
+    // Active signature firing ensures combine_active_biases returns Some.
+    // We use with_last_touched_by(8) to establish slot 8 as the last ball
+    // contact — dispatch_tick's carrier routing will recognise InPossession
+    // on slot 8 and route it into on-ball BT candidates.
+    let make_initial_state = || {
+        let mut state = MatchState::initial(Seed::from_u64(0xBEEF_CAFE))
+            .with_last_touched_by(8)
+            .with_possession(8);
+        state.players[8].role_state = PlayerRoleState::Forward(ForwardState::InPossession);
+        // All relevant attrs above threshold for trigger predicates.
+        set_attrs_above_threshold(&mut state, 8);
+        // Give slot 8 the LRS candidate so the firing resolves to a real def.
+        *state.players[8].signature_candidates_mut() =
+            vec![SignatureCandidate::try_new(id.clone(), Q32::ONE).unwrap()];
+        // Activate the Attacking lane for slot 8 — this is what makes
+        // combine_active_biases return the bias snapshot.
+        let attacking_idx = BiasCategory::Attacking as usize;
+        state.signature_firing[8][attacking_idx] = Some(signature::SignatureFiring::new(
+            id.clone(),
+            fw_core::Tick::ZERO,
+            5400, // active for the whole test
+        ));
+        // Force decision to fire this tick.
+        state.decision_slots[8] = 1;
+        state.tick = fw_core::Tick::ZERO.successor();
+        state
+    };
+
+    let state_shoot_before = make_initial_state();
+    let state_pass_before = make_initial_state();
+
+    // Pre-condition: identical canonical bytes before dispatch.
+    assert_eq!(
+        state_shoot_before.encode_canonical(),
+        state_pass_before.encode_canonical(),
+        "T1-26 pre-condition: both states must be byte-identical before dispatch_tick"
+    );
+
+    // Run dispatch_tick once with each definition map.
+    let state_shoot_after = dispatch::dispatch_tick(state_shoot_before, &defs_shoot);
+    let state_pass_after = dispatch::dispatch_tick(state_pass_before, &defs_pass);
+
+    // Behavioral assertion: vel_x AND vel_y for slot 8 must differ.
+    //
+    // With 50× shoot bias, the player fires AttemptShot (ball launched toward
+    // goal, player vel set toward shot target). With 50× pass bias, the player
+    // fires AttemptPassShort/Long (ball sent to a teammate, vel set toward
+    // pass target — a different direction). The 50× tilt is extreme enough
+    // that the softmax is deterministic on a single tick; divergent vel is
+    // the genuine behavior signal that bias→intent selection is wired.
+    //
+    // The pre-condition assert above confirms input state is byte-identical,
+    // so any vel divergence is caused ONLY by the differing bias snapshots.
+    // We assert vel directly (not encode_canonical) because encode_canonical
+    // would also diverge for encoding-incidental reasons (cooldown timestamps,
+    // firing state) that are NOT evidence of bias→intent flow.
+    let vel_shoot = (
+        state_shoot_after.players[8].vel_x,
+        state_shoot_after.players[8].vel_y,
+    );
+    let vel_pass = (
+        state_pass_after.players[8].vel_x,
+        state_pass_after.players[8].vel_y,
+    );
+    assert_ne!(
+        vel_shoot, vel_pass,
+        "T1-26: dispatch_tick with strong-shoot vs strong-pass bias must produce \
+         divergent vel for slot 8. vel_shoot={vel_shoot:?}, vel_pass={vel_pass:?}. \
+         Same vel = the bias snapshot is NOT flowing through the production \
+         composite-bias path (combine_active_biases → apply_signature_bias → \
+         select_outfield_intent → apply_intent)."
+    );
+}
+
+// ---------------------------------------------------------------------------
 // AC-6: Determinism — same seed + definitions → identical canonical output
 // ---------------------------------------------------------------------------
 

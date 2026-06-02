@@ -117,6 +117,20 @@
 //                       re-verified by main thread (pinned in [2,5]; all 5 in
 //                       [0,7]) before rebaselining per post-T1-15 discipline.
 //                       Authorized by the T4-sim-halt spec in MEMORY.md.
+//   2026-06-02 (T4-2.5c) — `206bddae…57a9` per ADR-0012 trigger #3 (sim
+//                       behavior change). Pillar-5 wiring: initial_with_content
+//                       now spreads each content template's signature_candidates
+//                       to all slots whose formation Role matches the template's
+//                       preferred_role (was slot-7-only). With the 1 AM template
+//                       the 6 MID slots (5-7, 16-18) carry candidates → more
+//                       signature firings alter trajectories over 600 ticks.
+//                       60-tick smoke pin UNCHANGED (bare initial, no content).
+//                       Pinned seed still 2-2 (4 goals); 5-seed envelope re-
+//                       verified [2,5]/[0,7] before rebaselining. An all-22-slot
+//                       spread was rejected (collapsed scoring to 0 — all mids
+//                       firing the AM pass-heavy signature); role-matching is the
+//                       correct first increment (per-player diversity = T4.5-E1).
+//                       Authorized by the T4-2.5c spec in MEMORY.md.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_600_TICK`
@@ -129,10 +143,10 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:856a7fede1ab802b88f12a239bdb54e94381348bccfc60c09964d0dfd01dd3fa",
+    expected_hash: "blake3:206bddaef4df4fec909b9456e2efb04f6c5120ef4104dbdf6aec9665b45b57a9",
     metadata: (
-        description: "T4-sim-halt: sim self-halts at FullTime. match_end_tick default 60 → FULL_MATCH_TICKS (5400 = 90 min); tick_match gained a step-0 freeze guard (no-op once FullTime is the tail) + an in-play gate wrapping gameplay steps 2-8. This content-loaded 600-tick run (home=attacking-fullback, away=low-block-counter) is byte-identical in gameplay to the T2-1-codex-fix baseline (600 < 5400 → gate never closes, freeze never fires); the canonical deltas are match_end_tick (60→5400) + match_events losing the FullTime spam the old 60-tick default emitted on every tick ≥ 60. Total goals unchanged; per-team archetype divergence + goal-tick early-return guard otherwise unchanged.",
+        description: "T4-2.5c: pillar-5 signature candidates on role-matched slots. initial_with_content now spreads each content template's signature_candidates to all slots whose formation Role matches the template's preferred_role (was slot-7-only); with the 1 AM template the 6 MID slots (5-7 home, 16-18 away) carry candidates, so more signatures fire over the 600-tick run, altering player trajectories. Content-loaded run (home=attacking-fullback, away=low-block-counter). The 60-tick smoke pin uses bare initial (no content/signatures) → UNCHANGED. Pinned-seed final score coincidentally still 2-2 (4 goals). An all-22-slot spread was rejected (collapsed scoring to 0); role-matching is the correct first increment, with per-role/per-player diversity arriving at T4.5-E1.",
         generated_at: "2026-06-02",
-        notes: "Re-pinned at T4-sim-halt (ADR-0012 trigger #3 — sim behavior change: match-end halt). Prior hash aa7efe9b...e5ae was the T2-1-codex-fix baseline. Total goals unchanged (the fix targets FullTime/event spam past match-end, not per-tick gameplay). Main-thread re-verified the 5-seed envelope (pinned in [2,5]; all 5 in [0,7]) before rebaselining per the post-T1-15 multi-pin discipline.",
+        notes: "Re-pinned at T4-2.5c (ADR-0012 trigger #3 — sim behavior change: signature candidates onto role-matched slots). Prior hash 856a7fed...d3fa was the T4-sim-halt baseline. Main-thread independently re-verified the 5-seed envelope (pinned in [2,5]; all 5 in [0,7]) BEFORE rebaselining per the post-T1-15 multi-pin discipline. SINGLE-pin drift: the 60-tick smoke pin + 0xdeadbeefdeadbeef.ron + fw-content fixtures_load + the insta snapshot all use bare initial and are unchanged.",
     ),
 )
