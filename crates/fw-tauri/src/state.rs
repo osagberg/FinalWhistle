@@ -28,11 +28,13 @@ use std::sync::{Arc, RwLock};
 
 use fw_content::{
     ContentLoadError, ContentStore, MATCH_DAYS_PER_SEASON, SeasonState, SignatureDefinition,
-    generate_league,
+    generate_league_with_teams,
 };
-use fw_core::{Seed, SeedLayer, Tick, seed_fn};
+use fw_core::{ClubId, Seed, SeedLayer, Tick, seed_fn};
 use fw_memory::event::SeasonNumber;
 use fw_memory::ledger::MemoryLedger;
+
+use crate::roster::{PlayerInstance, build_roster_from_league};
 
 use crate::live_match::LiveMatchSession;
 use crate::season::SEASON_MATCH_TICK_BUDGET;
@@ -59,6 +61,15 @@ pub struct CareerState {
     /// Ordinal of the current season. Starts at `SeasonNumber(0)`.
     /// Incremented by `advance_season`.
     pub season_number: SeasonNumber,
+    /// Per-club player instances, keyed by `ClubId`.
+    ///
+    /// Populated at career start from the league's per-club `ProcGenTeam` +
+    /// `PlayerTemplate` pool. Inner `Vec` is slot-ordered (GK=0, 22 entries
+    /// per club). Mutable via breakthroughs (T4-2.5d), scouting (T4-2.5f),
+    /// and season advance.
+    ///
+    /// `BTreeMap` for deterministic iteration (Sim/RULES.md §2).
+    pub roster: BTreeMap<ClubId, Vec<PlayerInstance>>,
 }
 
 impl CareerState {
@@ -199,12 +210,20 @@ impl AppState {
         let content = ContentStore::load_sources(content_root)?;
         let signature_definitions = Arc::new(content.signature_definitions.clone());
 
-        // generate_league is a pure function of (seed, content). A failure
-        // here means missing cultures/archetypes/managers — load_sources
-        // already validated these are present, so this panic is a true
-        // post-load content corruption, not a user-visible error path.
-        let league = generate_league(career_seed, &content).expect(
-            "generate_league must succeed on a valid ContentStore; \
+        // generate_league_with_teams is a pure function of (seed, content).
+        // A failure here means missing cultures/archetypes/managers —
+        // load_sources already validated these are present, so expect is the
+        // right escalation (true post-load content corruption, not user error).
+        //
+        // One procgen pass produces both the League (for SeasonState) and the
+        // Vec<ProcGenTeam> (for build_roster_from_league), avoiding the double
+        // call that a career_seed-only roster entry point would require.
+        let (league, procgen_teams) = generate_league_with_teams(career_seed, &content).expect(
+            "generate_league_with_teams must succeed on a valid ContentStore; \
+             failure here means the content directory was corrupted post-load",
+        );
+        let roster = build_roster_from_league(&league, &procgen_teams, &content).expect(
+            "build_roster_from_league must succeed on a valid ContentStore; \
              failure here means the content directory was corrupted post-load",
         );
         let season = SeasonState::new(league, &content);
@@ -217,6 +236,7 @@ impl AppState {
                 season,
                 ledger: MemoryLedger::new(),
                 season_number: SeasonNumber(0),
+                roster,
             }),
             settings_path,
             live_matches: RwLock::new(BTreeMap::new()),

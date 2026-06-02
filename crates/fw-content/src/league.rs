@@ -37,7 +37,7 @@ use std::collections::BTreeMap;
 use fw_core::{ClubId, Seed};
 use serde::{Deserialize, Serialize};
 
-use crate::procgen::{ProcGenError, ProcGenInputs, generate_team};
+use crate::procgen::{ProcGenError, ProcGenInputs, ProcGenTeam, generate_team};
 use crate::runtime::ContentStore;
 use crate::team::TeamTemplate;
 
@@ -131,100 +131,18 @@ pub struct League {
 ///
 /// Panics if `club_ids.len() != CLUBS_PER_LEAGUE`. Callers should ensure
 /// the slice is exactly 20 long; `generate_league` enforces this.
+/// Generate a deterministic double-round-robin schedule for exactly
+/// `CLUBS_PER_LEAGUE` clubs via the circle method.
+///
+/// For arbitrary club counts use [`generate_fixtures_from_slice`].
+///
+/// # Panics
+///
+/// Panics if `club_ids.len() != CLUBS_PER_LEAGUE`. Callers should ensure
+/// the slice is exactly 20 long; `generate_league` enforces this.
 #[must_use]
 pub fn generate_fixtures(club_ids: &[ClubId; CLUBS_PER_LEAGUE]) -> Vec<Fixture> {
-    let n = CLUBS_PER_LEAGUE;
-    let rounds_per_leg = n - 1; // 19 for n=20
-    let half = n / 2; // 10 matches per round
-
-    let mut fixtures: Vec<Fixture> = Vec::with_capacity(MATCHES_PER_SEASON);
-
-    // Circle method working array: club_ids[0] is pinned; club_ids[1..n]
-    // rotate. We track the rotating array as indices into the original
-    // `club_ids` slice for clarity.
-    //
-    // Initial layout (n=20 example):
-    //   pinned: 0
-    //   rotating: [1, 2, 3, ..., 19]
-    //
-    // Round r (0-indexed) pairings:
-    //   (pinned, rotating[n-2])              — pinned vs last rotating slot
-    //   for i in 0..(half - 1):
-    //     (rotating[i], rotating[n - 3 - i]) — symmetric pairs from outer-to-inner
-    //
-    // After producing round r's pairings, rotate `rotating` right by 1:
-    //   new[0] = old[n-2]; new[1..] = old[0..n-2]
-    let mut rotating: Vec<usize> = (1..n).collect();
-
-    // First leg: rounds 0..rounds_per_leg.
-    for round in 0..rounds_per_leg {
-        let match_day = (round as u16) + 1; // 1-indexed
-        // Pinned (index 0) vs the last rotating slot.
-        let pinned_opponent_idx = rotating[n - 2];
-        // First leg home/away convention: pinned takes home in even rounds,
-        // away in odd rounds. Produces balanced 9 home + 10 away (or vice
-        // versa) for the pinned club across the first leg's 19 rounds.
-        // (Exact 19/2 split rounds to 10 home + 9 away for the pinned club
-        // across the first leg; reverse leg flips → final tally 19 each.)
-        let (home, away) = if round.is_multiple_of(2) {
-            (club_ids[0], club_ids[pinned_opponent_idx])
-        } else {
-            (club_ids[pinned_opponent_idx], club_ids[0])
-        };
-        fixtures.push(Fixture {
-            home,
-            away,
-            match_day,
-        });
-
-        // The other (half - 1) pairings: rotating[i] vs rotating[n - 3 - i]
-        // for i in 0..(half - 1). Home/away alternates similarly per i +
-        // round parity.
-        for i in 0..(half - 1) {
-            let a_idx = rotating[i];
-            let b_idx = rotating[n - 3 - i];
-            // Symmetric home/away derivation: use (round + i) parity so
-            // each club gets a balanced home/away count across the leg.
-            let (home, away) = if (round + i).is_multiple_of(2) {
-                (club_ids[a_idx], club_ids[b_idx])
-            } else {
-                (club_ids[b_idx], club_ids[a_idx])
-            };
-            fixtures.push(Fixture {
-                home,
-                away,
-                match_day,
-            });
-        }
-
-        // Rotate `rotating` right by 1: last element moves to front.
-        let last = rotating[n - 2];
-        for i in (1..n - 1).rev() {
-            rotating[i] = rotating[i - 1];
-        }
-        rotating[0] = last;
-    }
-
-    // Reverse leg: rounds rounds_per_leg..(rounds_per_leg * 2). Each
-    // first-leg fixture has a mirror in the reverse leg with home/away
-    // swapped + match_day shifted by `rounds_per_leg`. Iterate the first
-    // leg's fixtures directly + emit the mirrors.
-    let first_leg_count = fixtures.len();
-    for i in 0..first_leg_count {
-        let original = fixtures[i];
-        fixtures.push(Fixture {
-            home: original.away,
-            away: original.home,
-            match_day: original.match_day + rounds_per_leg as u16,
-        });
-    }
-
-    // Sort by (match_day, home.raw(), away.raw()) for stable
-    // deterministic iteration (downstream T2-5 consumers can rely on
-    // ordering for "next match" lookups without re-sorting).
-    fixtures.sort_by_key(|f| (f.match_day, f.home.raw(), f.away.raw()));
-
-    fixtures
+    generate_fixtures_from_slice(club_ids.as_slice())
 }
 
 /// Generate a deterministic procedural league of 20 clubs + 380 fixtures
@@ -257,6 +175,22 @@ pub fn generate_fixtures(club_ids: &[ClubId; CLUBS_PER_LEAGUE]) -> Vec<Fixture> 
 /// at minimum; today's content tree has 2/16/15 respectively so this
 /// only fires on a malformed empty content store).
 pub fn generate_league(seed: Seed, content: &ContentStore) -> Result<League, ProcGenError> {
+    generate_league_with_teams(seed, content).map(|(league, _teams)| league)
+}
+
+/// Generate a deterministic procedural league, returning both the `League`
+/// and the per-club `ProcGenTeam` (22 player names + manager name + team name).
+///
+/// The `ProcGenTeam` at index `i` corresponds to `league.clubs[i]`: names are
+/// already attached to `TeamTemplate.display_name` via `procgen_team.team_name`;
+/// the `players` array carries the 22 slot-ordered `PlayerName`s consumed by
+/// the career-roster layer at T4-2.5b so they are NOT recomputed there.
+///
+/// See [`generate_league`] for the full determinism contract and error docs.
+pub fn generate_league_with_teams(
+    seed: Seed,
+    content: &ContentStore,
+) -> Result<(League, Vec<ProcGenTeam>), ProcGenError> {
     if content.cultures.is_empty() {
         return Err(ProcGenError::MissingCulture(
             "(content.cultures empty)".into(),
@@ -284,6 +218,7 @@ pub fn generate_league(seed: Seed, content: &ContentStore) -> Result<League, Pro
     let manager_ids: Vec<&str> = content.managers.keys().map(String::as_str).collect();
 
     let mut clubs: Vec<TeamTemplate> = Vec::with_capacity(CLUBS_PER_LEAGUE);
+    let mut procgen_teams: Vec<ProcGenTeam> = Vec::with_capacity(CLUBS_PER_LEAGUE);
     for club_idx in 0..CLUBS_PER_LEAGUE {
         // Per-club seed derivation: each club gets an independent ChaCha8
         // stream so adding/removing a culture (or changing the round-robin
@@ -316,22 +251,16 @@ pub fn generate_league(seed: Seed, content: &ContentStore) -> Result<League, Pro
         clubs.push(TeamTemplate {
             id: club_id,
             qualified_id,
-            display_name: procgen_team.team_name,
+            display_name: procgen_team.team_name.clone(),
         });
+        procgen_teams.push(procgen_team);
     }
 
     // Snapshot club IDs in order for fixture generation. The collect into
-    // `[ClubId; CLUBS_PER_LEAGUE]` via try_into is safe because the loop
-    // above pushed exactly CLUBS_PER_LEAGUE items + the panic message
-    // names the binding invariant for any future regression.
-    let club_id_array: [ClubId; CLUBS_PER_LEAGUE] = clubs
-        .iter()
-        .map(|c| c.id)
-        .collect::<Vec<_>>()
-        .try_into()
-        .expect("clubs.len() == CLUBS_PER_LEAGUE invariant violated post-loop");
-
-    let fixtures = generate_fixtures(&club_id_array);
+    // a Vec and try_into a fixed-size array is safe because the loop above
+    // pushed exactly CLUBS_PER_LEAGUE items.
+    let club_id_vec: Vec<ClubId> = clubs.iter().map(|c| c.id).collect();
+    let fixtures = generate_fixtures_from_slice(&club_id_vec);
 
     // League name: MVP shape is a fixed-template-with-seed-suffix string.
     // T3+ may procgen this via a dedicated `league_name` markov chain
@@ -339,11 +268,87 @@ pub fn generate_league(seed: Seed, content: &ContentStore) -> Result<League, Pro
     // "Intentionally NOT done" list.
     let name = format!("Procedural League ({:#018x})", seed.to_u64());
 
-    Ok(League {
-        name,
-        clubs,
-        fixtures,
-    })
+    Ok((
+        League {
+            name,
+            clubs,
+            fixtures,
+        },
+        procgen_teams,
+    ))
+}
+
+/// Generate a deterministic double-round-robin schedule for an arbitrary club
+/// slice. Generalises `generate_fixtures` to any non-zero even club count —
+/// the N×22 roster builder iterates the actual league rather than assuming
+/// `CLUBS_PER_LEAGUE`.
+///
+/// # Panics
+///
+/// Panics if `club_ids` is empty or has an odd length (a round-robin schedule
+/// requires at least 2 clubs and an even count for full pairing).
+pub fn generate_fixtures_from_slice(club_ids: &[ClubId]) -> Vec<Fixture> {
+    let n = club_ids.len();
+    assert!(
+        n >= 2 && n.is_multiple_of(2),
+        "generate_fixtures_from_slice requires an even non-zero club count, got {n}"
+    );
+    let rounds_per_leg = n - 1;
+    let half = n / 2;
+
+    // Upper bound: each pair plays twice; n*(n-1) total fixtures.
+    let mut fixtures: Vec<Fixture> = Vec::with_capacity(n * (n - 1));
+
+    let mut rotating: Vec<usize> = (1..n).collect();
+
+    for round in 0..rounds_per_leg {
+        let match_day = (round as u16) + 1;
+        let pinned_opponent_idx = rotating[n - 2];
+        let (home, away) = if round.is_multiple_of(2) {
+            (club_ids[0], club_ids[pinned_opponent_idx])
+        } else {
+            (club_ids[pinned_opponent_idx], club_ids[0])
+        };
+        fixtures.push(Fixture {
+            home,
+            away,
+            match_day,
+        });
+
+        for i in 0..(half - 1) {
+            let a_idx = rotating[i];
+            let b_idx = rotating[n - 3 - i];
+            let (home, away) = if (round + i).is_multiple_of(2) {
+                (club_ids[a_idx], club_ids[b_idx])
+            } else {
+                (club_ids[b_idx], club_ids[a_idx])
+            };
+            fixtures.push(Fixture {
+                home,
+                away,
+                match_day,
+            });
+        }
+
+        let last = rotating[n - 2];
+        for i in (1..n - 1).rev() {
+            rotating[i] = rotating[i - 1];
+        }
+        rotating[0] = last;
+    }
+
+    let first_leg_count = fixtures.len();
+    for i in 0..first_leg_count {
+        let original = fixtures[i];
+        fixtures.push(Fixture {
+            home: original.away,
+            away: original.home,
+            match_day: original.match_day + rounds_per_leg as u16,
+        });
+    }
+
+    fixtures.sort_by_key(|f| (f.match_day, f.home.raw(), f.away.raw()));
+    fixtures
 }
 
 // ---------------------------------------------------------------------------

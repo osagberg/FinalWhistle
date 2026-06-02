@@ -13,6 +13,7 @@
 
 use fw_content::{
     CLUBS_PER_LEAGUE, ContentStore, MATCH_DAYS_PER_SEASON, MATCHES_PER_SEASON, generate_league,
+    generate_league_with_teams,
 };
 use fw_core::{ClubId, Seed};
 use std::path::PathBuf;
@@ -268,4 +269,43 @@ fn generate_league_differs_across_seeds() {
             .map(|c| &c.display_name)
             .collect::<Vec<_>>(),
     );
+}
+
+// ---------------------------------------------------------------------------
+// T4-2.5b: generate_league_with_teams returns per-club ProcGenTeam
+// ---------------------------------------------------------------------------
+
+/// AC4: generate_league_with_teams returns Vec<ProcGenTeam> whose team names
+/// match League.clubs[i].display_name and whose players arrays have 22 entries.
+#[test]
+fn generate_league_with_teams_returns_matching_procgen_teams() {
+    let content = load_content();
+    let seed = Seed::from_u64(0xDECA_FBAD);
+    let (league, procgen_teams) =
+        generate_league_with_teams(seed, &content).expect("generate_league_with_teams");
+
+    assert_eq!(
+        procgen_teams.len(),
+        league.clubs.len(),
+        "one ProcGenTeam per club"
+    );
+
+    for (i, (club, team)) in league.clubs.iter().zip(procgen_teams.iter()).enumerate() {
+        assert_eq!(
+            club.display_name, team.team_name,
+            "club[{i}] display_name must match ProcGenTeam.team_name; \
+             no recomputation allowed"
+        );
+        assert_eq!(
+            team.players.len(),
+            22,
+            "ProcGenTeam[{i}] must have 22 player names"
+        );
+        for (slot, player) in team.players.iter().enumerate() {
+            assert!(
+                !player.first.is_empty() && !player.last.is_empty(),
+                "ProcGenTeam[{i}].players[{slot}] has empty name: {player:?}"
+            );
+        }
+    }
 }

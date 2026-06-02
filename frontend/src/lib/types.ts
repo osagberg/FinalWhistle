@@ -256,6 +256,38 @@ export interface PlayerDetail {
 }
 
 // ---------------------------------------------------------------------------
+// T4-2.5b roster DTO — mirrors fw-tauri::roster_dto::PlayerRosterDto
+// ---------------------------------------------------------------------------
+
+/**
+ * One player row returned by `get_roster_for_club(clubId)`.
+ *
+ * Contains identity + slot + season statistics. No overall / rating number —
+ * internal metrics are surfaced as commentary only (CLAUDE.md §7).
+ *
+ * Stats are zero at career start; accumulated by `update_player_stats_from_match`
+ * in T4-2.5e/h.
+ */
+export interface PlayerRosterDto {
+  /** Raw u32 career-unique player handle. */
+  playerId: number;
+  /** Display name for this player. */
+  name: string;
+  /** Raw u32 of the owning club. */
+  clubId: number;
+  /** Squad slot (0 = GK, 1–21 = outfield). */
+  slot: number;
+  /** Appearances this season. */
+  appearances: number;
+  /** Goals this season. */
+  goals: number;
+  /** Assists this season. */
+  assists: number;
+  /** Minutes played this season. */
+  minutesPlayed: number;
+}
+
+// ---------------------------------------------------------------------------
 // T1-2a tactical board DTOs — mirrors fw-match-sim::dto (camelCase serde)
 // ---------------------------------------------------------------------------
 

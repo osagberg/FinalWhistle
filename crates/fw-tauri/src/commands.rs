@@ -33,6 +33,7 @@ use crate::live_match::snapshot::{project_final, project_snapshot};
 use crate::live_match::types::{
     FinalMatchResult, MatchCommand, MatchHandle, MatchSnapshot, StepResult,
 };
+use crate::roster_dto::PlayerRosterDto;
 use crate::state::{fixture_seed, league_fixture_index};
 use crate::{
     AdvanceSeasonSummaryDto, AdvanceWeekSummaryDto, AppState, BackendHandshakeDto,
@@ -642,6 +643,57 @@ pub fn get_squad_inner(state: &AppState) -> Result<Vec<SquadPlayerDto>, IpcError
             }
         })
         .collect();
+    Ok(dtos)
+}
+
+/// `get_roster_for_club(club_id)` — return the 22 slot-ordered players for a club.
+///
+/// Returns:
+/// - `Vec<PlayerRosterDto>` (22 entries, slot 0 = GK) for a valid club id.
+/// - `IpcError::ClubNotFound` for an unknown club id.
+///
+/// `club_id` is the raw u32 value (matching `ClubId.raw()`).
+#[tauri::command]
+pub async fn get_roster_for_club(
+    club_id: u32,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<PlayerRosterDto>, IpcError> {
+    get_roster_for_club_inner(club_id, &state)
+}
+
+pub fn get_roster_for_club_inner(
+    club_id_raw: u32,
+    state: &AppState,
+) -> Result<Vec<PlayerRosterDto>, IpcError> {
+    let career = state.career().read().map_err(|_| IpcError::LockPoisoned {
+        lock: "career".to_string(),
+    })?;
+
+    let club_id = fw_core::ClubId::new(club_id_raw);
+    let instances = career.roster.get(&club_id).ok_or(IpcError::ClubNotFound {
+        club_id: club_id_raw,
+    })?;
+
+    // Slot-ordered: the Vec was built in slot 0..21 order at generation time.
+    // `assert!` here — not `IpcError` — because a wrong instance count indicates
+    // a programming error in `generate_career_roster` (corrupted career state),
+    // not a recoverable user-facing condition. Same precedent as `state.rs`'s
+    // `expect()` on `generate_league_with_teams`. Tauri/RULES §4 governs
+    // user-input validation failures; structural binary corruption is a panic
+    // domain per Sim/RULES §11 ("canonical and gameplay invariants MUST fail in
+    // release, not silently degrade").
+    assert!(
+        instances.len() == 22,
+        "roster invariant violated: club {:?} has {} instances, expected 22",
+        club_id,
+        instances.len()
+    );
+
+    let dtos: Vec<PlayerRosterDto> = instances
+        .iter()
+        .map(PlayerRosterDto::from_instance)
+        .collect();
+
     Ok(dtos)
 }
 
@@ -1859,6 +1911,65 @@ mod tests {
             EventId(0),
             "at Tick::ZERO both events hold full salience — the tie breaks to \
              the lower event_id, so the decayer (id 0) ranks first",
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // T4-2.5b: get_roster_for_club IPC tests
+    // -------------------------------------------------------------------------
+
+    /// AC3: valid club id → Vec<PlayerRosterDto> of length 22, slot-ordered.
+    #[test]
+    fn get_roster_for_club_inner_valid_id_returns_22_slot_ordered() {
+        let state = test_app_state();
+        // Use the first club id from the generated league.
+        let career = state.career().read().expect("career lock");
+        let first_club_id = career.season.league.clubs[0].id.raw();
+        drop(career);
+
+        let dtos = get_roster_for_club_inner(first_club_id, &state)
+            .expect("get_roster_for_club_inner valid club");
+
+        assert_eq!(dtos.len(), 22, "must return 22 players per club");
+        assert_eq!(dtos[0].slot, 0, "first entry must be GK (slot 0)");
+        for (i, dto) in dtos.iter().enumerate() {
+            assert_eq!(
+                dto.slot as usize, i,
+                "slot at index {i} must be {i}, got {}",
+                dto.slot
+            );
+        }
+    }
+
+    /// AC3: unknown club id → IpcError::ClubNotFound.
+    #[test]
+    fn get_roster_for_club_inner_unknown_id_returns_club_not_found() {
+        let state = test_app_state();
+        let result = get_roster_for_club_inner(999_999_u32, &state);
+        assert!(
+            matches!(result, Err(IpcError::ClubNotFound { club_id: 999_999 })),
+            "unknown club id must return ClubNotFound, got: {:?}",
+            result
+        );
+    }
+
+    /// AC2: career state has 440 instances for the default 20-club league.
+    #[test]
+    fn career_state_roster_has_440_instances_at_career_start() {
+        let state = test_app_state();
+        let career = state.career().read().expect("career lock");
+        let total: usize = career.roster.values().map(|v| v.len()).sum();
+        assert_eq!(
+            total, 440,
+            "default 20-club league must have 20×22=440 roster instances"
+        );
+        let league_club_ids: std::collections::BTreeSet<fw_core::ClubId> =
+            career.season.league.clubs.iter().map(|c| c.id).collect();
+        let roster_club_ids: std::collections::BTreeSet<fw_core::ClubId> =
+            career.roster.keys().copied().collect();
+        assert_eq!(
+            league_club_ids, roster_club_ids,
+            "roster club ids must match league club ids"
         );
     }
 }

@@ -39,7 +39,8 @@ pub use gene::{
 };
 pub use league::{
     CLUBS_PER_LEAGUE, Fixture, League, MATCH_DAYS_PER_SEASON, MATCHES_PER_SEASON, MatchOutcome,
-    SeasonState, Standings, StandingsRow, generate_fixtures, generate_league,
+    SeasonState, Standings, StandingsRow, generate_fixtures, generate_fixtures_from_slice,
+    generate_league, generate_league_with_teams,
 };
 pub use manager::{
     MANAGER_ARCHETYPE_SCHEMA_VERSION, ManagerArchetype, ManagerArchetypeError, ManagerArchetypeId,

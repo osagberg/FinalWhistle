@@ -83,6 +83,8 @@ fn main() {
             // T4-6a: settings persistence
             fw_tauri::commands::get_settings,
             fw_tauri::commands::set_settings,
+            // T4-2.5b: career roster
+            fw_tauri::commands::get_roster_for_club,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
