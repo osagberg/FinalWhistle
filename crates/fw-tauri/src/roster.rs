@@ -8,11 +8,11 @@
 //!
 //! ## Determinism contract
 //!
-//! - `PlayerId` derivation: `club_index * SLOTS_PER_CLUB as u32 + slot as u32`.
+//! - `PlayerId` derivation: `ROSTER_PLAYER_ID_BASE + club_index * SLOTS_PER_CLUB + slot`.
 //!   Unique BY CONSTRUCTION — distinct `(club_index, slot)` pairs map to
-//!   distinct values; no birthday collisions possible. Max id for a 96-club
-//!   pyramid: 95 × 22 + 21 = 2111. Matches the `ClubId::new(club_idx + 1)`
-//!   precedent in `league.rs`. Does not encode `career_seed` — per-career
+//!   distinct values; no birthday collisions possible. The base offset (1_000_000)
+//!   ensures no overlap with content-bio suffix ids (1..=99_999). Max id for a
+//!   96-club pyramid: 1_002_111. Does not encode `career_seed` — per-career
 //!   variation flows through names/attributes/template selection, not id values.
 //! - `BTreeMap<ClubId, Vec<PlayerInstance>>` — `ClubId` iteration is
 //!   deterministic (Sim/RULES.md §2); inner `Vec` is slot-ordered (GK=0).
@@ -26,9 +26,9 @@
 //!
 //! The generation function iterates `league.clubs` directly — it never
 //! assumes 20 clubs. The bijective `PlayerId` scheme is collision-free at any
-//! club count: max id at 96-club pyramid scale is 2111, well within `u32`.
+//! club count: max id at 96-club pyramid scale is 1_002_111, well within `u32`.
 //! `SaveV4` (T4-2.5g) will serialise `BTreeMap<ClubId, Vec<PlayerInstance>>`
-//! unchanged.
+//! unchanged; `ROSTER_PLAYER_ID_BASE` is frozen from that point.
 
 use std::collections::BTreeMap;
 
@@ -37,13 +37,29 @@ use fw_core::{AbilityCeiling, ClubId, PlayerAttributes, PlayerId, Seed};
 use fw_memory::BreakthroughState;
 
 /// Slots per club squad. Drives the bijective `PlayerId` scheme:
-/// `PlayerId = club_index * SLOTS_PER_CLUB as u32 + slot as u32`.
+/// `PlayerId = ROSTER_PLAYER_ID_BASE + club_index * SLOTS_PER_CLUB as u32 + slot as u32`.
 ///
 /// Matches `fw-content-baker::validators::MVP_ROSTER_SIZE = 22` (two teams
 /// of eleven). That constant lives in the baker crate (validation); this one
 /// lives in the generation path. Keep both in sync if the squad size ever
 /// changes (a schema bump would accompany such a change anyway).
 pub const SLOTS_PER_CLUB: u8 = 22;
+
+/// Base offset for roster `PlayerId` values.
+///
+/// Roster ids are `ROSTER_PLAYER_ID_BASE + club_index * SLOTS_PER_CLUB + slot`.
+/// The base is chosen to be strictly above any plausible content-bio suffix
+/// (content bios use `_00001`–`_99999` → raw suffixes 1–99_999). Setting the
+/// base to 1_000_000 guarantees the roster id space (1_000_000..~1_002_111 for
+/// a 96-club pyramid) never overlaps the content-bio id space, preventing the
+/// chimera: `get_player_detail("fwh.core:player_00022")` querying the ledger
+/// for `PlayerId(22)` which belongs to a DIFFERENT roster player.
+///
+/// This offset is non-canonical (roster ids live only in `CareerState` and the
+/// ledger's `by_subject` index, not in `MatchState` canonical encoding) → no
+/// canonical-hash impact. SaveV4 (T4-2.5g) will freeze this value; changing it
+/// after T4-2.5g requires a save-migration.
+pub const ROSTER_PLAYER_ID_BASE: u32 = 1_000_000;
 
 // ---------------------------------------------------------------------------
 // PlayerSeasonStats — float-free per-season accumulator
@@ -84,9 +100,10 @@ pub struct PlayerInstance {
     /// Durable career-unique player handle.
     ///
     /// Derived bijectively from `(club_index, slot)`:
-    /// `club_index * SLOTS_PER_CLUB as u32 + slot as u32`.
+    /// `ROSTER_PLAYER_ID_BASE + club_index * SLOTS_PER_CLUB as u32 + slot as u32`.
     /// Unique by construction — no two distinct `(club_index, slot)` pairs
-    /// produce the same id. Max value at 96-club pyramid scale: 2111.
+    /// produce the same id. The base offset (1_000_000) ensures no overlap with
+    /// content-bio suffix ids (1..=99_999). Max value at 96-club pyramid: 1_002_111.
     pub player_id: PlayerId,
 
     /// Current club affiliation.
@@ -181,10 +198,11 @@ pub fn build_roster_from_league(
     {
         let mut instances: Vec<PlayerInstance> = Vec::with_capacity(SLOTS_PER_CLUB as usize);
         for slot in 0u8..SLOTS_PER_CLUB {
-            // Bijective PlayerId: distinct (club_idx, slot) → distinct u32.
-            // Max at 96-club pyramid: 95 * 22 + 21 = 2111 < u32::MAX.
-            let player_id =
-                PlayerId::new((club_idx as u32) * (SLOTS_PER_CLUB as u32) + (slot as u32));
+            // Bijective PlayerId with base offset to avoid overlap with content-bio
+            // suffix ids. Max at 96-club pyramid: 1_000_000 + 95*22 + 21 = 1_002_111.
+            let player_id = PlayerId::new(
+                ROSTER_PLAYER_ID_BASE + (club_idx as u32) * (SLOTS_PER_CLUB as u32) + (slot as u32),
+            );
 
             // Template round-robin: deterministic, N-template-safe.
             let template = templates[slot as usize % templates.len()];
@@ -361,17 +379,23 @@ mod tests {
 
     /// PlayerId bijection holds at pyramid scale (96 clubs × 22 slots).
     ///
-    /// Exercises the bijective formula `club_idx * SLOTS_PER_CLUB + slot`
+    /// Exercises the bijective formula
+    /// `ROSTER_PLAYER_ID_BASE + club_idx * SLOTS_PER_CLUB + slot`
     /// across the full EA pyramid population without needing a 96-club
-    /// ContentStore. Proves: (a) all 2112 ids are distinct in a BTreeSet,
-    /// (b) max id is 2111 (fits u32 with enormous headroom).
+    /// ContentStore. Proves:
+    /// (a) all 2112 ids are distinct in a BTreeSet,
+    /// (b) min id == ROSTER_PLAYER_ID_BASE, strictly above the content-bio
+    ///     suffix range (> 100_000) so the two id spaces never collide,
+    /// (c) max id == ROSTER_PLAYER_ID_BASE + 95*22 + 21 = 1_002_111.
     #[test]
     fn player_id_scheme_is_bijective_at_pyramid_scale() {
         const PYRAMID_CLUBS: u32 = 96;
         let ids: BTreeSet<PlayerId> = (0..PYRAMID_CLUBS)
             .flat_map(|club_idx| {
                 (0u8..SLOTS_PER_CLUB).map(move |slot| {
-                    PlayerId::new(club_idx * (SLOTS_PER_CLUB as u32) + (slot as u32))
+                    PlayerId::new(
+                        ROSTER_PLAYER_ID_BASE + club_idx * (SLOTS_PER_CLUB as u32) + (slot as u32),
+                    )
                 })
             })
             .collect();
@@ -384,10 +408,31 @@ mod tests {
              {PYRAMID_CLUBS} clubs × {SLOTS_PER_CLUB} slots"
         );
 
-        let max_id = (PYRAMID_CLUBS - 1) * SLOTS_PER_CLUB as u32 + (SLOTS_PER_CLUB as u32 - 1);
+        // Min id is the base — GK of club 0.
+        let min_id = ids.iter().next().unwrap().raw();
         assert_eq!(
-            max_id, 2111,
-            "max PlayerId at 96-club pyramid scale must be 2111"
+            min_id, ROSTER_PLAYER_ID_BASE,
+            "min roster PlayerId must equal ROSTER_PLAYER_ID_BASE"
         );
+
+        // The base must be strictly greater than the content-bio suffix range.
+        // Content bios use suffixes 1..=99_999 → PlayerId(1)..=PlayerId(99_999).
+        // This is a compile-time guarantee: the `const _` line below makes the
+        // check part of the crate's type-system invariants rather than a
+        // runtime assert (which clippy correctly flags as "constant value").
+        const _: () = assert!(
+            ROSTER_PLAYER_ID_BASE > 100_000,
+            "ROSTER_PLAYER_ID_BASE must be > 100_000 to clear the content-bio suffix range"
+        );
+
+        // Max id at pyramid scale.
+        let max_id = ROSTER_PLAYER_ID_BASE
+            + (PYRAMID_CLUBS - 1) * SLOTS_PER_CLUB as u32
+            + (SLOTS_PER_CLUB as u32 - 1);
+        assert_eq!(
+            max_id, 1_002_111,
+            "max PlayerId at 96-club pyramid scale must be 1_002_111"
+        );
+        assert_eq!(*ids.iter().next_back().unwrap(), PlayerId::new(max_id));
     }
 }

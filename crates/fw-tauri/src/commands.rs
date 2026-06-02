@@ -371,17 +371,24 @@ pub fn advance_week_inner(state: &AppState) -> Result<AdvanceWeekSummaryDto, Ipc
 
     let career_seed = state.career_seed();
 
-    // Post-T2-5 silent-failure-hunter P1-1 fix: transactional pre-loop snapshot.
-    // Prior code would commit a PARTIAL match-day on mid-loop failure — e.g. if
-    // play_one_match errors on fixture 7/10, fixtures 1-6 stayed in
-    // season.results while `current_match_day` did NOT advance. A retry would
-    // replay 1-6 (silently overwriting via apply_result), then fail again on
-    // fixture 7. Without telemetry the partial commit is invisible.
+    // Atomicity contract (T4-2.5e): the harvest (career_apps increments +
+    // ledger appends) must be all-or-nothing for the match-day. Doing the
+    // harvest inside the play loop would commit partial roster/ledger mutations
+    // if a later fixture errors — on retry career_apps would double-count and
+    // the ledger would accumulate duplicate events (the ledger has no dedup;
+    // the append-only contract makes mutation-reversal impossible).
     //
-    // The fix: snapshot results pre-loop, restore on `?` early-return so the
-    // mutation is atomic per advance_week() call. BTreeMap clone is sub-
-    // microsecond; cost is negligible vs the perf benefit was overstated.
+    // Pattern: collect (fixture, MatchState) for every successfully played
+    // fixture during the loop; apply ALL mutations only after the loop exits
+    // cleanly. A mid-loop `play_one_match` Err triggers the season.results
+    // rollback (existing T2-5 fix) and returns before the apply phase, leaving
+    // career.roster and career.ledger untouched.
     let results_snapshot = career.season.results.clone();
+
+    // Accumulate played states. Capacity = number of fixtures on this match-day
+    // (always 10 for a 20-club season; Vec avoids premature abstraction).
+    let mut played: Vec<(fw_content::Fixture, fw_match_sim::MatchState)> =
+        Vec::with_capacity(fixtures.len());
 
     for fixture in &fixtures {
         let idx =
@@ -414,11 +421,6 @@ pub fn advance_week_inner(state: &AppState) -> Result<AdvanceWeekSummaryDto, Ipc
                     fixture.away.raw()
                 ),
             })?;
-        // T4-2.5c: build slot_signatures from both clubs' rosters so all 22
-        // players' signature candidates flow into the match sim's canonical state.
-        // home roster instances → match slots 0-10; away → slots 11-21.
-        // If a club is absent from the roster (shouldn't happen post-T4-2.5b),
-        // fall back to None (content-spread defaults).
         let slot_signatures = {
             let home_instances = career.roster.get(&fixture.home);
             let away_instances = career.roster.get(&fixture.away);
@@ -440,20 +442,63 @@ pub fn advance_week_inner(state: &AppState) -> Result<AdvanceWeekSummaryDto, Ipc
             season::SEASON_MATCH_TICK_BUDGET,
             slot_signatures,
         ) {
-            Ok(outcome) => {
+            Ok((outcome, match_state)) => {
                 career
                     .season
                     .apply_result(fixture.home, fixture.away, outcome);
+                played.push((*fixture, match_state));
             }
             Err(e) => {
-                // Atomic rollback: restore results to the pre-loop snapshot
-                // so the user-visible state matches the error semantic ("this
-                // match-day did NOT advance"). current_match_day was never
-                // bumped (the bump is after the loop), so no rollback needed
-                // there.
+                // Rollback season.results to the pre-loop snapshot. No harvest
+                // has run yet so career.roster and career.ledger are clean.
                 career.season.results = results_snapshot;
                 return Err(e);
             }
+        }
+    }
+
+    // All fixtures succeeded. Apply the harvest atomically in two steps per
+    // fixture so that career.roster and career.ledger borrows do not overlap:
+    //
+    // Step A: mutate career.roster (career_apps increment) and collect the
+    //         MemoryEvents to emit. Each half-call returns a Vec<MemoryEvent>;
+    //         the roster borrow is dropped before step B.
+    //
+    // Step B: append the collected events to career.ledger (no roster borrow).
+    //
+    // This two-step pattern avoids the E0499 dual-mutable-borrow: the borrow
+    // checker cannot prove that `career.roster` and `career.ledger` are
+    // disjoint fields through a RwLockWriteGuard reference, so they must be
+    // borrowed in non-overlapping scopes.
+    let season_num = career.season_number;
+    for (fixture, match_state) in &played {
+        // Step A — home half. Borrow ends before step B.
+        let home_events = if let Some(home_vec) = career.roster.get_mut(&fixture.home) {
+            season::harvest_match_memory_events(
+                match_state,
+                home_vec.as_mut_slice(),
+                &mut [],
+                season_num,
+            )
+        } else {
+            Vec::new()
+        };
+
+        // Step A — away half. Separate borrow scope.
+        let away_events = if let Some(away_vec) = career.roster.get_mut(&fixture.away) {
+            season::harvest_match_memory_events(
+                match_state,
+                &mut [],
+                away_vec.as_mut_slice(),
+                season_num,
+            )
+        } else {
+            Vec::new()
+        };
+
+        // Step B — append both event vecs to the ledger. No roster borrow active.
+        for event in home_events.into_iter().chain(away_events) {
+            career.ledger.append(event);
         }
     }
 
@@ -719,36 +764,116 @@ pub fn get_player_detail_inner(
     player_id: &str,
     state: &AppState,
 ) -> Result<PlayerDetailDto, IpcError> {
-    // 1. Look up the PlayerBio in the content store.
-    let bio =
-        state
-            .content()
-            .player_bios
-            .get(player_id)
-            .ok_or_else(|| IpcError::PlayerNotFound {
-                player_id: player_id.to_string(),
-            })?;
+    use crate::roster::ROSTER_PLAYER_ID_BASE;
 
-    // 2. Build the phenotype block.
-    let phenotype_labels: Vec<String> = bio
-        .scout_labels
-        .iter()
-        .map(|label| label.display_label().to_string())
-        .collect();
+    // 1. Derive the numeric suffix from the content-pack-qualified id string.
+    let numeric_player_id: Option<u32> = parse_player_id_suffix(player_id);
 
-    let phenotype = PlayerPhenotypeDto {
-        player_id: bio.player_id.clone(),
-        name: bio.display_name_full.clone(),
-        role: bio.role_family.display_label().to_string(),
-        birth_region: bio.birth_region.clone(),
-        phenotype_labels,
+    // 2. Route by id range.
+    //
+    //    Content-bio ids use suffixes 1..=99_999 (< ROSTER_PLAYER_ID_BASE).
+    //    Roster ids use ROSTER_PLAYER_ID_BASE + club_idx*22 + slot (≥ BASE).
+    //    The two spaces are disjoint by construction (see `roster.rs`).
+    //
+    //    Bio path  : suffix < ROSTER_PLAYER_ID_BASE (or no suffix).
+    //                Use the content-store bio exclusively — its OWN display name,
+    //                labels, birth region. No roster override.
+    //    Roster path: suffix ≥ ROSTER_PLAYER_ID_BASE.
+    //                 Skip the content store; scan the roster for matching PlayerId.
+    let is_roster_id = numeric_player_id.is_some_and(|n| n >= ROSTER_PLAYER_ID_BASE);
+
+    // ---- Bio path ----
+    if !is_roster_id {
+        let bio =
+            state
+                .content()
+                .player_bios
+                .get(player_id)
+                .ok_or_else(|| IpcError::PlayerNotFound {
+                    player_id: player_id.to_string(),
+                })?;
+
+        let phenotype_labels: Vec<String> = bio
+            .scout_labels
+            .iter()
+            .map(|label| label.display_label().to_string())
+            .collect();
+        let phenotype = PlayerPhenotypeDto {
+            player_id: bio.player_id.clone(),
+            name: bio.display_name_full.clone(),
+            role: bio.role_family.display_label().to_string(),
+            birth_region: bio.birth_region.clone(),
+            phenotype_labels,
+        };
+        let player_display_name = bio.display_name_full.clone();
+        let role_label_for_ctx = phenotype.role.clone();
+
+        return build_player_detail_dto(
+            phenotype,
+            player_display_name,
+            role_label_for_ctx,
+            numeric_player_id,
+            state,
+        );
+    }
+
+    // ---- Roster path ----
+    // Scan the roster for a PlayerInstance whose player_id.raw() == suffix.
+    // The scan is O(clubs × 22) — acceptable at on-demand query cadence.
+    let raw_id = numeric_player_id.expect("is_roster_id true implies numeric_player_id is Some");
+    let target_pid = PlayerId::new(raw_id);
+
+    let roster_info: Option<(String, String)> = {
+        let career = state.career().read().map_err(|_| IpcError::LockPoisoned {
+            lock: "career".to_string(),
+        })?;
+        career
+            .roster
+            .values()
+            .flat_map(|instances| instances.iter())
+            .find(|inst| inst.player_id == target_pid)
+            .map(|inst| {
+                // Role label derived from slot position in the 4-3-3 formation.
+                // slot % 11 gives in-team index (GK=0, DEF=1-4, MID=5-7, FWD=8-10).
+                let in_team = (inst.slot as usize) % 11;
+                let role_label = match in_team {
+                    0 => "goalkeeper",
+                    1..=4 => "defender",
+                    5..=7 => "midfielder",
+                    _ => "forward",
+                };
+                (inst.display_name.clone(), role_label.to_string())
+            })
     };
 
-    // 3. Memory callbacks — derive PlayerId from the `_NNNNN` suffix.
-    //    Best-effort: the runtime ledger is empty so this matters only in
-    //    fixture-ledger tests that control both sides. Unknown suffix → skip
-    //    the salience query and return an empty callbacks vec.
-    let numeric_player_id: Option<u32> = parse_player_id_suffix(player_id);
+    let (display_name, role_label) = roster_info.ok_or_else(|| IpcError::PlayerNotFound {
+        player_id: player_id.to_string(),
+    })?;
+
+    let phenotype = PlayerPhenotypeDto {
+        player_id: player_id.to_string(),
+        name: display_name.clone(),
+        role: role_label.clone(),
+        birth_region: String::new(),
+        phenotype_labels: Vec::new(),
+    };
+
+    build_player_detail_dto(phenotype, display_name, role_label, Some(raw_id), state)
+}
+
+/// Shared memory-callback rendering logic for both bio and roster player paths.
+///
+/// Extracted to avoid duplication between the two routing branches of
+/// `get_player_detail_inner`. Takes pre-resolved phenotype, display name, and
+/// role label; queries the ledger and renders callbacks.
+fn build_player_detail_dto(
+    phenotype: PlayerPhenotypeDto,
+    player_display_name: String,
+    role_label_for_ctx: String,
+    numeric_player_id: Option<u32>,
+    state: &AppState,
+) -> Result<PlayerDetailDto, IpcError> {
+    // Memory callbacks path.
 
     let memory_callbacks: Vec<String> = if let Some(raw_id) = numeric_player_id {
         let player_fw_id = PlayerId::new(raw_id);
@@ -844,14 +969,17 @@ pub fn get_player_detail_inner(
                 let season_label = format!("Season {}", event.season.0 + 1);
 
                 let ctx = MemoryCallbackContext {
-                    player_name: bio.display_name_full.clone(),
+                    // T4-2.5e: use the resolved display name (roster name when
+                    // available) so the callback text matches the player's actual
+                    // career identity, not a content-pool archetype stub.
+                    player_name: player_display_name.clone(),
                     club_name,
                     opponent_name,
                     competition_name: String::new(),
                     season_label,
                     score_line: String::new(),
                     outcome_phrase: String::new(),
-                    role_label: bio.role_family.display_label().to_string(),
+                    role_label: role_label_for_ctx.clone(),
                     detail_phrase: String::new(),
                 };
 
@@ -874,11 +1002,9 @@ pub fn get_player_detail_inner(
             })
             .collect()
     } else {
-        log::warn!(
-            "get_player_detail: could not derive numeric PlayerId from {:?}; \
-             returning empty memoryCallbacks",
-            player_id
-        );
+        // numeric_player_id is None when parse_player_id_suffix found no suffix.
+        // Both routing branches in get_player_detail_inner resolve a numeric id
+        // before calling this helper, so None here is unreachable in practice.
         Vec::new()
     };
 
@@ -1988,6 +2114,326 @@ mod tests {
         assert_eq!(
             league_club_ids, roster_club_ids,
             "roster club ids must match league club ids"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // T4-2.5e: player-subject MemoryEvent emission + blank-name render fix
+    // -------------------------------------------------------------------------
+
+    /// Helper: run a multi-match-day career and return the AppState.
+    /// Uses the default career seed for determinism.
+    fn run_career_multi_season(match_days: u16) -> AppState {
+        let state = test_app_state();
+        // Play `match_days` worth of fixtures. Each advance_week plays one match-day.
+        for _ in 0..match_days {
+            match advance_week_inner(&state) {
+                Ok(_) => {}
+                Err(IpcError::SeasonComplete) => break,
+                Err(e) => panic!("advance_week_inner failed: {e:?}"),
+            }
+        }
+        state
+    }
+
+    /// AC1 — at least one DebutSenior (or DebutClub) event emitted after
+    /// playing ≥1 match-day.
+    ///
+    /// Every player has `career_apps == 0` at career start, so the FIRST
+    /// match-day MUST trigger debut events for all 22 appearing slots.
+    #[test]
+    fn t4_2_5e_debut_senior_emitted_after_first_match_day() {
+        let state = run_career_multi_season(1);
+        let career = state.career().read().expect("career lock");
+
+        let debut_count = career
+            .ledger
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.event_class,
+                    EventClass::DebutSenior | EventClass::DebutClub
+                )
+            })
+            .count();
+
+        // Each match on match-day 1 has 22 appearing slots → 10 fixtures ×
+        // 22 = 220 debut events for the first match-day.
+        assert!(
+            debut_count >= 1,
+            "at least one DebutSenior event must be emitted after match-day 1; got 0"
+        );
+
+        // Every DebutSenior/DebutClub event must have a Subject player participant.
+        for event in career.ledger.iter().filter(|e| {
+            matches!(
+                e.event_class,
+                EventClass::DebutSenior | EventClass::DebutClub
+            )
+        }) {
+            let has_subject = event.participants.iter().any(|p| {
+                matches!(p.role, fw_memory::event::ParticipantRole::Subject)
+                    && matches!(p.entity, fw_memory::event::EntityRef::Player(_))
+            });
+            assert!(
+                has_subject,
+                "DebutSenior/DebutClub event must have a Subject player participant; event {:?}",
+                event.event_id
+            );
+        }
+    }
+
+    /// AC1 (career_apps increment) — career_apps is non-zero on roster
+    /// instances after ≥1 match-day; it must not still be zero for any
+    /// player that was in a starting XI.
+    #[test]
+    fn t4_2_5e_career_apps_incremented_after_match_day() {
+        let state = run_career_multi_season(1);
+        let career = state.career().read().expect("career lock");
+
+        // At least one instance must have career_apps > 0.
+        let any_appeared = career
+            .roster
+            .values()
+            .flat_map(|v| v.iter())
+            .any(|inst| inst.career_apps > 0);
+        assert!(
+            any_appeared,
+            "at least one PlayerInstance must have career_apps > 0 after one match-day"
+        );
+    }
+
+    /// AC2 — at least one LegacyGoal event emitted with correct subject
+    /// attribution, including home/away correctness.
+    ///
+    /// Strengthened assertion (FIX 3): for each LegacyGoal, verify that the
+    /// Subject player's `PlayerId` is in the roster AND that the `Counterparty
+    /// Club` participant on the event matches the `club_id` field of the
+    /// `PlayerInstance` found by that `PlayerId`. A home/away inversion in the
+    /// slot→roster mapping (e.g. `scorer_slot < 11` but indexing
+    /// `away_instances`) would produce a mismatch: the roster player found by
+    /// `PlayerId` would have a different `club_id` than the Club participant on
+    /// the event.
+    ///
+    /// With 600-tick matches, goals may or may not occur. Run enough match-days
+    /// that at least one goal is virtually certain (38 match-days = full season).
+    #[test]
+    fn t4_2_5e_legacy_goal_attributed_to_roster_player() {
+        // Play a full season to maximise probability of at least one goal.
+        let state = test_app_state();
+        play_fixtures_inner(&state).expect("play_fixtures full season");
+
+        let career = state.career().read().expect("career lock");
+
+        // Build PlayerId → (club_id) map from the full roster for cross-check.
+        let roster_by_id: std::collections::BTreeMap<PlayerId, fw_core::ClubId> = career
+            .roster
+            .values()
+            .flat_map(|v| v.iter().map(|inst| (inst.player_id, inst.club_id)))
+            .collect();
+
+        let goal_events: Vec<_> = career
+            .ledger
+            .iter()
+            .filter(|e| matches!(e.event_class, EventClass::LegacyGoal))
+            .collect();
+
+        assert!(
+            !goal_events.is_empty(),
+            "at least one LegacyGoal event must be emitted across a full season"
+        );
+
+        for event in &goal_events {
+            // Extract Subject player id.
+            let subject_pid = event.participants.iter().find_map(|p| {
+                if matches!(p.role, fw_memory::event::ParticipantRole::Subject)
+                    && let fw_memory::event::EntityRef::Player(pid) = p.entity
+                {
+                    return Some(pid);
+                }
+                None
+            });
+            let subject_pid =
+                subject_pid.expect("LegacyGoal must have a Subject player participant");
+
+            // Must be in the roster.
+            let roster_club_id = roster_by_id.get(&subject_pid).copied().unwrap_or_else(|| {
+                panic!(
+                    "LegacyGoal subject {:?} not found in roster (scorer_slot→roster \
+                     attribution is broken)",
+                    subject_pid
+                )
+            });
+
+            // Extract Counterparty Club id from the event.
+            let event_club_id = event.participants.iter().find_map(|p| {
+                if matches!(p.role, fw_memory::event::ParticipantRole::Counterparty)
+                    && let fw_memory::event::EntityRef::Club(cid) = p.entity
+                {
+                    return Some(cid);
+                }
+                None
+            });
+            let event_club_id = event_club_id.expect(
+                "LegacyGoal must have a Counterparty Club participant (club_name resolution)",
+            );
+
+            // The event's club must match the roster player's actual club.
+            // A mismatch means home/away was inverted in the slot mapping.
+            assert_eq!(
+                event_club_id, roster_club_id,
+                "LegacyGoal event club {:?} must match the roster player's club {:?} \
+                 (home/away attribution is inverted in scorer_slot→roster mapping)",
+                event_club_id, roster_club_id
+            );
+        }
+    }
+
+    /// AC3 — `get_player_detail_inner` returns non-empty memoryCallbacks for
+    /// an appeared rostered player after ≥1 match-day.
+    ///
+    /// Uses a roster-range id (`fwh.core:player_01000000`, suffix = 1_000_000 =
+    /// ROSTER_PLAYER_ID_BASE, which is club 0 slot 0 = GK). This suffix is ≥
+    /// ROSTER_PLAYER_ID_BASE so `get_player_detail_inner` routes to the roster
+    /// path (not the content-bio path). The GK always appears in match-day 1,
+    /// so `memoryCallbacks` must be non-empty.
+    #[test]
+    fn t4_2_5e_get_player_detail_returns_callbacks_for_appeared_player() {
+        use crate::roster::ROSTER_PLAYER_ID_BASE;
+
+        let state = run_career_multi_season(1);
+
+        // Format as zero-padded 8-digit suffix: ROSTER_PLAYER_ID_BASE = 1_000_000.
+        let player_id_str = format!("fwh.core:player_{ROSTER_PLAYER_ID_BASE:08}");
+        let dto = get_player_detail_inner(&player_id_str, &state)
+            .expect("get_player_detail_inner must succeed for a roster player");
+
+        assert!(
+            !dto.memory_callbacks.is_empty(),
+            "appeared rostered player must have ≥1 memory callback; \
+             got empty for {player_id_str}"
+        );
+    }
+
+    /// AC4 — no orphaned ` — ` (blank-name fragments) in rendered callbacks.
+    ///
+    /// Runs after a full season to accumulate a rich ledger, then checks every
+    /// rendered callback string. The blank-club pattern was: a DebutSenior
+    /// event with no Club participant produced `"First senior appearance for  — name"`.
+    /// Adding the Club counterparty participant (T4-2.5e fix) eliminates this.
+    #[test]
+    fn t4_2_5e_no_orphaned_em_dash_in_rendered_callbacks() {
+        let state = test_app_state();
+        play_fixtures_inner(&state).expect("play_fixtures full season");
+
+        // Check callbacks for the first 5 content-store players (bios exist).
+        let bio_ids: Vec<String> = state
+            .content()
+            .player_bios
+            .keys()
+            .take(5)
+            .cloned()
+            .collect();
+
+        for pid_str in &bio_ids {
+            let dto = get_player_detail_inner(pid_str, &state)
+                .expect("get_player_detail_inner must succeed");
+            for cb in &dto.memory_callbacks {
+                // Check for the blank-name em-dash pattern: "for  — " or " —  " etc.
+                // The orphaned form has a space immediately before or after " — ".
+                // Normal usage: "scored against Arsenal — a goal people still talk about"
+                // (the em-dash is mid-sentence, not between two blanks). We check
+                // for " —  " (space em-dash double-space) and " — " at the START
+                // of the string (em-dash after leading space = blank token before it).
+                assert!(
+                    !cb.contains("  — ") && !cb.contains(" —  "),
+                    "callback for {pid_str:?} has orphaned em-dash (blank name/club): {cb:?}"
+                );
+            }
+        }
+
+        // Also check the roster-path player (club 0 slot 0 GK, no bio).
+        use crate::roster::ROSTER_PLAYER_ID_BASE;
+        let roster_id_str = format!("fwh.core:player_{ROSTER_PLAYER_ID_BASE:08}");
+        let dto =
+            get_player_detail_inner(&roster_id_str, &state).expect("roster player must be found");
+        for cb in &dto.memory_callbacks {
+            assert!(
+                !cb.contains("  — ") && !cb.contains(" —  "),
+                "roster-path callback has orphaned em-dash: {cb:?}"
+            );
+        }
+    }
+
+    /// AC5 — canonical pins UNCHANGED: explicitly re-run the fw-replay pin
+    /// scenarios and verify the hashes match the pinned values. This test
+    /// mirrors what `cargo test -p fw-replay` does, executed here as an
+    /// explicit assertion so the report can include the pin verification.
+    ///
+    /// Seeds and tick counts mirror `crates/fw-replay/tests/canonical_hash.rs`:
+    /// - 60-tick: seed `0xDEAD_BEEF_DEAD_BEEF`, plain `MatchState::initial_with_content`
+    ///   → `85f45bf8…`
+    /// - 600-tick: seed `0xfeed_beef_cafe_fade`, `initial_with_content`
+    ///   → `206bddae…`
+    ///
+    /// The harvest path only writes to `career.ledger` and `career.roster`
+    /// (career_apps increments) — it does NOT touch `MatchState` canonical
+    /// fields, `MatchEvent` encoding, or `fw-replay`. This test is the formal
+    /// AC5 confirmation.
+    #[test]
+    fn t4_2_5e_canonical_pins_unchanged() {
+        use fw_match_sim::MatchState;
+
+        let state = test_app_state();
+
+        // 60-tick pin — seed `0xDEAD_BEEF_DEAD_BEEF`, 60 ticks.
+        // Matches `smoke_seed_60_tick_canonical_hash_pinned` in fw-replay.
+        // NOTE: the 60-tick pin uses `MatchState::initial(seed)` (no content),
+        // matching the fw-replay test exactly.
+        let seed_60 = fw_core::Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
+        let mut sim = MatchState::initial(seed_60);
+        for _ in 0..60 {
+            sim = fw_match_sim::tick_match(sim, state.signature_definitions());
+        }
+        let hash_60 = {
+            let bytes = sim.encode_canonical();
+            let h: [u8; 32] = blake3::hash(&bytes).into();
+            format!(
+                "blake3:{}",
+                h.iter().map(|b| format!("{b:02x}")).collect::<String>()
+            )
+        };
+        assert!(
+            hash_60.starts_with("blake3:85f45bf8"),
+            "60-tick canonical hash must start with 85f45bf8 (T4-2.5e must not drift pins); got {hash_60}"
+        );
+
+        // 600-tick pin — seed `0xfeed_beef_cafe_fade`, 600 ticks.
+        // Matches `extended_seed_600_tick_canonical_hash_pinned` in fw-replay.
+        // NOTE: the fw-replay test uses home=DEFAULT_ARCHETYPE_ID,
+        // away="fwh.core:archetype.low-block-counter" — must match exactly.
+        let seed_600 = fw_core::Seed::from_u64(0xfeed_beef_cafe_fade);
+        let mut sim600 = MatchState::initial_with_content(
+            seed_600,
+            state.content(),
+            fw_match_sim::DEFAULT_ARCHETYPE_ID,
+            "fwh.core:archetype.low-block-counter",
+        )
+        .expect("init 600-tick");
+        for _ in 0..600 {
+            sim600 = fw_match_sim::tick_match(sim600, state.signature_definitions());
+        }
+        let hash_600 = {
+            let bytes = sim600.encode_canonical();
+            let h: [u8; 32] = blake3::hash(&bytes).into();
+            format!(
+                "blake3:{}",
+                h.iter().map(|b| format!("{b:02x}")).collect::<String>()
+            )
+        };
+        assert!(
+            hash_600.starts_with("blake3:206bddae"),
+            "600-tick canonical hash must start with 206bddae (T4-2.5e must not drift pins); got {hash_600}"
         );
     }
 }

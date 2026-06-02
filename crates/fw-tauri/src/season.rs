@@ -105,7 +105,9 @@ pub fn emit_title_won_event(
     ledger.append(event);
 }
 
-/// Run one full match and return the final `MatchOutcome`.
+/// Run one full match and return the final `MatchOutcome` alongside the
+/// completed `MatchState` so the caller can harvest player-subject
+/// `MemoryEvent`s via `match_state.match_events()`.
 ///
 /// Sync — the calling async handler is responsible for not blocking the Tauri
 /// runtime; `play_fixtures` fast-forwards via a plain loop rather than
@@ -134,7 +136,7 @@ pub fn play_one_match(
     away_archetype_id: &str,
     tick_budget: u32,
     slot_signatures: Option<BTreeMap<fw_core::PlayerSlot, Vec<fw_content::SignatureCandidate>>>,
-) -> Result<MatchOutcome, IpcError> {
+) -> Result<(MatchOutcome, MatchState), IpcError> {
     let base_state =
         MatchState::initial_with_content(seed, content, home_archetype_id, away_archetype_id)
             .map_err(|e| IpcError::MatchInitFailed {
@@ -150,10 +152,246 @@ pub fn play_one_match(
     for _ in 0..tick_budget {
         sim_state = tick_match(sim_state, sig_defs);
     }
-    Ok(MatchOutcome {
+    let outcome = MatchOutcome {
         home_score: sim_state.home_score,
         away_score: sim_state.away_score,
-    })
+    };
+    Ok((outcome, sim_state))
+}
+
+/// Harvest player-subject `MemoryEvent`s from a just-played match and append
+/// them to the ledger.
+///
+/// ## What is emitted
+///
+/// For each of the 22 match slots (home 0-10, away 11-21):
+/// - **Appearance**: if the slot maps to a rostered `PlayerInstance`, increment
+///   `career_apps`. On the 0 → 1 transition, append a `DebutSenior` event
+///   (subject = that `PlayerId`). `DebutSenior` (not `DebutClub`) because at
+///   T4-2.5e every player is at their career-start club — the `DebutClub` path
+///   is reserved for post-transfer appearances (T4-2.5g).
+/// - **Goal**: for every `MatchEvent::Goal { scorer_slot }`, map `scorer_slot`
+///   to the rostered `PlayerInstance` and append a `LegacyGoal` event
+///   (subject = that `PlayerId`).
+///
+/// ## Slot → roster mapping
+///
+/// Matches the T4-2.5c convention used in `build_slot_signatures`:
+/// - match slots 0-10 → `home_instances[0..10]`
+/// - match slots 11-21 → `away_instances[slot - 11]` (indices 0-10 away)
+///
+/// A slot with no matching roster instance (out-of-bounds index or empty
+/// slice) is silently skipped — this is a graceful degradation for malformed
+/// fixture data that should never occur in well-formed careers.
+///
+/// ## Determinism
+///
+/// Deterministic: the `match_events()` slice is in canonical tick-ascending
+/// order; the two roster slices are slot-ordered `Vec`s. No RNG needed — the
+/// events carry `tick` from the canonical sim state. The `Q32` stakes and
+/// `DecayFunction` values are fixed constants.
+/// Harvest player-subject memory events for one team half of a played match.
+///
+/// Returns the `MemoryEvent`s to append — caller appends them to the ledger in
+/// a separate step so that `career.roster` and `career.ledger` borrows do not
+/// overlap (the borrow checker cannot prove they are disjoint fields of
+/// `CareerState` through a `RwLockWriteGuard` reference).
+///
+/// Pass `home_instances` for the home team (match slots 0-10); pass `&mut []`
+/// (empty) if processing the away side in a split-call. The same applies to
+/// `away_instances` (match slots 11-21). One call per team half per fixture.
+pub fn harvest_match_memory_events(
+    match_state: &MatchState,
+    home_instances: &mut [crate::roster::PlayerInstance],
+    away_instances: &mut [crate::roster::PlayerInstance],
+    season_number: fw_memory::event::SeasonNumber,
+) -> Vec<fw_memory::event::MemoryEvent> {
+    use fw_content::MatchEvent;
+    use fw_core::Q32;
+    use fw_memory::event::{
+        CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter, EmitterKind,
+        EntityRef, EventClass, MemoryEvent, Participant, ParticipantRole, SourceId,
+    };
+
+    // Roster-size invariant (Sim/RULES §11 — fail in release, not just debug):
+    // A non-empty slice must have ≥ 11 entries (a starting XI). An empty slice
+    // is valid and signals "process only the other half" (split-call pattern
+    // from advance_week_inner). A slice of length 1..10 is a programming error.
+    assert!(
+        home_instances.is_empty() || home_instances.len() >= 11,
+        "harvest_match_memory_events: home_instances has {} entries; \
+         must be empty or ≥ 11 (Sim/RULES §11)",
+        home_instances.len()
+    );
+    assert!(
+        away_instances.is_empty() || away_instances.len() >= 11,
+        "harvest_match_memory_events: away_instances has {} entries; \
+         must be empty or ≥ 11 (Sim/RULES §11)",
+        away_instances.len()
+    );
+
+    let mut events: Vec<MemoryEvent> = Vec::new();
+
+    // ---- Pass 1: appearance pass — increment career_apps for all 22 slots.
+    // Collect debut info: (player_id, club_id) pairs for players whose
+    // career_apps transitions from 0 → 1 this match.
+    //
+    // We avoid calling instance_for_slot (which would need both mutable slices
+    // in the same borrow) by handling home (slot < 11) and away (slot >= 11)
+    // separately in the loop body.
+    let mut debut_info: Vec<(fw_core::PlayerId, fw_core::ClubId)> = Vec::new();
+
+    for slot in 0usize..22 {
+        let (is_debut, player_id, club_id) = if slot < 11 {
+            if let Some(inst) = home_instances.get_mut(slot) {
+                let was_zero = inst.career_apps == 0;
+                inst.career_apps += 1;
+                (was_zero, Some(inst.player_id), Some(inst.club_id))
+            } else {
+                (false, None, None)
+            }
+        } else if let Some(inst) = away_instances.get_mut(slot - 11) {
+            let was_zero = inst.career_apps == 0;
+            inst.career_apps += 1;
+            (was_zero, Some(inst.player_id), Some(inst.club_id))
+        } else {
+            (false, None, None)
+        };
+
+        if is_debut && let (Some(pid), Some(cid)) = (player_id, club_id) {
+            debut_info.push((pid, cid));
+        }
+    }
+
+    // ---- Pass 2: collect DebutSenior events (one per debut player).
+    //
+    // Participants: Subject = the player, Counterparty = their club.
+    // Including the Club participant allows the render path to resolve
+    // `club_name` from the `MemoryCallbackContext` — without it the
+    // `debut_senior` template renders `"First senior appearance for  — name"`
+    // (blank club_name before the em-dash = orphaned ` — ` in the output).
+    for (player_id, club_id) in debut_info {
+        events.push(MemoryEvent {
+            event_id: fw_memory::event::EventId(0), // overwritten by ledger.append
+            schema_version: 1,
+            season: season_number,
+            tick: None, // match-level event; tick-level granularity not needed here
+            career_date: CareerDate {
+                year: season_number.0 + 1,
+                day_of_year: 1,
+            },
+            emitter: Emitter {
+                kind: EmitterKind::MatchEngine,
+                source_id: SourceId::None,
+            },
+            participants: vec![
+                Participant {
+                    role: ParticipantRole::Subject,
+                    entity: EntityRef::Player(player_id),
+                },
+                Participant {
+                    role: ParticipantRole::Counterparty,
+                    entity: EntityRef::Club(club_id),
+                },
+            ],
+            event_class: EventClass::DebutSenior,
+            stakes: Q32::ONE,
+            emotion: fw_memory::event::Emotion::Pride,
+            consequence: vec![Consequence::None],
+            callback_eligibility: CallbackEligibility::Immediate,
+            salience: Q32::ZERO, // overwritten by ledger.append
+            decay_function: DecayFunction::Never,
+        });
+    }
+
+    // ---- Pass 3: emit LegacyGoal events for every Goal in the match.
+    //
+    // Participants: Subject = scorer, Counterparty = scorer's own club.
+    //
+    // NOTE (T4-2.5h): `scorer_slot` is derived from `last_touched_by`, so an
+    // own-goal would attribute a LegacyGoal to the conceding player. This is a
+    // known limitation until own-goals are distinctly modeled in the sim.
+    //
+    // NOTE (T4-2.5h): `PlayerSeasonStats.goals` is NOT incremented here —
+    // full season_stats accrual (appearances, goals, minutes) is T4-2.5h.
+    // Only the career ledger event is emitted at T4-2.5e.
+    //
+    // When called with an empty `home_instances` or `away_instances` (split-call
+    // pattern), goals scored by the absent team's half are skipped because
+    // `scorer_slot < 11` maps to home (empty) and `scorer_slot >= 11` maps to
+    // away. The split-call caller (advance_week_inner) calls this function twice
+    // per fixture — once for home slots, once for away — so each team's goals
+    // are attributed on the correct call.
+    for match_event in match_state.match_events() {
+        if let MatchEvent::Goal {
+            scorer_slot, tick, ..
+        } = match_event
+        {
+            let scorer_usize = *scorer_slot as usize;
+
+            // scorer_slot is a u8 produced by the sim; valid range is 0..22.
+            // An out-of-range value means the sim emitted a malformed Goal event
+            // (programming error in fw-match-sim). Fail loud per Sim/RULES §11.
+            assert!(
+                scorer_usize < 22,
+                "harvest_match_memory_events: Goal event scorer_slot {} is out of \
+                 range 0..22 — malformed MatchEvent from fw-match-sim (Sim/RULES §11)",
+                scorer_usize
+            );
+
+            let (scorer_player_id, scorer_club_id) = if scorer_usize < 11 {
+                home_instances
+                    .get(scorer_usize)
+                    .map(|i| (Some(i.player_id), Some(i.club_id)))
+                    .unwrap_or((None, None))
+            } else {
+                away_instances
+                    .get(scorer_usize - 11)
+                    .map(|i| (Some(i.player_id), Some(i.club_id)))
+                    .unwrap_or((None, None))
+            };
+
+            // None here means the scorer's team half was passed as empty (split-call).
+            // The other call in the pair handles this goal. Skip cleanly.
+            let (Some(player_id), Some(club_id)) = (scorer_player_id, scorer_club_id) else {
+                continue;
+            };
+
+            events.push(MemoryEvent {
+                event_id: fw_memory::event::EventId(0), // overwritten by ledger.append
+                schema_version: 1,
+                season: season_number,
+                tick: Some(*tick),
+                career_date: CareerDate {
+                    year: season_number.0 + 1,
+                    day_of_year: 1,
+                },
+                emitter: Emitter {
+                    kind: EmitterKind::MatchEngine,
+                    source_id: SourceId::None,
+                },
+                participants: vec![
+                    Participant {
+                        role: ParticipantRole::Subject,
+                        entity: EntityRef::Player(player_id),
+                    },
+                    Participant {
+                        role: ParticipantRole::Counterparty,
+                        entity: EntityRef::Club(club_id),
+                    },
+                ],
+                event_class: EventClass::LegacyGoal,
+                stakes: Q32::ONE,
+                emotion: fw_memory::event::Emotion::Joy,
+                consequence: vec![Consequence::None],
+                callback_eligibility: CallbackEligibility::Immediate,
+                salience: Q32::ZERO, // overwritten by ledger.append
+                decay_function: DecayFunction::Never,
+            });
+        }
+    }
+
+    events
 }
 
 /// Build a `slot_signatures` map from home + away club rosters.
