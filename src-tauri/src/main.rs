@@ -85,6 +85,8 @@ fn main() {
             fw_tauri::commands::set_settings,
             // T4-2.5b: career roster
             fw_tauri::commands::get_roster_for_club,
+            // T4-2.5f: scouting
+            fw_tauri::commands::get_scout_report,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

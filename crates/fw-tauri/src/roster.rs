@@ -35,6 +35,7 @@ use std::collections::BTreeMap;
 use fw_content::{GeneSnapshot, ProcGenTeam, SignatureCandidate, generate_league_with_teams};
 use fw_core::{AbilityCeiling, ClubId, PlayerAttributes, PlayerId, Seed};
 use fw_memory::BreakthroughState;
+use fw_scouting::ScoutReport;
 
 /// Neutral `GeneSnapshot` used as the fallback when the `player_bios` pool is
 /// empty (content packs without a `player-bios/` directory) and in test
@@ -201,6 +202,18 @@ pub struct PlayerInstance {
     /// Drives pillar-4 scouting uncertainty (T4-2.5f).
     pub observation_count: u32,
 
+    /// Cache of the latest single-scout observation; `None` until the player
+    /// features in a match for the first time.
+    ///
+    /// Updated each match-day in `advance_week_inner` (T4-2.5f) by
+    /// `observe_match_participants`. For bincode production saves, the real
+    /// forward-compatibility mechanism is the SaveV3→V4 migration at T4-2.5g,
+    /// which fills in `None` for every `PlayerInstance` in migrated saves.
+    /// The `#[serde(default)]` annotation only takes effect on the JSON path
+    /// (integration tests) — same rationale as `genes`.
+    #[serde(default)]
+    pub last_scout_report: Option<ScoutReport>,
+
     /// Internal gene snapshot — sourced from the `PlayerBio` pool at career start.
     ///
     /// Round-robins across the 22 authored `PlayerBio.internal_gene_snapshot`
@@ -336,6 +349,7 @@ pub fn build_roster_from_league(
                 season_stats: PlayerSeasonStats::default(),
                 career_apps: 0,
                 observation_count: 0,
+                last_scout_report: None,
                 genes,
             });
         }

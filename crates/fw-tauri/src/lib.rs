@@ -42,8 +42,8 @@ pub mod state;
 pub use commands::{
     advance_season, advance_week, apply_match_command, finish_live_match, get_backend_handshake,
     get_career_overview, get_fixtures, get_match_snapshot, get_player_detail, get_roster_for_club,
-    get_settings, get_squad, get_standings, match_frames, play_fixtures, play_match, set_settings,
-    start_live_match, step_live_match,
+    get_scout_report, get_settings, get_squad, get_standings, match_frames, play_fixtures,
+    play_match, set_settings, start_live_match, step_live_match,
 };
 // AppSettingsDto and ThemePrefDto are defined in this module below; they are
 // already pub and visible to integration tests via `fw_tauri::AppSettingsDto`.
@@ -230,7 +230,7 @@ impl MatchStateDto {
 /// 2^32 to get the f64. Multiplication here is intentional float math
 /// and only legal because this crate doesn't have the deny lint.
 #[allow(clippy::float_arithmetic)]
-fn q32_to_f64(raw_bits: i64) -> f64 {
+pub(crate) fn q32_to_f64(raw_bits: i64) -> f64 {
     const Q32_SCALE: f64 = 4_294_967_296.0; // 2^32
     raw_bits as f64 / Q32_SCALE
 }

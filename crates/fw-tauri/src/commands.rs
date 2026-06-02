@@ -34,7 +34,7 @@ use crate::live_match::snapshot::{project_final, project_snapshot};
 use crate::live_match::types::{
     FinalMatchResult, MatchCommand, MatchHandle, MatchSnapshot, StepResult,
 };
-use crate::roster_dto::PlayerRosterDto;
+use crate::roster_dto::{PlayerRosterDto, ScoutReportDto};
 use crate::state::{fixture_seed, league_fixture_index};
 use crate::{
     AdvanceSeasonSummaryDto, AdvanceWeekSummaryDto, AppState, BackendHandshakeDto,
@@ -335,6 +335,23 @@ pub async fn get_fixtures(
     get_fixtures_inner(club_id, &state)
 }
 
+/// `get_scout_report(player_id)` — return the latest scouting report for a roster player.
+///
+/// Returns:
+/// - `Ok(ScoutReportDto)` when the player has featured in at least one match-day.
+/// - `IpcError::NotYetObserved` when the player has not yet appeared (no report cached).
+/// - `IpcError::PlayerNotFound` when the player_id is not a valid roster id.
+///
+/// Only roster players (id ≥ `ROSTER_PLAYER_ID_BASE`) have scouting reports.
+/// Content-bio ids (`< ROSTER_PLAYER_ID_BASE`) route to `get_player_detail` instead.
+#[tauri::command]
+pub async fn get_scout_report(
+    player_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<ScoutReportDto, IpcError> {
+    get_scout_report_inner(&player_id, &state)
+}
+
 /// `get_squad()` — return all player bios from the content store as a flat list.
 ///
 /// Returns the 22-player pool from `ContentStore.player_bios` in BTreeMap
@@ -461,9 +478,9 @@ pub fn advance_week_inner(state: &AppState) -> Result<AdvanceWeekSummaryDto, Ipc
     // All fixtures succeeded. Apply the harvest atomically in two steps per
     // fixture so that career.roster and career.ledger borrows do not overlap:
     //
-    // Step A: mutate career.roster (career_apps increment) and collect the
-    //         MemoryEvents to emit. Each half-call returns a Vec<MemoryEvent>;
-    //         the roster borrow is dropped before step B.
+    // Step A: mutate career.roster (career_apps increment + scout observe) and
+    //         collect the MemoryEvents to emit. Each half-call returns a
+    //         Vec<MemoryEvent>; the roster borrow is dropped before step B.
     //
     // Step B: append the collected events to career.ledger (no roster borrow).
     //
@@ -471,10 +488,26 @@ pub fn advance_week_inner(state: &AppState) -> Result<AdvanceWeekSummaryDto, Ipc
     // checker cannot prove that `career.roster` and `career.ledger` are
     // disjoint fields through a RwLockWriteGuard reference, so they must be
     // borrowed in non-overlapping scopes.
+    //
+    // Pillar-4 (T4-2.5f): materialise the bio pool + scout ONCE before the
+    // fixture loop — not per fixture. `state.content()` is an immutable borrow
+    // on `AppState`, disjoint from `career` (a separate field), so both borrows
+    // coexist fine here.
+    let bios: Vec<&fw_content::PlayerBio> = state.content().player_bios.values().collect();
+    let scout = fw_scouting::Scout::basic_uncertainty();
+    let career_seed_u64 = career_seed.to_u64();
+
     let season_num = career.season_number;
     for (fixture, match_state) in &played {
         // Step A — home half. Borrow ends before step B.
         let home_events = if let Some(home_vec) = career.roster.get_mut(&fixture.home) {
+            // Observe home starting XI (T4-2.5f pillar-4).
+            season::observe_match_participants(
+                home_vec.as_mut_slice(),
+                &bios,
+                &scout,
+                career_seed_u64,
+            );
             season::harvest_match_memory_events(
                 match_state,
                 home_vec.as_mut_slice(),
@@ -487,6 +520,13 @@ pub fn advance_week_inner(state: &AppState) -> Result<AdvanceWeekSummaryDto, Ipc
 
         // Step A — away half. Separate borrow scope.
         let away_events = if let Some(away_vec) = career.roster.get_mut(&fixture.away) {
+            // Observe away starting XI (T4-2.5f pillar-4).
+            season::observe_match_participants(
+                away_vec.as_mut_slice(),
+                &bios,
+                &scout,
+                career_seed_u64,
+            );
             season::harvest_match_memory_events(
                 match_state,
                 &mut [],
@@ -759,6 +799,59 @@ pub fn get_roster_for_club_inner(
         .collect();
 
     Ok(dtos)
+}
+
+/// Return the cached scouting report for one roster player.
+///
+/// Routing:
+/// - Non-roster ids (suffix < `ROSTER_PLAYER_ID_BASE` or no numeric suffix)
+///   → `IpcError::PlayerNotFound`. Scouting is a roster-player feature;
+///   content-bio details go through `get_player_detail`.
+/// - Roster id not found in `career.roster` → `IpcError::PlayerNotFound`.
+/// - Roster id found but `last_scout_report` is `None` (player not yet observed)
+///   → `IpcError::NotYetObserved`.
+/// - Otherwise → `Ok(ScoutReportDto)`.
+pub fn get_scout_report_inner(
+    player_id: &str,
+    state: &AppState,
+) -> Result<ScoutReportDto, IpcError> {
+    use crate::roster::ROSTER_PLAYER_ID_BASE;
+
+    let numeric = parse_player_id_suffix(player_id);
+    let is_roster_id = numeric.is_some_and(|n| n >= ROSTER_PLAYER_ID_BASE);
+
+    if !is_roster_id {
+        return Err(IpcError::PlayerNotFound {
+            player_id: player_id.to_string(),
+        });
+    }
+
+    let raw_id = numeric.expect("is_roster_id true implies numeric is Some");
+    let target_pid = PlayerId::new(raw_id);
+
+    let career = state.career().read().map_err(|_| IpcError::LockPoisoned {
+        lock: "career".to_string(),
+    })?;
+
+    let instance = career
+        .roster
+        .values()
+        .flat_map(|instances| instances.iter())
+        .find(|inst| inst.player_id == target_pid)
+        .ok_or_else(|| IpcError::PlayerNotFound {
+            player_id: player_id.to_string(),
+        })?;
+
+    match &instance.last_scout_report {
+        None => Err(IpcError::NotYetObserved {
+            player_id: player_id.to_string(),
+        }),
+        Some(report) => Ok(ScoutReportDto::from_report(
+            report,
+            target_pid,
+            instance.observation_count,
+        )),
+    }
 }
 
 pub fn get_player_detail_inner(
@@ -2571,6 +2664,73 @@ mod tests {
         assert!(
             hash_600.starts_with("blake3:206bddae"),
             "600-tick canonical hash must start with 206bddae (T4-2.5e must not drift pins); got {hash_600}"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // get_scout_report_inner tests (T4-2.5f)
+    // ---------------------------------------------------------------------------
+
+    /// Fresh career (no match played) → `NotYetObserved`.
+    #[test]
+    fn get_scout_report_inner_not_yet_observed_errors() {
+        use crate::roster::ROSTER_PLAYER_ID_BASE;
+
+        let state = test_app_state();
+        // Slot 0 of club 0: PlayerId(ROSTER_PLAYER_ID_BASE + 0)
+        let player_id_str = format!("fwh.core:player_{ROSTER_PLAYER_ID_BASE:08}");
+
+        let result = get_scout_report_inner(&player_id_str, &state);
+        match result {
+            Err(IpcError::NotYetObserved { player_id }) => {
+                assert!(
+                    player_id.contains(&format!("{ROSTER_PLAYER_ID_BASE:08}")),
+                    "NotYetObserved player_id should match requested id"
+                );
+            }
+            other => panic!("expected NotYetObserved, got {other:?}"),
+        }
+    }
+
+    /// Non-roster id → `PlayerNotFound`.
+    #[test]
+    fn get_scout_report_inner_non_roster_id_errors() {
+        let state = test_app_state();
+        let result = get_scout_report_inner("fwh.core:player_00001", &state);
+        match result {
+            Err(IpcError::PlayerNotFound { .. }) => {}
+            other => panic!("expected PlayerNotFound for content-bio id, got {other:?}"),
+        }
+    }
+
+    /// After one `advance_week`, the starting XI for each playing club has a
+    /// scouting report cached (observation_count == 1, categories.len() == 3).
+    #[test]
+    fn get_scout_report_inner_returns_banded_dto_after_advance_week() {
+        use crate::roster::ROSTER_PLAYER_ID_BASE;
+
+        let state = test_app_state();
+        advance_week_inner(&state).expect("advance_week");
+
+        // Slot 0 (GK) of club index 0 → PlayerId(ROSTER_PLAYER_ID_BASE + 0).
+        // That player is in the starting XI (index 0 of their club's Vec).
+        let player_id_str = format!("fwh.core:player_{ROSTER_PLAYER_ID_BASE:08}");
+
+        let dto = get_scout_report_inner(&player_id_str, &state)
+            .expect("starting XI player must have a scout report after advance_week");
+
+        assert!(
+            !dto.overall_band.is_empty(),
+            "overall_band must not be empty"
+        );
+        assert_eq!(
+            dto.categories.len(),
+            3,
+            "categories must have 3 entries (Physical/Mental/Technical)"
+        );
+        assert_eq!(
+            dto.observation_count, 1,
+            "observation_count must be 1 after one advance_week"
         );
     }
 }

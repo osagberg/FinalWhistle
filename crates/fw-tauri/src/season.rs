@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use fw_content::{
-    ContentStore, MatchOutcome, SeasonState, SignatureCandidate, SignatureDefinition,
+    ContentStore, MatchOutcome, PlayerBio, SeasonState, SignatureCandidate, SignatureDefinition,
 };
 use fw_core::{AttributeFamily, ClubId, PlayerId, Seed};
 use fw_match_sim::{MatchState, tick_match};
@@ -24,6 +24,7 @@ use fw_memory::event::{
     EventClass, MemoryEvent, Participant, ParticipantRole, SeasonNumber, SourceId,
 };
 use fw_memory::ledger::MemoryLedger;
+use fw_scouting::{Scout, observe_player};
 
 use crate::IpcError;
 
@@ -664,6 +665,73 @@ pub fn filter_new_events_for_player(
     player_ledger
 }
 
+/// Observe the starting XI (indices 0..11) of one club's roster slice, caching
+/// the latest single-scout `ScoutReport` on each `PlayerInstance` and bumping
+/// `observation_count`. Pillar-4 wiring (T4-2.5f).
+///
+/// `observe_player` needs a `&PlayerBio`; the roster carries only `genes`, so
+/// the source bio is re-derived from the career-start round-robin index
+/// `global_idx = player_id.raw() - ROSTER_PLAYER_ID_BASE`, indexed into the
+/// content bio pool.
+///
+/// Two disjoint branches:
+/// - **Non-empty pool (normal):** for each observed player, ASSERTS the derived
+///   bio's gene snapshot equals the instance's genes (Sim/RULES §11 — fails loud
+///   in release if the round-robin formula in `build_roster_from_league` ever
+///   drifts from the derivation here), then observes.
+/// - **Empty pool:** observation is skipped and `log::warn!` fires on each call
+///   (so an empty pool is loud at every match-day half, not silent). Expected
+///   only for content packs without a `player-bios/` directory.
+///
+/// `bios` is the ordered slice of `PlayerBio` references from
+/// `content.player_bios.values()`. This slice must be the same BTreeMap
+/// iteration used by `build_roster_from_league` so the index mapping stays
+/// consistent.
+pub fn observe_match_participants(
+    instances: &mut [crate::roster::PlayerInstance],
+    bios: &[&PlayerBio],
+    scout: &Scout,
+    career_seed: u64,
+) {
+    use crate::roster::ROSTER_PLAYER_ID_BASE;
+
+    if bios.is_empty() {
+        log::warn!(
+            "observe_match_participants: bio pool is empty — observation skipped for this \
+             club's starting XI. Expected cause: content pack without player-bios/ directory. \
+             Players will have no scouting report until the pool is non-empty."
+        );
+        return;
+    }
+
+    for instance in instances.iter_mut().take(11) {
+        let global_idx = (instance.player_id.raw() - ROSTER_PLAYER_ID_BASE) as usize;
+        let bio = bios[global_idx % bios.len()];
+
+        // Invariant: the bio's gene snapshot must match the instance's genes.
+        // If this fires the round-robin formula in build_roster_from_league has
+        // drifted from the derivation here — fail loud in both debug and release
+        // (Sim/RULES §11 — canonical and gameplay invariants must fire in release).
+        assert!(
+            bio.internal_gene_snapshot == instance.genes,
+            "observe_match_participants: gene snapshot mismatch for player {:?} \
+             (global_idx={global_idx}). The round-robin formula in \
+             build_roster_from_league has drifted — bio genes != instance genes. \
+             This is a programming error, not a user-facing condition.",
+            instance.player_id,
+        );
+
+        let obs_id = instance.observation_count;
+        let report = observe_player(scout, bio, career_seed, obs_id);
+        instance.last_scout_report = Some(report);
+        // Plain += 1: a career will never reach 2^32 match-days; overflow is
+        // unreachable in practice. fw-tauri is outside Sim/RULES §11's scope
+        // (that rule targets fw-match-sim / fw-memory / fw-replay etc.), so
+        // plain unchecked addition is acceptable here.
+        instance.observation_count += 1;
+    }
+}
+
 /// Default age (in years) for a rostered player at career start.
 ///
 /// First-increment approximation: all players are treated as 22 years old
@@ -680,7 +748,7 @@ pub const CAREER_START_AGE_YEARS: u8 = 22;
 
 #[cfg(test)]
 mod tests {
-    use super::role_receives_candidates;
+    use super::*;
     use fw_match_sim::{PLAYERS_PER_TEAM, Role};
 
     /// Fix 5 (T4-2.5c self-review drift-prevention): cross-check
@@ -718,6 +786,231 @@ mod tests {
                  The formation map and the season-layer filter have diverged — \
                  update `role_receives_candidates` to match the sim's assignment.",
                 sim_role(in_team)
+            );
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // observe_match_participants tests (T4-2.5f)
+    // ---------------------------------------------------------------------------
+
+    fn workspace_content_path() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("content")
+    }
+
+    fn load_content() -> fw_content::ContentStore {
+        fw_content::ContentStore::load_sources(&workspace_content_path())
+            .expect("ContentStore::load_sources failed in test")
+    }
+
+    /// Two calls with the same obs_id produce identical reports; different obs_ids differ.
+    ///
+    /// Observable: `observe_player(scout, bio, seed, 0) == observe_player(scout, bio, seed, 0)`
+    /// AND `observe_player(scout, bio, seed, 0) != observe_player(scout, bio, seed, 5)`.
+    ///
+    /// The equality check exercises the determinism contract; the inequality check
+    /// exercises the observation_id seed-site discriminant in ADR-0009.
+    #[test]
+    fn observe_at_obs5_differs_from_obs0() {
+        let content = load_content();
+        let bio = content
+            .player_bios
+            .values()
+            .next()
+            .expect("at least one PlayerBio in content");
+        let scout = fw_scouting::Scout::basic_uncertainty();
+        let career_seed: u64 = 0xdead_beef_cafe_babe;
+
+        let report_0a = observe_player(&scout, bio, career_seed, 0);
+        let report_0b = observe_player(&scout, bio, career_seed, 0);
+        let report_5 = observe_player(&scout, bio, career_seed, 5);
+
+        assert_eq!(
+            report_0a, report_0b,
+            "same obs_id must produce identical reports (determinism)"
+        );
+        assert_ne!(
+            report_0a, report_5,
+            "obs_id=0 and obs_id=5 must differ — the seed-site discriminant must vary"
+        );
+    }
+
+    /// `observe_match_participants` populates `last_scout_report` on the first 11
+    /// instances and increments `observation_count`.
+    ///
+    /// Uses the real content store to build a bio pool and roster instances,
+    /// ensuring the round-robin gene match invariant holds.
+    #[test]
+    fn observe_match_participants_populates_reports_for_starting_xi() {
+        use crate::roster::build_roster_from_league;
+        use fw_core::Seed;
+
+        let content = load_content();
+        let seed = Seed::from_u64(0xdead_beef_cafe_babe);
+        let (league, procgen_teams) =
+            fw_content::generate_league_with_teams(seed, &content).expect("league gen");
+        let mut roster =
+            build_roster_from_league(&league, &procgen_teams, &content).expect("roster gen");
+
+        let bios: Vec<&fw_content::PlayerBio> = content.player_bios.values().collect();
+        let scout = fw_scouting::Scout::basic_uncertainty();
+
+        // Observe the first club in BTreeMap order.
+        let first_club_id = *roster.keys().next().expect("at least one club");
+        let instances = roster.get_mut(&first_club_id).expect("club in roster");
+
+        observe_match_participants(
+            instances.as_mut_slice(),
+            &bios,
+            &scout,
+            0xdead_beef_cafe_babe,
+        );
+
+        // First 11 must have a report and observation_count == 1.
+        for inst in &instances[..11] {
+            assert!(
+                inst.last_scout_report.is_some(),
+                "slot {} must have a scout report after observe_match_participants",
+                inst.slot
+            );
+            assert_eq!(
+                inst.observation_count, 1,
+                "slot {} must have observation_count == 1",
+                inst.slot
+            );
+        }
+        // Slots 11..22 must be untouched.
+        for inst in &instances[11..] {
+            assert!(
+                inst.last_scout_report.is_none(),
+                "slot {} must NOT have a scout report (outside starting XI)",
+                inst.slot
+            );
+            assert_eq!(
+                inst.observation_count, 0,
+                "slot {} observation_count must stay 0",
+                inst.slot
+            );
+        }
+    }
+
+    /// Empty bio pool: observe silently skips without panicking or mutating.
+    #[test]
+    fn observe_match_participants_empty_bio_pool_is_noop() {
+        use crate::roster::{
+            PlayerInstance, PlayerSeasonStats, ROSTER_PLAYER_ID_BASE, default_gene_snapshot,
+        };
+        use fw_core::{AbilityCeiling, ClubId, PlayerId, Q32};
+        use fw_memory::BreakthroughState;
+
+        let half = Q32::from_raw(2_147_483_648_i64);
+        let make_inst = |slot: u8| PlayerInstance {
+            player_id: PlayerId::new(ROSTER_PLAYER_ID_BASE + slot as u32),
+            club_id: ClubId::new(1),
+            slot,
+            display_name: String::new(),
+            attributes: {
+                let z = Q32::ZERO;
+                use fw_core::{
+                    DurabilityProfile, GoalkeeperAttributes, MentalAttributes, PersonalityVector,
+                    PhysicalAttributes, PlayerAttributes, TechnicalAttributes,
+                };
+                PlayerAttributes {
+                    technical: TechnicalAttributes {
+                        finishing: z,
+                        long_shots: z,
+                        passing: z,
+                        crossing: z,
+                        first_touch: z,
+                        technique: z,
+                        dribbling: z,
+                        heading: z,
+                        tackling: z,
+                        marking: z,
+                        free_kicks: z,
+                        penalty_taking: z,
+                        corners: z,
+                        long_throws: z,
+                    },
+                    mental: MentalAttributes {
+                        anticipation: z,
+                        composure: z,
+                        decisions: z,
+                        vision: z,
+                        off_the_ball: z,
+                        positioning: z,
+                        concentration: z,
+                        bravery: z,
+                        teamwork: z,
+                        flair: z,
+                    },
+                    physical: PhysicalAttributes {
+                        pace: z,
+                        acceleration: z,
+                        stamina: z,
+                        strength: z,
+                        agility: z,
+                        balance: z,
+                        jumping_reach: z,
+                        natural_fitness: z,
+                    },
+                    goalkeeper: GoalkeeperAttributes {
+                        handling: z,
+                        reflexes: z,
+                        one_on_ones: z,
+                        aerial_reach: z,
+                        command_of_area: z,
+                        kicking: z,
+                    },
+                    personality: PersonalityVector {
+                        determination: z,
+                        work_rate: z,
+                        ambition: z,
+                        professionalism: z,
+                        loyalty: z,
+                        temperament: z,
+                        pressure_tolerance: z,
+                        big_match_appetite: z,
+                        adaptability: z,
+                        aggression: z,
+                        risk_appetite: z,
+                        selflessness: z,
+                        consistency: z,
+                        versatility: z,
+                    },
+                    durability: DurabilityProfile {
+                        injury_proneness: z,
+                        recovery_rate: z,
+                        dirtiness: z,
+                    },
+                }
+            },
+            ceiling: AbilityCeiling::try_new(half, half).expect("ceiling"),
+            signature_candidates: vec![],
+            breakthrough_state: BreakthroughState::new(),
+            season_stats: PlayerSeasonStats::default(),
+            career_apps: 0,
+            observation_count: 0,
+            last_scout_report: None,
+            genes: default_gene_snapshot(),
+        };
+
+        let mut instances: Vec<PlayerInstance> = (0u8..11).map(make_inst).collect();
+        let scout = fw_scouting::Scout::basic_uncertainty();
+
+        observe_match_participants(&mut instances, &[], &scout, 42);
+
+        for inst in &instances {
+            assert!(
+                inst.last_scout_report.is_none(),
+                "report must be None when bio pool is empty"
+            );
+            assert_eq!(
+                inst.observation_count, 0,
+                "observation_count must stay 0 with empty pool"
             );
         }
     }

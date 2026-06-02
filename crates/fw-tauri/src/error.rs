@@ -81,6 +81,22 @@ pub enum IpcError {
         player_id: String,
     },
 
+    /// No scouting report is available yet for this player.
+    ///
+    /// Returned by `get_scout_report` when `PlayerInstance.last_scout_report`
+    /// is `None` — the player has not yet featured in a match-day since career
+    /// start. Scouts form their read once a player takes the field.
+    ///
+    /// Wire shape: `{ kind: "notYetObserved", playerId: "..." }`.
+    #[error(
+        "no scouting report yet for {player_id} — the player must feature in a match \
+         before scouts can form a read"
+    )]
+    NotYetObserved {
+        #[serde(rename = "playerId")]
+        player_id: String,
+    },
+
     /// A `MatchCommand` was received and recorded, but its implementation has
     /// not yet been wired up in the sim layer.
     ///
