@@ -154,6 +154,79 @@ impl MemoryLedger {
         self.dirty = true;
     }
 
+    /// Build a read-only per-subject **view** from an existing slice of events,
+    /// preserving each event's `event_id` verbatim.
+    ///
+    /// Unlike `append`, which overwrites `event_id` with the next monotonic
+    /// counter, `from_events` keeps each event's existing `EventId` intact.
+    /// This is essential for any consumer that keys on the global career
+    /// `EventId` — most importantly `evaluate()` in `breakthrough.rs`, which
+    /// derives its per-event RNG seed from `event.event_id.0`. Feeding
+    /// `evaluate()` a ledger built via `append` would renumber every id to
+    /// 0, 1, 2, … (the within-batch index), causing every event at the same
+    /// batch position across different seasons to draw an identical `raw_delta`
+    /// — the F1 cross-season correlation bug.
+    ///
+    /// ## Invariants
+    ///
+    /// - `events` are stored verbatim in the order provided; the canonical
+    ///   source-of-truth is still `events: Vec<MemoryEvent>`.
+    /// - `next_id` is set to `max(event_id) + 1` so any subsequent `append`
+    ///   stays monotonic and non-colliding. When `events` is empty, `next_id`
+    ///   is 0.
+    /// - `dirty = true` so lazy index maps rebuild on first read.
+    /// - The three `BTreeMap` indexes start empty (same as `new()`).
+    /// - `salience` is taken as-is from the provided events (the caller is
+    ///   responsible for correctness; this is a view constructor, not an
+    ///   emitter).
+    ///
+    /// ## Use-case contract
+    ///
+    /// Use this constructor to build read-only views where:
+    /// 1. The caller already has correctly-stamped events from a canonical
+    ///    ledger (e.g. a subset filtered by player id).
+    /// 2. Consumers of the resulting ledger must see the GLOBAL career
+    ///    `EventId` values, not renumbered batch indices.
+    ///
+    /// This is a read-only VIEW constructor, not a canonical-state emitter: it
+    /// does not recompute `salience` or stamp ids. All read paths work on the
+    /// result — `get_by_id` resolves by id (not array position), so the
+    /// non-contiguous ids of a filtered subset are handled correctly — but the
+    /// intended consumers are `iter()` / `evaluate()`.
+    ///
+    /// # Panics (Sim/RULES §11 — fail loud, not silent)
+    ///
+    /// Panics unless `events` is strictly ascending by `EventId`. Both the
+    /// `get_by_id` binary search and `evaluate()`'s chronological-order
+    /// assumption depend on it; the only caller (a `career.ledger` slice
+    /// filtered by player) always satisfies it. A future caller passing
+    /// unsorted or duplicate ids is a programming error and fails immediately.
+    #[must_use]
+    pub fn from_events(events: Vec<MemoryEvent>) -> Self {
+        assert!(
+            events.windows(2).all(|w| w[0].event_id.0 < w[1].event_id.0),
+            "MemoryLedger::from_events requires strictly-ascending EventIds \
+             (get_by_id binary search + evaluate chronological order depend on it); \
+             got a non-ascending or duplicate-id sequence — programming error (Sim/RULES §11)"
+        );
+        // `next_id` past the max id keeps any later `append` monotonic +
+        // non-colliding. Plain `+ 1` (panic-on-overflow) matches `append`; the
+        // u32 EventId space is effectively unbounded for a career.
+        let next_id = events
+            .iter()
+            .map(|e| e.event_id.0)
+            .max()
+            .map_or(0, |m| m + 1);
+        MemoryLedger {
+            events,
+            next_id,
+            dirty: true,
+            by_subject: BTreeMap::new(),
+            by_club: BTreeMap::new(),
+            by_class_season: BTreeMap::new(),
+        }
+    }
+
     // ---- Write surface (append only) ------------------------------------
 
     /// Append a partially-constructed event. The ledger stamps `event_id`
@@ -193,13 +266,24 @@ impl MemoryLedger {
         self.events.iter()
     }
 
-    /// Retrieve an event by its `EventId`. O(1) — events are stored by
-    /// insertion index and `EventId(n)` maps to `events[n]`.
+    /// Retrieve an event by its `EventId`. O(log n) — resolves by id, NOT by
+    /// array position.
     ///
-    /// Returns `None` if the id is out of bounds (defensive; well-formed
-    /// ledgers always allocate ids sequentially).
+    /// Events are always stored strictly ascending by `EventId` in every
+    /// construction path (`append` stamps monotonically; `from_events` asserts
+    /// ascending input; `compact` appends the highest id last). Resolving by id
+    /// via binary search (rather than `events[id.0]`) is therefore correct for
+    /// BOTH contiguous `append`-built ledgers AND gappy `from_events` views — a
+    /// filtered subset has non-contiguous ids like `[2, 3]`, where the old
+    /// position-based `events.get(id.0)` would silently return the wrong event
+    /// or `None` (the F1 latent hazard).
+    ///
+    /// Returns `None` if no event carries that id.
     pub fn get_by_id(&self, id: EventId) -> Option<&MemoryEvent> {
-        self.events.get(id.0 as usize)
+        self.events
+            .binary_search_by_key(&id.0, |e| e.event_id.0)
+            .ok()
+            .map(|idx| &self.events[idx])
     }
 
     /// All `EventId`s for events where `player_id` is the `Subject`
@@ -421,6 +505,51 @@ mod tests {
             salience: Q32::ZERO,
             decay_function: DecayFunction::Never,
         }
+    }
+
+    /// F1 fix — `from_events` preserves event_id verbatim and sets `next_id`
+    /// past the highest existing id.
+    ///
+    /// Non-contiguous ids (5 and 12) verify that the constructor does not
+    /// renumber and that `next_id` is computed as `max + 1 = 13`.
+    #[test]
+    fn from_events_preserves_ids_and_sets_next_id() {
+        let p = PlayerId::new(1);
+        // Build two events with NON-contiguous ids (5 and 12).
+        let mut ev_a = make_event(p, 0, EventClass::DebutSenior);
+        ev_a.event_id = EventId(5);
+        let mut ev_b = make_event(p, 0, EventClass::LegacyGoal);
+        ev_b.event_id = EventId(12);
+
+        let ledger = MemoryLedger::from_events(vec![ev_a, ev_b]);
+
+        // event_ids must be preserved verbatim.
+        let ids: Vec<u32> = ledger.iter().map(|e| e.event_id.0).collect();
+        assert_eq!(
+            ids,
+            vec![5, 12],
+            "from_events must preserve event_ids verbatim"
+        );
+
+        // next_id must be max + 1 = 13 so subsequent appends stay monotonic.
+        assert_eq!(
+            ledger.next_id, 13,
+            "next_id must be set to max(event_id) + 1"
+        );
+
+        // dirty is true so indexes rebuild on first read.
+        assert!(ledger.dirty, "from_events must set dirty = true");
+
+        // len is correct.
+        assert_eq!(ledger.len(), 2);
+    }
+
+    /// F1 fix — empty `from_events` produces a ledger with next_id == 0.
+    #[test]
+    fn from_events_empty_has_next_id_zero() {
+        let ledger = MemoryLedger::from_events(vec![]);
+        assert_eq!(ledger.next_id, 0);
+        assert!(ledger.is_empty());
     }
 
     /// AC3 — `append` allocates monotonically-increasing EventIds.

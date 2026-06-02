@@ -381,6 +381,98 @@ fn per_player_ledger_filter_excludes_other_player_events() {
             ev.event_class
         );
     }
+
+    // F1: filter_ledger_for_player must PRESERVE the global career EventIds
+    // (A's events were appended at ids 0,1,3; B's at 2,4), NOT renumber them
+    // via append. A revert to append-renumbering would yield [0,1,2] / [0,1].
+    let ids_a: Vec<u32> = filtered_a.iter().map(|e| e.event_id.0).collect();
+    assert_eq!(
+        ids_a,
+        vec![0, 1, 3],
+        "filter_ledger_for_player must preserve A's global EventIds (0,1,3); got {ids_a:?}"
+    );
+    let ids_b: Vec<u32> = filtered_b.iter().map(|e| e.event_id.0).collect();
+    assert_eq!(
+        ids_b,
+        vec![2, 4],
+        "filter_ledger_for_player must preserve B's global EventIds (2,4); got {ids_b:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// F1 — the production filter preserves GLOBAL career EventIds (no renumber)
+// ---------------------------------------------------------------------------
+
+/// F1 regression: `filter_new_events_for_player` (the PRODUCTION path used by
+/// `advance_season_inner`) must preserve each event's global career `EventId`,
+/// NOT renumber it to a within-batch index. Pre-fix it built the per-player
+/// view via `MemoryLedger::append`, which renumbered ids to 0,1,2,… so
+/// `evaluate()`'s `tick_for_rng = event.event_id.0` keyed on the batch index
+/// → identical breakthrough deltas across seasons. This test fails if anyone
+/// reverts the filter to `append` (the filtered ids would become 0,1 not 2,3).
+#[test]
+fn filter_new_events_for_player_preserves_global_event_ids() {
+    use fw_core::{PlayerId, Q32};
+    use fw_memory::event::{
+        CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter, EmitterKind,
+        EntityRef, MemoryEvent, Participant, ParticipantRole, SeasonNumber, SourceId,
+    };
+    use fw_memory::ledger::MemoryLedger;
+
+    let player_a = PlayerId::new(1_000_001);
+    let player_b = PlayerId::new(1_000_002);
+
+    let make_event = |pid: PlayerId, class: EventClass| -> MemoryEvent {
+        MemoryEvent {
+            event_id: fw_memory::event::EventId(0), // overwritten by append below
+            schema_version: 1,
+            season: SeasonNumber(0),
+            tick: None,
+            career_date: CareerDate {
+                year: 1,
+                day_of_year: 1,
+            },
+            emitter: Emitter {
+                kind: EmitterKind::MatchEngine,
+                source_id: SourceId::None,
+            },
+            participants: vec![Participant {
+                role: ParticipantRole::Subject,
+                entity: EntityRef::Player(pid),
+            }],
+            event_class: class,
+            stakes: Q32::ONE,
+            emotion: fw_memory::event::Emotion::Joy,
+            consequence: vec![Consequence::None],
+            callback_eligibility: CallbackEligibility::Immediate,
+            salience: Q32::ZERO,
+            decay_function: DecayFunction::Never,
+        }
+    };
+
+    // Build a career ledger so `append` stamps the real global ids 0..=4.
+    let mut ledger = MemoryLedger::new();
+    ledger.append(make_event(player_a, EventClass::DebutSenior)); // id 0
+    ledger.append(make_event(player_b, EventClass::DebutSenior)); // id 1
+    ledger.append(make_event(player_a, EventClass::LegacyGoal)); // id 2
+    ledger.append(make_event(player_a, EventClass::HatTrickScored)); // id 3
+    ledger.append(make_event(player_b, EventClass::LegacyGoal)); // id 4
+
+    // Mirror advance_season_inner: the new-events batch is the slice past a
+    // watermark, carrying their global ids (here ids 1..=4 after skip(1)).
+    let new_events: Vec<MemoryEvent> = ledger.iter().skip(1).cloned().collect();
+
+    // Player A's events in the [1..=4] window are ids 2 and 3.
+    let filtered = fw_tauri::season::filter_new_events_for_player(&new_events, player_a);
+
+    let ids: Vec<u32> = filtered.iter().map(|e| e.event_id.0).collect();
+    assert_eq!(
+        ids,
+        vec![2, 3],
+        "filter_new_events_for_player must PRESERVE global EventIds (2, 3); \
+         got {ids:?}. If this is [0, 1] the filter regressed to append-renumber \
+         (the F1 bug — breakthrough RNG would key on the within-batch index)."
+    );
 }
 
 // ---------------------------------------------------------------------------

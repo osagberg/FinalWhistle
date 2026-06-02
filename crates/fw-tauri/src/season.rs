@@ -609,10 +609,13 @@ pub fn signature_candidates_to_ctx(
 /// `filter_new_events_for_player` instead (FIX 1 — incremental evaluation only
 /// feeds the new-since-watermark events to `evaluate()`).
 ///
-/// The copy preserves `event_id` values so `evaluate()`'s
-/// `tick_for_rng = event.event_id.0` produces the same RNG seeds — determinism
-/// is preserved.
+/// Uses `MemoryLedger::from_events` to preserve each event's global career
+/// `EventId` verbatim. This ensures `evaluate()`'s
+/// `tick_for_rng = event.event_id.0` keys on the unique global id rather than
+/// a renumbered batch index — fixing the F1 cross-season RNG correlation bug.
 pub fn filter_ledger_for_player(ledger: &MemoryLedger, player_id: PlayerId) -> MemoryLedger {
+    use fw_memory::event::{EntityRef, ParticipantRole};
+
     // Clone so we can call by_subject (which needs &mut for lazy index rebuild)
     // without taking &mut on the caller's original ledger.
     let mut working = ledger.clone();
@@ -620,13 +623,18 @@ pub fn filter_ledger_for_player(ledger: &MemoryLedger, player_id: PlayerId) -> M
 
     let ids: Vec<fw_memory::event::EventId> = working.by_subject(player_id).to_vec();
 
-    let mut player_ledger = MemoryLedger::new();
-    for id in &ids {
-        if let Some(event) = working.get_by_id(*id) {
-            player_ledger.append(event.clone());
-        }
-    }
-    player_ledger
+    let matching: Vec<fw_memory::event::MemoryEvent> = ids
+        .iter()
+        .filter_map(|id| working.get_by_id(*id).cloned())
+        .filter(|event| {
+            event.participants.iter().any(|p| {
+                p.role == ParticipantRole::Subject
+                    && matches!(p.entity, EntityRef::Player(pid) if pid == player_id)
+            })
+        })
+        .collect();
+
+    MemoryLedger::from_events(matching)
 }
 
 /// Build a per-player `MemoryLedger` from a slice of newly-appended events
@@ -642,27 +650,31 @@ pub fn filter_ledger_for_player(ledger: &MemoryLedger, player_id: PlayerId) -> M
 /// materialised by the caller before any mutations. The events are filtered
 /// to those whose `Subject` is `player_id`.
 ///
-/// `evaluate()` uses `event.event_id.0` as the RNG `tick` parameter, so
-/// preserving the original `EventId` values (which we do — we clone the
-/// events without renumbering) keeps the RNG sites deterministic across
-/// seasons.
+/// Uses `MemoryLedger::from_events` to preserve each event's global career
+/// `EventId` verbatim. The prior implementation used `append`, which
+/// renumbered ids to 0, 1, 2, … (the within-batch index). That caused
+/// `evaluate()`'s `tick_for_rng = event.event_id.0` to produce the same
+/// RNG seed for the same batch-position event in every season, correlating
+/// breakthrough magnitudes across a career (F1 bug). `from_events` fixes
+/// this by keeping the original unique id from the canonical career ledger.
 pub fn filter_new_events_for_player(
     new_events: &[fw_memory::event::MemoryEvent],
     player_id: PlayerId,
 ) -> MemoryLedger {
     use fw_memory::event::{EntityRef, ParticipantRole};
 
-    let mut player_ledger = MemoryLedger::new();
-    for event in new_events {
-        let is_subject = event.participants.iter().any(|p| {
-            p.role == ParticipantRole::Subject
-                && matches!(p.entity, EntityRef::Player(pid) if pid == player_id)
-        });
-        if is_subject {
-            player_ledger.append(event.clone());
-        }
-    }
-    player_ledger
+    let matching: Vec<fw_memory::event::MemoryEvent> = new_events
+        .iter()
+        .filter(|event| {
+            event.participants.iter().any(|p| {
+                p.role == ParticipantRole::Subject
+                    && matches!(p.entity, EntityRef::Player(pid) if pid == player_id)
+            })
+        })
+        .cloned()
+        .collect();
+
+    MemoryLedger::from_events(matching)
 }
 
 /// Observe the starting XI (indices 0..11) of one club's roster slice, caching

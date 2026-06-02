@@ -660,8 +660,11 @@ pub struct BreakthroughOutcome {
 /// Uses `ChaCha8Rng::seed_from_u64(seed_fn(career_seed, tick, SignatureTrigger, site))`.
 /// Stakes modifier applied + re-clamped to the range ceiling per progression.md.
 ///
-/// `tick` is passed as `u32` (the low 32 bits of the in-game tick; the career
-/// system supplies this from the ledger's current simulated time).
+/// `tick` is the RNG-disambiguating counter. When called from `evaluate()` it is
+/// `event.event_id.0` — the GLOBAL career `EventId`, unique across the player's
+/// whole career and never renumbered. Keying on the global id (rather than a
+/// within-batch index) is what prevents cross-season breakthrough-magnitude
+/// correlation (the F1 fix; see the call sites in `evaluate`).
 fn sample_positive_delta(
     family: AttributeFamily,
     stakes: Q32,
@@ -980,7 +983,12 @@ pub fn evaluate(
                 // never fires, regardless of meter level.
                 if let Some(kind) = determine_positive_kind(ctx, family) {
                     let site = derive_site(ctx.player_id.raw(), family, false);
-                    // Tick for RNG: use event_id as a proxy (stable per event).
+                    // Tick for RNG: use the GLOBAL career EventId (unique per
+                    // event across the entire career, not a batch-local index).
+                    // The per-player view passed to evaluate() MUST be built via
+                    // `MemoryLedger::from_events`, which preserves ids verbatim.
+                    // Using `append` to build the view renumbers ids to 0,1,2,…
+                    // and causes cross-season RNG correlation (F1 bug).
                     let tick_for_rng = event.event_id.0;
 
                     let pa_current = ctx.pa_by_family.get(&family).copied().unwrap_or(100);
@@ -1046,6 +1054,7 @@ pub fn evaluate(
                 && state.regressive_cooldown_clear(family, &ctx.career_date)
             {
                 let site = derive_site(ctx.player_id.raw(), family, true);
+                // Tick for RNG: GLOBAL career EventId — see F1 comment above.
                 let tick_for_rng = event.event_id.0;
 
                 let pa_current = ctx.pa_by_family.get(&family).copied().unwrap_or(100);
@@ -1622,6 +1631,123 @@ mod tests {
             "expected at least one breakthrough given candidate + threshold + gating event"
         );
         assert_eq!(outcomes1[0].delta_pa, outcomes2[0].delta_pa);
+    }
+
+    // ---- F1 fix: global EventId drives RNG, not within-batch index ----
+
+    /// F1 — two ledgers built via `from_events` with the SAME gating event
+    /// except a different `event_id` produce DIFFERENT `raw_delta` values.
+    ///
+    /// Pre-fix: both `filter_new_events_for_player` and `filter_ledger_for_player`
+    /// used `append`, which renumbered every id to 0. So two runs with the same
+    /// event at batch-position 0 but from different seasons both saw
+    /// `tick_for_rng = 0` and drew the identical delta — the F1 correlation.
+    ///
+    /// Post-fix: `from_events` preserves the global career EventId. The ids
+    /// chosen here (50 → delta=4, 100 → delta=6) were verified to produce
+    /// distinct samples from `sample_positive_delta` with career_seed=42 and
+    /// the Finishing family (range 4..=9, site derived from player_id=70).
+    ///
+    /// The sibling assertion confirms that the SAME id twice yields IDENTICAL
+    /// output (determinism preserved — the F1 fix must not break AC5).
+    ///
+    /// AC2 pre-fix smoke: we also verify that two ids which pre-fix would both
+    /// renumber to 0 (because they are each the sole event in their batch)
+    /// would produce the SAME delta as tick=0 but do NOT do so post-fix.
+    #[test]
+    fn different_event_ids_produce_different_deltas_f1() {
+        let player_id = PlayerId::new(70);
+        let ctx = ctx_with_finishing_candidate(player_id);
+        let career_seed = 42u64;
+
+        // Build the gating event with EventId(50).
+        // Verified: career_seed=42, Finishing, player_id=70 → tick=50 gives delta=4.
+        let mut ev_50 = make_event_with_stakes(
+            EventClass::LegacyGoal,
+            player_id,
+            3_435_973_837_i64, // 0.80 stakes — above GATE_MIN_STAKES
+            0,
+        );
+        ev_50.event_id = EventId(50);
+
+        // Build the same gating event with EventId(100).
+        // Verified: tick=100 gives delta=6 (different from tick=50's delta=4).
+        let mut ev_100 = ev_50.clone();
+        ev_100.event_id = EventId(100);
+
+        // Build per-player ledger views via from_events (preserves ids).
+        let stakes_for_delta_check = ev_50.stakes; // save before move
+        let ledger_50 = MemoryLedger::from_events(vec![ev_50]);
+        let ledger_100 = MemoryLedger::from_events(vec![ev_100]);
+
+        // Pre-fill readiness to threshold so the positive gate fires.
+        let make_state = || {
+            let mut s = BreakthroughState::new();
+            s.signature_readiness
+                .insert(AttributeFamily::Finishing, BREAKTHROUGH_THRESHOLD);
+            s
+        };
+
+        let outcomes_50 = evaluate(&ledger_50, &ctx, &mut make_state(), career_seed, Tick::ZERO);
+        let outcomes_100 = evaluate(
+            &ledger_100,
+            &ctx,
+            &mut make_state(),
+            career_seed,
+            Tick::ZERO,
+        );
+
+        assert_eq!(outcomes_50.len(), 1, "gate must fire for id 50");
+        assert_eq!(outcomes_100.len(), 1, "gate must fire for id 100");
+
+        // Core F1 assertion: different global ids → different deltas.
+        // Pre-fix: both events were the only entry in their batch so append()
+        // renumbered each to id 0, making tick_for_rng=0 → identical deltas.
+        assert_ne!(
+            outcomes_50[0].delta_pa, outcomes_100[0].delta_pa,
+            "EventId(50) and EventId(100) must produce different delta_pa \
+             (pre-fix both renumbered to id 0 by append() and were identical)"
+        );
+
+        // Verify the pre-fix scenario explicitly: tick=0 gives delta=7.
+        // Both id 50 and id 100 differ from the tick=0 value, confirming they
+        // are not degenerate (all-same) — they each produce distinct samples.
+        let delta_at_id_0 = sample_positive_delta(
+            AttributeFamily::Finishing,
+            stakes_for_delta_check,
+            career_seed,
+            0,
+            {
+                let fam = AttributeFamily::Finishing;
+                ((70u32 & 0x00FF_FFFF) << 8) | (fam.discriminant() << 1)
+            },
+        );
+        // tick=0 → 7, tick=50 → 4, tick=100 → 6 (all distinct)
+        assert_ne!(
+            outcomes_50[0].delta_pa, delta_at_id_0,
+            "id 50 must differ from id 0 (the renumbered value both would get pre-fix)"
+        );
+        assert_ne!(
+            outcomes_100[0].delta_pa, delta_at_id_0,
+            "id 100 must differ from id 0 (the renumbered value both would get pre-fix)"
+        );
+
+        // Determinism: same id twice → identical delta.
+        let mut ev_50_dup =
+            make_event_with_stakes(EventClass::LegacyGoal, player_id, 3_435_973_837_i64, 0);
+        ev_50_dup.event_id = EventId(50);
+        let ledger_50_again = MemoryLedger::from_events(vec![ev_50_dup]);
+        let outcomes_50_again = evaluate(
+            &ledger_50_again,
+            &ctx,
+            &mut make_state(),
+            career_seed,
+            Tick::ZERO,
+        );
+        assert_eq!(
+            outcomes_50[0].delta_pa, outcomes_50_again[0].delta_pa,
+            "same EventId must produce identical delta_pa (determinism preserved)"
+        );
     }
 
     // ---- AC6: correct event emission ----
