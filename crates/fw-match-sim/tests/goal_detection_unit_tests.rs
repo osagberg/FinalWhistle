@@ -19,15 +19,11 @@ use fw_match_sim::{BallState, MatchEvent, MatchState, tick_match};
 /// The tick is set to 0 (initial); all players are at formation positions.
 fn state_with_ball(ball: BallState) -> MatchState {
     let mut state = MatchState::initial(Seed::from_u64(42));
-    // Override the match_end_tick to something large so FullTime doesn't
-    // trigger during the single tick we advance in each test.
-    // pub(crate) access — use the accessor to check, but we need to set it.
-    // Since match_end_tick is pub(crate), we set it by advancing via a fresh
-    // state with a large enough initial value. Simplest: use 600 ticks.
-    // We can't mutate match_end_tick directly from outside the crate.
-    // Instead, advance the match to tick 0 with our ball and verify at tick 1.
-    // match_end_tick defaults to 60; our tests only advance 1 tick so FullTime
-    // won't fire unless tick 1 >= 60. We use small tick counts — fine.
+    // T4-sim-halt: match_end_tick now defaults to 5400 (real 90 min), so
+    // advancing a single tick here will not trigger FullTime. The comment
+    // below is kept for historical context.
+    // We can't mutate match_end_tick directly from outside the crate (pub(crate));
+    // but tick 1 << 5400 so FullTime won't fire in these single-tick tests.
     state.ball = ball;
     state
 }

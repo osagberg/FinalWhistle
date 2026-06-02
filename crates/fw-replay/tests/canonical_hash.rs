@@ -254,6 +254,20 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   window instead of staying at `MidBlock@Tick::ZERO` from kickoff. This
 ///   is the ADR-0012 trigger #3 behavioral delta T2-1a CRITICAL-1
 ///   deferred + T2-1b delivered. Authorized by the T2-1b spec in MEMORY.md.
+/// - 2026-06-02 (T4-sim-halt match-end halt) — **re-baselined to
+///   `85f45bf8…64fa`** per ADR-0012 trigger #3 (sim behavior change with
+///   documented intent): `match_end_tick` default changed `60` →
+///   `FULL_MATCH_TICKS` (5400 = 90 displayed-min) AND `tick_match` now
+///   self-halts at FullTime (step-0 freeze guard + an in-play gate wrapping
+///   gameplay steps 2-8). On THIS 60-tick smoke pin the per-tick gameplay is
+///   byte-identical (60 < 5400 → the gate never closes + the freeze never
+///   fires within the window); the ONLY canonical deltas are the
+///   `match_end_tick` field value (60→5400) and `match_events` losing the
+///   single `FullTime` the old default emitted at tick 60. Score 0-0
+///   unchanged. Main-thread verified the 5-seed empirical envelope
+///   (`extended_seed_600_tick_goal_count_in_t1_exit_gate_envelope`) still
+///   holds before rebaselining per the post-T1-15 multi-pin discipline.
+///   Authorized by the T4-sim-halt spec in MEMORY.md.
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -262,7 +276,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("eaf842ac3d19651d38dc7ce45d0763cc62b4d571ce2c2a5d56f1ee3c6ddead46");
+    hex!("85f45bf8ae8821182a45a82969ec36bc5b2d70ba2518b8271de24782fd8064fa");
 
 /// Read `env_var` as the number of fresh runs for an intra-process determinism
 /// test, falling back to `default` when the env var is absent or unparseable.
@@ -675,13 +689,26 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   UNCHANGED** — smoke seed doesn't score in 60 ticks so the fix has
 ///   no observable effect there. Authorized by user direction after
 ///   Codex Tier-2 verdict REVISE 2026-05-17.
+/// - 2026-06-02 (T4-sim-halt match-end halt) — **re-baselined to
+///   `856a7fed…d3fa`** per ADR-0012 trigger #3 (sim behavior change). Same
+///   change as PINNED_60_TICK: `match_end_tick` default `60` →
+///   `FULL_MATCH_TICKS` (5400) plus `tick_match` self-halt (step-0 freeze
+///   guard and an in-play gate on gameplay steps 2-8). This 600-tick run is
+///   byte-identical in gameplay (600 < 5400 → the gate never closes, the
+///   freeze never fires); the ONLY canonical deltas are `match_end_tick`
+///   (60→5400) and `match_events` losing the spurious `FullTime` spam the old
+///   60-tick default emitted on every tick ≥ 60. Total goals UNCHANGED (the
+///   bug fixed here is the FullTime/event spam past match-end, NOT the
+///   per-tick gameplay). Main-thread re-verified the 5-seed envelope (pinned
+///   in [2,5]; all 5 in [0,7]) before rebaselining per the post-T1-15
+///   multi-pin discipline. Authorized by the T4-sim-halt spec in MEMORY.md.
 ///
 /// Re-baselining: update this constant AND the `expected_hash` field of
 /// `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron` in the same commit,
 /// per `docs/specs/determinism-gate.md` §9 — the same protocol that
 /// governs PINNED_60_TICK above.
 const PINNED_600_TICK: [u8; 32] =
-    hex!("aa7efe9b2a567d5e87d12c7da6a4ea928271429729884f38819baed85c3be5ae");
+    hex!("856a7fede1ab802b88f12a239bdb54e94381348bccfc60c09964d0dfd01dd3fa");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

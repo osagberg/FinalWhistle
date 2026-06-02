@@ -271,10 +271,20 @@ fn signature_load_does_not_drift_canonical_hash() {
     // this rebaseline.
     // Prior hash (T2-1a / per-team archetype schema bump):
     //   e0312069b901e16cd6caf190a7ca21401ffdd8be9d0bd18cc80280a2612f3696
+    // T4-sim-halt rebaseline (2026-06-02): match_end_tick default 60 ->
+    // FULL_MATCH_TICKS (5400 = 90 min) + tick_match self-halts at FullTime
+    // (step-0 freeze guard + in-play gate on gameplay steps 2-8). On this
+    // 60-tick smoke pin gameplay is byte-identical (60 < 5400); the only
+    // canonical deltas are match_end_tick (60->5400) + match_events losing the
+    // single FullTime the old default emitted at tick 60. Score 0-0 unchanged.
+    // Main-thread verified the 5-seed envelope before rebaselining (post-T1-15
+    // multi-pin discipline). ADR-0012 trigger #3 authorized this rebaseline.
+    // Prior hash (T2-1b / per-team archetype behavioral divergence):
+    //   eaf842ac3d19651d38dc7ce45d0763cc62b4d571ce2c2a5d56f1ee3c6ddead46
     const EXPECTED: [u8; 32] = [
-        0xea, 0xf8, 0x42, 0xac, 0x3d, 0x19, 0x65, 0x1d, 0x38, 0xdc, 0x7c, 0xe4, 0x5d, 0x07, 0x63,
-        0xcc, 0x62, 0xb4, 0xd5, 0x71, 0xce, 0x2c, 0x2a, 0x5d, 0x56, 0xf1, 0xee, 0x3c, 0x6d, 0xde,
-        0xad, 0x46,
+        0x85, 0xf4, 0x5b, 0xf8, 0xae, 0x88, 0x21, 0x18, 0x2a, 0x45, 0xa8, 0x29, 0x69, 0xec, 0x36,
+        0xbc, 0x5b, 0x2d, 0x70, 0xba, 0x25, 0x18, 0xb8, 0x27, 0x1d, 0xe2, 0x47, 0x82, 0xfd, 0x80,
+        0x64, 0xfa,
     ];
 
     // Load the content store (exercises the new signature loader).
@@ -297,10 +307,10 @@ fn signature_load_does_not_drift_canonical_hash() {
     assert_eq!(
         actual, EXPECTED,
         "\nCanonical-state hash drifted unexpectedly.\n\
-         T2-1b rebaselined to eaf842ac3d19651d38dc7ce45d0763cc62b4d571ce2c2a5d56f1ee3c6ddead46\n\
-         (PossessionLost + BallRecovered TacticEvent emissions in tick_match; \
-         team_tactic_states[0/1] now evolve per archetype_params across the 60-tick run; \
-         ADR-0012 trigger #3 BEHAVIORAL change).\n\
+         T4-sim-halt rebaselined to 85f45bf8ae8821182a45a82969ec36bc5b2d70ba2518b8271de24782fd8064fa\n\
+         (match_end_tick default 60 -> 5400 + tick_match self-halts at FullTime; \
+         on this 60-tick pin gameplay is byte-identical and only match_events loses \
+         the single FullTime the old 60-tick default emitted; ADR-0012 trigger #3).\n\
          If this drifts again, it must be an authorized rebaseline — ADR-0012 trigger #1 or #3.\n\
          Actual:   {:02x?}",
         actual

@@ -193,6 +193,20 @@
 //                               within the 60-tick run instead of staying
 //                               at the MidBlock@0 init values. Authorized
 //                               by the T2-1b spec in MEMORY.md.
+//   2026-06-02 (T4-sim-halt)  — `85f45bf8…64fa` per ADR-0012 trigger #3
+//                               (sim behavior change). match_end_tick default
+//                               60 → FULL_MATCH_TICKS (5400 = 90 min) +
+//                               tick_match self-halts at FullTime (step-0
+//                               freeze guard + in-play gate on steps 2-8). On
+//                               this 60-tick smoke pin gameplay is
+//                               byte-identical (60 < 5400); the only canonical
+//                               deltas are match_end_tick (60→5400) +
+//                               match_events losing the single FullTime the
+//                               old default emitted at tick 60. Score 0-0
+//                               unchanged. Main-thread verified the 5-seed
+//                               envelope before rebaselining (post-T1-15
+//                               multi-pin discipline). Authorized by the
+//                               T4-sim-halt spec in MEMORY.md.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_60_TICK`
@@ -204,10 +218,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:eaf842ac3d19651d38dc7ce45d0763cc62b4d571ce2c2a5d56f1ee3c6ddead46",
+    expected_hash: "blake3:85f45bf8ae8821182a45a82969ec36bc5b2d70ba2518b8271de24782fd8064fa",
     metadata: (
-        description: "T2-1b per-team archetype BEHAVIORAL divergence on the 60-tick smoke seed. PossessionLost + BallRecovered TacticEvents fire from tick_match + drive team_tactic_states[0/1] transitions within the 60-tick window (MidBlock→LowBlock on shot release; HighPress gated by 600-tick cooldown so doesn't fire here but PossessionLost fallback transitions DO). Both teams default to attacking-fullback ArchetypeParams on this bare-init path.",
-        generated_at: "2026-05-17",
-        notes: "Re-pinned at T2-1b (ADR-0012 trigger #3; sim behavior change). Prior hash e0312069...3696 was T2-1a schema-only baseline.",
+        description: "T4-sim-halt: sim self-halts at FullTime. match_end_tick default 60 → FULL_MATCH_TICKS (5400 = 90 min); tick_match gained a step-0 freeze guard (no-op once FullTime is the tail) + an in-play gate wrapping gameplay steps 2-8. On this 60-tick smoke seed gameplay is byte-identical to the T2-1b baseline (60 < 5400 → gate never closes, freeze never fires); the canonical deltas are match_end_tick (60→5400) + match_events losing the single FullTime the old default emitted at tick 60. Score 0-0. Per-team archetype divergence (T2-1b) and the bare-init attacking-fullback ArchetypeParams are otherwise unchanged.",
+        generated_at: "2026-06-02",
+        notes: "Re-pinned at T4-sim-halt (ADR-0012 trigger #3; sim behavior change — match-end halt). Prior hash eaf842ac...ead46 was the T2-1b baseline. Main-thread verified the 5-seed empirical envelope still holds before rebaselining per the post-T1-15 multi-pin discipline.",
     ),
 )

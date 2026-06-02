@@ -102,6 +102,21 @@
 //                       envelope re-verified pre-rebaseline. 60-tick
 //                       smoke pin UNCHANGED (doesn't score in 60 ticks).
 //                       Authorized by user after Codex Tier-2 REVISE.
+//   2026-06-02 (T4-sim-halt) — `856a7fed…d3fa` per ADR-0012 trigger #3
+//                       (sim behavior change). match_end_tick default 60 →
+//                       FULL_MATCH_TICKS (5400 = 90 min) + tick_match
+//                       self-halts at FullTime (step-0 freeze guard +
+//                       in-play gate on steps 2-8). This 600-tick run is
+//                       byte-identical in gameplay (600 < 5400 → gate never
+//                       closes, freeze never fires); the only canonical
+//                       deltas are match_end_tick (60→5400) + match_events
+//                       losing the FullTime SPAM the old 60-tick default
+//                       emitted on every tick ≥ 60. Total goals UNCHANGED
+//                       (the bug fixed here is the event spam past match-end,
+//                       not the per-tick gameplay). 5-seed envelope
+//                       re-verified by main thread (pinned in [2,5]; all 5 in
+//                       [0,7]) before rebaselining per post-T1-15 discipline.
+//                       Authorized by the T4-sim-halt spec in MEMORY.md.
 //
 // Re-baselining requires updating this value AND
 // `crates/fw-replay/tests/canonical_hash.rs::PINNED_600_TICK`
@@ -114,10 +129,10 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:aa7efe9b2a567d5e87d12c7da6a4ea928271429729884f38819baed85c3be5ae",
+    expected_hash: "blake3:856a7fede1ab802b88f12a239bdb54e94381348bccfc60c09964d0dfd01dd3fa",
     metadata: (
-        description: "T2-1-codex-fix per-team archetype BEHAVIORAL divergence with goal-tick early-return correctness guard (home=attacking-fullback, away=low-block-counter). Content-loaded 600-tick run. PossessionLost + BallRecovered TacticEvents fire from tick_match + consult per-team archetype_params. Goal-tick early-return: 3 if-guards in tick_match skip dispatch + pickup + emit_possession on goal_fired_this_tick so the kickoff taker's same-tick decision can't override the Goal arm's MidBlock reset.",
-        generated_at: "2026-05-17",
-        notes: "Re-pinned at T2-1-codex-fix (ADR-0012 trigger #3 — sim behavior change: goal-tick early-return correctness guard per Codex Tier-2 audit P1 #1). Prior hash 5716e868...19e3 was T2-1b baseline (PossessionLost/BallRecovered emissions wired). Goal envelope re-verified in [2, 5] across 5-seed sweep (pinned strict + 4 sanity in [0, 7]).",
+        description: "T4-sim-halt: sim self-halts at FullTime. match_end_tick default 60 → FULL_MATCH_TICKS (5400 = 90 min); tick_match gained a step-0 freeze guard (no-op once FullTime is the tail) + an in-play gate wrapping gameplay steps 2-8. This content-loaded 600-tick run (home=attacking-fullback, away=low-block-counter) is byte-identical in gameplay to the T2-1-codex-fix baseline (600 < 5400 → gate never closes, freeze never fires); the canonical deltas are match_end_tick (60→5400) + match_events losing the FullTime spam the old 60-tick default emitted on every tick ≥ 60. Total goals unchanged; per-team archetype divergence + goal-tick early-return guard otherwise unchanged.",
+        generated_at: "2026-06-02",
+        notes: "Re-pinned at T4-sim-halt (ADR-0012 trigger #3 — sim behavior change: match-end halt). Prior hash aa7efe9b...e5ae was the T2-1-codex-fix baseline. Total goals unchanged (the fix targets FullTime/event spam past match-end, not per-tick gameplay). Main-thread re-verified the 5-seed envelope (pinned in [2,5]; all 5 in [0,7]) before rebaselining per the post-T1-15 multi-pin discipline.",
     ),
 )

@@ -21,7 +21,10 @@ const SMOKE_TICK_COUNT: u32 = 60;
 #[test]
 fn smoke_seed_60_tick_match_events_snapshot() {
     let seed = Seed::from_u64(SMOKE_SEED);
-    let mut state = MatchState::initial(seed);
+    // T4-sim-halt: default match_end_tick is now 5400 (real 90 min). Override
+    // to 60 so this short-budget snapshot test still fires FullTime at tick 60.
+    let mut state = MatchState::initial(seed)
+        .with_match_end_tick(fw_core::Tick::from_raw(SMOKE_TICK_COUNT as i64));
     for _ in 0..SMOKE_TICK_COUNT {
         state = tick_match(state, &std::collections::BTreeMap::new());
     }

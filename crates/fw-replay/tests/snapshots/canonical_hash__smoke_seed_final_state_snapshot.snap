@@ -4689,7 +4689,7 @@ MatchState {
         10,
     ),
     match_end_tick: Tick(
-        60,
+        5400,
     ),
     match_events: [
         KickOff {
@@ -4737,13 +4737,6 @@ MatchState {
                 0,
             ),
             on_target: true,
-        },
-        FullTime {
-            tick: Tick(
-                60,
-            ),
-            home_score: 0,
-            away_score: 0,
         },
     ],
     home_archetype_id: "fwh.core:archetype.attacking-fullback",

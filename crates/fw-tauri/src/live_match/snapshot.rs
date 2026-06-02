@@ -125,12 +125,16 @@ pub fn project_final(session: &LiveMatchSession, handle: MatchHandle) -> FinalMa
 
 /// Derive `MatchPhase` from the accumulated event stream.
 ///
-/// T1 match model: `FullTime` fires when `state.tick >= state.match_end_tick`.
-/// `HalfTime` and `SecondHalf` transitions are not yet emitted by the T1 sim.
-/// The phase bucketing degrades gracefully: if FullTime is in the events,
-/// return `FullTime`; otherwise `FirstHalf`.
+/// T4-sim-halt: `FullTime` fires at `match_end_tick` (default 5400 = 90 min)
+/// and the sim self-halts — no events follow it. `HalfTime` and `SecondHalf`
+/// transitions are not yet emitted. The phase bucketing degrades gracefully:
+/// if `FullTime` is anywhere in the events, return `FullTime`; otherwise
+/// `FirstHalf`.
 fn compute_phase(_state: &fw_match_sim::MatchState, events: &[MatchEvent]) -> MatchPhase {
-    // Walk events in reverse (FullTime is late in the stream if present).
+    // `.any(...)` scan is correct and cheap (short event vec). FullTime is
+    // now always the tail (T4-sim-halt freeze guard), so last() would also
+    // work, but `.any(...)` is defensive against future mid-stream FullTime
+    // variants (e.g. a second half kickoff could follow it).
     let has_full_time = events
         .iter()
         .any(|e| matches!(e, MatchEvent::FullTime { .. }));

@@ -125,6 +125,15 @@ pub const TOTAL_PLAYERS: usize = PLAYERS_PER_TEAM * 2;
 /// default only fires on the bare-init path.
 pub const DEFAULT_ARCHETYPE_ID: &str = "fwh.core:archetype.attacking-fullback";
 
+/// Real match length in sim ticks: 90 minutes × 60 ticks/minute = 5400.
+///
+/// This is the default value of `MatchState::match_end_tick`. Tests that need
+/// a short budget call `.with_match_end_tick(Tick::from_raw(N))` on the
+/// builder. The `SEASON_MATCH_TICK_BUDGET` in `fw-tauri/src/season.rs` uses
+/// the same arithmetic independently; both must equal 5400 for the Tauri
+/// batched-match path and the sim's self-halt to agree.
+pub const FULL_MATCH_TICKS: u32 = 5400;
+
 // Codex P3 from self-review: `MatchState::initial` casts `TOTAL_PLAYERS` to
 // `u8` via `slot as u8`. If `PLAYERS_PER_TEAM` ever grew past 127 the cast
 // would silently truncate. Make the truncation a compile-time error.
@@ -295,13 +304,11 @@ pub struct MatchState {
     // T1-4b's commentary renderer reads this Vec after tick_match returns.
     // T3-1 wires these events to the real fw-memory ledger.
     /// The tick at which the match ends (inclusive). When `state.tick`
-    /// reaches this value, `FullTime` is emitted and the match is considered
-    /// complete.
+    /// reaches this value, all gameplay is gated out and `FullTime` is emitted.
+    /// Subsequent calls to `tick_match` return `state` unchanged (freeze).
     ///
-    /// T1: hardcoded to `Tick::from_raw(60)` (the 1-second smoke-seed budget).
-    /// T1-5 makes this configurable via the `play_match` Tauri command
-    /// (likely via a `MatchState::initial_with_match_end_tick(seed, end_tick)`
-    /// constructor variant).
+    /// Default: `Tick::from_raw(FULL_MATCH_TICKS as i64)` = 5400 (90 min).
+    /// Tests use `.with_match_end_tick(Tick::from_raw(N))` for short budgets.
     ///
     /// `pub(crate)` per Codex Tier-2 P1 on T1-4a 2026-05-16 — mirrors the
     /// `signature_candidates` visibility pattern from T1-2b-iv P1-2. Use
@@ -547,9 +554,9 @@ impl MatchState {
             // Both fields initialised to Some(9) per acceptance criterion 3.
             possession: Some(9),
             last_touched_by: Some(9),
-            // T1-4a: match duration. Hardcoded to 60 ticks for T1 (the smoke-seed
-            // budget). T1-5 makes this configurable via the play_match Tauri command.
-            match_end_tick: Tick::from_raw(60),
+            // T4-sim-halt: real 90-minute default (5400 ticks = 90 min × 60 ticks/min).
+            // Tests override via .with_match_end_tick(Tick::from_raw(N)) on the builder.
+            match_end_tick: Tick::from_raw(FULL_MATCH_TICKS as i64),
             // T1-4a: in-match event stream. KickOff is the first event.
             // Emitted here before any tick; all subsequent events are appended
             // by tick_match / dispatch_tick as they fire.
@@ -758,28 +765,24 @@ impl MatchState {
         self
     }
 
-    /// Builder: set `match_end_tick` and return `self` (T1-3.5 follow-up
-    /// per Codex 2026-05-16 audit silent-failure P1-2).
+    /// Builder: override `match_end_tick` and return `self`.
     ///
-    /// Used by integration tests that need to advance more than 60 ticks
-    /// without FullTime firing mid-assertion. Without this builder,
-    /// `goal_detection_unit_tests.rs` had to rely on the brittle "tests
-    /// advance fewer than 60 ticks" invariant — a future test that
-    /// advances more ticks would silently emit FullTime + pass for the
-    /// wrong reason. In production T1-5 will add a `MatchState::initial_
-    /// with_match_end_tick(seed, end_tick)` constructor variant for the
-    /// real configurability path; this builder is the test-side bridge.
+    /// Used by tests that need a short tick budget (e.g. 5 or 60 ticks) so
+    /// that `FullTime` fires without running a full 5400-tick match. The
+    /// default of `Tick::from_raw(FULL_MATCH_TICKS as i64)` = 5400 is the
+    /// real 90-minute value; tests call `.with_match_end_tick(Tick::from_raw(60))`
+    /// to keep legacy short-budget assertions green.
     pub fn with_match_end_tick(mut self, t: Tick) -> Self {
         self.match_end_tick = t;
         self
     }
 
-    /// The tick at which the match ends (T1-4a).
+    /// The tick at which the match ends (T1-4a; real default wired at T4-sim-halt).
     ///
     /// External callers read via this accessor; the underlying field is
     /// `pub(crate)` so mid-match mutation is impossible from outside
-    /// the crate. T1: always `Tick::from_raw(60)` (smoke-seed budget).
-    /// T1-5 will add a constructor variant to make this configurable.
+    /// the crate. Default: `Tick::from_raw(FULL_MATCH_TICKS as i64)` = 5400.
+    /// Override via `.with_match_end_tick(t)` for test short-budgets.
     pub fn match_end_tick(&self) -> Tick {
         self.match_end_tick
     }
@@ -1149,9 +1152,19 @@ fn auto_exit_setpiece(state: &mut MatchState, team: usize) {
 /// without a ContentStore for backwards-compat (no signatures will fire but
 /// the match advances normally).
 ///
-/// ## Nine sequential steps (T1-3.5 reorders boundary checks before physics)
+/// ## Ten sequential steps (T4-sim-halt adds freeze guard + in-play gate)
 ///
+///   0. **Freeze guard** (T4-sim-halt): if `FullTime` is already the tail of
+///      `match_events`, return `state` unchanged. This makes `tick_match`
+///      idempotent past the final whistle: canonical state is byte-identical
+///      no matter how many extra ticks a caller requests.
 ///   1. Increment `state.tick`.
+///   2. **In-play gate** (T4-sim-halt, wraps steps 2–8): gameplay runs only
+///      when `state.tick <= state.match_end_tick`. On the tick the clock
+///      reaches `match_end_tick`, gameplay runs one final time; step 9 then
+///      emits `FullTime`; the next call hits the freeze guard. If a caller
+///      jumps past `match_end_tick` with no `FullTime` yet, gameplay is
+///      skipped and step 9 still emits exactly one `FullTime`.
 ///   2. Goal detection (T1-3.5): checks ball position at START of tick. If
 ///      `|ball.pos_x| >= GOAL_LINE_X` AND `|ball.pos_y| < GOAL_HALF_WIDTH_M`
 ///      → emit `MatchEvent::Goal`, bump score, reset ball to centre spot,
@@ -1172,424 +1185,451 @@ fn auto_exit_setpiece(state: &mut MatchState, team: usize) {
 ///   7. Integrate player velocity into position (`pos += vel × dt`).
 ///   8. Player-separation positional-correction pass (T1-2b-iii-d).
 ///   9. Emit `MatchEvent::FullTime` if `state.tick >= state.match_end_tick`
-///      AND no FullTime is already at the tail of `match_events` (T1-4a).
+///      (T1-4a; T4-sim-halt: the `!full_time_already_emitted` check is
+///      removed — the step-0 freeze guard guarantees `FullTime` is never
+///      already the tail when we reach step 9).
 pub fn tick_match(
     mut state: MatchState,
     sig_definitions: &BTreeMap<String, fw_content::SignatureDefinition>,
 ) -> MatchState {
+    // Step 0 (T4-sim-halt): freeze guard.
+    //
+    // If FullTime is already the tail of match_events the match is over and
+    // this call is a no-op. Return state unchanged — canonical bytes are
+    // identical no matter how many extra ticks a caller requests.
+    //
+    // The check is tail-only (last()), not `.any(...)`, because the step-9
+    // emission below guarantees FullTime is always appended at the very end.
+    // A mid-stream FullTime would indicate a bug, not over-advance.
+    if matches!(state.match_events.last(), Some(MatchEvent::FullTime { .. })) {
+        return state;
+    }
+
     state.tick = state.tick.successor();
 
-    // Step 2 (T1-3.5): goal detection — checks ball.pos BEFORE physics.
+    // Steps 2-8 (T4-sim-halt): in-play gate.
     //
-    // If the ball ended last tick in the goal mouth, detect and score it here.
-    // Running before physics means the physics integrator never sees a ball that
-    // has already crossed the line (it is reset to centre spot in this block).
-    //
-    // Scoring: Slots 0..11 = home; 11..22 = away.
-    // ball.pos_x > 0: ball in AWAY goal → home team scores.
-    // ball.pos_x < 0: ball in HOME goal → away team scores.
-    // `unsigned_abs()` + u64 avoids the i64::MIN.abs() panic.
-    //
-    // **`goal_fired_this_tick` flag** (Codex 2026-05-16 audit silent-failure P0-3):
-    // step 3 (OOB clamp) reads this to skip clamping when the ball was just
-    // reset to centre-spot by goal detection. Without the guard, a future
-    // contributor adding an `else` to step 2 that leaves a wide-of-posts
-    // ball in place would still see step 3 silently clamp it to the goal
-    // line — masking the wide-vs-goal distinction.
-    let mut goal_fired_this_tick = false;
-    {
-        let bx_bits = state.ball.pos_x.to_bits();
-        let by_bits = state.ball.pos_y.to_bits();
-        let bx_abs: u64 = bx_bits.unsigned_abs();
-        let by_abs: u64 = by_bits.unsigned_abs();
-        let goal_line_bits: u64 = GOAL_LINE_X.to_bits().unsigned_abs();
-        let half_width_bits: u64 = GOAL_HALF_WIDTH_M.to_bits().unsigned_abs();
+    // Gameplay only runs while the clock has not passed match_end_tick.
+    // On the tick equal to match_end_tick, gameplay runs one final time and
+    // step 9 then emits FullTime. If a caller somehow jumps tick past
+    // match_end_tick (which the freeze guard normally prevents), step 9 still
+    // emits exactly one FullTime with no gameplay having run.
+    if state.tick <= state.match_end_tick {
+        // Step 2 (T1-3.5): goal detection — checks ball.pos BEFORE physics.
+        //
+        // If the ball ended last tick in the goal mouth, detect and score it here.
+        // Running before physics means the physics integrator never sees a ball that
+        // has already crossed the line (it is reset to centre spot in this block).
+        //
+        // Scoring: Slots 0..11 = home; 11..22 = away.
+        // ball.pos_x > 0: ball in AWAY goal → home team scores.
+        // ball.pos_x < 0: ball in HOME goal → away team scores.
+        // `unsigned_abs()` + u64 avoids the i64::MIN.abs() panic.
+        //
+        // **`goal_fired_this_tick` flag** (Codex 2026-05-16 audit silent-failure P0-3):
+        // step 3 (OOB clamp) reads this to skip clamping when the ball was just
+        // reset to centre-spot by goal detection. Without the guard, a future
+        // contributor adding an `else` to step 2 that leaves a wide-of-posts
+        // ball in place would still see step 3 silently clamp it to the goal
+        // line — masking the wide-vs-goal distinction.
+        let mut goal_fired_this_tick = false;
+        {
+            let bx_bits = state.ball.pos_x.to_bits();
+            let by_bits = state.ball.pos_y.to_bits();
+            let bx_abs: u64 = bx_bits.unsigned_abs();
+            let by_abs: u64 = by_bits.unsigned_abs();
+            let goal_line_bits: u64 = GOAL_LINE_X.to_bits().unsigned_abs();
+            let half_width_bits: u64 = GOAL_HALF_WIDTH_M.to_bits().unsigned_abs();
 
-        if bx_abs >= goal_line_bits && by_abs < half_width_bits {
-            // Codex 2026-05-16 audit silent-failure P0-1: replace
-            // `unwrap_or(0)` (silent slot-0/home-GK misattribution) with
-            // `expect()` carrying the binding invariant. Today this is
-            // structurally unreachable (MatchState::initial sets
-            // last_touched_by to Some(9) and every apply_intent ball-touch
-            // arm assigns Some(...)) — but a future None-setter would
-            // silently misattribute the next goal to the home GK. The
-            // panic message documents the invariant in source.
-            let scorer_slot = state.last_touched_by.expect(
-                "goal detected with no prior ball-touch — last_touched_by must \
+            if bx_abs >= goal_line_bits && by_abs < half_width_bits {
+                // Codex 2026-05-16 audit silent-failure P0-1: replace
+                // `unwrap_or(0)` (silent slot-0/home-GK misattribution) with
+                // `expect()` carrying the binding invariant. Today this is
+                // structurally unreachable (MatchState::initial sets
+                // last_touched_by to Some(9) and every apply_intent ball-touch
+                // arm assigns Some(...)) — but a future None-setter would
+                // silently misattribute the next goal to the home GK. The
+                // panic message documents the invariant in source.
+                let scorer_slot = state.last_touched_by.expect(
+                    "goal detected with no prior ball-touch — last_touched_by must \
                  be Some at any tick where the ball has reached the goal-line; \
                  invariant violated (Codex 2026-05-16 audit silent-failure P0-1)",
-            );
-            // Codex 2026-05-16 audit silent-failure P1-1: saturating_add
-            // silently caps at 255. T1's 60-tick smoke seed never reaches
-            // 255 goals but the 90-minute integration scenarios at T1-5+
-            // could; checked_add + panic is the determinism-aligned choice
-            // (matches the Codex Q1 panic-on-overflow policy for Q32).
-            // The panic message names the scoreline at saturation.
-            let home_scored = bx_bits > 0;
-            if home_scored {
-                state.home_score = state.home_score.checked_add(1).expect(
-                    "home_score overflowed u8 (255) — match has >255 goals; \
+                );
+                // Codex 2026-05-16 audit silent-failure P1-1: saturating_add
+                // silently caps at 255. T1's 60-tick smoke seed never reaches
+                // 255 goals but the 90-minute integration scenarios at T1-5+
+                // could; checked_add + panic is the determinism-aligned choice
+                // (matches the Codex Q1 panic-on-overflow policy for Q32).
+                // The panic message names the scoreline at saturation.
+                let home_scored = bx_bits > 0;
+                if home_scored {
+                    state.home_score = state.home_score.checked_add(1).expect(
+                        "home_score overflowed u8 (255) — match has >255 goals; \
                      this exceeds the realistic T1 budget and indicates a \
                      bug (e.g. goal-line oscillation under broken OOB clamp).",
-                );
-            } else {
-                state.away_score = state.away_score.checked_add(1).expect(
-                    "away_score overflowed u8 (255) — match has >255 goals; \
+                    );
+                } else {
+                    state.away_score = state.away_score.checked_add(1).expect(
+                        "away_score overflowed u8 (255) — match has >255 goals; \
                      this exceeds the realistic T1 budget and indicates a \
                      bug (e.g. goal-line oscillation under broken OOB clamp).",
+                    );
+                }
+                let score_home_after = state.home_score as u16;
+                let score_away_after = state.away_score as u16;
+                state.match_events.push(MatchEvent::Goal {
+                    scorer_slot,
+                    tick: state.tick,
+                    score_home_after,
+                    score_away_after,
+                });
+                state.ball = BallState::centre_spot();
+                // Codex 2026-05-16 audit code-reviewer Critical #1: the
+                // conceding team kicks off after a goal (football rule). Prior
+                // code unconditionally set possession = Some(9) (home centre
+                // forward), which would misroute kick-off possession when the
+                // away team scored. Derive the conceding team from the sign of
+                // bx_bits (set above): home_scored == bx_bits > 0; away conceded.
+                // Conceding team's centre forward kicks off:
+                //   home concedes (away_scored) → slot 9 (home CF)
+                //   away concedes (home_scored) → slot 20 (away CF; slot index 11+9)
+                let kick_off_taker: PlayerSlot = if home_scored {
+                    20 // away CF (slot 11 + 9 offset)
+                } else {
+                    9 // home CF
+                };
+                state.possession = Some(kick_off_taker);
+                state.last_touched_by = Some(kick_off_taker);
+                state.match_events.push(MatchEvent::KickOff {
+                    tick: state.tick,
+                    is_second_half: false,
+                });
+                // T2-1a: per-team archetype params. Pre-T2-1a this used a single
+                // hardcoded `direct_pressing()` for BOTH teams; now each team's
+                // tactic-FSM transitions consult ITS OWN archetype's parameters
+                // (resolved at MatchState construction via the bridge in
+                // tactic_fsm::archetype_params_for + cached in the sidecar fields).
+                state.team_tactic_states[0] = tactic_fsm::apply_event(
+                    state.team_tactic_states[0],
+                    &state.home_archetype_params,
+                    tactic_fsm::TacticEvent::Goal,
+                    state.tick,
+                );
+                state.team_tactic_states[1] = tactic_fsm::apply_event(
+                    state.team_tactic_states[1],
+                    &state.away_archetype_params,
+                    tactic_fsm::TacticEvent::Goal,
+                    state.tick,
+                );
+                goal_fired_this_tick = true;
+            }
+        }
+
+        // Step 3 (T1-3.5): OOB clamp — BEFORE ball physics.
+        //
+        // Clamp a ball that has crossed the sideline or a non-goal goal-line.
+        // Runs before ball physics so the integrator receives a valid in-bounds
+        // position. **Skipped entirely if step 2 just fired a goal** (Codex
+        // 2026-05-16 audit silent-failure P0-3): after a goal the ball was
+        // reset to centre-spot which is in-bounds, so this clamp would be a
+        // no-op anyway — but the `goal_fired_this_tick` guard makes the
+        // "step 2 handled the boundary; step 3 must not touch the ball" rule
+        // explicit, so a future contributor adding a "goal cancelled by VAR"
+        // path that leaves the ball past the goal line doesn't silently get
+        // it re-clamped to the goal line (which would mask the cancelled-vs-
+        // valid distinction).
+        //
+        // **vel_z preserved (Codex 2026-05-16 audit silent-failure P1-3)**:
+        // only vel_x + vel_y are zeroed because OOB clamping is a pitch-plane
+        // (XY) concept; altitude motion is orthogonal and the physics step
+        // (which uses vel_z for ground-contact via -Z gravity) correctly
+        // handles a stationary-but-airborne ball on the next tick. Zeroing
+        // vel_z would mask the airborne state visually (an instant ground-stop
+        // with no settle arc).
+        //
+        // No MatchEvent emitted — throw-in / corner / goal-kick = Phase 2.
+        if !goal_fired_this_tick {
+            let bx_bits = state.ball.pos_x.to_bits();
+            let by_bits = state.ball.pos_y.to_bits();
+            let bx_abs: u64 = bx_bits.unsigned_abs();
+            let by_abs: u64 = by_bits.unsigned_abs();
+            let goal_line_bits: u64 = GOAL_LINE_X.to_bits().unsigned_abs();
+            let sideline_bits: u64 = SIDELINE_Y.to_bits().unsigned_abs();
+            let half_width_bits: u64 = GOAL_HALF_WIDTH_M.to_bits().unsigned_abs();
+
+            let past_sideline = by_abs >= sideline_bits;
+            let past_non_goal_line = bx_abs >= goal_line_bits && by_abs >= half_width_bits;
+
+            if past_sideline || past_non_goal_line {
+                state.ball.vel_x = fw_core::Q32::ZERO;
+                state.ball.vel_y = fw_core::Q32::ZERO;
+                if past_sideline {
+                    if by_bits < 0 {
+                        state.ball.pos_y = -SIDELINE_Y;
+                    } else {
+                        state.ball.pos_y = SIDELINE_Y;
+                    }
+                }
+                if past_non_goal_line {
+                    if bx_bits < 0 {
+                        state.ball.pos_x = -GOAL_LINE_X;
+                    } else {
+                        state.ball.pos_x = GOAL_LINE_X;
+                    }
+                }
+
+                // T2-1c: emit `TacticEvent::BallOutOfPlay` per-team with the
+                // correct `SetPieceKind`. Each team's apply_event arm
+                // (`tactic_fsm.rs:379-381`) transitions to
+                // `TacticState::SetPiece(kind)` — a per-team-distinct kind
+                // because home + away are on opposite sides of the same OOB
+                // event (one team gets ThrowInFor, the other ThrowInAgainst;
+                // one gets CornerFor, the other CornerAgainst; etc.).
+                //
+                // SetPieceKind taxonomy per the T2-1c MEMORY spec design table:
+                //   past_sideline:           home → ThrowInFor iff last_touched_by is away else ThrowInAgainst
+                //                            away mirror.
+                //   past_non_goal_line:      determined by which goal-line
+                //                            (bx_bits > 0 → away's goal-line = home attacking)
+                //                            crossed it + last_touched_by:
+                //     home attacking + home last_touched → home CornerFor / away CornerAgainst
+                //     home attacking + away last_touched → away GoalKick   / home GoalKickOpponent
+                //     away attacking is the symmetric mirror.
+                //
+                // BallOutOfPlay arm doesn't read archetype_params (matches the
+                // BallOutOfPlay enum variant unconditionally + transitions to
+                // SetPiece) but we still pass the per-team sidecar for
+                // signature consistency + future-compat (if a later spec
+                // change makes BallOutOfPlay archetype-dependent, the call
+                // site already has the right param).
+                let last_team_idx = state.last_touched_by.map(team_of);
+                let (home_kind, away_kind) =
+                    setpiece_kind_for(past_non_goal_line, bx_bits, last_team_idx);
+                let home_arch = state.home_archetype_params;
+                state.team_tactic_states[0] = tactic_fsm::apply_event(
+                    state.team_tactic_states[0],
+                    &home_arch,
+                    tactic_fsm::TacticEvent::BallOutOfPlay { kind: home_kind },
+                    state.tick,
+                );
+                let away_arch = state.away_archetype_params;
+                state.team_tactic_states[1] = tactic_fsm::apply_event(
+                    state.team_tactic_states[1],
+                    &away_arch,
+                    tactic_fsm::TacticEvent::BallOutOfPlay { kind: away_kind },
+                    state.tick,
                 );
             }
-            let score_home_after = state.home_score as u16;
-            let score_away_after = state.away_score as u16;
-            state.match_events.push(MatchEvent::Goal {
-                scorer_slot,
-                tick: state.tick,
-                score_home_after,
-                score_away_after,
-            });
-            state.ball = BallState::centre_spot();
-            // Codex 2026-05-16 audit code-reviewer Critical #1: the
-            // conceding team kicks off after a goal (football rule). Prior
-            // code unconditionally set possession = Some(9) (home centre
-            // forward), which would misroute kick-off possession when the
-            // away team scored. Derive the conceding team from the sign of
-            // bx_bits (set above): home_scored == bx_bits > 0; away conceded.
-            // Conceding team's centre forward kicks off:
-            //   home concedes (away_scored) → slot 9 (home CF)
-            //   away concedes (home_scored) → slot 20 (away CF; slot index 11+9)
-            let kick_off_taker: PlayerSlot = if home_scored {
-                20 // away CF (slot 11 + 9 offset)
-            } else {
-                9 // home CF
-            };
-            state.possession = Some(kick_off_taker);
-            state.last_touched_by = Some(kick_off_taker);
-            state.match_events.push(MatchEvent::KickOff {
-                tick: state.tick,
-                is_second_half: false,
-            });
-            // T2-1a: per-team archetype params. Pre-T2-1a this used a single
-            // hardcoded `direct_pressing()` for BOTH teams; now each team's
-            // tactic-FSM transitions consult ITS OWN archetype's parameters
-            // (resolved at MatchState construction via the bridge in
-            // tactic_fsm::archetype_params_for + cached in the sidecar fields).
-            state.team_tactic_states[0] = tactic_fsm::apply_event(
-                state.team_tactic_states[0],
-                &state.home_archetype_params,
-                tactic_fsm::TacticEvent::Goal,
-                state.tick,
-            );
-            state.team_tactic_states[1] = tactic_fsm::apply_event(
-                state.team_tactic_states[1],
-                &state.away_archetype_params,
-                tactic_fsm::TacticEvent::Goal,
-                state.tick,
-            );
-            goal_fired_this_tick = true;
         }
-    }
 
-    // Step 3 (T1-3.5): OOB clamp — BEFORE ball physics.
-    //
-    // Clamp a ball that has crossed the sideline or a non-goal goal-line.
-    // Runs before ball physics so the integrator receives a valid in-bounds
-    // position. **Skipped entirely if step 2 just fired a goal** (Codex
-    // 2026-05-16 audit silent-failure P0-3): after a goal the ball was
-    // reset to centre-spot which is in-bounds, so this clamp would be a
-    // no-op anyway — but the `goal_fired_this_tick` guard makes the
-    // "step 2 handled the boundary; step 3 must not touch the ball" rule
-    // explicit, so a future contributor adding a "goal cancelled by VAR"
-    // path that leaves the ball past the goal line doesn't silently get
-    // it re-clamped to the goal line (which would mask the cancelled-vs-
-    // valid distinction).
-    //
-    // **vel_z preserved (Codex 2026-05-16 audit silent-failure P1-3)**:
-    // only vel_x + vel_y are zeroed because OOB clamping is a pitch-plane
-    // (XY) concept; altitude motion is orthogonal and the physics step
-    // (which uses vel_z for ground-contact via -Z gravity) correctly
-    // handles a stationary-but-airborne ball on the next tick. Zeroing
-    // vel_z would mask the airborne state visually (an instant ground-stop
-    // with no settle arc).
-    //
-    // No MatchEvent emitted — throw-in / corner / goal-kick = Phase 2.
-    if !goal_fired_this_tick {
-        let bx_bits = state.ball.pos_x.to_bits();
-        let by_bits = state.ball.pos_y.to_bits();
-        let bx_abs: u64 = bx_bits.unsigned_abs();
-        let by_abs: u64 = by_bits.unsigned_abs();
-        let goal_line_bits: u64 = GOAL_LINE_X.to_bits().unsigned_abs();
-        let sideline_bits: u64 = SIDELINE_Y.to_bits().unsigned_abs();
-        let half_width_bits: u64 = GOAL_HALF_WIDTH_M.to_bits().unsigned_abs();
+        // T2-1b: snapshot possession BEFORE the dispatch + pickup steps that
+        // mutate it. Compared at the end (after step 7b pickup) by
+        // `emit_possession_transition_events` to fire `PossessionLost` /
+        // `BallRecovered` TacticEvents per the affected team's archetype_params.
+        //
+        // Snapshot lives AFTER the Goal block (step 2) intentionally: the Goal
+        // block already fires `apply_event(Goal)` for both teams + resets
+        // possession to the conceding team's CF deterministically. Treating
+        // that as a separate PossessionLost/BallRecovered emission would
+        // double-apply the FSM transition (Goal hardcodes both teams to
+        // MidBlock; a subsequent BallRecovered transition on the same tick
+        // would conflict with the Goal-reset intent). The Goal arm is the
+        // single source of truth for goal-driven tactic-FSM transitions; the
+        // snapshot starts AFTER it to skip the kickoff-possession change.
+        let possession_before_dispatch = state.possession;
 
-        let past_sideline = by_abs >= sideline_bits;
-        let past_non_goal_line = bx_abs >= goal_line_bits && by_abs >= half_width_bits;
+        // Step 4 (was step 2): advance ball physics AFTER goal detection + OOB clamp.
+        state.ball = ball_physics::ball_step(&state.ball, &ball_physics::phase1_seeds());
 
-        if past_sideline || past_non_goal_line {
-            state.ball.vel_x = fw_core::Q32::ZERO;
-            state.ball.vel_y = fw_core::Q32::ZERO;
-            if past_sideline {
-                if by_bits < 0 {
-                    state.ball.pos_y = -SIDELINE_Y;
-                } else {
-                    state.ball.pos_y = SIDELINE_Y;
-                }
-            }
-            if past_non_goal_line {
-                if bx_bits < 0 {
-                    state.ball.pos_x = -GOAL_LINE_X;
-                } else {
-                    state.ball.pos_x = GOAL_LINE_X;
-                }
-            }
-
-            // T2-1c: emit `TacticEvent::BallOutOfPlay` per-team with the
-            // correct `SetPieceKind`. Each team's apply_event arm
-            // (`tactic_fsm.rs:379-381`) transitions to
-            // `TacticState::SetPiece(kind)` — a per-team-distinct kind
-            // because home + away are on opposite sides of the same OOB
-            // event (one team gets ThrowInFor, the other ThrowInAgainst;
-            // one gets CornerFor, the other CornerAgainst; etc.).
-            //
-            // SetPieceKind taxonomy per the T2-1c MEMORY spec design table:
-            //   past_sideline:           home → ThrowInFor iff last_touched_by is away else ThrowInAgainst
-            //                            away mirror.
-            //   past_non_goal_line:      determined by which goal-line
-            //                            (bx_bits > 0 → away's goal-line = home attacking)
-            //                            crossed it + last_touched_by:
-            //     home attacking + home last_touched → home CornerFor / away CornerAgainst
-            //     home attacking + away last_touched → away GoalKick   / home GoalKickOpponent
-            //     away attacking is the symmetric mirror.
-            //
-            // BallOutOfPlay arm doesn't read archetype_params (matches the
-            // BallOutOfPlay enum variant unconditionally + transitions to
-            // SetPiece) but we still pass the per-team sidecar for
-            // signature consistency + future-compat (if a later spec
-            // change makes BallOutOfPlay archetype-dependent, the call
-            // site already has the right param).
-            let last_team_idx = state.last_touched_by.map(team_of);
-            let (home_kind, away_kind) =
-                setpiece_kind_for(past_non_goal_line, bx_bits, last_team_idx);
-            let home_arch = state.home_archetype_params;
-            state.team_tactic_states[0] = tactic_fsm::apply_event(
-                state.team_tactic_states[0],
-                &home_arch,
-                tactic_fsm::TacticEvent::BallOutOfPlay { kind: home_kind },
-                state.tick,
-            );
-            let away_arch = state.away_archetype_params;
-            state.team_tactic_states[1] = tactic_fsm::apply_event(
-                state.team_tactic_states[1],
-                &away_arch,
-                tactic_fsm::TacticEvent::BallOutOfPlay { kind: away_kind },
-                state.tick,
-            );
+        // Step 5 (T1-2b-ii): 2 Hz tactic-FSM heartbeat (every 30 ticks per team).
+        // Home team heartbeat: tick % 30 == 0.
+        // Away team heartbeat: tick % 30 == 15 (offset reduces peak load).
+        let tick_raw = state.tick.to_raw();
+        if tick_raw % tactic_fsm::HEARTBEAT_INTERVAL_TICKS == 0
+            && let Some(new_tts) =
+                tactic_fsm::heartbeat_check(&state.team_tactic_states[0], state.tick)
+        {
+            state.team_tactic_states[0] = new_tts;
         }
-    }
+        if tick_raw % tactic_fsm::HEARTBEAT_INTERVAL_TICKS == 15
+            && let Some(new_tts) =
+                tactic_fsm::heartbeat_check(&state.team_tactic_states[1], state.tick)
+        {
+            state.team_tactic_states[1] = new_tts;
+        }
 
-    // T2-1b: snapshot possession BEFORE the dispatch + pickup steps that
-    // mutate it. Compared at the end (after step 7b pickup) by
-    // `emit_possession_transition_events` to fire `PossessionLost` /
-    // `BallRecovered` TacticEvents per the affected team's archetype_params.
-    //
-    // Snapshot lives AFTER the Goal block (step 2) intentionally: the Goal
-    // block already fires `apply_event(Goal)` for both teams + resets
-    // possession to the conceding team's CF deterministically. Treating
-    // that as a separate PossessionLost/BallRecovered emission would
-    // double-apply the FSM transition (Goal hardcodes both teams to
-    // MidBlock; a subsequent BallRecovered transition on the same tick
-    // would conflict with the Goal-reset intent). The Goal arm is the
-    // single source of truth for goal-driven tactic-FSM transitions; the
-    // snapshot starts AFTER it to skip the kickoff-possession change.
-    let possession_before_dispatch = state.possession;
+        // Step 6 (T1-2b-iii-a): per-player decision dispatch.
+        // T1-11: pass sig_definitions through so the signature dispatcher receives
+        // real definitions when the caller has a ContentStore. Passing
+        // &BTreeMap::new() (the prior hardcoded value) is still valid for
+        // callers without content — no signatures fire in that case.
+        //
+        // **Codex Tier-2 audit 2026-05-17 P1 (T2-1 split review)**: skip dispatch
+        // on goal-tick. Without this guard, the kickoff taker's decision slot
+        // can fire on the same tick as the goal (~27% probability per the 30-
+        // slot decision-cadence stagger across 22 players: any given tick has
+        // ≈22/30 of slots active, and the kickoff taker is 1-of-22 of those —
+        // ≈1/30 chance of being active on any specific tick × the 600-tick
+        // budget = several goal-tick decisions across a match). A post-goal
+        // Pass/Shot/Dribble would mutate possession AGAIN; the downstream
+        // `emit_possession_transition_events` would then fire PossessionLost
+        // or BallRecovered → overriding the post-goal MidBlock reset the Goal
+        // arm of `apply_event` just established. Football reality: clock
+        // briefly pauses + players reset positions before the kickoff resumes;
+        // modeling that as "skip 1 tick of decisions" matches the intent. The
+        // kickoff taker's next decision fires on tick (goal_tick + 1) onward;
+        // possession transitions resume normal flow from then. Velocity
+        // integration + heartbeat + separation + FullTime emission still run
+        // unconditionally — those are not possession-mutating.
+        if !goal_fired_this_tick {
+            state = dispatch::dispatch_tick(state, sig_definitions);
+        }
 
-    // Step 4 (was step 2): advance ball physics AFTER goal detection + OOB clamp.
-    state.ball = ball_physics::ball_step(&state.ball, &ball_physics::phase1_seeds());
+        // Step 7: integrate player velocity into position.
+        let dt = ball_physics::dt_per_tick();
+        for p in state.players.iter_mut() {
+            p.pos_x += p.vel_x * dt;
+            p.pos_y += p.vel_y * dt;
+        }
 
-    // Step 5 (T1-2b-ii): 2 Hz tactic-FSM heartbeat (every 30 ticks per team).
-    // Home team heartbeat: tick % 30 == 0.
-    // Away team heartbeat: tick % 30 == 15 (offset reduces peak load).
-    let tick_raw = state.tick.to_raw();
-    if tick_raw % tactic_fsm::HEARTBEAT_INTERVAL_TICKS == 0
-        && let Some(new_tts) = tactic_fsm::heartbeat_check(&state.team_tactic_states[0], state.tick)
-    {
-        state.team_tactic_states[0] = new_tts;
-    }
-    if tick_raw % tactic_fsm::HEARTBEAT_INTERVAL_TICKS == 15
-        && let Some(new_tts) = tactic_fsm::heartbeat_check(&state.team_tactic_states[1], state.tick)
-    {
-        state.team_tactic_states[1] = new_tts;
-    }
+        // Step 7b (T1-15): loose-ball pickup.
+        //
+        // **Codex Tier-2 audit 2026-05-17 P1**: pickup is also gated on
+        // `!goal_fired_this_tick`. The Goal block already set possession to
+        // kick_off_taker so the inner `state.possession.is_none()` guard would
+        // short-circuit anyway, but the outer explicit skip documents the
+        // "post-goal tick = no possession mutation" invariant alongside the
+        // dispatch + emit_possession_transition_events guards above/below.
+        //
+        // When possession is None (ball loose after a shot or free kick), check
+        // whether any outfield player is within PICKUP_RADIUS_M of the ball.
+        // If so, the nearest qualifying player takes possession.
+        //
+        // Rationale: ball physics now carries shots 30+ m before stopping (T1-15
+        // rolling-friction re-calibration from k=0.035 to k=0.01). Without an
+        // active pickup mechanic, possession stays None until a player is manually
+        // routed toward the ball AND happens to call Dribble or Pass. With the
+        // preempt_check already routing outfield players toward the ball (also
+        // T1-15), this pickup closes the loop: once a player is close enough, they
+        // claim the ball deterministically (closest player wins; home-first on tie
+        // since slots 0..11 are iterated before 11..22; this is a T1 approximation).
+        //
+        // GK slots (0 and 11) are excluded — GK pickup is handled in goalkeeper_fsm.
+        // Pickup DOES NOT emit a MatchEvent (no `Pass` or `Tackle` event yet).
+        // T2+ wires a `LooseBallPickup` / `Interception` event when the event
+        // schema supports contested-ball semantics.
+        // Note on timing: step 6 (dispatch_tick) fires shot intents which:
+        //   1. Set possession = None.
+        //   2. Snap ball.pos to shooter's feet.
+        //   3. Set ball.vel_x = ~23 m/s toward goal.
+        // The ball physics step (step 4) ran BEFORE dispatch_tick, so the ball has
+        // NOT yet physically moved away from the shooter's feet when this pickup
+        // check runs. Guard against phantom re-pickup of a freshly-shot ball by
+        // requiring the ball speed to be below PICKUP_MAX_SPEED_MPS — a ball
+        // traveling at shot speed (~23 m/s) must not be collected immediately by the
+        // shooter standing at the ball's current position. Pickup only triggers when
+        // the ball has nearly settled (< 3 m/s), meaning it has traveled far from
+        // the shooter or has been deflected and stopped nearby.
+        // Pickup radius: 5m — generous for T1. Real ball-control is T2+.
+        // A 5m radius ensures that once the ball decelerates near a player,
+        // they claim it without needing pixel-perfect convergence.
+        const PICKUP_RADIUS_M: Q32 = Q32::from_raw(5_i64 << 32); // 5 metres
+        // Speed threshold: ball must be below 8 m/s to be picked up.
+        // - Prevents immediate re-pickup after a shot (22 m/s > 8 m/s ✓).
+        // - Allows pickup within ~30-40 ticks of a shot slowing from 22→8 m/s.
+        // - At 8 m/s, the ball is still "catchable" from a standing start (a player
+        //   at the ball's future position can step onto it within 1-2 ticks).
+        const PICKUP_MAX_SPEED_MPS: Q32 = Q32::from_raw(8_i64 << 32); // 8 m/s threshold
+        let ball_speed_sq =
+            state.ball.vel_x * state.ball.vel_x + state.ball.vel_y * state.ball.vel_y;
+        let pickup_speed_sq = PICKUP_MAX_SPEED_MPS * PICKUP_MAX_SPEED_MPS;
+        if !goal_fired_this_tick && state.possession.is_none() && ball_speed_sq < pickup_speed_sq {
+            let bx = state.ball.pos_x;
+            let by = state.ball.pos_y;
+            let mut best_slot: Option<u8> = None;
+            let mut best_dist_sq = Q32::MAX;
 
-    // Step 6 (T1-2b-iii-a): per-player decision dispatch.
-    // T1-11: pass sig_definitions through so the signature dispatcher receives
-    // real definitions when the caller has a ContentStore. Passing
-    // &BTreeMap::new() (the prior hardcoded value) is still valid for
-    // callers without content — no signatures fire in that case.
-    //
-    // **Codex Tier-2 audit 2026-05-17 P1 (T2-1 split review)**: skip dispatch
-    // on goal-tick. Without this guard, the kickoff taker's decision slot
-    // can fire on the same tick as the goal (~27% probability per the 30-
-    // slot decision-cadence stagger across 22 players: any given tick has
-    // ≈22/30 of slots active, and the kickoff taker is 1-of-22 of those —
-    // ≈1/30 chance of being active on any specific tick × the 600-tick
-    // budget = several goal-tick decisions across a match). A post-goal
-    // Pass/Shot/Dribble would mutate possession AGAIN; the downstream
-    // `emit_possession_transition_events` would then fire PossessionLost
-    // or BallRecovered → overriding the post-goal MidBlock reset the Goal
-    // arm of `apply_event` just established. Football reality: clock
-    // briefly pauses + players reset positions before the kickoff resumes;
-    // modeling that as "skip 1 tick of decisions" matches the intent. The
-    // kickoff taker's next decision fires on tick (goal_tick + 1) onward;
-    // possession transitions resume normal flow from then. Velocity
-    // integration + heartbeat + separation + FullTime emission still run
-    // unconditionally — those are not possession-mutating.
-    if !goal_fired_this_tick {
-        state = dispatch::dispatch_tick(state, sig_definitions);
-    }
-
-    // Step 7: integrate player velocity into position.
-    let dt = ball_physics::dt_per_tick();
-    for p in state.players.iter_mut() {
-        p.pos_x += p.vel_x * dt;
-        p.pos_y += p.vel_y * dt;
-    }
-
-    // Step 7b (T1-15): loose-ball pickup.
-    //
-    // **Codex Tier-2 audit 2026-05-17 P1**: pickup is also gated on
-    // `!goal_fired_this_tick`. The Goal block already set possession to
-    // kick_off_taker so the inner `state.possession.is_none()` guard would
-    // short-circuit anyway, but the outer explicit skip documents the
-    // "post-goal tick = no possession mutation" invariant alongside the
-    // dispatch + emit_possession_transition_events guards above/below.
-    //
-    // When possession is None (ball loose after a shot or free kick), check
-    // whether any outfield player is within PICKUP_RADIUS_M of the ball.
-    // If so, the nearest qualifying player takes possession.
-    //
-    // Rationale: ball physics now carries shots 30+ m before stopping (T1-15
-    // rolling-friction re-calibration from k=0.035 to k=0.01). Without an
-    // active pickup mechanic, possession stays None until a player is manually
-    // routed toward the ball AND happens to call Dribble or Pass. With the
-    // preempt_check already routing outfield players toward the ball (also
-    // T1-15), this pickup closes the loop: once a player is close enough, they
-    // claim the ball deterministically (closest player wins; home-first on tie
-    // since slots 0..11 are iterated before 11..22; this is a T1 approximation).
-    //
-    // GK slots (0 and 11) are excluded — GK pickup is handled in goalkeeper_fsm.
-    // Pickup DOES NOT emit a MatchEvent (no `Pass` or `Tackle` event yet).
-    // T2+ wires a `LooseBallPickup` / `Interception` event when the event
-    // schema supports contested-ball semantics.
-    // Note on timing: step 6 (dispatch_tick) fires shot intents which:
-    //   1. Set possession = None.
-    //   2. Snap ball.pos to shooter's feet.
-    //   3. Set ball.vel_x = ~23 m/s toward goal.
-    // The ball physics step (step 4) ran BEFORE dispatch_tick, so the ball has
-    // NOT yet physically moved away from the shooter's feet when this pickup
-    // check runs. Guard against phantom re-pickup of a freshly-shot ball by
-    // requiring the ball speed to be below PICKUP_MAX_SPEED_MPS — a ball
-    // traveling at shot speed (~23 m/s) must not be collected immediately by the
-    // shooter standing at the ball's current position. Pickup only triggers when
-    // the ball has nearly settled (< 3 m/s), meaning it has traveled far from
-    // the shooter or has been deflected and stopped nearby.
-    // Pickup radius: 5m — generous for T1. Real ball-control is T2+.
-    // A 5m radius ensures that once the ball decelerates near a player,
-    // they claim it without needing pixel-perfect convergence.
-    const PICKUP_RADIUS_M: Q32 = Q32::from_raw(5_i64 << 32); // 5 metres
-    // Speed threshold: ball must be below 8 m/s to be picked up.
-    // - Prevents immediate re-pickup after a shot (22 m/s > 8 m/s ✓).
-    // - Allows pickup within ~30-40 ticks of a shot slowing from 22→8 m/s.
-    // - At 8 m/s, the ball is still "catchable" from a standing start (a player
-    //   at the ball's future position can step onto it within 1-2 ticks).
-    const PICKUP_MAX_SPEED_MPS: Q32 = Q32::from_raw(8_i64 << 32); // 8 m/s threshold
-    let ball_speed_sq = state.ball.vel_x * state.ball.vel_x + state.ball.vel_y * state.ball.vel_y;
-    let pickup_speed_sq = PICKUP_MAX_SPEED_MPS * PICKUP_MAX_SPEED_MPS;
-    if !goal_fired_this_tick && state.possession.is_none() && ball_speed_sq < pickup_speed_sq {
-        let bx = state.ball.pos_x;
-        let by = state.ball.pos_y;
-        let mut best_slot: Option<u8> = None;
-        let mut best_dist_sq = Q32::MAX;
-
-        for slot_idx in 0..22usize {
-            // Exclude GKs from general pickup, EXCEPT when the ball is near
-            // their own goal line (>42m from centre). In that case the GK
-            // can claim the ball to restart play with a goal kick or
-            // short distribution, rather than leaving the ball stranded
-            // 2-3m short of the goal line for hundreds of ticks.
-            if slot_idx == 0 || slot_idx == 11 {
-                let bx_bits = bx.to_bits();
-                let bx_abs: u64 = bx_bits.unsigned_abs();
-                const GK_PICKUP_THRESHOLD_BITS: u64 = 42_u64 << 32; // 42m
-                if bx_abs < GK_PICKUP_THRESHOLD_BITS {
-                    continue; // ball not near goal — skip GK
+            for slot_idx in 0..22usize {
+                // Exclude GKs from general pickup, EXCEPT when the ball is near
+                // their own goal line (>42m from centre). In that case the GK
+                // can claim the ball to restart play with a goal kick or
+                // short distribution, rather than leaving the ball stranded
+                // 2-3m short of the goal line for hundreds of ticks.
+                if slot_idx == 0 || slot_idx == 11 {
+                    let bx_bits = bx.to_bits();
+                    let bx_abs: u64 = bx_bits.unsigned_abs();
+                    const GK_PICKUP_THRESHOLD_BITS: u64 = 42_u64 << 32; // 42m
+                    if bx_abs < GK_PICKUP_THRESHOLD_BITS {
+                        continue; // ball not near goal — skip GK
+                    }
+                    // Ball is near a goal line — only allow the GK defending that end.
+                    // Home GK (slot 0): defends negative x.
+                    // Away GK (slot 11): defends positive x.
+                    let ball_in_home_half = bx_bits < 0;
+                    let is_home_gk = slot_idx == 0;
+                    if ball_in_home_half != is_home_gk {
+                        continue; // ball near opponent's goal — skip this GK
+                    }
                 }
-                // Ball is near a goal line — only allow the GK defending that end.
-                // Home GK (slot 0): defends negative x.
-                // Away GK (slot 11): defends positive x.
-                let ball_in_home_half = bx_bits < 0;
-                let is_home_gk = slot_idx == 0;
-                if ball_in_home_half != is_home_gk {
-                    continue; // ball near opponent's goal — skip this GK
+                let p = &state.players[slot_idx];
+                let dx = p.pos_x - bx;
+                let dy = p.pos_y - by;
+                let dist_sq = dx * dx + dy * dy;
+                let radius_sq = PICKUP_RADIUS_M * PICKUP_RADIUS_M;
+                if dist_sq <= radius_sq && dist_sq < best_dist_sq {
+                    best_dist_sq = dist_sq;
+                    best_slot = Some(p.slot);
                 }
             }
-            let p = &state.players[slot_idx];
-            let dx = p.pos_x - bx;
-            let dy = p.pos_y - by;
-            let dist_sq = dx * dx + dy * dy;
-            let radius_sq = PICKUP_RADIUS_M * PICKUP_RADIUS_M;
-            if dist_sq <= radius_sq && dist_sq < best_dist_sq {
-                best_dist_sq = dist_sq;
-                best_slot = Some(p.slot);
+
+            if let Some(slot) = best_slot {
+                state.possession = Some(slot);
+                state.last_touched_by = Some(slot);
+                // Snap the ball to the player's feet so the next tick's InPossession
+                // dispatch fires from the correct position.
+                let slot_idx = slot as usize;
+                state.ball.pos_x = state.players[slot_idx].pos_x;
+                state.ball.pos_y = state.players[slot_idx].pos_y;
+                state.ball.vel_x = Q32::ZERO;
+                state.ball.vel_y = Q32::ZERO;
+                state.ball.vel_z = Q32::ZERO;
             }
         }
 
-        if let Some(slot) = best_slot {
-            state.possession = Some(slot);
-            state.last_touched_by = Some(slot);
-            // Snap the ball to the player's feet so the next tick's InPossession
-            // dispatch fires from the correct position.
-            let slot_idx = slot as usize;
-            state.ball.pos_x = state.players[slot_idx].pos_x;
-            state.ball.pos_y = state.players[slot_idx].pos_y;
-            state.ball.vel_x = Q32::ZERO;
-            state.ball.vel_y = Q32::ZERO;
-            state.ball.vel_z = Q32::ZERO;
+        // T2-1b: emit per-team PossessionLost / BallRecovered TacticEvents
+        // based on the tick's possession transition. Runs AFTER all possession-
+        // mutating steps (dispatch_tick fires shot/pass intents that mutate
+        // possession; the pickup block above converts None → Some when a player
+        // claims a settled loose ball). Compares `state.possession` against
+        // `possession_before_dispatch` captured above (just after the Goal block).
+        // See `emit_possession_transition_events` for the transition taxonomy.
+        //
+        // **Codex Tier-2 audit 2026-05-17 P1**: also skipped on goal_fired_
+        // this_tick (same rationale as the dispatch + pickup guards above:
+        // the Goal arm of `apply_event` is the single source of truth for
+        // goal-tick tactic transitions; running emit_possession_transition_
+        // events on the goal-tick would re-transition both teams via
+        // PossessionLost / BallRecovered, overriding the post-goal MidBlock
+        // reset).
+        if !goal_fired_this_tick {
+            emit_possession_transition_events(&mut state, possession_before_dispatch);
         }
-    }
 
-    // T2-1b: emit per-team PossessionLost / BallRecovered TacticEvents
-    // based on the tick's possession transition. Runs AFTER all possession-
-    // mutating steps (dispatch_tick fires shot/pass intents that mutate
-    // possession; the pickup block above converts None → Some when a player
-    // claims a settled loose ball). Compares `state.possession` against
-    // `possession_before_dispatch` captured above (just after the Goal block).
-    // See `emit_possession_transition_events` for the transition taxonomy.
+        // Step 8 (T1-2b-iii-d): player-separation positional correction.
+        separation::apply_player_separation(&mut state);
+    } // end of in-play gate (steps 2–8)
+
+    // Step 9: emit FullTime when the clock reaches match_end_tick.
     //
-    // **Codex Tier-2 audit 2026-05-17 P1**: also skipped on goal_fired_
-    // this_tick (same rationale as the dispatch + pickup guards above:
-    // the Goal arm of `apply_event` is the single source of truth for
-    // goal-tick tactic transitions; running emit_possession_transition_
-    // events on the goal-tick would re-transition both teams via
-    // PossessionLost / BallRecovered, overriding the post-goal MidBlock
-    // reset).
-    if !goal_fired_this_tick {
-        emit_possession_transition_events(&mut state, possession_before_dispatch);
-    }
-
-    // Step 8 (T1-2b-iii-d): player-separation positional correction.
-    separation::apply_player_separation(&mut state);
-
-    // Step 9: emit FullTime at end of match.
+    // Must be LAST so all same-tick gameplay events (goals, shots, passes) are
+    // already appended before FullTime. Step 9 is OUTSIDE the in-play gate so
+    // it fires even if a caller over-advances (jumps past match_end_tick): in
+    // that case gameplay was skipped above but FullTime still emits exactly once.
     //
-    // Must be LAST so all same-tick events (goals, shots, passes) are already
-    // appended before FullTime. The match caller is expected to stop advancing
-    // after FullTime; this guard ensures FullTime emits AT MOST ONCE even if
-    // the caller over-advances (Codex Tier-2 silent-failure P0-2 on T1-4a
-    // 2026-05-16 — the prior `==` check would silently fail to emit FullTime
-    // if the caller advanced past match_end_tick before the check fired).
-    let full_time_already_emitted =
-        matches!(state.match_events.last(), Some(MatchEvent::FullTime { .. }));
-    if state.tick >= state.match_end_tick && !full_time_already_emitted {
+    // The `!full_time_already_emitted` check is intentionally absent here: the
+    // step-0 freeze guard guarantees FullTime is NEVER already the tail when we
+    // reach step 9. Adding the redundant check would obscure that invariant.
+    if state.tick >= state.match_end_tick {
         state.match_events.push(MatchEvent::FullTime {
             tick: state.tick,
             home_score: state.home_score as u16,

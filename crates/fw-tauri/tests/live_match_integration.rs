@@ -349,8 +349,9 @@ fn match_snapshot_phase_transitions_to_full_time() {
     let state = test_app_state();
     let handle = start_live_match_inner("0xdeadbeef00000001".to_string(), &state).expect("start");
 
-    // The T1 match sim ends at 60 ticks by default. Step 61 to ensure FullTime fires.
-    let step = step_live_match_inner(handle.clone(), 61, &state).expect("step to FullTime");
+    // T4-sim-halt: match_end_tick is now 5400 (real 90 min). The sim self-halts
+    // at FullTime, so stepping past 5400 is fine — extra ticks are no-ops.
+    let step = step_live_match_inner(handle.clone(), 5401, &state).expect("step to FullTime");
     assert!(step.is_finished, "is_finished must be true after FullTime");
 
     let snap = get_match_snapshot_inner(handle, &state).expect("snapshot after FullTime");

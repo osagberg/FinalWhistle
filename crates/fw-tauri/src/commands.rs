@@ -1070,11 +1070,11 @@ pub fn step_live_match_inner(
     // `fw-match-sim` encoder VERSION 7); record its length before the loop to
     // slice the per-step delta after. No separate session-side event mirror.
     //
-    // Note: this loop intentionally does NOT stop at FullTime — it must stay
-    // bit-for-bit equivalent to `play_match_inner`, which runs the full tick
-    // budget unconditionally (the sim keeps integrating past the whistle today).
-    // Making the sim halt at FullTime is a future `fw-match-sim` concern; doing
-    // it here would diverge live mode from the batched path and break AC4.
+    // Note: the sim now self-halts at FullTime (T4-sim-halt): `tick_match`
+    // returns state unchanged once FullTime is the tail event. Extra ticks
+    // beyond `match_end_tick` are no-ops. The `.any(... FullTime ...)` check
+    // in `session.is_finished()` is still correct — FullTime is now always
+    // the tail, so the scan finds it there.
     let events_before = session.state.match_events().len();
 
     for _ in 0..ticks {

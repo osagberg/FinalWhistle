@@ -35,9 +35,14 @@ fn event_tick(ev: &MatchEvent) -> Tick {
 }
 
 /// Run the smoke sim for `tick_count` ticks with the given seed.
+///
+/// T4-sim-halt: sets `match_end_tick = tick_count` so FullTime fires exactly
+/// at the end of the run. The default is now 5400; without this override the
+/// short 60-tick budget would produce no FullTime event.
 fn run_match(seed_u64: u64, tick_count: u32) -> MatchState {
     let seed = Seed::from_u64(seed_u64);
-    let mut state = MatchState::initial(seed);
+    let mut state =
+        MatchState::initial(seed).with_match_end_tick(Tick::from_raw(tick_count as i64));
     for _ in 0..tick_count {
         state = tick_match(state, &std::collections::BTreeMap::new());
     }

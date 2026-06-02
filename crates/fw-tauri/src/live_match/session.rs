@@ -64,11 +64,11 @@ impl LiveMatchSession {
 
     /// `true` once the match has emitted its `FullTime` event.
     ///
-    /// Scans for `FullTime` anywhere in the event stream rather than only the
-    /// tail: the sim does not currently halt at full time (it keeps integrating
-    /// to match `play_match`'s full-budget behaviour), so post-whistle events
-    /// can follow `FullTime`. The event vec is short (tens of entries per
-    /// match) so the scan is cheap.
+    /// Since T4-sim-halt the sim self-halts at FullTime: `tick_match` is a
+    /// no-op once FullTime is the tail, so FullTime is always the LAST event
+    /// when present and no post-whistle events follow. The `.any(...)` scan
+    /// therefore agrees with a tail check; it is kept as-is (cheap — the event
+    /// vec is short, and it reads as a plain "did the whistle blow?" query).
     pub fn is_finished(&self) -> bool {
         self.state
             .match_events()

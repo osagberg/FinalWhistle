@@ -29,7 +29,15 @@ use crate::IpcError;
 /// 600 ticks matches the existing 600-tick canonical hash pin (the
 /// "extended" pinned scenario in `crates/fw-replay/tests/canonical_hash.rs`).
 /// This keeps the season sim consistent with the already-verified canonical
-/// state. Real 90-minute match realism is deferred to later work.
+/// state.
+///
+/// T4-sim-halt note: `MatchState::match_end_tick` now defaults to
+/// `fw_match_sim::FULL_MATCH_TICKS` (5400 = 90 displayed-min), so a 600-tick
+/// season match runs well short of match-end — it deliberately does NOT reach
+/// FullTime and the sim never freezes within this budget. `play_one_match`
+/// reads `home_score`/`away_score` directly (not FullTime), so the season
+/// result is unaffected. Raising this to a real 90-minute budget — and the
+/// goal-RATE calibration that requires — is T5-5b, not T4-sim-halt.
 pub const SEASON_MATCH_TICK_BUDGET: u32 = 600;
 
 /// Emit season-end memory events into the ledger for a completed season.
