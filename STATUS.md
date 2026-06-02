@@ -8,11 +8,13 @@
 
 ## Active task
 
-**T4-2.5b next** — roster data model: `CareerState.roster: BTreeMap<ClubId, Vec<PlayerInstance>>` + career-start generation (assign the 22-`PlayerTemplate` pool across 20 clubs, distinct `PlayerId`s; `generate_league` returns per-club `ProcGenTeam`) + `get_roster_for_club` IPC + `PlayerRosterDto`. Deps: T4-2.5a (DONE). Subagent: lead-programmer.
+**T4-sim-halt next (recommended first)** — halt the sim at `match_end_tick` + set a real match length on the play path. Fixes the Full-time / kick-off / goal SPAM found on the first real `tauri dev` run (full root-cause + spec in the `T4-sim-halt` MASTER_PLAN row + `MEMORY.md` 2026-05-29). Sim change → **AUTHORIZED canonical-hash rebaseline of both pins** + the 5-seed empirical-envelope verify (the 2–5-goal smoke envelope must still hold); `gameplay-programmer` + TDD + the post-T1-15 rebaseline discipline.
+
+**Then T4-2.5b** — roster data model: `CareerState.roster: BTreeMap<ClubId, Vec<PlayerInstance>>` + career-start generation (22-`PlayerTemplate` pool across 20 clubs) + `get_roster_for_club` IPC + `PlayerRosterDto` (log Decision 5 forward-compat first; `lead-programmer`). Then the calibration track (T5-5b) feeds match realism.
 
 ## Blockers
 
-None live. Pre-task requirement for T4-2.5b: log Decision 5 (forward-compat clause) via `/log-decision` before implementation starts.
+None live. T4-sim-halt has no deps (pick it first). Pre-task for T4-2.5b: log Decision 5 (forward-compat clause) via `/log-decision` before it starts. First real desktop run (2026-05-29) fixed 2 frontend bugs (player-id decode, theme persistence) + the `tauri dev` tooling (`just dev` → `pnpm exec tauri`, content-path CWD); OPEN: T4-sim-halt (above) + match-realism (calibration T5-5b).
 
 Previously: T2-1d2 (xg_utility honesty / cross-band oscillation) re-anchored to Deferred section of MASTER_PLAN. Open EA-scope question resolved 2026-05-29 per DECISIONS.md — DESIGN_DOC `§MVP-scope` anchor added at §8 `### MVP scope`.
 
