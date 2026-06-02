@@ -70,6 +70,29 @@ pub struct CareerState {
     ///
     /// `BTreeMap` for deterministic iteration (Sim/RULES.md §2).
     pub roster: BTreeMap<ClubId, Vec<PlayerInstance>>,
+
+    /// Incremental evaluation watermark for breakthrough meter accumulation.
+    ///
+    /// Stores the `ledger.len()` value at the end of the previous
+    /// `advance_season_inner` call. On the next call, only events in
+    /// `ledger.events[watermark..]` are fed to `evaluate()` — events before
+    /// the watermark have already been processed and their meter contributions
+    /// are captured in each player's persisted `BreakthroughState`.
+    ///
+    /// This prevents historical events from re-accumulating meters every season,
+    /// which would cause the same gating event to re-fire a breakthrough in every
+    /// subsequent season (P0 fix, T4-2.5d self-review).
+    ///
+    /// Non-canonical: only used in the career system, not in `MatchState`.
+    /// SaveV4 (T4-2.5g) will persist this alongside `roster` and `ledger`.
+    /// On a career loaded from a SaveV3 save (before T4-2.5d), this defaults
+    /// to 0 — the first `advance_season` after migration re-evaluates the full
+    /// historical ledger once, then advances the watermark. That one-time
+    /// re-evaluation is correct: no breakthroughs have fired yet in that save
+    /// (the column was never wired), so the meters start from zero and the
+    /// cooldown state is also zero. The results from that first evaluation are
+    /// deterministic and valid.
+    pub breakthrough_eval_watermark: usize,
 }
 
 impl CareerState {
@@ -237,6 +260,7 @@ impl AppState {
                 ledger: MemoryLedger::new(),
                 season_number: SeasonNumber(0),
                 roster,
+                breakthrough_eval_watermark: 0,
             }),
             settings_path,
             live_matches: RwLock::new(BTreeMap::new()),

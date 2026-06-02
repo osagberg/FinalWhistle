@@ -13,9 +13,12 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use fw_content::{ContentStore, MatchOutcome, SeasonState, SignatureDefinition};
-use fw_core::{ClubId, Seed};
+use fw_content::{
+    ContentStore, MatchOutcome, SeasonState, SignatureCandidate, SignatureDefinition,
+};
+use fw_core::{AttributeFamily, ClubId, PlayerId, Seed};
 use fw_match_sim::{MatchState, tick_match};
+use fw_memory::NarrativeFlag as MemNarrativeFlag;
 use fw_memory::event::{
     CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter, EmitterKind, EntityRef,
     EventClass, MemoryEvent, Participant, ParticipantRole, SeasonNumber, SourceId,
@@ -494,6 +497,182 @@ fn role_receives_candidates(in_team: usize) -> bool {
     // Midfielder range in 4-3-3: slots 5, 6, 7.
     (5..=7).contains(&in_team)
 }
+
+// ---------------------------------------------------------------------------
+// T4-2.5d breakthrough-wiring helpers
+// ---------------------------------------------------------------------------
+
+/// Convert a `fw_content::NarrativeFlag` to the parallel `fw_memory::NarrativeFlag`.
+///
+/// The two crates carry separate enums with the same 4 variants per the design.
+/// Conversion is by-name. A variant added to one crate without being added to
+/// the other would make this match non-exhaustive — the compile error is the
+/// intended failure mode.
+///
+/// Deduplication of the two enums into fw-core is a logged follow-up (noted
+/// in fw-content/src/gene.rs). For T4-2.5d we convert here in the bridging
+/// layer (fw-tauri) which already depends on both crates.
+pub fn content_flag_to_memory_flag(flag: fw_content::NarrativeFlag) -> MemNarrativeFlag {
+    use fw_content::NarrativeFlag as C;
+    match flag {
+        C::LateBloomer => MemNarrativeFlag::LateBloomer,
+        C::FlowAccess => MemNarrativeFlag::FlowAccess,
+        C::PeakCeilingHigh => MemNarrativeFlag::PeakCeilingHigh,
+        C::AwakeningDormant => MemNarrativeFlag::AwakeningDormant,
+    }
+}
+
+/// Map a `SignatureCandidate`'s `RoleFamily` to the `AttributeFamily` whose
+/// breakthrough meter the signature most directly amplifies.
+///
+/// ## Mapping rationale (documented here, not improvised)
+///
+/// `RoleFamily` describes a player's positional archetype. `AttributeFamily`
+/// describes a breakthrough meter domain. The mapping picks the PRIMARY family
+/// that most clearly represents a role's defining attribute:
+///
+/// | RoleFamily               | → AttributeFamily          | Rationale |
+/// |---|---|---|
+/// | Goalkeeper               | Composure                  | GK decisions under pressure |
+/// | CentreBack               | DefensiveAnticipation      | Core CB family |
+/// | FullBack                 | Pace                       | FB defining attribute |
+/// | DefensiveMidfielder      | WorkRate                   | DM pressing/tracking |
+/// | CentralMidfielder        | Passing                    | CM vision + range |
+/// | AttackingMidfielder      | Finishing                  | AM conversion in the box |
+/// | Winger                   | Pace                       | Winger explosive speed |
+/// | Striker                  | Finishing                  | Striker conversion |
+///
+/// Two roles map to `Pace` (FullBack, Winger) and two map to `Finishing`
+/// (AttackingMidfielder, Striker). This is intentional — the mapping is a
+/// first-increment approximation; T4.5-E1's gene→attribute compiler will use
+/// a richer per-role per-family affinity table instead of this single pivot.
+pub fn role_family_to_attribute_family(role: fw_content::RoleFamily) -> AttributeFamily {
+    use fw_content::RoleFamily;
+    match role {
+        RoleFamily::Goalkeeper => AttributeFamily::Composure,
+        RoleFamily::CentreBack => AttributeFamily::DefensiveAnticipation,
+        RoleFamily::FullBack => AttributeFamily::Pace,
+        RoleFamily::DefensiveMidfielder => AttributeFamily::WorkRate,
+        RoleFamily::CentralMidfielder => AttributeFamily::Passing,
+        RoleFamily::AttackingMidfielder => AttributeFamily::Finishing,
+        RoleFamily::Winger => AttributeFamily::Pace,
+        RoleFamily::Striker => AttributeFamily::Finishing,
+    }
+}
+
+/// Convert a slice of `SignatureCandidate`s to the `(AttributeFamily, String)`
+/// tuples that `BreakthroughContext.signature_candidates` expects.
+///
+/// The `String` is the signature ID (content-pack-qualified), sourced from
+/// `SignatureCandidate.signature_id.as_str()`. The `AttributeFamily` is
+/// derived from the candidate's `RoleFamily` via `role_family_to_attribute_family`.
+///
+/// `sig_defs` is the `BTreeMap<String, SignatureDefinition>` from the content
+/// store. If a candidate's ID is absent from the map (content-pack drift or
+/// a missing definition), the candidate defaults to `AttributeFamily::Finishing`
+/// rather than panicking — a conservative fallback that keeps the career running.
+pub fn signature_candidates_to_ctx(
+    candidates: &[SignatureCandidate],
+    sig_defs: &BTreeMap<String, SignatureDefinition>,
+) -> Vec<(AttributeFamily, String)> {
+    candidates
+        .iter()
+        .map(|c| {
+            let sig_id_str = c.signature_id.as_str().to_string();
+            let role_family = match sig_defs.get(&sig_id_str) {
+                Some(def) => def.role_family,
+                None => {
+                    log::warn!(
+                        "signature_candidates_to_ctx: signature_id {:?} not found in \
+                         signature_definitions — falling back to RoleFamily::Striker → \
+                         AttributeFamily::Finishing. This indicates content-pack drift: a \
+                         PlayerTemplate references a SignatureId that is not in the loaded \
+                         signature definitions. The breakthrough meter will attribute this \
+                         candidate to the Finishing family.",
+                        sig_id_str
+                    );
+                    fw_content::RoleFamily::Striker // fallback: Striker → Finishing
+                }
+            };
+            let family = role_family_to_attribute_family(role_family);
+            (family, sig_id_str)
+        })
+        .collect()
+}
+
+/// Build a per-player `MemoryLedger` view containing only events where
+/// `player_id` is the `Subject` participant — scanning the FULL ledger.
+///
+/// Used by the AC3 unit test (`per_player_ledger_filter_excludes_other_player_events`)
+/// to verify the filter logic. Production code in `advance_season_inner` calls
+/// `filter_new_events_for_player` instead (FIX 1 — incremental evaluation only
+/// feeds the new-since-watermark events to `evaluate()`).
+///
+/// The copy preserves `event_id` values so `evaluate()`'s
+/// `tick_for_rng = event.event_id.0` produces the same RNG seeds — determinism
+/// is preserved.
+pub fn filter_ledger_for_player(ledger: &MemoryLedger, player_id: PlayerId) -> MemoryLedger {
+    // Clone so we can call by_subject (which needs &mut for lazy index rebuild)
+    // without taking &mut on the caller's original ledger.
+    let mut working = ledger.clone();
+    working.restore_transient_state();
+
+    let ids: Vec<fw_memory::event::EventId> = working.by_subject(player_id).to_vec();
+
+    let mut player_ledger = MemoryLedger::new();
+    for id in &ids {
+        if let Some(event) = working.get_by_id(*id) {
+            player_ledger.append(event.clone());
+        }
+    }
+    player_ledger
+}
+
+/// Build a per-player `MemoryLedger` from a slice of newly-appended events
+/// (those past the `breakthrough_eval_watermark`).
+///
+/// Called from `advance_season_inner` — only the events added since the last
+/// evaluation pass are fed to `evaluate()`. This is the incremental evaluation
+/// path that fixes the P0 re-fire bug: once an event has been processed and
+/// its meter contribution captured in the player's persisted
+/// `BreakthroughState`, it is NEVER re-accumulated.
+///
+/// `new_events` is a sub-slice of `ledger.events[watermark..]` already
+/// materialised by the caller before any mutations. The events are filtered
+/// to those whose `Subject` is `player_id`.
+///
+/// `evaluate()` uses `event.event_id.0` as the RNG `tick` parameter, so
+/// preserving the original `EventId` values (which we do — we clone the
+/// events without renumbering) keeps the RNG sites deterministic across
+/// seasons.
+pub fn filter_new_events_for_player(
+    new_events: &[fw_memory::event::MemoryEvent],
+    player_id: PlayerId,
+) -> MemoryLedger {
+    use fw_memory::event::{EntityRef, ParticipantRole};
+
+    let mut player_ledger = MemoryLedger::new();
+    for event in new_events {
+        let is_subject = event.participants.iter().any(|p| {
+            p.role == ParticipantRole::Subject
+                && matches!(p.entity, EntityRef::Player(pid) if pid == player_id)
+        });
+        if is_subject {
+            player_ledger.append(event.clone());
+        }
+    }
+    player_ledger
+}
+
+/// Default age (in years) for a rostered player at career start.
+///
+/// First-increment approximation: all players are treated as 22 years old
+/// (development-prime age per `docs/design/player-generation.md`). This feeds
+/// `BreakthroughContext.age_years` which only affects the age-curve modifier
+/// in `evaluate()`. Real per-player ages arrive at T4.5-E1 with the gene→
+/// attribute compiler; until then 22 is neutral (on the positive-development
+/// slope, not capped by the aging curve).
+pub const CAREER_START_AGE_YEARS: u8 = 22;
 
 // ---------------------------------------------------------------------------
 // Tests

@@ -32,9 +32,67 @@
 
 use std::collections::BTreeMap;
 
-use fw_content::{ProcGenTeam, SignatureCandidate, generate_league_with_teams};
+use fw_content::{GeneSnapshot, ProcGenTeam, SignatureCandidate, generate_league_with_teams};
 use fw_core::{AbilityCeiling, ClubId, PlayerAttributes, PlayerId, Seed};
 use fw_memory::BreakthroughState;
+
+/// Neutral `GeneSnapshot` used as the fallback when the `player_bios` pool is
+/// empty (content packs without a `player-bios/` directory) and in test
+/// construction helpers.
+///
+/// All `Q32` gene fields are set to 0.5 (mid-range); signed fields
+/// (`growth_curve`, `mentality`) are set to 0 (neutral); `narrative_flags` empty.
+/// This yields a neutral breakthrough profile — no strong affinity for any family.
+///
+/// ## Why `#[serde(default = "default_gene_snapshot")]` does NOT provide
+/// forward-compat for saved games
+///
+/// The career save format uses bincode 2, which is a non-self-describing binary
+/// format. Bincode encodes structs positionally with no field tags, so it
+/// cannot distinguish "this field was absent in the serialised bytes" from
+/// "the bytes are malformed." `#[serde(default)]` is only useful for
+/// self-describing formats (JSON, RON). For bincode saves, the real mechanism
+/// for adding `genes` to old saves is the SaveV3→SaveV4 envelope migration at
+/// T4-2.5g, which explicitly constructs a default `GeneSnapshot` for every
+/// `PlayerInstance` whose binary representation predates the field. The
+/// `#[serde(default)]` annotation is kept only for the JSON path used in
+/// integration tests that serialize `AppState` as JSON — it has no effect on
+/// production bincode saves.
+pub(crate) fn default_gene_snapshot() -> GeneSnapshot {
+    use fw_content::{MentalGenes, PhysicalGenes, TechnicalAffinities};
+    use fw_core::Q32;
+    use std::collections::BTreeSet;
+
+    // Q32(0.5): raw bits = round(0.5 × 2^32) = 2_147_483_648.
+    let half = Q32::from_raw(2_147_483_648_i64);
+    GeneSnapshot {
+        physical: PhysicalGenes {
+            height_ceiling: half,
+            frame_density: half,
+            fast_twitch_ratio: half,
+            stamina_recovery: half,
+            growth_curve: Q32::ZERO, // signed field: neutral
+            aging_curve: half,
+            injury_resilience: half,
+        },
+        mental: MentalGenes {
+            pattern_recognition: half,
+            composure_floor: half,
+            decision_velocity: half,
+            learning_rate: half,
+            ambition: half,
+            mentality: Q32::ZERO, // signed field: neutral
+        },
+        technical: TechnicalAffinities {
+            left_foot: Q32::ZERO,
+            aerial: half,
+            dead_ball: half,
+            striking: half,
+            first_touch: half,
+        },
+        narrative_flags: BTreeSet::new(),
+    }
+}
 
 /// Slots per club squad. Drives the bijective `PlayerId` scheme:
 /// `PlayerId = ROSTER_PLAYER_ID_BASE + club_index * SLOTS_PER_CLUB as u32 + slot as u32`.
@@ -90,9 +148,12 @@ pub struct PlayerSeasonStats {
 
 /// A single player in the career roster.
 ///
-/// Identity (name, bio labels, gene snapshot) lives in `PlayerBio`/`PlayerTemplate`
-/// in the content store, keyed by the same `player_id`. This struct holds only
-/// the mutable career state so save/load doesn't duplicate immutable content.
+/// Identity information that varies between careers (display name, gene snapshot)
+/// is stored directly on this struct. Immutable content-pool data (phenotype
+/// labels, tactical DNA fragments, commentary handles) lives in `PlayerBio` in
+/// the content store, keyed by the same stable `player_id` string. This struct
+/// holds the mutable career state: current attributes, ability ceiling,
+/// breakthrough state, season stats, and genes.
 ///
 /// Field order is stable for serde determinism — do not reorder.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -139,6 +200,31 @@ pub struct PlayerInstance {
     /// Number of times an observer has run `observe_player` on this instance.
     /// Drives pillar-4 scouting uncertainty (T4-2.5f).
     pub observation_count: u32,
+
+    /// Internal gene snapshot — sourced from the `PlayerBio` pool at career start.
+    ///
+    /// Round-robins across the 22 authored `PlayerBio.internal_gene_snapshot`
+    /// values by `global_player_index % bio_pool_len`. With 22 distinct gene
+    /// sets across 440 players (20 clubs × 22 slots), breakthrough propensities
+    /// vary enough to fire on the reference career seed.
+    ///
+    /// First-increment source: bio round-robin. T4.5-E1 replaces with a
+    /// procedural gene generator that computes a real `GeneSnapshot` per player
+    /// from the career seed. The field name and position are stable (SaveV4
+    /// persists it from T4-2.5g onward).
+    ///
+    /// Field order: declared LAST to preserve stable serde field order.
+    ///
+    /// ## `#[serde(default)]` and saved games
+    ///
+    /// The `serde(default)` annotation only helps for self-describing formats
+    /// (JSON, RON). The production save format is bincode 2 (non-self-describing,
+    /// positional). For old bincode saves, the SaveV3→V4 migration at T4-2.5g
+    /// is the real forward-compatibility mechanism — it fills in a default gene
+    /// snapshot for every `PlayerInstance` in the migrated save. The annotation
+    /// is retained for integration tests that exercise JSON round-trips.
+    #[serde(default = "default_gene_snapshot")]
+    pub genes: GeneSnapshot,
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +277,24 @@ pub fn build_roster_from_league(
         return Err(RosterGenError::NoPlayerTemplates);
     }
 
+    // Bio gene pool: BTreeMap values() is key-ordered — deterministic.
+    // If player_bios is empty (content packs before T2-4), fall back to the
+    // neutral default gene and warn — this is expected only in legacy content
+    // packs; production content ships 22 bios.
+    let bio_genes: Vec<GeneSnapshot> = content
+        .player_bios
+        .values()
+        .map(|bio| bio.internal_gene_snapshot.clone())
+        .collect();
+    if bio_genes.is_empty() {
+        log::warn!(
+            "build_roster_from_league: player_bios pool is empty — all roster players will \
+             receive the neutral default gene snapshot. Breakthrough propensities will be \
+             uniform. Expected cause: content pack without player-bios/ directory (pre-T2-4). \
+             The SaveV3→V4 migration at T4-2.5g is the intended path to fill real genes."
+        );
+    }
+
     let mut roster: BTreeMap<ClubId, Vec<PlayerInstance>> = BTreeMap::new();
 
     for (club_idx, (club, procgen_team)) in
@@ -209,6 +313,17 @@ pub fn build_roster_from_league(
 
             let display_name = procgen_team.players[slot as usize].display();
 
+            // Gene round-robin: global_player_index = club_idx * SLOTS_PER_CLUB + slot.
+            // This index is monotonically increasing across all clubs and slots, so
+            // the round-robin distributes all 22 gene profiles evenly over 440 players.
+            // If bio_genes is empty, fall back to the neutral default gene.
+            let genes = if bio_genes.is_empty() {
+                default_gene_snapshot()
+            } else {
+                let global_idx = club_idx * (SLOTS_PER_CLUB as usize) + (slot as usize);
+                bio_genes[global_idx % bio_genes.len()].clone()
+            };
+
             instances.push(PlayerInstance {
                 player_id,
                 club_id: club.id,
@@ -221,6 +336,7 @@ pub fn build_roster_from_league(
                 season_stats: PlayerSeasonStats::default(),
                 career_apps: 0,
                 observation_count: 0,
+                genes,
             });
         }
         roster.insert(club.id, instances);

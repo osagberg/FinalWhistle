@@ -846,6 +846,85 @@ impl AbilityCeiling {
     pub(crate) fn redraw_ceiling(&mut self, new_potential: Q32) {
         self.potential = new_potential;
     }
+
+    /// Public breakthrough-delta mutator (T4-2.5d).
+    ///
+    /// Applies signed integer deltas (`delta_pa`, `delta_ca`) — expressed on
+    /// the `1..=200` overall-PA scale that `fw_memory::breakthrough::evaluate()`
+    /// produces — to the Q32 `[0, 1]` ceiling fields.
+    ///
+    /// ## Scale convention
+    ///
+    /// The `1..=200` scale is the same one `fw-content::breakthrough_input`
+    /// uses for per-family PA/CA estimates. One "PA point" on that scale maps
+    /// to `1 / 199` in Q32 space (the scale has 199 steps between 1 and 200).
+    /// This is a WHOLE-CEILING delta: the `family` on the outcome is the
+    /// narrative attribution of WHICH area broke through, not a per-family
+    /// attribute write. The actual per-family→attribute recompile that turns
+    /// this delta into changes in individual skill values is T4.5-E1's gene→
+    /// attribute compiler. At T4-2.5d a breakthrough lifts CA/PA and emits a
+    /// BreakthroughMoment event; in-match behaviour does not yet change.
+    ///
+    /// ## Semantics
+    ///
+    /// - `delta_pa > 0`: positive breakthrough — raises `potential` by the
+    ///   Q32 equivalent of `delta_pa / 199`, clamped to `Q32::ONE`.
+    /// - `delta_pa < 0`: regressive collapse — lowers `potential`, floored at
+    ///   `Q32::ZERO`.
+    /// - `delta_ca`: similarly applied to `current`, clamped to
+    ///   `[Q32::ZERO, min(Q32::ONE, new_potential)]` so `current ≤ potential`
+    ///   is always maintained.
+    /// - `delta_pa == 0 && delta_ca == 0`: no-op.
+    ///
+    /// ## Overflow safety
+    ///
+    /// `potential` and `current` are in `[0, 1]` and `magnitude` is in
+    /// `[0, delta_max/199]` where `delta_max ≤ 200`; so the sum is in `[0, 2]`.
+    /// Q32 operators panic on overflow (house style, Sim/RULES §11), but
+    /// `2.0` is well within Q32's range — it is `Q32::ONE + Q32::ONE`. The
+    /// `.min(Q32::ONE)` / `.max(Q32::ZERO)` clamp is for the semantic ceiling,
+    /// not overflow protection.
+    pub fn apply_breakthrough_delta(&mut self, delta_pa: i16, delta_ca: i16) {
+        // ONE_OVER_199: Q32 representation of 1/199.
+        // round(2^32 / 199) = round(4_294_967_296 / 199) = round(21_582_749.47) = 21_582_749.
+        const ONE_OVER_199: Q32 = Q32::from_raw(21_582_749_i64);
+
+        if delta_pa != 0 {
+            let magnitude = ONE_OVER_199 * Q32::from_int(delta_pa.unsigned_abs() as i32);
+            self.potential = if delta_pa > 0 {
+                (self.potential + magnitude).min(Q32::ONE)
+            } else {
+                // max(potential - magnitude, ZERO): subtraction would underflow
+                // (wrap below zero) when magnitude > potential. Guard with the
+                // branch to stay in Q32's representable range.
+                if magnitude > self.potential {
+                    Q32::ZERO
+                } else {
+                    self.potential - magnitude
+                }
+            };
+        }
+
+        if delta_ca != 0 {
+            let magnitude = ONE_OVER_199 * Q32::from_int(delta_ca.unsigned_abs() as i32);
+            self.current = if delta_ca > 0 {
+                // Clamp to min(Q32::ONE, self.potential) to maintain current ≤ potential.
+                (self.current + magnitude).min(self.potential)
+            } else {
+                if magnitude > self.current {
+                    Q32::ZERO
+                } else {
+                    self.current - magnitude
+                }
+            };
+        }
+
+        // Final invariant guard: a negative delta_pa can lower potential below
+        // the (yet-to-be-adjusted-if-delta_ca-was-zero) current value.
+        if self.current > self.potential {
+            self.current = self.potential;
+        }
+    }
 }
 
 /// Short-term modulator layers — kept distinct from `PlayerAttributes` so

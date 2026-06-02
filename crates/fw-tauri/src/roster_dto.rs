@@ -66,6 +66,7 @@ impl PlayerRosterDto {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::roster::default_gene_snapshot;
     use crate::roster::{PlayerInstance, PlayerSeasonStats};
     use fw_core::{AbilityCeiling, ClubId, PlayerAttributes, PlayerId, Q32};
     use fw_core::{
@@ -168,6 +169,7 @@ mod tests {
             },
             career_apps: 5,
             observation_count: 0,
+            genes: default_gene_snapshot(),
         }
     }
 

@@ -19,13 +19,14 @@
 //! shells validated by the integration test in `crates/fw-tauri/tests/`.
 
 use fw_content::{
-    Fixture, MemoryCallbackContext, SeasonState, discriminant_to_family_key, generate_league,
-    render_memory_callback,
+    Fixture, MemoryCallbackContext, SeasonState, discriminant_to_family_key, gene_family_pa_ca,
+    generate_league, render_memory_callback,
 };
-use fw_core::{PlayerId, Seed};
+use fw_core::{PlayerId, Seed, Tick};
 use fw_match_sim::{MatchState, PLAYERS_PER_TEAM, tick_match};
 use fw_memory::event::{EventClass, SeasonNumber};
 use fw_memory::readers::{SalienceFilter, salience::SalienceReader};
+use fw_memory::{BreakthroughContext, BreakthroughOutcome, evaluate};
 use fw_save;
 
 use crate::live_match::session::LiveMatchSession;
@@ -1021,8 +1022,9 @@ fn build_player_detail_dto(
 /// 1. Check `season.is_complete()` → early `Err(SeasonNotComplete)` before any mutation.
 /// 2. Run the FALLIBLE step `generate_league(...)` FIRST, before any mutation, so a
 ///    failure leaves the career state unchanged. Maps failure to `IpcError::LeagueGenerationFailed`.
-/// 3. Infallible mutations: emit season-end events, compact if at the 5-season
-///    boundary, swap the season, increment season_number. All under the same write guard.
+/// 3. Infallible mutations: emit season-end events, run per-player breakthrough
+///    evaluation (T4-2.5d — pillar 3), compact if at the 5-season boundary,
+///    swap the season, increment season_number. All under the same write guard.
 pub fn advance_season_inner(state: &AppState) -> Result<AdvanceSeasonSummaryDto, IpcError> {
     // Run generate_league BEFORE acquiring the write lock — it's pure + fallible,
     // and we must not hold the career write lock across a potentially-expensive
@@ -1062,6 +1064,141 @@ pub fn advance_season_inner(state: &AppState) -> Result<AdvanceSeasonSummaryDto,
     if let Some(cid) = champion_club_id {
         season::emit_title_won_event(cid, current_season_num, &mut career.ledger);
     }
+
+    // ---- Pillar-3 (T4-2.5d): per-player breakthrough evaluation (incremental) ----
+    //
+    // INCREMENTAL DESIGN (P0 fix):
+    //   Only the events appended SINCE the last evaluation pass
+    //   (`career.breakthrough_eval_watermark..career.ledger.len()`) are fed to
+    //   `evaluate()`. Historical events' meter contributions are already captured
+    //   in each player's persisted `BreakthroughState`; re-accumulating them every
+    //   season would cause the same gating event to re-fire a breakthrough in
+    //   every subsequent season.
+    //
+    //   The watermark is advanced to `ledger.len()` AFTER the evaluation loop and
+    //   AFTER breakthrough events are appended to the ledger — so the appended
+    //   BreakthroughMoment events are included in the NEXT season's window (they
+    //   are already processed from the perspective of the current season's state
+    //   write-back, but they need to be visible as historical context for future
+    //   seasons' cooldown checks in evaluate()).
+    //
+    // BORROW STRATEGY:
+    //   We cannot borrow `career.ledger` and `career.roster` mutably at the same
+    //   time through the `RwLockWriteGuard`. Two-phase approach:
+    //   Phase 1: materialise `new_events` (owned Vec — no borrow held); iterate
+    //            roster (shared borrow) to collect pending outcomes.
+    //   Phase 2a: iterate `pending` to write back BreakthroughState + apply
+    //             ceiling deltas (mutable roster borrow).
+    //   Phase 2b: append breakthrough events to ledger (mutable ledger borrow;
+    //             roster borrow is already released).
+
+    let career_seed = state.career_seed().to_u64();
+    let now_tick = Tick::ZERO; // career-system context; see CareerState::current_tick()
+
+    // Materialise the new-event slice as an owned Vec so the shared borrow on
+    // career.ledger is released before phase 2 (which needs &mut career.roster).
+    let watermark = career.breakthrough_eval_watermark;
+    let new_events: Vec<fw_memory::event::MemoryEvent> =
+        career.ledger.iter().skip(watermark).cloned().collect();
+
+    // Phase 1: for each rostered player, build a per-player view of the new
+    // events and call evaluate() with the player's persisted BreakthroughState.
+    // We always carry the mutated BreakthroughState back — even when no outcomes
+    // fired — so meter accumulation is preserved for future seasons.
+    //
+    // NOTE: only PLAYER-SUBJECT events (those with ParticipantRole::Subject = Player)
+    // are included in the per-player ledger. Club-level events such as TitleWon
+    // (ParticipantRole::Beneficiary = Club) are NOT attributed to any individual
+    // player and therefore do NOT accumulate breakthrough meters. Club-event gating
+    // (associating TitleWon with all squad members as a shared career moment) is
+    // a follow-up and is explicitly out of scope for T4-2.5d.
+    let sig_defs = state.signature_definitions();
+    let mut pending: Vec<(
+        fw_core::ClubId,
+        usize,
+        fw_memory::BreakthroughState,
+        Vec<BreakthroughOutcome>,
+    )> = Vec::new();
+
+    for (club_id, instances) in &career.roster {
+        for (idx, inst) in instances.iter().enumerate() {
+            // Filter new_events to those where this player is the Subject.
+            // O(new_events) per player — much cheaper than a full-ledger clone
+            // when the new-event slice is small (one season's worth of events).
+            let player_new_ledger =
+                season::filter_new_events_for_player(&new_events, inst.player_id);
+
+            // Build BreakthroughContext from persisted genes + ceiling.
+            let family_pa_ca = gene_family_pa_ca(&inst.genes, inst.ceiling);
+            let narrative_flags: Vec<fw_memory::NarrativeFlag> = inst
+                .genes
+                .narrative_flags
+                .iter()
+                .map(|&f| season::content_flag_to_memory_flag(f))
+                .collect();
+            let sig_candidates =
+                season::signature_candidates_to_ctx(&inst.signature_candidates, sig_defs);
+            let career_date = fw_memory::event::CareerDate {
+                year: current_season_num.0 + 1,
+                day_of_year: 365,
+            };
+
+            let ctx = BreakthroughContext {
+                player_id: inst.player_id,
+                pa_by_family: family_pa_ca.pa,
+                ca_by_family: family_pa_ca.ca,
+                narrative_flags,
+                signature_candidates: sig_candidates,
+                age_years: season::CAREER_START_AGE_YEARS,
+                career_date,
+            };
+
+            // Clone state; evaluate; always carry the mutated copy back so
+            // readiness resets, pressure resets, and cooldown fire dates are
+            // persisted across seasons — regardless of whether a breakthrough fired.
+            let mut state_copy = inst.breakthrough_state.clone();
+            let outcomes = evaluate(
+                &player_new_ledger,
+                &ctx,
+                &mut state_copy,
+                career_seed,
+                now_tick,
+            );
+
+            pending.push((*club_id, idx, state_copy, outcomes));
+        }
+    }
+
+    // Phase 2a: write back BreakthroughState and apply ceiling deltas.
+    // (mutable borrow on career.roster; career.ledger not borrowed here)
+    let mut breakthrough_events: Vec<fw_memory::event::MemoryEvent> = Vec::new();
+
+    for (club_id, slot_idx, new_state, outcomes) in pending {
+        let Some(instances) = career.roster.get_mut(&club_id) else {
+            continue; // defensive; club must be present
+        };
+        let Some(inst) = instances.get_mut(slot_idx) else {
+            continue; // defensive; slot must be present
+        };
+        inst.breakthrough_state = new_state;
+        for outcome in outcomes {
+            inst.ceiling
+                .apply_breakthrough_delta(outcome.delta_pa, outcome.delta_ca);
+            breakthrough_events.push(outcome.event);
+        }
+    }
+
+    // Phase 2b: append breakthrough events to ledger; advance watermark.
+    // career.roster is no longer borrowed (get_mut guards dropped at end of loop).
+    for event in breakthrough_events {
+        career.ledger.append(event);
+    }
+    // Advance the watermark to the current ledger length. The breakthrough events
+    // we just appended are PAST the watermark, so they are included in the next
+    // season's new-event window — correctly feeding the BreakthroughMoment as a
+    // historical event for cooldown checks in subsequent evaluate() calls.
+    career.breakthrough_eval_watermark = career.ledger.len();
+    // ---- End pillar-3 breakthrough evaluation ----
 
     let new_season_num = SeasonNumber(current_season_num.0 + 1);
     // At or past the 5-season boundary: compact with the NEW season number
