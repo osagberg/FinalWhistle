@@ -1,4 +1,5 @@
 /* @refresh reload */
+import { createSignal, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { Router } from "@solidjs/router";
 
@@ -18,6 +19,7 @@ import "@fontsource/jetbrains-mono/700.css";
 
 import "./styles.css";
 import App from "./App";
+import SplashOverlay from "./components/SplashOverlay";
 import { getSettings } from "./lib/api/settings";
 import { setTheme, setReduceMotion } from "./lib/state";
 
@@ -26,21 +28,43 @@ if (!root) {
   throw new Error("Root element #root not found in index.html");
 }
 
-// Apply persisted settings before first render where feasible.
-// Best-effort: if this fails (e.g. no Tauri in browser-preview), fall back
-// to the signal defaults (light, no reduce-motion) and do NOT crash.
-getSettings()
+// Settings promise — drives both the theme application and the splash ready
+// signal. Best-effort: if it fails (browser-preview / test / no Tauri), we
+// resolve immediately so the splash doesn't block indefinitely.
+const settingsReady: Promise<void> = getSettings()
   .then((s) => {
     setTheme(s.theme);
     setReduceMotion(s.reduceMotion);
   })
-  .catch(() => {
-    // Silently ignore — browser preview and test environments have no Tauri
-    // runtime. The signal defaults (light, false) are correct fallbacks.
+  .catch((e: unknown) => {
+    // Browser-preview / test envs reject here (no Tauri runtime) — expected, and
+    // the signal defaults (light, no reduce-motion) are correct fallbacks. But a
+    // REAL Tauri user with a corrupt settings file ALSO lands here
+    // (IpcError::SettingsLoadFailed), so log it (matching the repo's IPC-catch
+    // convention) rather than silently resetting their theme with no signal.
+    console.error("[main] getSettings failed; using default theme/motion:", e);
   });
 
-// <Router>'s children are <Route> definitions. App() returns a <Route>
-// tree; invoke it to get JSX (a plain function reference here would type
-// as `() => Element`, which @solidjs/router 0.15 won't accept as
-// children — needs the materialized route nodes).
-render(() => <Router>{App()}</Router>, root);
+// Root shell — owns the splash signal so it can be cleared from within the
+// SolidJS reactive tree (SplashOverlay uses onMount / onCleanup which need
+// to run inside a Solid render context).
+function Shell(): JSX.Element {
+  const [splashDone, setSplashDone] = createSignal(false);
+
+  return (
+    <>
+      {/* Main app — rendered beneath the splash from the start so route
+          components can begin their own data fetches immediately. */}
+      <Router>{App()}</Router>
+      {/* Splash overlay — unmounts itself via onDone once app is ready. */}
+      {!splashDone() && (
+        <SplashOverlay
+          ready={settingsReady}
+          onDone={() => setSplashDone(true)}
+        />
+      )}
+    </>
+  );
+}
+
+render(() => <Shell />, root);

@@ -1,65 +1,104 @@
 import { createResource, Show, type JSX } from "solid-js";
+import { A } from "@solidjs/router";
 import { getBackendHandshake, isTauri } from "~/lib/tauri";
-import Loading from "~/components/Loading";
-import ErrorBoundary from "~/components/ErrorBoundary";
 
+/**
+ * Main-menu landing (T4-7 game-shell polish).
+ *
+ * Shows the FINAL WHISTLE wordmark, a one-line football-native tagline,
+ * and three action surfaces:
+ *   - New career   (disabled, coming at T4-8+)
+ *   - Load save    (disabled, coming at T4-8+)
+ *   - Settings     (real, routes to /settings)
+ *
+ * The backend liveness status is demoted to a small unobtrusive line at the
+ * foot of the card — it's a dev diagnostic, not player-facing.
+ */
 export default function Home(): JSX.Element {
-  // Liveness ping. In a plain browser tab there's no Tauri runtime, so we
-  // skip the invoke and render a stub message instead.
-  const [state] = createResource(async () => {
+  // Liveness check — kept as a small diagnostic line only.
+  const [status] = createResource(async () => {
     if (!isTauri()) {
-      return {
-        appVersion: "0.1.0",
-        message: "Browser preview — no Tauri backend.",
-        backendReady: false,
-      };
+      return { ready: false, label: "browser preview — no Tauri backend" };
     }
-    return getBackendHandshake();
+    const hs = await getBackendHandshake();
+    return {
+      ready: hs.backendReady,
+      label: hs.backendReady ? `backend ready · v${hs.appVersion}` : hs.message,
+    };
   });
 
   return (
-    <ErrorBoundary>
-      <div class="space-y-4">
-        <header>
-          <h1 class="font-display text-3xl text-pitch-600 dark:text-pitch-300">
-            Welcome to Final Whistle
-          </h1>
-          <p class="mt-1 text-sm text-ink-subtle dark:text-paper-subtle">
-            Backend handshake live. Career start and club selection land at T4-2.5b.
-          </p>
-        </header>
-        <section class="fw-panel p-4">
-          <h2 class="font-display text-lg">Backend handshake</h2>
-          <Show when={state()} fallback={<Loading message="Pinging backend…" />}>
-            {(s) => (
-              <dl class="mt-2 grid grid-cols-2 gap-2 text-sm">
-                <dt class="text-ink-mute">App version</dt>
-                <dd class="font-mono">{s().appVersion}</dd>
-                <dt class="text-ink-mute">Message</dt>
-                <dd class="font-mono">{s().message}</dd>
-                <dt class="text-ink-mute">Backend ready</dt>
-                <dd class="font-mono">
-                  <span
-                    class="fw-pill"
-                    classList={{
-                      "bg-pitch-100 text-pitch-700": s().backendReady,
-                      "bg-paper-bold text-ink-mute": !s().backendReady,
-                    }}
-                  >
-                    {s().backendReady ? "yes" : "stub"}
-                  </span>
-                </dd>
-              </dl>
-            )}
-          </Show>
-        </section>
-        <section class="fw-panel p-4">
-          <h2 class="font-display text-lg">Quick actions</h2>
-          <p class="mt-1 text-sm text-ink-subtle dark:text-paper-subtle">
-            New career and quickstart wire at T4-2.5b. Load save wires at T4-2.5g.
-          </p>
-        </section>
+    <div class="min-h-[calc(100vh-7rem)] flex flex-col items-center justify-center gap-8 py-12">
+      {/* Wordmark — the <h1> carries the accessible name; the wrapper is
+          decorative structure (no aria-label, to avoid a double announcement). */}
+      <div class="flex flex-col items-center gap-2 select-none">
+        <h1
+          class="font-display text-6xl tracking-wider text-pitch-600 dark:text-pitch-300"
+          aria-label="Final Whistle"
+        >
+          FINAL WHISTLE
+        </h1>
+        <p class="text-sm text-ink-mute dark:text-paper-subtle font-body tracking-wide">
+          Every career leaves a mark. Every world plays different.
+        </p>
       </div>
-    </ErrorBoundary>
+
+      {/* Action card */}
+      <div class="fw-panel w-full max-w-xs flex flex-col gap-3 p-6">
+        {/* New career — disabled until T4-8+ */}
+        <button
+          type="button"
+          disabled
+          class="w-full py-3 px-4 rounded text-sm font-display tracking-wider bg-pitch-500 text-paper opacity-40 cursor-not-allowed"
+          aria-disabled="true"
+          title="Coming soon"
+        >
+          NEW CAREER
+          <span class="ml-2 text-xs font-body normal-case opacity-80">coming soon</span>
+        </button>
+
+        {/* Load save — disabled until T4-8+ */}
+        <button
+          type="button"
+          disabled
+          class="w-full py-3 px-4 rounded text-sm font-display tracking-wider border border-ink-mute/30 dark:border-midnight-line text-ink-subtle dark:text-paper-subtle opacity-40 cursor-not-allowed"
+          aria-disabled="true"
+          title="Coming soon"
+        >
+          LOAD SAVE
+          <span class="ml-2 text-xs font-body normal-case opacity-80">coming soon</span>
+        </button>
+
+        {/* Settings — real link */}
+        <A
+          href="/settings"
+          class="w-full py-2.5 px-4 rounded text-sm font-body text-center text-ink-subtle dark:text-paper-subtle hover:text-ink dark:hover:text-paper hover:bg-paper-subtle dark:hover:bg-midnight-subtle transition-colors"
+        >
+          Settings
+        </A>
+      </div>
+
+      {/* Backend status — dev diagnostic, visually minimal */}
+      <Show
+        when={status()}
+        fallback={
+          <p class="text-xs text-ink-mute dark:text-paper-subtle font-mono opacity-50">
+            checking backend…
+          </p>
+        }
+      >
+        {(s) => (
+          <p
+            class="text-xs font-mono opacity-50"
+            classList={{
+              "text-pitch-600 dark:text-pitch-400": s().ready,
+              "text-ink-mute dark:text-paper-subtle": !s().ready,
+            }}
+          >
+            {s().label}
+          </p>
+        )}
+      </Show>
+    </div>
   );
 }

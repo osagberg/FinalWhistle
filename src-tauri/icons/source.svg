@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Rounded-square background: pitch-500 #2d6e3e -->
+  <rect x="0" y="0" width="1024" height="1024" rx="180" ry="180" fill="#2d6e3e"/>
+  <!-- Subtle inner vignette for depth -->
+  <radialGradient id="vignette" cx="50%" cy="40%" r="60%">
+    <stop offset="0%" stop-color="#3a8a4f" stop-opacity="0.6"/>
+    <stop offset="100%" stop-color="#1b4528" stop-opacity="0.0"/>
+  </radialGradient>
+  <rect x="0" y="0" width="1024" height="1024" rx="180" ry="180" fill="url(#vignette)"/>
+  <!-- "FW" letterform — Anton-style condensed bold, paper-coloured -->
+  <!-- F: vertical stroke + two horizontal bars -->
+  <rect x="148" y="268" width="68" height="488" rx="8" fill="#f7f4ee"/>
+  <rect x="148" y="268" width="260" height="68" rx="8" fill="#f7f4ee"/>
+  <rect x="148" y="476" width="210" height="64" rx="8" fill="#f7f4ee"/>
+  <!-- W: four diagonal strokes forming a W shape -->
+  <!-- Left outer down-stroke -->
+  <polygon points="400,268 468,268 524,636 456,636" fill="#f7f4ee"/>
+  <!-- Left inner up-stroke -->
+  <polygon points="456,636 524,636 512,540 444,540" fill="#f7f4ee"/>
+  <!-- Centre peak -->
+  <polygon points="512,540 580,540 568,636 500,636" fill="#f7f4ee"/>
+  <!-- Right inner down-stroke -->
+  <polygon points="500,636 568,636 624,268 556,268" fill="#f7f4ee"/>
+  <!-- Right outer up-stroke -->
+  <polygon points="556,268 624,268 692,636 624,636" fill="#f7f4ee"/>
+  <!-- Right outer closing -->
+  <polygon points="624,636 692,636 760,268 692,268" fill="#f7f4ee"/>
+  <!-- Tagline underbar — thin rule below the letters -->
+  <rect x="148" y="788" width="612" height="12" rx="6" fill="#f7f4ee" opacity="0.45"/>
+</svg>

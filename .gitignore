@@ -155,3 +155,11 @@ node_modules/
 # ==========================================
 __pycache__/
 *.pyc
+
+# ==========================================
+# Mobile icon trees emitted by `pnpm tauri icon` (T4-7). This project is
+# desktop-only (CLAUDE.md §3 rules out mobile); tauri.conf.json references only
+# the desktop icons. Keep the mobile sets out of the repo.
+# ==========================================
+src-tauri/icons/android/
+src-tauri/icons/ios/

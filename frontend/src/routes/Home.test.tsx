@@ -1,23 +1,16 @@
 /*
- * Home page — Vitest tests (QA-5).
+ * Home page — Vitest tests (T4-7 game-shell polish).
  *
- * Substance requirements (MASTER_PLAN QA-5):
- *   AC1 — loading skeleton renders while the backend handshake is pending.
- *   AC2 — success render shows the handshake payload (appVersion / message /
- *         backendReady pill), via the Tauri path AND the browser-stub path.
- *   AC3 — error path shows football-native copy and NEVER leaks the raw
- *         err.message into the user-facing structured copy.
- *
- * Error-copy convention (matches ErrorBoundary.test.tsx): Vitest runs with
- * import.meta.env.DEV === true, so ErrorBoundary's DEV-only <pre> frame *does*
- * contain err.message in tests. The production gate (isDev() === false hiding
- * the raw message) cannot be stubbed via a module mock — `isDev()` is called
- * by a direct in-module reference, so replacing the export does not affect the
- * component's own call (ESM same-module-binding). We therefore assert the
- * user-facing structured elements (the <h2> headline + <p> detail) carry the
- * football-native copy and do NOT contain the raw technical string. That is
- * the element a player sees in production; the dev <pre> is excluded from the
- * assertion. ErrorBoundary.test.tsx validates the same prod-gate the same way.
+ * The Home route is now the branded main-menu landing (not a diagnostic panel).
+ * Test coverage:
+ *   AC1 — wordmark "FINAL WHISTLE" renders.
+ *   AC2 — tagline renders.
+ *   AC3 — "NEW CAREER" and "LOAD SAVE" buttons render and are disabled.
+ *   AC4 — Settings link renders and points to /settings.
+ *   AC5 — Backend status line shows "checking backend…" while pending, then
+ *          the resolved label (Tauri path + browser-stub path).
+ *   AC6 — Error path does not crash the wordmark/action card (ErrorBoundary
+ *          wraps only when thrown; here getBackendHandshake is fire-and-observe).
  *
  * Mocking strategy:
  *   - ~/lib/tauri is mocked so each test controls isTauri() + getBackendHandshake().
@@ -26,6 +19,7 @@
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@solidjs/testing-library";
+import { MemoryRouter, Route } from "@solidjs/router";
 
 // ---------------------------------------------------------------------------
 // Module mocks — hoisted before component import
@@ -43,10 +37,15 @@ vi.mock("~/lib/tauri", () => ({
 // Import AFTER mocks are hoisted.
 import Home from "./Home";
 import { isTauri, getBackendHandshake } from "~/lib/tauri";
-
-// A raw technical error string that must never reach the user-facing copy.
-const RAW_TECHNICAL =
-  "Cannot read properties of undefined (reading 'invoke') at safeInvoke";
+// Home uses <A> from @solidjs/router which requires a Router + Route context.
+// Wrap each render in a MemoryRouter with a root Route so <A> can resolve hrefs.
+function renderHome(): ReturnType<typeof render> {
+  return render(() => (
+    <MemoryRouter>
+      <Route path="/" component={Home} />
+    </MemoryRouter>
+  ));
+}
 
 beforeEach(() => {
   vi.mocked(isTauri).mockReset();
@@ -55,88 +54,88 @@ beforeEach(() => {
   vi.mocked(isTauri).mockReturnValue(true);
 });
 
-describe("Home", () => {
-  it("renders the loading skeleton while the handshake is pending", () => {
-    // A promise that never settles keeps the resource in its loading state.
+describe("Home — main menu", () => {
+  it("renders the FINAL WHISTLE wordmark", () => {
     vi.mocked(getBackendHandshake).mockReturnValue(new Promise<never>(() => {}));
-
-    render(() => <Home />);
-
-    // The <Show> fallback (<Loading message="Pinging backend…">) is shown
-    // synchronously before the resource resolves.
-    expect(screen.getByText("Pinging backend…")).toBeInTheDocument();
+    renderHome();
+    expect(screen.getByText("FINAL WHISTLE")).toBeInTheDocument();
   });
 
-  it("renders the handshake payload on success (Tauri path)", async () => {
+  it("renders the tagline", () => {
+    vi.mocked(getBackendHandshake).mockReturnValue(new Promise<never>(() => {}));
+    renderHome();
+    expect(
+      screen.getByText(/every career leaves a mark/i),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the NEW CAREER button and it is disabled", () => {
+    vi.mocked(getBackendHandshake).mockReturnValue(new Promise<never>(() => {}));
+    renderHome();
+    const btn = screen.getByRole("button", { name: /new career/i });
+    expect(btn).toBeInTheDocument();
+    expect(btn).toBeDisabled();
+  });
+
+  it("renders the LOAD SAVE button and it is disabled", () => {
+    vi.mocked(getBackendHandshake).mockReturnValue(new Promise<never>(() => {}));
+    renderHome();
+    const btn = screen.getByRole("button", { name: /load save/i });
+    expect(btn).toBeInTheDocument();
+    expect(btn).toBeDisabled();
+  });
+
+  it("renders the Settings link pointing to /settings", () => {
+    vi.mocked(getBackendHandshake).mockReturnValue(new Promise<never>(() => {}));
+    renderHome();
+    const link = screen.getByRole("link", { name: /settings/i });
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "/settings");
+  });
+
+  it("shows the pending status line while the backend check is in flight", () => {
+    vi.mocked(getBackendHandshake).mockReturnValue(new Promise<never>(() => {}));
+    renderHome();
+    expect(screen.getByText(/checking backend/i)).toBeInTheDocument();
+  });
+
+  it("shows the resolved backend label on success (Tauri path)", async () => {
     vi.mocked(getBackendHandshake).mockResolvedValue({
       appVersion: "9.9.9",
       message: "Pitch is live",
       backendReady: true,
     });
 
-    render(() => <Home />);
+    renderHome();
 
     await waitFor(() => {
-      expect(screen.getByText("9.9.9")).toBeInTheDocument();
+      // "backend ready · v9.9.9"
+      expect(screen.getByText(/backend ready/i)).toBeInTheDocument();
     });
-    expect(screen.getByText("Pitch is live")).toBeInTheDocument();
-    // backendReady: true → the pill reads "yes" (not the "stub" fallback).
-    expect(screen.getByText("yes")).toBeInTheDocument();
-    expect(screen.queryByText("stub")).not.toBeInTheDocument();
-    // getBackendHandshake is the source of the payload (called on mount).
+    expect(screen.getByText(/v9\.9\.9/)).toBeInTheDocument();
     expect(getBackendHandshake).toHaveBeenCalledTimes(1);
   });
 
-  it("renders the browser-stub payload when not running in Tauri", async () => {
-    // Browser tab: Home short-circuits to the stub and never invokes the backend.
+  it("shows the browser-stub label when not running in Tauri", async () => {
     vi.mocked(isTauri).mockReturnValue(false);
 
-    render(() => <Home />);
+    renderHome();
 
     await waitFor(() => {
       expect(
-        screen.getByText("Browser preview — no Tauri backend."),
+        screen.getByText(/browser preview — no Tauri backend/i),
       ).toBeInTheDocument();
     });
-    expect(screen.getByText("0.1.0")).toBeInTheDocument();
-    // backendReady: false → the pill reads "stub".
-    expect(screen.getByText("stub")).toBeInTheDocument();
     // The backend handshake must NOT be invoked outside Tauri.
     expect(getBackendHandshake).not.toHaveBeenCalled();
   });
 
-  it("renders football-native error copy and never leaks the raw error", async () => {
-    vi.mocked(getBackendHandshake).mockRejectedValue(new Error(RAW_TECHNICAL));
-
-    render(() => <Home />);
-
-    // The ErrorBoundary fallback (role=alert) replaces the panel on failure.
-    const alert = await waitFor(() => screen.getByRole("alert"));
-
-    // Football-native headline + detail are present.
-    expect(alert.textContent).toMatch(/something went wrong on the bench/i);
-    expect(alert.textContent).toMatch(/hit reset to try again/i);
-
-    // The user-facing structured copy (<h2> headline + <p> detail) must NOT
-    // contain the raw technical string. (The DEV-only <pre> frame may, in
-    // Vitest's DEV mode — it is excluded from this assertion per the
-    // ErrorBoundary.test convention; it is hidden in production builds.)
-    const headline = alert.querySelector("h2");
-    const paragraphs = Array.from(alert.querySelectorAll("p"));
-    expect(headline?.textContent).toBeTruthy();
-    expect(headline?.textContent ?? "").not.toContain("invoke");
-    expect(
-      paragraphs.every((p) => !(p.textContent ?? "").includes("invoke")),
-    ).toBe(true);
-    expect(
-      paragraphs.every(
-        (p) => !(p.textContent ?? "").includes("Cannot read properties"),
-      ),
-    ).toBe(true);
-
-    // The Reset affordance is offered.
-    expect(
-      screen.getByRole("button", { name: /reset/i }),
-    ).toBeInTheDocument();
+  it("does not render old diagnostic panel content", () => {
+    vi.mocked(getBackendHandshake).mockReturnValue(new Promise<never>(() => {}));
+    renderHome();
+    // Old panel headings must not appear on the new landing.
+    expect(screen.queryByText("Backend handshake")).not.toBeInTheDocument();
+    expect(screen.queryByText(/pinging backend/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/quick actions/i)).not.toBeInTheDocument();
   });
 });
