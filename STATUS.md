@@ -1,6 +1,6 @@
 # STATUS — Final Whistle
 
-**Last updated**: 2026-05-29
+**Last updated**: 2026-06-03
 
 ## Phase
 
@@ -10,7 +10,7 @@
 
 ## Active task
 
-**None — Phase-T4 implementation complete.** The autonomous loop reached its terminus (all selectable T4 rows DONE) and HARD-STOPPED. Next action is the user's: **T4-8 phase gate** — run `/done` to verify the acceptance gate, sync ledgers, and print the `gh pr create` command for the Codex phase-gate review. (Do not auto-run `/done` — it's the human/Codex handoff.) After the gate: T4.5 (World Scale + Content Bake, EA-critical) or the F5/F6 match-engine calibration valley.
+**Phase-T4 close in progress — awaiting the Codex determinism gate.** Implementation complete; `/done` run 2026-06-03: acceptance gate verified (9 bullets met — bullet 8 reworded to "since the T4-2.5j rebaseline"), ledgers synced. The Claude 4-track ultimate-review (`docs/audits/post-t4-ultimate-review-2026-06-03.md`) returned **ACCEPT — no correctness bugs**; doc-drift fixed in-close; test-coverage holes + 2 unlogged silent-blanks rowed as **QA-T4H** (land before T4.5's first `/next`). Next actions: (1) paste the handed-off focused Codex prompt (determinism / canonical-rebaseline / SaveV4) into a Codex session — Codex budget is limited this cycle, so it's one focused pass, not the full multi-agent gate; (2) apply any Codex gate-blockers + the QA-T4H batch; (3) create the `v0.4.0-polish` tag. Then T4.5 (World Scale + Content Bake, EA-critical).
 
 ## Blockers
 
@@ -24,4 +24,4 @@ Previously: T2-1d2 (xg_utility honesty / cross-band oscillation) re-anchored to 
 
 ## Last canonical hash
 
-`blake3:85f45bf8ae8821182a45a82969ec36bc5b2d70ba2518b8271de24782fd8064fa` (60-tick, UNCHANGED) + `blake3:206bddaef4df4fec909b9456e2efb04f6c5120ef4104dbdf6aec9665b45b57a9` (600-tick). **600-tick REBASELINED at T4-2.5c (2026-06-02)** — authorized; pillar-5 signature candidates onto role-matched (MID) slots, was slot-7-only; SINGLE-pin (the 60-tick bare-`initial` path is untouched); 5-seed envelope re-verified (pinned 4 goals ∈ [2,5]). The 60-tick pin lives in 3 sites (`canonical_hash.rs` + `0xdeadbeefdeadbeef.ron` + `fw-content/tests/fixtures_load.rs`) — all unchanged this row. Prior: T4-sim-halt rebaselined both. Save wire bytes: SaveEnvelope V0–V4 (V4 = `0x04`, shipped T4-2.5g; current production schema); SettingsEnvelope V0. Next bump: SaveV5 at T4.5-H (world-gen descriptors) / T4.5-E1 (mutable attributes).
+`blake3:85f45bf8ae8821182a45a82969ec36bc5b2d70ba2518b8271de24782fd8064fa` (60-tick, UNCHANGED) + `blake3:12ce5ab79c53a3229f59d92ea61fd14b1c2d2a5cf52b71c111e403279c464c1c` (600-tick). **600-tick REBASELINED at T4-2.5j (2026-06-03)** — authorized (user present); 5 new cross-family signature predicates + all-22-slot candidate wiring entered the canonical match setup; SINGLE-pin (the 60-tick bare-`initial` path is untouched); main-thread re-verified the 5-seed envelope (pinned `0xfeedbeefcafefade` = 4 goals ∈ [2,5]; all 5 ∈ [0,7]) BEFORE re-pinning. The 600-tick pin lives in 2 registry sites (`canonical_hash.rs` + `0xfeedbeefcafefade.ron`) + a 3rd hand-synced site (`fw-tauri` `t4_2_5e_canonical_pins_unchanged`); the 60-tick pin in 3 sites (`canonical_hash.rs` + `0xdeadbeefdeadbeef.ron` + `fw-content/tests/fixtures_load.rs`) — unchanged. Prior 600-tick baselines: `206bddae…` (T4-2.5c), then `856a7fed…` (T4-sim-halt). Save wire bytes: SaveEnvelope V0–V4 (V4 = `0x04`, shipped T4-2.5g; current production schema); SettingsEnvelope V0. Next bump: SaveV5 at T4.5-H / T4.5-E1.

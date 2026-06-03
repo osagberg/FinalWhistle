@@ -532,7 +532,9 @@ export interface CareerOverview {
 /**
  * Topic discriminant for a press-inbox item.
  *
- * Mirrors `PressTopicDto` on the Rust side.
+ * Mirrors the wire strings emitted by `fw_memory::readers::PressTopic` (mapped
+ * to these strings in `get_press_inbox_inner`, fw-tauri `commands.rs`). There is
+ * no Rust `PressTopicDto` type — the DTO field is a plain `String` on the wire.
  * Closed union — adding a new variant requires an IPC-contract update.
  */
 export type PressTopicDto =
