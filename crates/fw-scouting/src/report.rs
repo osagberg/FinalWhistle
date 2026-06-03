@@ -6,7 +6,7 @@
 //! Per `design/scouting.md §"Type contract"`.
 
 use fw_content::PhenotypeLabelId;
-use fw_core::Q32;
+use fw_core::{PlayerId, Q32};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -126,8 +126,15 @@ pub struct LabelEstimate {
 pub struct ScoutReport {
     /// Content-pack-qualified archetype ID for the scout that generated this report.
     pub scout_archetype_id: String,
-    /// Content-pack-qualified ID of the observed player.
-    pub player_id: String,
+    /// Roster `PlayerId` of the player this report is about.
+    ///
+    /// This is the durable roster identity (a `fw_core::PlayerId` newtype) set by
+    /// the caller (`observe_player`'s `subject` parameter) — not the content-bio
+    /// string ID. Fixed in F2 (docs/audits/2026-06-02-external-dual-review-claude-codex.md):
+    /// the prior `String` bio-id meant reports for different roster players sharing
+    /// the same bio were byte-identical because the RNG site was keyed only on
+    /// `observation_id`, not the player.
+    pub player_id: PlayerId,
     /// Overall confidence in this report; `Q32 ∈ [0, 1]`.
     /// Arithmetic mean of `label_estimates[].confidence`; `0.5` if no labels.
     pub confidence: Q32,

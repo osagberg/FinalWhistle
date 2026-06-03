@@ -734,7 +734,7 @@ pub fn observe_match_participants(
         );
 
         let obs_id = instance.observation_count;
-        let report = observe_player(scout, bio, career_seed, obs_id);
+        let report = observe_player(scout, bio, career_seed, obs_id, instance.player_id);
         instance.last_scout_report = Some(report);
         // Plain += 1: a career will never reach 2^32 match-days; overflow is
         // unreachable in practice. fw-tauri is outside Sim/RULES §11's scope
@@ -836,9 +836,10 @@ mod tests {
         let scout = fw_scouting::Scout::basic_uncertainty();
         let career_seed: u64 = 0xdead_beef_cafe_babe;
 
-        let report_0a = observe_player(&scout, bio, career_seed, 0);
-        let report_0b = observe_player(&scout, bio, career_seed, 0);
-        let report_5 = observe_player(&scout, bio, career_seed, 5);
+        let subject = fw_core::PlayerId::new(1);
+        let report_0a = observe_player(&scout, bio, career_seed, 0, subject);
+        let report_0b = observe_player(&scout, bio, career_seed, 0, subject);
+        let report_5 = observe_player(&scout, bio, career_seed, 5, subject);
 
         assert_eq!(
             report_0a, report_0b,

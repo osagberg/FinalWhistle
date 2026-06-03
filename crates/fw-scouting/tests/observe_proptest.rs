@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 use fw_content::{
     GeneSnapshot, MentalGenes, PhenotypeLabelId, PhysicalGenes, PlayerBio, TechnicalAffinities,
 };
-use fw_core::Q32;
+use fw_core::{PlayerId, Q32};
 use fw_scouting::{Scout, observe_player};
 use proptest::prelude::*;
 
@@ -109,7 +109,8 @@ fn make_fixture_bio(labels: BTreeSet<PhenotypeLabelId>) -> PlayerBio {
 fn observe_player_snapshot_basic_uncertainty_seed42() {
     let scout = Scout::basic_uncertainty();
     let bio = make_fixture_bio(BTreeSet::new());
-    let report = observe_player(&scout, &bio, 42, 0);
+    // subject=PlayerId(1) — stable fixture value; fixes F2 (site was hardcoded 0).
+    let report = observe_player(&scout, &bio, 42, 0, PlayerId::new(1));
     insta::assert_ron_snapshot!("observe_player_basic_uncertainty_seed42", report);
 }
 
@@ -138,12 +139,14 @@ proptest! {
     fn observe_player_structural_invariants(
         career_seed: u64,
         observation_id: u32,
+        subject_raw: u32,
         labels in label_strategy(),
     ) {
         let scout = Scout::basic_uncertainty();
         let label_count = labels.len();
         let bio = make_fixture_bio(labels);
-        let report = observe_player(&scout, &bio, career_seed, observation_id);
+        let subject = PlayerId::new(subject_raw);
+        let report = observe_player(&scout, &bio, career_seed, observation_id, subject);
 
         // Exactly 3 category estimates.
         prop_assert_eq!(

@@ -13,7 +13,7 @@
 //! ## Determinism contract
 //! `float_arithmetic = "deny"` (clippy). All numerics are `Q32`. `BTreeMap`/`BTreeSet`/`Vec` only.
 //! No `HashMap`, no clocks, no `thread_rng`. One `ChaCha8Rng` per `observe_player` call,
-//! seeded via `seed_fn(.., SeedLayer::ScoutObservation, 0)` per ADR-0009.
+//! seeded via `seed_fn(.., SeedLayer::ScoutObservation, subject.raw())` per ADR-0009 (F2 fix).
 
 pub mod band;
 pub mod observe;

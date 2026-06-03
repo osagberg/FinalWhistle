@@ -127,14 +127,9 @@ pub struct ScoutReportDto {
 impl ScoutReportDto {
     /// Project a `ScoutReport` + metadata into the DTO.
     ///
-    /// `player_id` is the typed `PlayerId` newtype (not a raw `u32`) so it
-    /// cannot be silently transposed with the adjacent `observation_count`
-    /// argument (Rust/RULES — typed IDs over context-dependent primitives).
-    pub fn from_report(
-        report: &ScoutReport,
-        player_id: fw_core::PlayerId,
-        observation_count: u32,
-    ) -> Self {
+    /// `report.player_id` is the roster `PlayerId` set by `observe_player`'s
+    /// `subject` parameter — no separate `player_id` arg is needed (F2 fix).
+    pub fn from_report(report: &ScoutReport, observation_count: u32) -> Self {
         let confidence = q32_to_f64(report.confidence.to_bits());
         let overall_band = UncertaintyBand::from_confidence(report.confidence)
             .display_label()
@@ -175,7 +170,7 @@ impl ScoutReportDto {
             .collect();
 
         ScoutReportDto {
-            player_id: player_id.raw(),
+            player_id: report.player_id.raw(),
             confidence,
             overall_band,
             observation_count,
@@ -336,7 +331,8 @@ mod tests {
         let half = Q32::from_raw(2_147_483_648_i64); // 0.5
         let report = ScoutReport {
             scout_archetype_id: "fwh.core:scout.basic-uncertainty".to_string(),
-            player_id: "fwh.core:player_00001".to_string(),
+            // player_id is now a PlayerId — matches the subject passed to observe_player (F2).
+            player_id: PlayerId::new(1_000_000),
             confidence: half,
             label_estimates: vec![],
             category_estimates: vec![
@@ -358,7 +354,8 @@ mod tests {
             ],
         };
 
-        let dto = ScoutReportDto::from_report(&report, PlayerId::new(1_000_000), 3);
+        // from_report no longer takes a separate player_id arg — it reads report.player_id (F2).
+        let dto = ScoutReportDto::from_report(&report, 3);
         let json = serde_json::to_string(&dto).expect("serialize");
         let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
 

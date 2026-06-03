@@ -4,7 +4,7 @@ expression: report
 ---
 ScoutReport(
   scout_archetype_id: "fwh.core:scout.basic-uncertainty",
-  player_id: "fwh.core:player_00001",
+  player_id: 1,
   confidence: FixedI64(
     bits: 2147483648,
   ),
@@ -13,28 +13,28 @@ ScoutReport(
     GeneCategoryEstimate(
       category: Physical,
       low: FixedI64(
-        bits: 1365596361,
+        bits: 1297400714,
       ),
       high: FixedI64(
-        bits: 2396388513,
+        bits: 2328192866,
       ),
     ),
     GeneCategoryEstimate(
       category: Mental,
       low: FixedI64(
-        bits: 1927682876,
+        bits: 1392693706,
       ),
       high: FixedI64(
-        bits: 2958475028,
+        bits: 2423485858,
       ),
     ),
     GeneCategoryEstimate(
       category: Technical,
       low: FixedI64(
-        bits: 981475729,
+        bits: 1520897631,
       ),
       high: FixedI64(
-        bits: 2012267881,
+        bits: 2551689783,
       ),
     ),
   ],

@@ -6,7 +6,7 @@
 //! Algorithm per `design/scouting.md §"Path-B report generation"`.
 
 use fw_content::PlayerBio;
-use fw_core::{Q32, SeedLayer, seed_fn};
+use fw_core::{PlayerId, Q32, SeedLayer, seed_fn};
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 
@@ -22,21 +22,37 @@ use crate::scout::{
 ///
 /// # Parameters
 /// - `scout` — the observing scout archetype (must be `BasicScoutUncertainty` for Path B).
-/// - `player_bio` — the player being observed (internal gene snapshot is read).
-/// - `career_seed` — the player's career-level seed (analogous to `match_seed` in ADR-0009).
+/// - `player_bio` — the player being observed (genes + `scout_labels` are read).
+/// - `career_seed` — the career-level seed (analogous to `match_seed` in ADR-0009).
 /// - `observation_id` — monotonically-increasing per-player observation counter (used as `tick`).
+/// - `subject` — the roster `PlayerId` of the player being observed. This is set
+///   verbatim as `ScoutReport.player_id` and used as the RNG site; the
+///   `subject ↔ player_bio` correspondence (that the bio is the one whose genes
+///   belong to this roster player) is the CALLER's responsibility — the only
+///   production caller, `fw_tauri::season::observe_match_participants`, enforces it
+///   with a release-mode `assert!(bio.internal_gene_snapshot == instance.genes)`.
 ///
 /// # Determinism
 /// One `ChaCha8Rng` per call, seeded from
-/// `seed_fn(career_seed, observation_id, SeedLayer::ScoutObservation, 0)`.
+/// `seed_fn(career_seed, observation_id, SeedLayer::ScoutObservation, subject.raw())`.
+/// Using `subject.raw()` as the RNG site ensures noise is keyed per-roster-player,
+/// so two distinct roster players sharing the same bio receive independent reports
+/// (F2 fix — prior to this the site was hardcoded `0`, making byte-identical reports
+/// for different players when they shared a bio and the same `observation_id`).
 /// All draws are sequential from this single stream.
 pub fn observe_player(
     scout: &Scout,
     player_bio: &PlayerBio,
     career_seed: u64,
     observation_id: u32,
+    subject: PlayerId,
 ) -> ScoutReport {
-    let rng_seed = seed_fn(career_seed, observation_id, SeedLayer::ScoutObservation, 0);
+    let rng_seed = seed_fn(
+        career_seed,
+        observation_id,
+        SeedLayer::ScoutObservation,
+        subject.raw(),
+    );
     let mut rng = ChaCha8Rng::seed_from_u64(rng_seed);
 
     let noise_amp = scout.base_observation_noise;
@@ -54,7 +70,7 @@ pub fn observe_player(
     // Step 5: Assemble.
     ScoutReport {
         scout_archetype_id: scout.archetype_id.clone(),
-        player_id: player_bio.player_id.clone(),
+        player_id: subject,
         confidence,
         label_estimates,
         category_estimates,

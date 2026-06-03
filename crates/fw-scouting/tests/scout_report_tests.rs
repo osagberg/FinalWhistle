@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 use fw_content::{
     GeneSnapshot, MentalGenes, PhenotypeLabelId, PhysicalGenes, PlayerBio, TechnicalAffinities,
 };
-use fw_core::Q32;
+use fw_core::{PlayerId, Q32};
 use fw_scouting::{
     CategoryBiases, GeneCategory, GeneCategoryEstimate, LabelEstimate, Scout, ScoutReport,
     UncertaintyBand, observe_player,
@@ -258,8 +258,9 @@ fn observe_player_is_deterministic() {
     let career_seed = 42_u64;
     let observation_id = 0_u32;
 
-    let report_a = observe_player(&scout, &bio, career_seed, observation_id);
-    let report_b = observe_player(&scout, &bio, career_seed, observation_id);
+    let subject = PlayerId::new(1);
+    let report_a = observe_player(&scout, &bio, career_seed, observation_id, subject);
+    let report_b = observe_player(&scout, &bio, career_seed, observation_id, subject);
     assert_eq!(
         report_a, report_b,
         "observe_player with identical inputs must produce equal ScoutReports"
@@ -276,13 +277,66 @@ fn observe_player_different_career_seed_produces_different_report() {
     let bio = make_player_bio_with_labels(labels);
     let observation_id = 0_u32;
 
-    let report_a = observe_player(&scout, &bio, 1_u64, observation_id);
-    let report_b = observe_player(&scout, &bio, 99999_u64, observation_id);
+    let subject = PlayerId::new(1);
+    let report_a = observe_player(&scout, &bio, 1_u64, observation_id, subject);
+    let report_b = observe_player(&scout, &bio, 99999_u64, observation_id, subject);
 
     // The reports must differ in at least the category estimates or label confidences.
     assert_ne!(
         report_a, report_b,
         "observe_player with different career_seed must produce different ScoutReports"
+    );
+}
+
+/// F2 regression: two roster players sharing the same bio + same obs_id must get
+/// DIFFERENT reports because the RNG site is now `subject.raw()`, not a constant `0`.
+///
+/// Pre-fix: site=0 → both calls produced byte-identical reports (defeats scouting-
+/// uncertainty pillar). Post-fix: distinct `subject` → distinct site → distinct noise.
+///
+/// Also verifies the determinism invariant: same subject+bio+seed+obs → identical.
+#[test]
+fn different_subjects_same_bio_differ() {
+    let scout = basic_scout();
+    let bio = make_player_bio_with_labels(BTreeSet::new());
+    let career_seed = 42_u64;
+    let observation_id = 0_u32;
+
+    let subject_a = PlayerId::new(1);
+    let subject_b = PlayerId::new(2);
+
+    let report_a1 = observe_player(&scout, &bio, career_seed, observation_id, subject_a);
+    let report_a2 = observe_player(&scout, &bio, career_seed, observation_id, subject_a);
+    let report_b = observe_player(&scout, &bio, career_seed, observation_id, subject_b);
+
+    // Determinism: same subject → identical.
+    assert_eq!(
+        report_a1, report_a2,
+        "same subject must produce identical reports (determinism invariant)"
+    );
+
+    // F2 fix: different subjects → different noise (category estimates will differ).
+    // The only thing that differs is subject.raw() fed as the RNG site — so any
+    // divergence in the category_estimates proves the site is live.
+    assert_ne!(
+        report_a1, report_b,
+        "different roster PlayerId subjects sharing the same bio must produce different reports \
+         (F2 fix — pre-fix site=0 made these byte-identical)"
+    );
+}
+
+/// F2 identity round-trip: `ScoutReport.player_id` must equal the `subject` passed
+/// in (the ROSTER `PlayerId`), NOT the content-bio id. Guards the exact regression
+/// F2 fixed (the report carried `player_bio.player_id` — a different id space).
+#[test]
+fn observe_player_report_player_id_matches_subject() {
+    let scout = basic_scout();
+    let bio = make_player_bio_with_labels(BTreeSet::new());
+    let subject = PlayerId::new(1_002_111); // a roster-range id, distinct from any bio id
+    let report = observe_player(&scout, &bio, 42_u64, 0_u32, subject);
+    assert_eq!(
+        report.player_id, subject,
+        "ScoutReport.player_id must equal the roster subject, not the content-bio id"
     );
 }
 
@@ -294,7 +348,7 @@ fn observe_player_different_career_seed_produces_different_report() {
 fn observe_player_returns_exactly_three_category_estimates() {
     let scout = basic_scout();
     let bio = make_player_bio_with_labels(BTreeSet::new());
-    let report = observe_player(&scout, &bio, 42, 0);
+    let report = observe_player(&scout, &bio, 42, 0, PlayerId::new(1));
     assert_eq!(
         report.category_estimates.len(),
         3,
@@ -306,7 +360,7 @@ fn observe_player_returns_exactly_three_category_estimates() {
 fn observe_player_category_estimates_in_order_physical_mental_technical() {
     let scout = basic_scout();
     let bio = make_player_bio_with_labels(BTreeSet::new());
-    let report = observe_player(&scout, &bio, 42, 0);
+    let report = observe_player(&scout, &bio, 42, 0, PlayerId::new(1));
     assert_eq!(
         report.category_estimates[0].category,
         GeneCategory::Physical
@@ -322,7 +376,7 @@ fn observe_player_category_estimates_in_order_physical_mental_technical() {
 fn observe_player_category_estimates_all_have_low_le_high() {
     let scout = basic_scout();
     let bio = make_player_bio_with_labels(BTreeSet::new());
-    let report = observe_player(&scout, &bio, 42, 0);
+    let report = observe_player(&scout, &bio, 42, 0, PlayerId::new(1));
     for est in &report.category_estimates {
         assert!(
             est.low <= est.high,
@@ -344,7 +398,7 @@ fn observe_player_label_estimates_count_matches_scout_labels() {
     labels.insert(PhenotypeLabelId::Poacher);
     labels.insert(PhenotypeLabelId::LateBloomer);
     let bio3 = make_player_bio_with_labels(labels);
-    let report3 = observe_player(&scout, &bio3, 42, 0);
+    let report3 = observe_player(&scout, &bio3, 42, 0, PlayerId::new(1));
     assert_eq!(
         report3.label_estimates.len(),
         3,
@@ -353,7 +407,7 @@ fn observe_player_label_estimates_count_matches_scout_labels() {
 
     // With 0 labels
     let bio0 = make_player_bio_with_labels(BTreeSet::new());
-    let report0 = observe_player(&scout, &bio0, 42, 0);
+    let report0 = observe_player(&scout, &bio0, 42, 0, PlayerId::new(1));
     assert_eq!(
         report0.label_estimates.len(),
         0,
@@ -365,7 +419,7 @@ fn observe_player_label_estimates_count_matches_scout_labels() {
 fn observe_player_no_labels_falls_back_to_half_confidence() {
     let scout = basic_scout();
     let bio = make_player_bio_with_labels(BTreeSet::new());
-    let report = observe_player(&scout, &bio, 42, 0);
+    let report = observe_player(&scout, &bio, 42, 0, PlayerId::new(1));
     // When no labels, overall confidence must be 0.5
     assert_eq!(
         report.confidence, Q_0_5,
@@ -384,7 +438,7 @@ fn scout_report_ron_round_trip() {
     labels.insert(PhenotypeLabelId::PureFinisher);
     labels.insert(PhenotypeLabelId::Poacher);
     let bio = make_player_bio_with_labels(labels);
-    let report = observe_player(&scout, &bio, 42, 0);
+    let report = observe_player(&scout, &bio, 42, 0, PlayerId::new(1));
 
     let encoded = ron::ser::to_string(&report).expect("RON encode must succeed");
     let decoded: ScoutReport = ron::de::from_str(&encoded).expect("RON decode must succeed");
@@ -399,7 +453,7 @@ fn scout_report_all_sub_types_populated_round_trip() {
     // Construct a ScoutReport with all fields manually populated and round-trip it.
     let report = ScoutReport {
         scout_archetype_id: "fwh.core:scout.basic-uncertainty".to_string(),
-        player_id: "fwh.core:player_00001".to_string(),
+        player_id: PlayerId::new(1),
         confidence: Q_0_7,
         label_estimates: vec![
             LabelEstimate {

@@ -846,11 +846,14 @@ pub fn get_scout_report_inner(
         None => Err(IpcError::NotYetObserved {
             player_id: player_id.to_string(),
         }),
-        Some(report) => Ok(ScoutReportDto::from_report(
-            report,
-            target_pid,
-            instance.observation_count,
-        )),
+        Some(report) => {
+            // report.player_id == target_pid by construction: observe_match_participants
+            // calls observe_player with instance.player_id as subject (F2 fix).
+            Ok(ScoutReportDto::from_report(
+                report,
+                instance.observation_count,
+            ))
+        }
     }
 }
 
