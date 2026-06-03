@@ -21,7 +21,7 @@ use fw_match_sim::{MatchState, tick_match};
 use fw_memory::NarrativeFlag as MemNarrativeFlag;
 use fw_memory::event::{
     CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter, EmitterKind, EntityRef,
-    EventClass, MemoryEvent, Participant, ParticipantRole, SeasonNumber, SourceId,
+    EventClass, EventId, MemoryEvent, Participant, ParticipantRole, SeasonNumber, SourceId,
 };
 use fw_memory::ledger::MemoryLedger;
 use fw_scouting::{Scout, observe_player};
@@ -764,6 +764,125 @@ pub fn observe_match_participants(
 /// attribute compiler; until then 22 is neutral (on the positive-development
 /// slope, not capped by the aging curve).
 pub const CAREER_START_AGE_YEARS: u8 = 22;
+
+/// The terminal season number at which the career-end `RegressiveCollapse` fires.
+///
+/// Defined as season 10 (i.e. after advancing past season index 9, the new season
+/// number is 10). This is a PLACEHOLDER for the post-EA player-retirement / career-arc
+/// system, which will own the real "a player's career ends" semantics. It is shipped
+/// now so `RegressiveCollapse` is deterministically emitted at career end and the
+/// Pillar-2 lifecycle (debut → long memory → decline) is provable end-to-end.
+///
+/// // PLACEHOLDER: this constant is the stand-in for post-EA retirement/career-arc
+/// // semantics (DECISIONS 2026-06-03 T4-2.5L D1). When the retirement system lands,
+/// // it replaces this fixed number with per-player career-arc resolution.
+pub const CAREER_END_SEASON: u16 = 10;
+
+/// Select the most regressive-pressured roster player for the career-end collapse.
+///
+/// Returns `None` when the roster is empty (should not occur in a well-formed career).
+///
+/// Selection algorithm (deterministic):
+/// 1. For each rostered `PlayerInstance`, sum `breakthrough_state.pressure(f)`
+///    over all `AttributeFamily::ALL` families.
+/// 2. Pick the player with the HIGHEST total pressure.
+/// 3. Deterministic tiebreak: first encountered in BTreeMap order (lowest ClubId,
+///    then lowest slot index within the club) wins equal-pressure ties.
+///
+/// Falls back to the first roster player when all pressures are zero.
+///
+/// Extracted from `emit_career_end_regressive_event` so the caller can hold
+/// the immutable roster borrow here and release it before taking a mutable borrow
+/// on `career.ledger` (the Rust borrow checker cannot prove that `roster` and
+/// `ledger` are disjoint fields through a `RwLockWriteGuard`).
+#[must_use]
+pub fn select_career_end_collapse_player(
+    roster: &std::collections::BTreeMap<fw_core::ClubId, Vec<crate::roster::PlayerInstance>>,
+) -> Option<fw_core::PlayerId> {
+    use fw_core::{AttributeFamily, Q32};
+
+    let mut best_player: Option<fw_core::PlayerId> = None;
+    let mut best_pressure = Q32::ZERO;
+
+    for instances in roster.values() {
+        for inst in instances {
+            let total_pressure: Q32 = AttributeFamily::ALL
+                .iter()
+                .map(|&family| inst.breakthrough_state.pressure(family))
+                .fold(Q32::ZERO, |acc, p| {
+                    // Unclamped addition: pressure values are in [0,1] per family;
+                    // 10 families → max total = 10.0, well within Q32 range.
+                    acc + p
+                });
+
+            let is_better = match best_player {
+                None => true,
+                Some(_) => total_pressure > best_pressure,
+            };
+            if is_better {
+                best_player = Some(inst.player_id);
+                best_pressure = total_pressure;
+            }
+        }
+    }
+
+    best_player
+}
+
+/// Emit a `RegressiveCollapse` event into `ledger` for `player_id` at the
+/// terminal career season.
+///
+/// The emitted event carries `stakes = Q32::ONE`, `DecayFunction::Never`,
+/// `CallbackEligibility::Immediate`, and a `PaReductionRedraw` consequence
+/// with `delta_pa = -1, delta_ca = 0` (the minimum valid magnitude; symbolic —
+/// the real decline values are a post-EA retirement system concern).
+///
+/// Call `select_career_end_collapse_player` first to resolve `player_id`, then
+/// release the roster borrow before calling this function.
+///
+/// // PLACEHOLDER: this emission is the stand-in for post-EA retirement/career-arc
+/// // semantics (DECISIONS 2026-06-03 T4-2.5L D1). When retirement lands, the
+/// // real decline arc replaces this synthetic event.
+pub fn emit_career_end_regressive_event(
+    player_id: fw_core::PlayerId,
+    season_number: SeasonNumber,
+    ledger: &mut MemoryLedger,
+) {
+    use fw_core::{AttributeFamily, Q32};
+
+    let event = MemoryEvent {
+        event_id: EventId(0), // overwritten by ledger.append
+        schema_version: 1,
+        season: season_number,
+        tick: None, // career-system context; no specific tick
+        career_date: CareerDate {
+            year: season_number.0 + 1,
+            day_of_year: 365,
+        },
+        emitter: Emitter {
+            kind: EmitterKind::CareerSystem,
+            source_id: SourceId::Player(player_id),
+        },
+        participants: vec![Participant {
+            role: ParticipantRole::Subject,
+            entity: EntityRef::Player(player_id),
+        }],
+        event_class: EventClass::RegressiveCollapse,
+        stakes: Q32::ONE,
+        emotion: fw_memory::event::Emotion::Disappointment,
+        consequence: vec![Consequence::PaReductionRedraw {
+            // Symbolic minimum magnitude: delta_pa must be < 0.
+            // The retirement system replaces this with the real decline values.
+            family: AttributeFamily::Finishing, // stand-in family
+            delta_pa: -1,
+            delta_ca: 0,
+        }],
+        callback_eligibility: CallbackEligibility::Immediate,
+        salience: Q32::ZERO, // overwritten by ledger.append
+        decay_function: DecayFunction::Never,
+    };
+    ledger.append(event);
+}
 
 // ---------------------------------------------------------------------------
 // Tests

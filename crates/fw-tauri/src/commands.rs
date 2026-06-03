@@ -1404,6 +1404,43 @@ pub fn advance_season_inner(state: &AppState) -> Result<AdvanceSeasonSummaryDto,
         false
     };
 
+    // ---- Pillar-2 (T4-2.5L D1): career-end RegressiveCollapse emission ----
+    //
+    // When the career reaches CAREER_END_SEASON, emit one RegressiveCollapse
+    // for the most regressive-pressured roster player. This is a PLACEHOLDER
+    // for the post-EA player-retirement / career-arc system (DECISIONS 2026-06-03
+    // T4-2.5L D1); it makes the Pillar-2 lifecycle (debut → memory → decline)
+    // provable end-to-end in tests without requiring a real retirement model.
+    //
+    // Two-phase borrow pattern (mirrors the breakthrough-eval borrow strategy
+    // above): select the player id under an immutable roster borrow (phase 1),
+    // then emit the event under a mutable ledger borrow (phase 2). The Rust
+    // borrow checker cannot prove `career.roster` and `career.ledger` are
+    // disjoint fields through the `RwLockWriteGuard` reference, so the two
+    // borrows must be temporally sequential.
+    if new_season_num.0 == season::CAREER_END_SEASON {
+        // Phase 1: resolve player id (immutable borrow on career.roster).
+        let collapse_player = season::select_career_end_collapse_player(&career.roster);
+        // Phase 2: emit event (mutable borrow on career.ledger; roster borrow dropped).
+        match collapse_player {
+            Some(pid) => {
+                season::emit_career_end_regressive_event(pid, new_season_num, &mut career.ledger);
+            }
+            // Unreachable in a well-formed career (roster generation always
+            // populates every club). Fail LOUD in logs rather than silently
+            // dropping the load-bearing career-end RegressiveCollapse — but do
+            // NOT panic (Tauri/RULES §4: a command handler must not panic).
+            None => {
+                log::error!(
+                    "career-end RegressiveCollapse skipped at season {}: roster is empty \
+                     (malformed career — should be unreachable per roster generation)",
+                    new_season_num.0
+                );
+            }
+        }
+    }
+    // ---- End career-end emission ----
+
     // Per-season stats reset: season_stats is per-season (reset here);
     // career_apps is career-long (never reset).
     for instances in career.roster.values_mut() {
