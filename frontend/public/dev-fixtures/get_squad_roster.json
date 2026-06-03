@@ -1,0 +1,28 @@
+{
+  "clubId": 1,
+  "clubName": "Ashvale United",
+  "players": [
+    { "playerId": 1000000, "name": "Caelan Breck",      "clubId": 1, "slot": 0,  "appearances": 12, "goals": 0,  "assists": 1,  "minutesPlayed": 1080 },
+    { "playerId": 1000001, "name": "Fen Harlow",         "clubId": 1, "slot": 1,  "appearances": 11, "goals": 0,  "assists": 2,  "minutesPlayed": 954  },
+    { "playerId": 1000002, "name": "Soren Vael",         "clubId": 1, "slot": 2,  "appearances": 12, "goals": 1,  "assists": 0,  "minutesPlayed": 1080 },
+    { "playerId": 1000003, "name": "Dako Renn",          "clubId": 1, "slot": 3,  "appearances": 10, "goals": 0,  "assists": 3,  "minutesPlayed": 850  },
+    { "playerId": 1000004, "name": "Thierry Okafor",     "clubId": 1, "slot": 4,  "appearances": 12, "goals": 2,  "assists": 1,  "minutesPlayed": 1080 },
+    { "playerId": 1000005, "name": "Emeka Thorpe",       "clubId": 1, "slot": 5,  "appearances": 12, "goals": 0,  "assists": 0,  "minutesPlayed": 1080 },
+    { "playerId": 1000006, "name": "Nilo Vance",         "clubId": 1, "slot": 6,  "appearances": 11, "goals": 3,  "assists": 2,  "minutesPlayed": 945  },
+    { "playerId": 1000007, "name": "Cassidy Marsh",      "clubId": 1, "slot": 7,  "appearances": 12, "goals": 1,  "assists": 4,  "minutesPlayed": 1080 },
+    { "playerId": 1000008, "name": "Orren Wick",         "clubId": 1, "slot": 8,  "appearances": 9,  "goals": 0,  "assists": 1,  "minutesPlayed": 720  },
+    { "playerId": 1000009, "name": "Lev Ashby",          "clubId": 1, "slot": 9,  "appearances": 12, "goals": 8,  "assists": 3,  "minutesPlayed": 1080 },
+    { "playerId": 1000010, "name": "Petra Quinn",        "clubId": 1, "slot": 10, "appearances": 12, "goals": 5,  "assists": 6,  "minutesPlayed": 1080 },
+    { "playerId": 1000011, "name": "Roran Fitch",        "clubId": 1, "slot": 11, "appearances": 7,  "goals": 0,  "assists": 0,  "minutesPlayed": 315  },
+    { "playerId": 1000012, "name": "Aldric Noel",        "clubId": 1, "slot": 12, "appearances": 5,  "goals": 1,  "assists": 0,  "minutesPlayed": 210  },
+    { "playerId": 1000013, "name": "Jude Calloway",      "clubId": 1, "slot": 13, "appearances": 8,  "goals": 0,  "assists": 2,  "minutesPlayed": 420  },
+    { "playerId": 1000014, "name": "Sable Trent",        "clubId": 1, "slot": 14, "appearances": 6,  "goals": 2,  "assists": 1,  "minutesPlayed": 360  },
+    { "playerId": 1000015, "name": "Elara Voss",         "clubId": 1, "slot": 15, "appearances": 4,  "goals": 0,  "assists": 0,  "minutesPlayed": 180  },
+    { "playerId": 1000016, "name": "Corvin Drake",       "clubId": 1, "slot": 16, "appearances": 3,  "goals": 0,  "assists": 1,  "minutesPlayed": 90   },
+    { "playerId": 1000017, "name": "Maren Loke",         "clubId": 1, "slot": 17, "appearances": 2,  "goals": 0,  "assists": 0,  "minutesPlayed": 45   },
+    { "playerId": 1000018, "name": "Brynn Cade",         "clubId": 1, "slot": 18, "appearances": 1,  "goals": 0,  "assists": 0,  "minutesPlayed": 22   },
+    { "playerId": 1000019, "name": "Tess Ulric",         "clubId": 1, "slot": 19, "appearances": 0,  "goals": 0,  "assists": 0,  "minutesPlayed": 0    },
+    { "playerId": 1000020, "name": "Daxton Holt",        "clubId": 1, "slot": 20, "appearances": 0,  "goals": 0,  "assists": 0,  "minutesPlayed": 0    },
+    { "playerId": 1000021, "name": "Zinnia Frey",        "clubId": 1, "slot": 21, "appearances": 0,  "goals": 0,  "assists": 0,  "minutesPlayed": 0    }
+  ]
+}

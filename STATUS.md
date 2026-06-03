@@ -4,13 +4,13 @@
 
 ## Phase
 
-**Phase T4 — Pillar Wiring + Polish — IN PROGRESS.** T4-1/2/3/4/5a/6a + T4-2.5a + T4-sim-halt + T4-2.5b + T4-2.5c (+T1-25/T1-26) + T4-2.5e + T4-2.5d + T4-2.5f + T4-F1 + T4-F2 + T4-2.5g + T4-2.5h + **T4-F4** DONE. **Running AUTONOMOUS (user out): a self-paced /loop runs /next through Phase T4, making recommended calls on forks, stopping at the T4 phase boundary or a real blocker.** T4-F4 (2026-06-03) added the Player-page scout-report section (UncertaintyBand bands + labels; graceful notYetObserved/non-roster) + closed the TS IpcError union gap. The career layer is now **correct (F1/F2) + persistent (T4-2.5g) + visible (T4-2.5h Squad stats + T4-F4 Player scout)**. Both match-state pins UNCHANGED. T4.5 (World Scale + Content Bake) is the EA-critical phase between T4 and T5.
+**Phase T4 — Pillar Wiring + Polish — IN PROGRESS.** T4-1/2/3/4/5a/6a + T4-2.5a + T4-sim-halt + T4-2.5b + T4-2.5c (+T1-25/T1-26) + T4-2.5e + T4-2.5d + T4-2.5f + T4-F1 + T4-F2 + T4-2.5g + T4-2.5h + T4-F4 + **T4-I1** DONE. **Running AUTONOMOUS (user out): a self-paced /loop runs /next through Phase T4, making recommended calls on forks, stopping at the T4 phase boundary or a real blocker.** The career layer is **correct (F1/F2) + persistent (T4-2.5g) + visible (T4-2.5h + T4-F4) + browser-previewable (T4-I1 dev fixture shim)**. Both match-state pins UNCHANGED. T4.5 (World Scale + Content Bake) is the EA-critical phase between T4 and T5.
 
-**2026-06-02 external dual review** re-prioritised the career layer to correct → persistent → visible — all three now landed. Remaining T4: I1 (dev fixture shim, NEXT), the pillar polish rows (T4-2.5i/j/k/L), T4-7, then the T4-8 phase gate. F5/F6 (match-engine) second; C1 at private-flip. **Filed follow-up:** roster Squad → Player navigation (roster DTO needs a navigable qualified-id) so the new scout section is reachable for roster players.
+**2026-06-02 external dual review** correct → persistent → visible all landed; I1 (preview shim) done. Remaining T4: QA-3/5, the pillar polish rows (T4-2.5i/j/k/L), T4-7, then the T4-8 phase gate. F5/F6 (match-engine) second; C1 at private-flip. **Filed follow-ups:** roster Squad → Player navigation (navigable qualified-id); match-sim `team_width` proptest flake; T4-I1 `import type` reorder.
 
 ## Active task
 
-**T4-I1 next** (autonomous loop) — dev-only, fail-loud `safeInvoke` fixture shim (`?backend=fixtures` / `VITE_FW_BROWSER_BACKEND=fixtures`) so the Tauri-`invoke` routes (Squad/Player/Career/Standings) render in plain Chrome, unblocking browser preview of the T4-2.5h + T4-F4 UI (currently preview-n/a). Deps T4-1 (DONE). `ui-programmer`. `[RELAYED]` external-review I1 — verify cited lines at pick time. Parallel-eligible: QA-3, QA-5.
+**QA-3 next** (autonomous loop) — world-gen seed-diversity proptest: two different career seeds produce structurally distinct leagues across a 50-pair sweep. Deps T4-2.5b (DONE). `qa-lead`. Parallel-eligible: QA-5 (Home.test loading/error/success).
 
 ## Blockers
 
@@ -20,7 +20,7 @@ Previously: T2-1d2 (xg_utility honesty / cross-band oscillation) re-anchored to 
 
 ## Last green verify
 
-2026-06-03 (T4-F4 close): `scripts/fw verify` exit 0 (the unrelated `fw-match-sim` `team_width` proptest flake did not fire this run). Frontend-only T4-F4 — Player-page scout-report section + the TS `IpcError` union gap (`notYetObserved` + `leagueGenerationFailed`); 274 frontend tests + `tsc` + `pnpm lint` clean; zero Rust touched; **both match-state pins UNCHANGED** (`85f45bf8…`/`206bddae…`). Self-review → Revise + fixes (inverted-playerId-docstrings, queryByText→getByText, category closed-union, leagueGenerationFailed football-native test, AC9 isolation-ordering). KNOWN unrelated: the match-sim `team_width` proptest flake remains filed as its own match-engine task (probabilistically reddens the full verify; not a career-layer regression). Prior: T4-2.5h (stats+Squad); T4-2.5g (SaveV4); T4-F2; T4-F1. Clippy + fmt + determinism-audit + banned-terms + cargo audit/deny clean throughout.
+2026-06-03 (T4-I1 close): `scripts/fw verify` exit 0 (the unrelated `fw-match-sim` `team_width` proptest flake did not fire). Frontend dev-infra T4-I1 — a DEV-only fail-loud fixture `invoke` shim at `safeInvoke` (`?backend=fixtures`/`VITE_FW_BROWSER_BACKEND=fixtures`) + 7 committed fixtures; 279 frontend tests + `tsc` + `pnpm lint` clean; zero Rust touched; **both match-state pins UNCHANGED** (`85f45bf8…`/`206bddae…`). Self-review → Accept (silent-failure: fail-loud/prod-safe/guard-enforced confirmed) + Revise→fixed (double `fixtureBackendActive()` call → capture-once; test `unstubAllGlobals`). KNOWN unrelated: the match-sim `team_width` proptest flake remains filed (probabilistically reddens the full verify; not a career-layer regression). Prior: T4-F4 (Player scout); T4-2.5h (stats+Squad); T4-2.5g (SaveV4); T4-F2; T4-F1. Clippy + fmt + determinism-audit + banned-terms + cargo audit/deny clean throughout.
 
 ## Last canonical hash
 

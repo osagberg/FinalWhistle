@@ -38,6 +38,90 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+
+// ---------------------------------------------------------------------------
+// T4-I1: DEV-ONLY fixture-backend shim
+//
+// When active, `safeInvoke` fetches a static JSON file from
+// `frontend/public/dev-fixtures/<command>.json` instead of calling `invoke`.
+// The SAME guard validates the fixture — a malformed fixture throws
+// `IpcShapeError` exactly like a malformed backend payload (fail-loud).
+//
+// Activation: DEV-only + either
+//   VITE_FW_BROWSER_BACKEND=fixtures  (env var, e.g. in `.env.local`)
+//   ?backend=fixtures in the URL      (handy for one-off preview tabs)
+//
+// Production: `import.meta.env.DEV` is false → this is compiled out by Vite.
+// The Tauri `invoke` path is byte-identical to before when the shim is inactive.
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns `true` when the DEV-ONLY fixture backend is active.
+ *
+ * NEVER returns `true` in a production build — gated behind
+ * `import.meta.env.DEV`. Separate from `isTauri()` — they are orthogonal
+ * concerns (fixture mode can be active in a browser tab regardless of whether
+ * `window.__TAURI_INTERNALS__` is present).
+ */
+export function fixtureBackendActive(): boolean {
+  if (!import.meta.env.DEV) return false;
+  if (import.meta.env.VITE_FW_BROWSER_BACKEND === "fixtures") return true;
+  // URL opt-in — guard for non-browser / test environments where window /
+  // location may be absent (e.g. Node-side vitest runs without jsdom).
+  if (typeof window !== "undefined" && window.location?.search) {
+    return (
+      new URLSearchParams(window.location.search).get("backend") === "fixtures"
+    );
+  }
+  return false;
+}
+
+/**
+ * Fetch a static fixture JSON for `command` from `/dev-fixtures/<command>.json`.
+ *
+ * Vite serves `frontend/public/` at the root during `pnpm dev`, so the file
+ * `frontend/public/dev-fixtures/get_squad_roster.json` is reachable at
+ * `/dev-fixtures/get_squad_roster.json`.
+ *
+ * FAIL-LOUD: a missing file (fetch !ok / 404) or un-parseable JSON throws an
+ * `IpcShapeError` naming the command and noting the fixture backend is active.
+ * There is NO silent fallback to `invoke` — a missing fixture is a developer
+ * error that should surface immediately.
+ *
+ * Args are intentionally IGNORED — fixtures are static, one canned response per
+ * command. This is preview-only; real per-arg responses require the Tauri backend.
+ */
+async function loadFixture(command: string): Promise<unknown> {
+  const url = `/dev-fixtures/${command}.json`;
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch (networkErr) {
+    throw new IpcShapeError(
+      command,
+      `fixture backend active but fetch('${url}') threw a network error: ${String(networkErr)}`,
+      null,
+    );
+  }
+  if (!response.ok) {
+    throw new IpcShapeError(
+      command,
+      `fixture backend active but '${url}' returned HTTP ${response.status} — create the fixture file at frontend/public/dev-fixtures/${command}.json`,
+      null,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = await response.json();
+  } catch (parseErr) {
+    throw new IpcShapeError(
+      command,
+      `fixture backend active but '${url}' contained invalid JSON: ${String(parseErr)}`,
+      null,
+    );
+  }
+  return parsed;
+}
 import type {
   AdvanceSeasonSummary,
   AdvanceWeekSummary,
@@ -445,11 +529,19 @@ export async function safeInvoke<T>(
   args: Record<string, unknown>,
   guard: (v: unknown) => v is T,
 ): Promise<T> {
-  const raw: unknown = await invoke(command, args);
+  // T4-I1: DEV-ONLY fixture shim — checked first. When inactive the branch is
+  // unreachable and the `invoke` path below is byte-identical to the prior impl.
+  // Capture ONCE so the error-message source label can't disagree with the path
+  // actually taken (don't re-read the env/URL flag mid-fn).
+  const usingFixture = fixtureBackendActive();
+  const raw: unknown = usingFixture
+    ? await loadFixture(command) // fixture path: args IGNORED (static preview)
+    : await invoke(command, args); // normal Tauri path (UNCHANGED)
   if (!guard(raw)) {
+    const source = usingFixture ? "fixture" : "invoke";
     throw new IpcShapeError(
       command,
-      "response failed runtime shape guard",
+      `response from ${source} failed runtime shape guard`,
       raw,
     );
   }

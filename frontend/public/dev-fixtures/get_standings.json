@@ -1,0 +1,22 @@
+[
+  { "clubId": 4,  "clubName": "Brindlewood City",   "played": 12, "wins": 9,  "draws": 1, "losses": 2, "goalsFor": 28, "goalsAgainst": 11, "goalDifference": 17,  "points": 28 },
+  { "clubId": 11, "clubName": "Dunmore Rovers",      "played": 12, "wins": 8,  "draws": 2, "losses": 2, "goalsFor": 24, "goalsAgainst": 14, "goalDifference": 10,  "points": 26 },
+  { "clubId": 7,  "clubName": "Halcyon Athletic",    "played": 12, "wins": 7,  "draws": 3, "losses": 2, "goalsFor": 21, "goalsAgainst": 13, "goalDifference": 8,   "points": 24 },
+  { "clubId": 1,  "clubName": "Ashvale United",      "played": 12, "wins": 7,  "draws": 2, "losses": 3, "goalsFor": 19, "goalsAgainst": 12, "goalDifference": 7,   "points": 23 },
+  { "clubId": 15, "clubName": "Sternpool Wanderers", "played": 12, "wins": 6,  "draws": 3, "losses": 3, "goalsFor": 18, "goalsAgainst": 15, "goalDifference": 3,   "points": 21 },
+  { "clubId": 3,  "clubName": "Kett's End FC",       "played": 12, "wins": 6,  "draws": 2, "losses": 4, "goalsFor": 17, "goalsAgainst": 16, "goalDifference": 1,   "points": 20 },
+  { "clubId": 9,  "clubName": "Moorfield Town",      "played": 12, "wins": 5,  "draws": 4, "losses": 3, "goalsFor": 16, "goalsAgainst": 14, "goalDifference": 2,   "points": 19 },
+  { "clubId": 18, "clubName": "Wyn Cross United",    "played": 12, "wins": 5,  "draws": 3, "losses": 4, "goalsFor": 14, "goalsAgainst": 15, "goalDifference": -1,  "points": 18 },
+  { "clubId": 6,  "clubName": "Cravenwood FC",       "played": 12, "wins": 5,  "draws": 2, "losses": 5, "goalsFor": 15, "goalsAgainst": 17, "goalDifference": -2,  "points": 17 },
+  { "clubId": 13, "clubName": "Redford Park",        "played": 12, "wins": 4,  "draws": 4, "losses": 4, "goalsFor": 14, "goalsAgainst": 15, "goalDifference": -1,  "points": 16 },
+  { "clubId": 2,  "clubName": "Ardwick Vale",        "played": 12, "wins": 4,  "draws": 3, "losses": 5, "goalsFor": 13, "goalsAgainst": 16, "goalDifference": -3,  "points": 15 },
+  { "clubId": 16, "clubName": "Thalby Athletic",     "played": 12, "wins": 4,  "draws": 3, "losses": 5, "goalsFor": 12, "goalsAgainst": 16, "goalDifference": -4,  "points": 15 },
+  { "clubId": 8,  "clubName": "Linden Borough",      "played": 12, "wins": 4,  "draws": 2, "losses": 6, "goalsFor": 11, "goalsAgainst": 18, "goalDifference": -7,  "points": 14 },
+  { "clubId": 12, "clubName": "Portchurch City",     "played": 12, "wins": 3,  "draws": 4, "losses": 5, "goalsFor": 12, "goalsAgainst": 17, "goalDifference": -5,  "points": 13 },
+  { "clubId": 5,  "clubName": "Casters Holt",        "played": 12, "wins": 3,  "draws": 3, "losses": 6, "goalsFor": 11, "goalsAgainst": 19, "goalDifference": -8,  "points": 12 },
+  { "clubId": 19, "clubName": "Yare Valley FC",      "played": 12, "wins": 3,  "draws": 2, "losses": 7, "goalsFor": 10, "goalsAgainst": 20, "goalDifference": -10, "points": 11 },
+  { "clubId": 10, "clubName": "Northfen United",     "played": 12, "wins": 2,  "draws": 4, "losses": 6, "goalsFor": 9,  "goalsAgainst": 20, "goalDifference": -11, "points": 10 },
+  { "clubId": 14, "clubName": "Saltholme Athletic",  "played": 12, "wins": 2,  "draws": 3, "losses": 7, "goalsFor": 8,  "goalsAgainst": 22, "goalDifference": -14, "points": 9  },
+  { "clubId": 17, "clubName": "Thickett Town",       "played": 12, "wins": 1,  "draws": 3, "losses": 8, "goalsFor": 7,  "goalsAgainst": 24, "goalDifference": -17, "points": 6  },
+  { "clubId": 20, "clubName": "Gorse End FC",        "played": 12, "wins": 0,  "draws": 3, "losses": 9, "goalsFor": 5,  "goalsAgainst": 28, "goalDifference": -23, "points": 3  }
+]

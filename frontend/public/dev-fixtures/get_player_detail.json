@@ -1,0 +1,15 @@
+{
+  "phenotype": {
+    "playerId": "fwh.core:player_01000009",
+    "name": "Lev Ashby",
+    "role": "Striker",
+    "birthRegion": "Thornfield",
+    "phenotypeLabels": ["Pure finisher", "Poacher", "Clinical in the box"]
+  },
+  "memoryCallbacks": [
+    "Made his senior debut at seventeen on a cold midweek evening — composed beyond his years.",
+    "Scored his first senior goal with a low finish across the keeper, a move he'd been drilling since he was twelve.",
+    "Hat-trick away at Dunmore Rovers. The away end didn't stop singing his name for three days."
+  ],
+  "contractStatus": "18 months remaining"
+}

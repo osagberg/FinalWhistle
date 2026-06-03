@@ -1,0 +1,11 @@
+{
+  "seasonNumber": 3,
+  "history": [
+    { "season": 1, "championClubName": "Brindlewood City" },
+    { "season": 2, "championClubName": "Ashvale United" }
+  ],
+  "crossSeasonCallbacks": [
+    "Lev Ashby's golden boot season set a tone this club won't forget in a hurry.",
+    "The away supporters still talk about that night in Portchurch."
+  ]
+}

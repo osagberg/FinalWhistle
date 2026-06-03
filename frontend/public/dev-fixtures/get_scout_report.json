@@ -1,0 +1,30 @@
+{
+  "playerId": 1000009,
+  "confidence": 0.72,
+  "overallBand": "a confident read",
+  "observationCount": 8,
+  "categories": [
+    {
+      "category": "Physical",
+      "low": 0.68,
+      "high": 0.81,
+      "band": "looks sharp"
+    },
+    {
+      "category": "Mental",
+      "low": 0.74,
+      "high": 0.89,
+      "band": "reads the game well"
+    },
+    {
+      "category": "Technical",
+      "low": 0.71,
+      "high": 0.84,
+      "band": "a confident read"
+    }
+  ],
+  "labels": [
+    { "label": "Pure finisher",      "confidence": 0.85, "band": "very likely" },
+    { "label": "Clinical in the box","confidence": 0.68, "band": "probable"     }
+  ]
+}

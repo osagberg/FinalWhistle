@@ -17,3 +17,14 @@
 # IPC. Regenerate per the header comment in src/routes/Dev/BoardPreview.tsx.
 !board-sample.json
 !.gitignore
+# T4-I1: IPC-command fixtures for the DEV-ONLY browser fixture backend.
+# These are hand-authored static JSON payloads (one per read command) committed
+# alongside the shim so `pnpm dev ?backend=fixtures` works out of the box.
+# They are NOT regenerable from a bin — they must stay in the repo.
+!get_settings.json
+!get_squad_roster.json
+!get_player_detail.json
+!get_scout_report.json
+!get_standings.json
+!get_fixtures.json
+!get_career_overview.json
