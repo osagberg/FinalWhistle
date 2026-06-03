@@ -34,7 +34,7 @@ from schema v1 into the v2 build, the migration logic must reproduce
 byte-identical state to what v1 wrote — otherwise mid-career events
 mutate silently across upgrades. Schema bumps owe four-tests-per-bump
 (forward-migration + callback-preservation + forward-incompat-failure +
-round-trip-byte-identical) per `design/specs/save-migration-fixtures.md`,
+round-trip-byte-identical) per `docs/specs/save-migration-fixtures.md`,
 all of which assume the underlying sim is reproducible.
 
 ### 1.3 Cross-platform parity

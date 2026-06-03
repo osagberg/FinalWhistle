@@ -31,7 +31,7 @@ We adopt **`bincode = "2"`** for `fw-save`'s on-disk format. `fw-core`'s existin
 
 ### Compression: zstd
 
-`zstd = "0.13"` with `compression_level = 3` (the default; benchmarks per `docs/specs/save-format-benchmarks.md` (Tranche 4 deliverable) will pin a specific level if 3 turns out poorly).
+`zstd = "0.13"` with `compression_level = 3` (the default). A formal `save-format-benchmarks.md` was never authored (the planned Tranche-4 deliverable was descoped); level 3 has been adequate through SaveV4. Revisit with a real benchmark only if save size or load latency becomes a problem.
 
 Saves are emitted as a single binary blob: `[magic 4 bytes "FWS1"][version u32][zstd-compressed bincode-2 payload]`. The leading magic + version are uncompressed for cheap version-check during load (no need to decompress before deciding which migration chain to apply).
 
@@ -96,7 +96,7 @@ Loading a save whose fingerprint doesn't match the currently-loaded mod set surf
 
 - `docs/MASTER_PLAN.md` T2-9 (the implementation row)
 - `docs/specs/save-migration-fixtures.md` (the 4-test contract per bump)
-- `docs/specs/save-format-benchmarks.md` (Tranche 4 deliverable; zstd level + bincode-2 vs bincode-1 perf measurements)
+- `save-format-benchmarks.md` — descoped/never authored; zstd level 3 has held through SaveV4 (see §"Decision" above)
 - `Content/RULES.md` §3 (forward-migration discipline)
 - `Content/RULES.md` §6 (mod-overlay load order)
 - ADR-0002 §Consequences (storage budget — ~22 MB pre-compression, ~6 MB post)

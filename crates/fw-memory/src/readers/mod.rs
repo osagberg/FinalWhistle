@@ -116,6 +116,19 @@ impl PressTopic {
             ],
         }
     }
+
+    /// The camelCase string identifier sent across the IPC boundary for this topic.
+    ///
+    /// Exhaustive match — adding a new `PressTopic` variant forces a compile
+    /// error here, preventing silent inbox gaps.
+    pub fn as_dto_str(self) -> &'static str {
+        match self {
+            PressTopic::PlayerMilestone => "playerMilestone",
+            PressTopic::ContractTransfer => "contractTransfer",
+            PressTopic::MatchResult => "matchResult",
+            PressTopic::Relational => "relational",
+        }
+    }
 }
 
 /// Output of `FanReader::fan_callbacks`.
@@ -306,6 +319,23 @@ mod tests {
         SourceId,
     };
     use fw_core::{MatchId, PlayerId, Q32, Tick};
+
+    #[test]
+    fn press_topic_as_dto_str_pins_wire_strings_at_source() {
+        // Pins the exact camelCase wire strings here, at the source, rather than
+        // relying only on the frontend DTO mirror (types.ts) one crate downstream.
+        // The match in as_dto_str is exhaustive, so a new PressTopic variant forces
+        // an update of BOTH this test and get_press_inbox_inner (compile error) —
+        // no topic can silently vanish from the inbox, and no literal typo
+        // ("player_milestone") slips through unnoticed.
+        assert_eq!(PressTopic::PlayerMilestone.as_dto_str(), "playerMilestone");
+        assert_eq!(
+            PressTopic::ContractTransfer.as_dto_str(),
+            "contractTransfer"
+        );
+        assert_eq!(PressTopic::MatchResult.as_dto_str(), "matchResult");
+        assert_eq!(PressTopic::Relational.as_dto_str(), "relational");
+    }
 
     fn make_event_with_decay(
         salience: Q32,

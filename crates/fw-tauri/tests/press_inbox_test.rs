@@ -91,6 +91,30 @@ fn press_inbox_non_empty_after_two_seasons() {
          DebutSenior events."
     );
 
+    // QA-T4H item 6b: at least one matchResult item has event_class == 22 (TitleWon).
+    //
+    // Mutation killed: if `event_class` were set to 0 (wrong discriminant) for all
+    // TitleWon items, the `== 22` assertion fails. Also proves the DTO's `event_class`
+    // field is wired from the canonical `EventClass::discriminant()`, not hard-coded.
+    let title_won_disc: u32 = 22; // EventClass::TitleWon = 22 (pinned forever by the discriminant test)
+    let has_title_won_class = inbox
+        .items
+        .iter()
+        .filter(|i| i.topic == "matchResult")
+        .any(|i| i.event_class == title_won_disc);
+    assert!(
+        has_title_won_class,
+        "at least one matchResult item must carry event_class == 22 (EventClass::TitleWon); \
+         got matchResult items: {:?}. \
+         Mutation killed: setting event_class to 0 for TitleWon items would fail this assertion.",
+        inbox
+            .items
+            .iter()
+            .filter(|i| i.topic == "matchResult")
+            .map(|i| i.event_class)
+            .collect::<Vec<_>>(),
+    );
+
     // AC2 — every headline non-empty (rendered, not a raw discriminant number)
     for item in &inbox.items {
         assert!(

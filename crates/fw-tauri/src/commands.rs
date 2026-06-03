@@ -1255,8 +1255,21 @@ pub fn advance_season_inner(state: &AppState) -> Result<AdvanceSeasonSummaryDto,
     // to `career.ledger` via a function call (Rust cannot prove the function
     // touches disjoint fields). We pass only the derived champion_club_id
     // instead of `&career.season` to side-step the two-field borrow.
-    if let Some(cid) = champion_club_id {
-        season::emit_title_won_event(cid, current_season_num, &mut career.ledger);
+    match champion_club_id {
+        Some(cid) => {
+            season::emit_title_won_event(cid, current_season_num, &mut career.ledger);
+        }
+        None => {
+            // Structurally unreachable: well-formed 20-club seasons always have a
+            // champion (rows[0] is the title winner). If standings are ever empty
+            // the TitleWon event silently vanishes from the ledger — that is a
+            // load-bearing Pillar-2 event that must never fail silently.
+            log::error!(
+                "advance_season: standings empty for season {} — TitleWon event NOT emitted; \
+                 investigate league setup or standings computation",
+                current_season_num.0,
+            );
+        }
     }
 
     // ---- Pillar-3 (T4-2.5d): per-player breakthrough evaluation (incremental) ----
@@ -1511,7 +1524,15 @@ pub fn get_career_overview_inner(state: &AppState) -> Result<CareerOverviewDto, 
                         None
                     }
                 })
-                .unwrap_or_default();
+                .unwrap_or_else(|| {
+                    log::warn!(
+                        "career overview: champion club for event {} (season {}) not found \
+                         in current league snapshot — history entry will have blank name",
+                        event.event_id.0,
+                        event.season.0,
+                    );
+                    String::new()
+                });
             ChampionHistoryEntryDto {
                 season: event.season.0,
                 champion_club_name,
@@ -1544,13 +1565,34 @@ pub fn get_career_overview_inner(state: &AppState) -> Result<CareerOverviewDto, 
                     None
                 }
             });
-            let club_name = first_club_cid
-                .and_then(|cid| club_names.get(&cid).cloned())
-                .unwrap_or_default();
+            // Resolve the champion club's display name. For club-subject TitleWon
+            // events the grammar variants reference #player_name# as the
+            // subject (e.g. "#player_name# was part of it") — inject the club
+            // name there so it reads "Northwood United was part of it".
+            // If the club isn't in the current league snapshot, warn and fall
+            // back to "the squad" so the sentence remains grammatical.
+            let resolved_club_name: Option<String> =
+                first_club_cid.and_then(|cid| club_names.get(&cid).cloned());
+            let club_subject_name: String = match resolved_club_name {
+                Some(ref name) => name.clone(),
+                None => {
+                    log::warn!(
+                        "career overview: champion club for TitleWon event {} (season {}) \
+                         not found in current league snapshot — using fallback subject",
+                        event.event_id.0,
+                        event.season.0,
+                    );
+                    "the squad".to_string()
+                }
+            };
+            let club_name = resolved_club_name.unwrap_or_default();
 
             let season_label = format!("Season {}", event.season.0 + 1);
             let ctx = MemoryCallbackContext {
-                player_name: String::new(),
+                // For club-subject TitleWon events, #player_name# is the club
+                // (or "the squad" if unresolved) so grammar variants like
+                // "#player_name# was part of it" produce a grammatical sentence.
+                player_name: club_subject_name,
                 club_name,
                 opponent_name: String::new(),
                 competition_name: String::new(),
@@ -1615,11 +1657,11 @@ pub fn get_press_inbox_inner(state: &AppState) -> Result<PressInboxDto, IpcError
     /// 4 topics × 6 = 24 candidates before dedup + final cap of 20.
     const PRESS_K_PER_TOPIC: usize = 6;
 
-    let all_topics: &[(PressTopic, &'static str)] = &[
-        (PressTopic::PlayerMilestone, "playerMilestone"),
-        (PressTopic::ContractTransfer, "contractTransfer"),
-        (PressTopic::MatchResult, "matchResult"),
-        (PressTopic::Relational, "relational"),
+    let all_topics: &[PressTopic] = &[
+        PressTopic::PlayerMilestone,
+        PressTopic::ContractTransfer,
+        PressTopic::MatchResult,
+        PressTopic::Relational,
     ];
 
     // Intermediate owned representation collected under the write lock so we
@@ -1673,7 +1715,8 @@ pub fn get_press_inbox_inner(state: &AppState) -> Result<PressInboxDto, IpcError
         // path). BTreeMap for deterministic insertion order and O(log n) dedup.
         let mut seen: std::collections::BTreeMap<u32, RawItem> = std::collections::BTreeMap::new();
 
-        for (topic, topic_str) in all_topics {
+        for topic in all_topics {
+            let topic_str = topic.as_dto_str();
             let candidates = PressReader::candidates(&mut career.ledger, *topic, now_tick);
             // Take only the top-K from this topic (PressReader already sorts salience desc).
             for event in candidates.into_iter().take(PRESS_K_PER_TOPIC) {

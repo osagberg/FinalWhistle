@@ -1049,4 +1049,259 @@ mod tests {
         let r2 = long_range_strike_trigger(&state, 8);
         assert_eq!(r1, r2, "trigger must be deterministic");
     }
+
+    // ---- QA-T4H item 3: poachers_dart forward-gate hole kill ----
+
+    /// Mutation target: `in_team != 9` → `in_team > 9` lets slots 0-9 through.
+    ///
+    /// Slot 20 (away team's centre-forward, in_team == 9) is the boundary that
+    /// the existing `poachers_dart_zero_for_wrong_slot` test already covers (slot 8).
+    /// That test does NOT kill the mutation `!= 9` → `> 9` because slot 8 is also
+    /// excluded by `> 9`. We need a slot where in_team == 10 (right-winger, also a
+    /// forward but NOT the striker): max-attrs there must return ZERO.
+    ///
+    /// With `in_team != 9`: slot 10 (in_team=10) fails `in_team != 9` → returns ZERO. OK.
+    /// With `in_team > 9`: slot 10 (in_team=10 > 9) PASSES the role check → fires. WRONG.
+    /// This test kills the mutation.
+    #[test]
+    fn poachers_dart_zero_for_right_winger_slot_10_max_attrs() {
+        // Mutation killed: `in_team != 9` → `in_team > 9` would let in_team=10 through.
+        // With the correct gate (`in_team != 9`) slot 10 (in_team=10) must return ZERO.
+        let mut state = baseline_state();
+        // slot 10 = home right-winger (in_team = 10 % 11 = 10)
+        set_all_attrs(&mut state, 10, Q32::ONE);
+        let fit = poachers_dart_trigger(&state, 10);
+        assert_eq!(
+            fit,
+            Q32::ZERO,
+            "poachers_dart must return Q32::ZERO for slot 10 (in_team=10, right-winger): \
+             gate is `in_team != 9`, not `in_team > 9`; \
+             mutating to `> 9` would let this slot through — this test must fail under that mutation"
+        );
+    }
+
+    // ---- QA-T4H item 4: back-port exact-product form to body_shield_fit_score ----
+
+    /// Replaces the vacuous `>0 && <1` body_shield_fit_score test with an exact
+    /// attribute product assertion, matching the form already used by the 5 new
+    /// T4-2.5j predicates.
+    ///
+    /// Mutation killed: any change to the fit-score expression (e.g. sum instead of
+    /// product, omitting one attribute) produces a different value → `assert_eq!` fails.
+    #[test]
+    fn body_shield_fit_score_exact_product() {
+        let mut state = baseline_state();
+        // Use distinct non-trivial values to expose any summation vs. product error.
+        // marking = 0.5, strength = 0.75, aggression = 0.6 — all above 0.45 threshold.
+        let half = Q32::from_raw(1i64 << 31); // 0.5
+        let three_quarters = Q32::from_raw(3i64 << 30); // 0.75
+        // 0.6 × 2^32 ≈ 2_576_980_377
+        let point_six = Q32::from_raw(2_576_980_377_i64);
+
+        state.players[1].attributes.technical.marking = half;
+        state.players[1].attributes.physical.strength = three_quarters;
+        state.players[1].attributes.personality.aggression = point_six;
+
+        let fit = body_shield_pressure_trigger(&state, 1);
+
+        // Exact product: marking × strength × aggression
+        let expected = half * three_quarters * point_six;
+        assert_eq!(
+            fit, expected,
+            "body_shield fit-score must be the exact product marking × strength × aggression; \
+             got {:?}, expected {:?}. \
+             Mutation killed: using sum/average instead of product returns a different value.",
+            fit, expected
+        );
+    }
+
+    // ---- QA-T4H item 5: body-shield gate exclusivity characterization test ----
+
+    /// Characterization/exclusivity test pinning CURRENT behavior for body_shield_pressure.
+    ///
+    /// The RON declares `role_family: CentreBack` but the gate is `in_team 1..=7`
+    /// (DEF + all MID, 13/22 positions). This is documented as intentional in
+    /// design/signatures.md ("CB-or-mid shielding"). This test pins the exact current
+    /// behavior so any future gate change is caught explicitly.
+    ///
+    /// Pins:
+    /// - in_team == 0 (GK): ZERO
+    /// - in_team 1..=7 (DEF+MID): positive (fires)
+    /// - in_team 8, 9, 10 (FWD): ZERO
+    ///
+    /// Do NOT change the RON to match this test — the broad gate is intentional.
+    /// If design changes the gate, update this test AND create a DECISIONS.md entry.
+    #[test]
+    fn body_shield_gate_exclusivity_characterizes_current_in_team_1_to_7_behavior() {
+        let mut state = baseline_state();
+
+        // Set max attrs on all slots so only the role gate determines the result.
+        for slot in 0..11usize {
+            set_all_attrs(&mut state, slot, Q32::ONE);
+        }
+
+        // GK (in_team == 0): must be ZERO — not in the 1..=7 gate.
+        let gk_fit = body_shield_pressure_trigger(&state, 0);
+        assert_eq!(
+            gk_fit,
+            Q32::ZERO,
+            "body_shield must return ZERO for GK (in_team=0): gate is 1..=7"
+        );
+
+        // DEF + MID (in_team 1..=7): must fire (positive).
+        for in_team in 1u8..=7 {
+            let slot = in_team as usize; // home team: slot == in_team for slots 0-10
+            let fit = body_shield_pressure_trigger(&state, slot as u8);
+            assert!(
+                fit > Q32::ZERO,
+                "body_shield must fire for in_team={in_team} (DEF/MID, slot={slot}): \
+                 current gate is 1..=7 (DEF + all MID)"
+            );
+        }
+
+        // FWD: in_team 8, 9, 10 — must be ZERO.
+        for in_team in [8u8, 9, 10] {
+            let slot = in_team as usize;
+            let fit = body_shield_pressure_trigger(&state, slot as u8);
+            assert_eq!(
+                fit,
+                Q32::ZERO,
+                "body_shield must return ZERO for in_team={in_team} (FWD, slot={slot}): \
+                 gate is 1..=7 only"
+            );
+        }
+    }
+
+    // ---- QA-T4H item 6d: fit-varies-with-attrs for the 5 new T4-2.5j predicates ----
+
+    /// Commanding-claim: two eligible GK attribute sets produce two different fit scores.
+    ///
+    /// Mutation killed: if fit-score is constant (e.g. always returns Q32::ONE for eligible
+    /// players), high- and low-attr variants return the same value → assertion fails.
+    #[test]
+    fn commanding_claim_fit_varies_with_attributes() {
+        let half = Q32::from_raw(1i64 << 31); // 0.5 — above 0.45 threshold, eligible
+
+        let mut state_hi = baseline_state();
+        set_all_attrs(&mut state_hi, 0, Q32::ONE);
+
+        let mut state_lo = baseline_state();
+        state_lo.players[0].attributes.goalkeeper.aerial_reach = half;
+        state_lo.players[0].attributes.goalkeeper.handling = half;
+        state_lo.players[0].attributes.goalkeeper.command_of_area = half;
+
+        let fit_hi = commanding_claim_trigger(&state_hi, 0);
+        let fit_lo = commanding_claim_trigger(&state_lo, 0);
+
+        assert!(
+            fit_hi > fit_lo,
+            "commanding_claim fit must increase with higher attributes: \
+             hi={:?} lo={:?}",
+            fit_hi,
+            fit_lo
+        );
+    }
+
+    /// Overlapping-surge: two eligible full-back attribute sets produce two different fit scores.
+    #[test]
+    fn overlapping_surge_fit_varies_with_attributes() {
+        let half = Q32::from_raw(1i64 << 31); // 0.5
+
+        let mut state_hi = baseline_state();
+        set_all_attrs(&mut state_hi, 1, Q32::ONE);
+
+        let mut state_lo = baseline_state();
+        state_lo.players[1].attributes.physical.pace = half;
+        state_lo.players[1].attributes.physical.stamina = half;
+        state_lo.players[1].attributes.technical.crossing = half;
+
+        let fit_hi = overlapping_surge_trigger(&state_hi, 1);
+        let fit_lo = overlapping_surge_trigger(&state_lo, 1);
+
+        assert!(
+            fit_hi > fit_lo,
+            "overlapping_surge fit must increase with higher attributes: \
+             hi={:?} lo={:?}",
+            fit_hi,
+            fit_lo
+        );
+    }
+
+    /// Screening-interception: two eligible DM slot attribute sets produce two different fit scores.
+    #[test]
+    fn screening_interception_fit_varies_with_attributes() {
+        let half = Q32::from_raw(1i64 << 31); // 0.5
+
+        let mut state_hi = baseline_state();
+        set_all_attrs(&mut state_hi, 5, Q32::ONE);
+
+        let mut state_lo = baseline_state();
+        state_lo.players[5].attributes.mental.anticipation = half;
+        state_lo.players[5].attributes.mental.positioning = half;
+        state_lo.players[5].attributes.technical.tackling = half;
+        state_lo.players[5].attributes.technical.marking = half;
+
+        let fit_hi = screening_interception_trigger(&state_hi, 5);
+        let fit_lo = screening_interception_trigger(&state_lo, 5);
+
+        assert!(
+            fit_hi > fit_lo,
+            "screening_interception fit must increase with higher attributes: \
+             hi={:?} lo={:?}",
+            fit_hi,
+            fit_lo
+        );
+    }
+
+    /// Touchline-beat: two eligible winger attribute sets produce two different fit scores.
+    #[test]
+    fn touchline_beat_fit_varies_with_attributes() {
+        let half = Q32::from_raw(1i64 << 31); // 0.5
+
+        let mut state_hi = baseline_state();
+        set_all_attrs(&mut state_hi, 8, Q32::ONE);
+
+        let mut state_lo = baseline_state();
+        state_lo.players[8].attributes.technical.dribbling = half;
+        state_lo.players[8].attributes.physical.pace = half;
+        state_lo.players[8].attributes.technical.crossing = half;
+
+        let fit_hi = touchline_beat_trigger(&state_hi, 8);
+        let fit_lo = touchline_beat_trigger(&state_lo, 8);
+
+        assert!(
+            fit_hi > fit_lo,
+            "touchline_beat fit must increase with higher attributes: \
+             hi={:?} lo={:?}",
+            fit_hi,
+            fit_lo
+        );
+    }
+
+    /// Poacher's-dart: two eligible striker attribute sets produce two different fit scores.
+    #[test]
+    fn poachers_dart_fit_varies_with_attributes() {
+        let half = Q32::from_raw(1i64 << 31); // 0.5
+
+        let mut state_hi = baseline_state();
+        set_all_attrs(&mut state_hi, 9, Q32::ONE);
+
+        let mut state_lo = baseline_state();
+        state_lo.players[9].attributes.mental.off_the_ball = half;
+        state_lo.players[9].attributes.mental.anticipation = half;
+        state_lo.players[9].attributes.technical.finishing = half;
+        state_lo.players[9].attributes.physical.acceleration = half;
+        state_lo.players[9].attributes.physical.pace = half;
+
+        let fit_hi = poachers_dart_trigger(&state_hi, 9);
+        let fit_lo = poachers_dart_trigger(&state_lo, 9);
+
+        assert!(
+            fit_hi > fit_lo,
+            "poachers_dart fit must increase with higher attributes: \
+             hi={:?} lo={:?}",
+            fit_hi,
+            fit_lo
+        );
+    }
 }

@@ -64,7 +64,17 @@ pub fn emit_season_end_events(
     let standings = season.standings();
     let champion_row = match standings.rows.first() {
         Some(r) => r,
-        None => return,
+        None => {
+            // Structurally unreachable: well-formed 20-club seasons always have a
+            // champion. If standings are ever empty the TitleWon event silently
+            // vanishes — that is a load-bearing Pillar-2 ledger event.
+            log::error!(
+                "emit_season_end_events: standings empty for season {} — \
+                 TitleWon event NOT emitted; investigate league setup or standings computation",
+                season_number.0,
+            );
+            return;
+        }
     };
     emit_title_won_event(champion_row.club_id, season_number, ledger);
 }

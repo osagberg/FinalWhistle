@@ -110,7 +110,7 @@ PlayerInstance {
 
 ## §7. Save schema — SaveV4
 
-`SaveV4` adds `roster: BTreeMap<ClubId, Vec<SavedPlayerInstance>>` (a save-stable subset of `PlayerInstance` — mutable state only; `PlayerBio` is reloaded from content at load). `SaveV3::breakthrough_states` is absorbed into per-instance `breakthrough_state`; the V3→V4 migration reconstructs instances from the content store + the V3 map. The 4 required tests per `design/specs/save-migration-fixtures.md`: forward-migration, callback-preservation, forward-incompat-failure, round-trip-byte-identical. Two new IPC commands close the "no production load path" gap: `save_career()` and `load_career()`.
+`SaveV4` adds `roster: BTreeMap<ClubId, Vec<SavedPlayerInstance>>` (a save-stable subset of `PlayerInstance` — mutable state only; `PlayerBio` is reloaded from content at load). `SaveV3::breakthrough_states` is absorbed into per-instance `breakthrough_state`; the V3→V4 migration reconstructs instances from the content store + the V3 map. The 4 required tests per `docs/specs/save-migration-fixtures.md`: forward-migration, callback-preservation, forward-incompat-failure, round-trip-byte-identical. Two new IPC commands close the "no production load path" gap: `save_career()` and `load_career()`.
 
 ---
 

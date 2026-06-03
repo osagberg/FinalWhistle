@@ -439,9 +439,14 @@ fn five_season_career_integration() {
         .iter()
         .filter(|e| matches!(e.event_class, EventClass::TitleWon))
         .count();
-    assert!(
-        title_won_count >= 5,
-        "ledger must have ≥5 TitleWon events, got {title_won_count}"
+    // QA-T4H item 6c: tightened to == 5 (exactly one TitleWon per season).
+    // Mutation killed: if advance_season emitted 0 or 2 TitleWon events per season,
+    // the `>= 5` assertion would pass vacuously on 2+ events/season; `== 5` pins the
+    // invariant that exactly one is emitted per season.
+    assert_eq!(
+        title_won_count, 5,
+        "ledger must have exactly 5 TitleWon events after 5 seasons (one per advance_season); \
+         got {title_won_count}"
     );
 
     let compaction_count = career
@@ -477,7 +482,8 @@ fn five_season_career_integration_fast() {
         .iter()
         .filter(|e| matches!(e.event_class, EventClass::TitleWon))
         .count();
-    assert!(title_won >= 5, "≥5 TitleWon events; got {title_won}");
+    // QA-T4H item 6c: tightened to == 5 (exactly one TitleWon per season).
+    assert_eq!(title_won, 5, "exactly 5 TitleWon events; got {title_won}");
 
     let compaction = career
         .ledger

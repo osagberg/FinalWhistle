@@ -379,6 +379,17 @@ impl MemoryLedger {
     /// untouched — `DecayFunction::Never` events survive intact; only
     /// tick-level granularity is dropped.
     ///
+    /// INTENTIONAL semantic (QA-T4H, from the Codex T4-8 gate P2): for a
+    /// `Linear`/`Exponential` event, nulling `tick` reclassifies it as a
+    /// TIMELESS ANCHOR. `project_salience` treats `tick: None` as "no decay"
+    /// and returns the event's full EMISSION salience, so a once-decayed old
+    /// event jumps back to full salience after compaction. This is deliberate:
+    /// an event that survived five seasons has proven itself a career anchor
+    /// and should read at full weight thereafter, not as a faded footnote. The
+    /// pre/post-compaction reader-order flip this produces is pinned by
+    /// `compaction_decaying_event_jumps_to_top_after_tick_nulled` in
+    /// `tests/compaction_retention_corpus.rs`.
+    ///
     /// After processing, appends exactly ONE `EventClass::Compaction` event
     /// carrying `Consequence::CompactionDrop { in_window_count }` — the total
     /// count of events in the 5-season window at this boundary, **including**

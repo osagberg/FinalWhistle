@@ -31,7 +31,9 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-<!-- none active. T4-8-CR1 (Codex gate-blocker remediation: save-boundary invariants) DONE 2026-06-03 — spec pruned per /next Step 7.2; detail in CHANGELOG + DECISIONS + docs/audits/post-t4-codex-gate-2026-06-03.md. Phase-T4 gate in progress; next is QA-T4H + the v0.4.0-polish tag (user-driven). -->
+<!-- none active. QA-T4H (post-T4 hardening batch) DONE 2026-06-03 — spec pruned per /next Step 7.2; detail in CHANGELOG + DECISIONS. Phase-T4 is READY TO TAG: next is the v0.4.0-polish tag + git push (cross-OS CI matrix). Do NOT start T4.5 until the tag is cut + CI green. T4-8-CR1 (Codex gate-blockers) + QA-T4H both landed; both canonical pins UNCHANGED throughout. -->
+
+<!-- T4-7 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
 
 <!-- T4-7 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
 

@@ -1019,22 +1019,22 @@ fn extended_seed_600_tick_goal_count_in_t1_exit_gate_envelope() {
         pinned_away,
     );
 
-    // BROADER sanity envelope: every seed in the 5-seed sweep must produce
-    // 0-7 total goals across 600 ticks. Per the T2-1a self-review HIGH-1
-    // fix: 0 catches an engine that's regressed to "no shots ever fire,"
-    // 7+ catches a runaway-scoring regression. The pinned seed's tight
-    // envelope above is the primary contract; this broader envelope catches
-    // the silent-failure mode where the pinned seed coincidentally lands
-    // in [2, 5] but the rest of the seed-space has drifted.
+    // BROADER per-seed sanity: every seed in the 5-seed sweep must produce
+    // 0-7 total goals across 600 ticks. The UPPER bound (7) catches a
+    // runaway-scoring regression. The lower bound is 0 — NOT a typo: with the
+    // low-block-counter pairing, two of the sample seeds (0x1357acefbd024689
+    // and 0x0badc0dedeadbeef) legitimately finish 0-0 (verified empirically at
+    // QA-T4H). A per-seed [1, 7] floor would be a FALSE floor that flakes on
+    // those two — which is exactly why the "0 catches a no-shots regression"
+    // claim that used to sit here was wrong: 0 is inside the allowed band, so a
+    // collapse to all-zero would have passed this loop. The genuine collapse
+    // detector is the aggregate floor below, not this per-seed range.
     for &(seed_val, total_goals, home, away) in &all_scores {
         assert!(
             (0..=7).contains(&total_goals),
-            "Broader sanity envelope: seed {:#x} produced {} total goals \
-             (home={}, away={}) across {} ticks — outside [0, 7]. The \
-             pinned seed alone passing its narrow envelope is no longer \
-             sufficient evidence that the sim is healthy across the \
-             seed-space. Investigate before rebaselining. (Full sweep: \
-             {:?})",
+            "Per-seed sanity envelope: seed {:#x} produced {} total goals \
+             (home={}, away={}) across {} ticks — outside [0, 7] (runaway or \
+             impossible). Investigate before rebaselining. (Full sweep: {:?})",
             seed_val,
             total_goals,
             home,
@@ -1046,6 +1046,36 @@ fn extended_seed_600_tick_goal_count_in_t1_exit_gate_envelope() {
                 .collect::<Vec<_>>(),
         );
     }
+
+    // AGGREGATE collapse floor across the four NON-pinned seeds (QA-T4H, from
+    // the Codex T4-8 gate P2). This is the assertion that actually catches the
+    // silent-failure mode the per-seed [0, 7] loop cannot: a regression that
+    // keeps the pinned probe seed inside [2, 5] by coincidence while collapsing
+    // the rest of the seed-space to "no shots ever fire." It is INDEPENDENT of
+    // the pinned seed's own [2, 5] assertion (slice `[1..]` excludes index 0),
+    // so the pinned seed cannot carry it alone. Current non-pinned sum = 8
+    // (4 + 4 + 0 + 0); the floor of 2 is a 4x margin that fires only on a
+    // near-total collapse and stays robust across authorized rebaselines (it
+    // pins "the engine still scores somewhere outside the probe," not a
+    // specific score). Bump deliberately if a future rebaseline narrows it.
+    const NON_PINNED_GOAL_FLOOR: u32 = 2;
+    let non_pinned_sum: u32 = all_scores[1..].iter().map(|&(_, g, _, _)| g).sum();
+    assert!(
+        non_pinned_sum >= NON_PINNED_GOAL_FLOOR,
+        "Aggregate collapse floor: the four non-pinned sanity seeds produced \
+         {} total goals across {} ticks each — below the floor of {}. The \
+         pinned seed passing its narrow [2, 5] envelope is not sufficient \
+         evidence the sim is healthy across the seed-space; this looks like a \
+         regression to near-zero shots everywhere but the probe. Investigate \
+         before rebaselining. (Full sweep: {:?})",
+        non_pinned_sum,
+        EXTENDED_TICK_COUNT,
+        NON_PINNED_GOAL_FLOOR,
+        all_scores
+            .iter()
+            .map(|(s, g, _, _)| (format!("{s:#x}"), *g))
+            .collect::<Vec<_>>(),
+    );
 }
 
 #[allow(dead_code)]
