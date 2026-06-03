@@ -40,23 +40,33 @@ fn main() {
         // persist to `<app-config-dir>/settings.fwcfg`, NOT a CWD-relative
         // path (which would silently drift with the launch directory).
         .setup(move |app| {
-            let settings_path: PathBuf = match app.path().app_config_dir() {
-                Ok(dir) => dir.join("settings.fwcfg"),
+            let config_dir: Option<PathBuf> = match app.path().app_config_dir() {
+                Ok(dir) => Some(dir),
                 Err(e) => {
                     // Loud fallback (NOT silent): if the platform can't give
-                    // us an app-config dir, log it and persist to the working
-                    // directory so the app still runs.
+                    // us an app-config dir, log it and fall back to CWD so
+                    // the app still runs.
                     log::error!(
-                        "could not resolve the app-config dir ({e}); settings \
-                         will persist to ./settings.fwcfg in the working \
-                         directory instead"
+                        "could not resolve the app-config dir ({e}); settings and \
+                         career save will persist to the working directory instead"
                     );
-                    PathBuf::from("settings.fwcfg")
+                    None
                 }
             };
-            let app_state =
+
+            let settings_path = config_dir
+                .as_ref()
+                .map(|d| d.join("settings.fwcfg"))
+                .unwrap_or_else(|| PathBuf::from("settings.fwcfg"));
+
+            let career_save_path = config_dir
+                .map(|d| d.join("career.fwsave"))
+                .unwrap_or_else(|| PathBuf::from("career.fwsave"));
+
+            let mut app_state =
                 fw_tauri::AppState::new_with_settings_file(Path::new(&content_path), settings_path)
                     .expect("Failed to load ContentStore — check that content/ directory exists");
+            app_state.set_career_save_path(career_save_path);
             app.manage(app_state);
             Ok(())
         })
@@ -87,6 +97,9 @@ fn main() {
             fw_tauri::commands::get_roster_for_club,
             // T4-2.5f: scouting
             fw_tauri::commands::get_scout_report,
+            // T4-2.5g: career save / load
+            fw_tauri::commands::save_career,
+            fw_tauri::commands::load_career,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

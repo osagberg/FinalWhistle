@@ -121,27 +121,13 @@ pub const SLOTS_PER_CLUB: u8 = 22;
 pub const ROSTER_PLAYER_ID_BASE: u32 = 1_000_000;
 
 // ---------------------------------------------------------------------------
-// PlayerSeasonStats — float-free per-season accumulator
+// PlayerSeasonStats re-export
 // ---------------------------------------------------------------------------
-
-/// Per-season performance statistics for one player instance.
-///
-/// `average_rating_numerator` accumulates the sum of per-match Q32 ratings;
-/// divide by `rating_sample_count` at DTO projection time to avoid float
-/// in canonical state (Sim/RULES.md §1).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
-pub struct PlayerSeasonStats {
-    pub appearances: u16,
-    pub goals: u16,
-    pub assists: u16,
-    /// Total minutes played across all appearances this season.
-    pub minutes_played: u32,
-    /// Running sum of per-match Q32 ratings (numerator; divide by
-    /// `rating_sample_count` to obtain the mean at DTO time).
-    pub average_rating_numerator: i64,
-    /// Number of match ratings recorded in `average_rating_numerator`.
-    pub rating_sample_count: u16,
-}
+//
+// T4-2.5g: `PlayerSeasonStats` moved to `fw-core` so `fw-save::SavedPlayerInstance`
+// can reference it without a fw-tauri dependency. Re-exported here so all
+// existing import paths in roster_dto.rs, commands.rs, and tests remain valid.
+pub use fw_core::PlayerSeasonStats;
 
 // ---------------------------------------------------------------------------
 // PlayerInstance — mutable per-player career record
@@ -206,11 +192,13 @@ pub struct PlayerInstance {
     /// features in a match for the first time.
     ///
     /// Updated each match-day in `advance_week_inner` (T4-2.5f) by
-    /// `observe_match_participants`. For bincode production saves, the real
-    /// forward-compatibility mechanism is the SaveV3→V4 migration at T4-2.5g,
-    /// which fills in `None` for every `PlayerInstance` in migrated saves.
-    /// The `#[serde(default)]` annotation only takes effect on the JSON path
-    /// (integration tests) — same rationale as `genes`.
+    /// `observe_match_participants`. NOT persisted by SaveV4 (T4-2.5g, Option A):
+    /// `SavedPlayerInstance` carries only mutable career deltas, and the load
+    /// path re-derives the base roster from the seed, leaving this `None` — the
+    /// next match-day's `observe_match_participants` re-populates it (the
+    /// `observation_count` IS persisted, so the count survives). The
+    /// `#[serde(default)]` annotation only takes effect on the JSON path
+    /// (integration tests).
     #[serde(default)]
     pub last_scout_report: Option<ScoutReport>,
 
@@ -223,19 +211,20 @@ pub struct PlayerInstance {
     ///
     /// First-increment source: bio round-robin. T4.5-E1 replaces with a
     /// procedural gene generator that computes a real `GeneSnapshot` per player
-    /// from the career seed. The field name and position are stable (SaveV4
-    /// persists it from T4-2.5g onward).
+    /// from the career seed. The field name and position are stable.
     ///
     /// Field order: declared LAST to preserve stable serde field order.
     ///
-    /// ## `#[serde(default)]` and saved games
+    /// ## Saved games (SaveV4 / T4-2.5g, Option A)
     ///
-    /// The `serde(default)` annotation only helps for self-describing formats
-    /// (JSON, RON). The production save format is bincode 2 (non-self-describing,
-    /// positional). For old bincode saves, the SaveV3→V4 migration at T4-2.5g
-    /// is the real forward-compatibility mechanism — it fills in a default gene
-    /// snapshot for every `PlayerInstance` in the migrated save. The annotation
-    /// is retained for integration tests that exercise JSON round-trips.
+    /// `genes` is NOT persisted by SaveV4: `SavedPlayerInstance` carries only
+    /// mutable career deltas, and `load_career` RE-DERIVES `genes` (and the rest
+    /// of the immutable base — display_name/attributes/signature_candidates) by
+    /// regenerating the roster from `career_seed` via `build_roster_from_league`
+    /// (deterministic: same seed → byte-identical genes), then overlaying the
+    /// persisted deltas. The `#[serde(default = ...)]` annotation only takes
+    /// effect on the JSON path used by integration tests; it has no role in the
+    /// bincode save (genes never reach the save bytes).
     #[serde(default = "default_gene_snapshot")]
     pub genes: GeneSnapshot,
 }
@@ -304,7 +293,9 @@ pub fn build_roster_from_league(
             "build_roster_from_league: player_bios pool is empty — all roster players will \
              receive the neutral default gene snapshot. Breakthrough propensities will be \
              uniform. Expected cause: content pack without player-bios/ directory (pre-T2-4). \
-             The SaveV3→V4 migration at T4-2.5g is the intended path to fill real genes."
+             Real genes require a content pack that ships player-bios/ (T2-4+); SaveV4 \
+             re-derives genes from this same generation path at load, so a bio-less pack \
+             yields neutral genes on both fresh-start and load."
         );
     }
 

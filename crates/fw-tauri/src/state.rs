@@ -151,6 +151,14 @@ pub struct AppState {
     /// Tauri runtime is required.
     pub(crate) settings_path: PathBuf,
 
+    // ---- T4-2.5g: career save persistence ----
+    /// Path to the career save file (`career.fwsave` in the Tauri app-config dir).
+    ///
+    /// Resolved at construction time. Default: `./career.fwsave` relative to
+    /// CWD. Production code (`main.rs`) overrides this with the Tauri app-config
+    /// dir after construction — see `set_career_save_path`.
+    pub(crate) career_save_path: PathBuf,
+
     // ---- T4-5a: live-match session store ----
     /// All currently active live-match sessions, keyed by handle ID.
     ///
@@ -263,6 +271,7 @@ impl AppState {
                 breakthrough_eval_watermark: 0,
             }),
             settings_path,
+            career_save_path: PathBuf::from("career.fwsave"),
             live_matches: RwLock::new(BTreeMap::new()),
             next_live_match_id: AtomicU32::new(0),
         })
@@ -280,6 +289,20 @@ impl AppState {
     /// Read-only reference to the settings file path.
     pub fn settings_path(&self) -> &PathBuf {
         &self.settings_path
+    }
+
+    /// Override the career save file path after construction.
+    ///
+    /// Called by `main.rs` after the Tauri app-config directory is resolved,
+    /// alongside `set_settings_path`. See `AppState::set_settings_path` for
+    /// the rationale.
+    pub fn set_career_save_path(&mut self, path: PathBuf) {
+        self.career_save_path = path;
+    }
+
+    /// Read-only reference to the career save file path.
+    pub fn career_save_path(&self) -> &PathBuf {
+        &self.career_save_path
     }
 
     /// Read-only access to the loaded [`ContentStore`].

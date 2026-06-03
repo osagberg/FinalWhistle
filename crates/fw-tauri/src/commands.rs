@@ -18,16 +18,18 @@
 //! `_inner` variant; the `#[tauri::command]` wrappers are thin forwarding
 //! shells validated by the integration test in `crates/fw-tauri/tests/`.
 
+use std::collections::BTreeMap;
+
 use fw_content::{
     Fixture, MemoryCallbackContext, SeasonState, discriminant_to_family_key, gene_family_pa_ca,
-    generate_league, render_memory_callback,
+    generate_league, generate_league_with_teams, render_memory_callback,
 };
-use fw_core::{PlayerId, Seed, Tick};
+use fw_core::{ClubId, PlayerId, Seed, Tick};
 use fw_match_sim::{MatchState, PLAYERS_PER_TEAM, tick_match};
 use fw_memory::event::{EventClass, SeasonNumber};
 use fw_memory::readers::{SalienceFilter, salience::SalienceReader};
 use fw_memory::{BreakthroughContext, BreakthroughOutcome, evaluate};
-use fw_save;
+use fw_save::{self, SaveEnvelope, SaveV4, SavedPlayerInstance};
 
 use crate::live_match::session::LiveMatchSession;
 use crate::live_match::snapshot::{project_final, project_snapshot};
@@ -1701,6 +1703,203 @@ pub fn set_settings_inner(
     std::fs::write(state.settings_path(), &bytes).map_err(|e| IpcError::SettingsLoadFailed {
         reason: e.to_string(),
     })?;
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Career save / load commands (T4-2.5g)
+// ---------------------------------------------------------------------------
+
+/// `save_career()` — persist the current career state to disk as a `SaveV4`.
+///
+/// Projects each `PlayerInstance` in `CareerState.roster` to a
+/// `SavedPlayerInstance` (mutable-delta subset only: ceiling,
+/// breakthrough_state, season_stats, career_apps, observation_count), builds a
+/// `SaveEnvelope::V4`, and writes it to `AppState.career_save_path`.
+///
+/// The write is non-atomic (plain overwrite) at T4-2.5g — a write-temp-rename
+/// pattern can be added at a later task if needed.
+#[tauri::command]
+pub async fn save_career(state: tauri::State<'_, AppState>) -> Result<(), IpcError> {
+    save_career_inner(&state)
+}
+
+/// `load_career()` — load the career save from disk and reconstruct the full
+/// `CareerState`.
+///
+/// 1. Reads `career_save_path` → `load_envelope` → `SaveV4`.
+/// 2. Regenerates the full base roster deterministically from `career_seed`
+///    via `generate_league_with_teams` + `build_roster_from_league`.
+/// 3. If `save.roster` is non-empty, overlays each `SavedPlayerInstance` onto
+///    the matching base instance by `player_id` — applies ceiling,
+///    breakthrough_state, season_stats, career_apps, observation_count.
+/// 4. Reconstructs and writes a fresh `CareerState` into `AppState.career`.
+///    If `save.season` is `None` (migrated from <V4), a fresh `SeasonState`
+///    is regenerated from the career seed (same as `AppState::new_with_settings_path`).
+#[tauri::command]
+pub async fn load_career(state: tauri::State<'_, AppState>) -> Result<(), IpcError> {
+    load_career_inner(&state)
+}
+
+pub fn save_career_inner(state: &AppState) -> Result<(), IpcError> {
+    let career = state.career().read().map_err(|_| IpcError::LockPoisoned {
+        lock: "career".to_string(),
+    })?;
+
+    // Project the roster: PlayerInstance → SavedPlayerInstance (delta fields only).
+    let mut roster: BTreeMap<ClubId, Vec<SavedPlayerInstance>> = BTreeMap::new();
+    for (club_id, instances) in &career.roster {
+        let saved: Vec<SavedPlayerInstance> = instances
+            .iter()
+            .map(|pi| SavedPlayerInstance {
+                player_id: pi.player_id,
+                club_id: pi.club_id,
+                slot: pi.slot,
+                ceiling: pi.ceiling,
+                breakthrough_state: pi.breakthrough_state.clone(),
+                season_stats: pi.season_stats.clone(),
+                career_apps: pi.career_apps,
+                observation_count: pi.observation_count,
+            })
+            .collect();
+        roster.insert(*club_id, saved);
+    }
+
+    let save = SaveV4 {
+        career_seed: state.career_seed(),
+        content_pack_version: 1,
+        ledger: career.ledger.clone(),
+        season_number: career.season_number,
+        season: Some(career.season.clone()),
+        roster,
+        // in-memory usize → fixed-width u64 wire field (lossless: a ledger length).
+        breakthrough_eval_watermark: career.breakthrough_eval_watermark as u64,
+    };
+
+    let envelope = SaveEnvelope::V4(save);
+    let bytes = fw_save::encode(&envelope).map_err(|e| IpcError::SaveLoadFailed {
+        reason: e.to_string(),
+    })?;
+
+    // Ensure parent directory exists (first write on a fresh install).
+    if let Some(parent) = state
+        .career_save_path()
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent).map_err(|e| IpcError::SaveLoadFailed {
+            reason: format!("could not create career save directory: {e}"),
+        })?;
+    }
+
+    std::fs::write(state.career_save_path(), &bytes).map_err(|e| IpcError::SaveLoadFailed {
+        reason: e.to_string(),
+    })?;
+
+    Ok(())
+}
+
+pub fn load_career_inner(state: &AppState) -> Result<(), IpcError> {
+    let bytes = std::fs::read(state.career_save_path()).map_err(|e| IpcError::SaveLoadFailed {
+        reason: e.to_string(),
+    })?;
+
+    let mut save = fw_save::load_envelope(&bytes).map_err(|e| IpcError::SaveLoadFailed {
+        reason: e.to_string(),
+    })?;
+
+    // restore_transient_state is already called by load_envelope; the ledger is ready.
+
+    // Step 1: Regenerate the full base roster deterministically from career_seed.
+    let (league, procgen_teams) = generate_league_with_teams(save.career_seed, state.content())
+        .map_err(|e| IpcError::LeagueGenerationFailed {
+            reason: e.to_string(),
+        })?;
+
+    let mut base_roster =
+        crate::roster::build_roster_from_league(&league, &procgen_teams, state.content()).map_err(
+            |e| IpcError::LeagueGenerationFailed {
+                reason: e.to_string(),
+            },
+        )?;
+
+    // Step 2: Overlay saved deltas onto the base roster (if any).
+    // For each SavedPlayerInstance: find the matching base instance by player_id
+    // and overwrite the mutable-delta fields. Unmatched clubs/players (e.g. the
+    // content pack changed between sessions, shifting the regenerated base) are
+    // skipped GRACEFULLY — a hard error would block the whole save from loading
+    // — but NOT silently: we count them and log::warn! so a vanished-progression
+    // report is one greppable line, not a multi-hour mystery. (A proper
+    // content-pack mismatch guard is the deferred mod_load_fingerprint check,
+    // Content/RULES §6.) Self-review P1 (T4-2.5g silent-failure + type-design).
+    let mut unmatched_clubs = 0usize;
+    let mut unmatched_players = 0usize;
+    for (club_id, saved_instances) in &save.roster {
+        let Some(base_instances) = base_roster.get_mut(club_id) else {
+            unmatched_clubs += 1;
+            unmatched_players += saved_instances.len();
+            continue;
+        };
+        for saved in saved_instances {
+            // The saved row's club_id must agree with its BTreeMap key — a
+            // mismatch means a corrupted/hand-edited save (Sim/RULES §11).
+            assert_eq!(
+                saved.club_id, *club_id,
+                "SavedPlayerInstance.club_id {:?} disagrees with its roster map key {:?} \
+                 — corrupted save",
+                saved.club_id, club_id
+            );
+            // Linear scan: 22 slots per club — negligible.
+            match base_instances
+                .iter_mut()
+                .find(|pi| pi.player_id == saved.player_id)
+            {
+                Some(base) => {
+                    base.ceiling = saved.ceiling;
+                    base.breakthrough_state = saved.breakthrough_state.clone();
+                    base.season_stats = saved.season_stats.clone();
+                    base.career_apps = saved.career_apps;
+                    base.observation_count = saved.observation_count;
+                }
+                None => unmatched_players += 1,
+            }
+        }
+    }
+    if unmatched_players > 0 {
+        log::warn!(
+            "load_career: {unmatched_players} saved player delta(s) across {unmatched_clubs} \
+             unmatched club(s) could not be applied — the base roster regenerated from career \
+             seed {:?} does not contain these ids (content pack changed since save?). Affected \
+             players were reset to base progression.",
+            save.career_seed,
+        );
+    }
+
+    // Step 3: Reconstruct the season. If None (migrated from V2/V3), regenerate.
+    let season = match save.season.take() {
+        Some(s) => s,
+        None => {
+            let (fresh_league, _) = generate_league_with_teams(save.career_seed, state.content())
+                .map_err(|e| IpcError::LeagueGenerationFailed {
+                reason: e.to_string(),
+            })?;
+            SeasonState::new(fresh_league, state.content())
+        }
+    };
+
+    // Step 4: Write the reconstructed CareerState.
+    let mut career = state.career().write().map_err(|_| IpcError::LockPoisoned {
+        lock: "career".to_string(),
+    })?;
+
+    career.season = season;
+    career.ledger = save.ledger;
+    career.season_number = save.season_number;
+    career.roster = base_roster;
+    // Wire field is u64 (pointer-width-independent); the in-memory watermark is
+    // usize. The value is a ledger length, never near u32::MAX, so the cast is lossless.
+    career.breakthrough_eval_watermark = save.breakthrough_eval_watermark as usize;
 
     Ok(())
 }

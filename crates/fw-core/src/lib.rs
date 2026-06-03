@@ -28,6 +28,9 @@ pub mod math;
 // Private — only math.rs reads it; not part of the public surface.
 pub(crate) mod math_luts;
 pub mod player_attributes;
+// T4-2.5g: moved from fw-tauri::roster so fw-save can reference it in
+// SavedPlayerInstance without a circular dependency.
+pub mod player_season_stats;
 pub mod q32;
 pub mod seed;
 pub mod tick;
@@ -45,6 +48,7 @@ pub use player_attributes::{
     MentalAttributes, PersonalityVector, PhysicalAttributes, PlayerAttributes, PlayerCondition,
     TechnicalAttributes, VISIBLE_ATTR_COUNT, VISIBLE_ATTRIBUTE_NAMES, is_in_unit_range,
 };
+pub use player_season_stats::PlayerSeasonStats;
 // `Q32Inner` (alias for `FixedI64<U32>`) is deliberately NOT re-exported.
 // Codex audit P2 (2026-05-13): exposing the inner type bypasses the
 // checked operator policy (panic-on-overflow Q1) — downstream callers

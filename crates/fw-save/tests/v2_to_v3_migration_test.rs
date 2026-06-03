@@ -88,11 +88,14 @@ fn real_season() -> SeasonState {
 // 1. forward-migration
 // -------------------------------------------------------------------------
 
-/// V2 bytes loaded via `load_envelope` emerge as a `SaveV3` with the V2 fields
-/// preserved + the documented V3 defaults (`season_number = 0`, `season = None`,
-/// empty `breakthrough_states` — a promoted V2 save never persisted a season).
+/// V2 bytes loaded via `load_envelope` emerge as a `SaveV4` (V2→V3→V4 chain)
+/// with the V2 fields preserved + the documented migration defaults:
+/// `season_number = 0`, `season = None`, `roster = {}`, `watermark = 0`.
+///
+/// (T4-2.5g: `load_envelope` now returns `SaveV4`; the `breakthrough_states`
+/// field from `SaveV3` is superseded by `roster` in `SaveV4`.)
 #[test]
-fn v2_bytes_load_as_v3_via_load_envelope() {
+fn v2_bytes_load_as_v4_via_load_envelope() {
     let seed = Seed::from_u64(0x1234_5678_9ABC_DEF0);
     let bytes = encode(&SaveEnvelope::V2(SaveV2 {
         career_seed: seed,
@@ -101,28 +104,33 @@ fn v2_bytes_load_as_v3_via_load_envelope() {
     }))
     .expect("encode v2");
 
-    let v3 = load_envelope(&bytes).expect("V2 bytes must load as V3 via load_envelope");
+    // load_envelope returns SaveV4 since T4-2.5g.
+    let v4 = load_envelope(&bytes).expect("V2 bytes must load as V4 via load_envelope");
 
-    // V2 fields preserved through the migration.
-    assert_eq!(v3.career_seed, seed, "career_seed must survive V2→V3");
+    // V2 fields preserved through the V2→V3→V4 chain.
+    assert_eq!(v4.career_seed, seed, "career_seed must survive V2→V4 chain");
     assert_eq!(
-        v3.content_pack_version, 7,
+        v4.content_pack_version, 7,
         "content_pack_version must survive"
     );
-    assert_eq!(v3.ledger.len(), 2, "the ledger must survive V2→V3 intact");
-    // V3 defaults for a promoted V2 save.
+    assert_eq!(v4.ledger.len(), 2, "the ledger must survive V2→V4 intact");
+    // V4 defaults for a promoted V2 save.
     assert_eq!(
-        v3.season_number,
+        v4.season_number,
         SeasonNumber(0),
         "a promoted V2 save defaults season_number to 0"
     );
     assert!(
-        v3.season.is_none(),
+        v4.season.is_none(),
         "a promoted V2 save has no persisted season"
     );
     assert!(
-        v3.breakthrough_states.is_empty(),
-        "a promoted V2 save has no breakthrough state"
+        v4.roster.is_empty(),
+        "a promoted V2 save has no roster deltas (roster is empty)"
+    );
+    assert_eq!(
+        v4.breakthrough_eval_watermark, 0,
+        "a promoted V2 save defaults breakthrough_eval_watermark to 0"
     );
 }
 
@@ -197,7 +205,7 @@ fn v3_round_trip_byte_identical_with_populated_career() {
 /// A V3 career save carrying `season_number = 3`, a persisted
 /// `Some(SeasonState)`, and a non-empty ledger — encoded then loaded via
 /// `load_envelope` — resumes at the correct season with the season snapshot
-/// and ledger intact.
+/// and ledger intact (migrated to V4 via V3→V4 chain).
 #[test]
 fn v3_career_resumes_at_correct_season() {
     let seed = Seed::from_u64(0x7E50_07E5_07E5_07E5);
@@ -211,17 +219,22 @@ fn v3_career_resumes_at_correct_season() {
     }))
     .expect("encode v3");
 
-    let v3 = load_envelope(&bytes).expect("V3 bytes must load via load_envelope");
+    // load_envelope returns SaveV4 since T4-2.5g (V3→V4 migration).
+    let v4 = load_envelope(&bytes).expect("V3 bytes must load via load_envelope (→ SaveV4)");
 
     assert_eq!(
-        v3.season_number,
+        v4.season_number,
         SeasonNumber(3),
         "the career resumes at the saved season number"
     );
     assert!(
-        v3.season.is_some(),
-        "the persisted season snapshot survives the round-trip"
+        v4.season.is_some(),
+        "the persisted season snapshot survives the V3→V4 migration"
     );
-    assert_eq!(v3.career_seed, seed, "career_seed intact");
-    assert_eq!(v3.ledger.len(), 2, "the ledger is intact on resume");
+    assert_eq!(v4.career_seed, seed, "career_seed intact");
+    assert_eq!(v4.ledger.len(), 2, "the ledger is intact on resume");
+    assert!(
+        v4.roster.is_empty(),
+        "roster is empty on a V3→V4 migration (no prior roster data)"
+    );
 }

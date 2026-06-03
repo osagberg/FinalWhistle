@@ -1,4 +1,4 @@
-//! Committed-fixture migration verifier — T3-7.
+//! Committed-fixture migration verifier — T3-7 + T4-2.5g.
 //!
 //! ## Purpose
 //!
@@ -21,75 +21,46 @@
 //! T3-7 adds a fifth test for the full V0→V1→V2→V3 chain; T3-R-C adds three
 //! more for the frozen non-empty-ledger V2 fixture; T3-R-E adds three more for
 //! the frozen V3 career fixture (decode, byte-identical re-encode, resume).
+//! T4-2.5g adds four more for the frozen V4 career fixture (decode,
+//! round-trip-byte-identical, resumes, V3→V4 forward-migration).
 //!
 //! ## Fixture definitions (load-bearing; must match README.md)
 //!
-//! `v1_sample.fwsave`:
-//!   SaveEnvelope::V1(SaveV1 {
-//!       career_seed: Seed::from_u64(0x5A5E_F1C7_0001_0002),
-//!       content_pack_version: 1,
-//!       ledger: MemoryLedger::new(),
-//!   })
-//!   Wire bytes: [0x01, ...] (V1 tag = 0x01)
-//!
-//! `v0_sample.fwsave`:
-//!   SaveEnvelope::V0(SaveV0 {
-//!       career_seed: Seed::from_u64(0xA0B1_C2D3_E4F5_0001),
-//!   })
-//!   Wire bytes: [0x00, ...] (V0 tag = 0x00)
-//!
-//! `v99_future.fwsave`:
-//!   Hand-crafted bytes: [0x63] — bincode-2 varint for discriminant 99.
-//!   99 < 128, so no continuation bit; the discriminant is the single byte
-//!   0x63. bincode rejects unknown variants before attempting payload decode.
-//!   This mirrors the byte construction in `lib.rs` migration::load_envelope_rejects_unsupported_future_version.
-//!
-//! `v2_nonempty_ledger_sample.fwsave` (T3-R-C):
-//!   SaveEnvelope::V2(SaveV2 {
-//!       career_seed: Seed::from_u64(0x7E57_C0DE_0002_0003),
-//!       content_pack_version: 1,
-//!       ledger: <2 plain MemoryEvents + 1 Compaction>,
-//!   })
-//!   Wire bytes: [0x02, ...] (V2 tag = 0x02). The ledger is built by appending
-//!   a season-0 and a season-5 event then calling `compact(SeasonNumber(5))`.
-//!   This is the ONLY frozen fixture with a non-empty ledger — the v0/v1
-//!   fixtures carry empty ledgers and so cannot catch a `MemoryEvent` serde
-//!   regression against frozen bytes.
-//!
-//! `v3_career_sample.fwsave` (T3-R-E):
-//!   SaveEnvelope::V3(SaveV3 {
-//!       career_seed: Seed::from_u64(0x7E57_C0DE_0003_0004),
+//! `v4_career_sample.fwsave` (T4-2.5g):
+//!   SaveEnvelope::V4(SaveV4 {
+//!       career_seed: Seed::from_u64(0x7E57_C0DE_0004_0005),
 //!       content_pack_version: 1,
 //!       ledger: <2 plain MemoryEvents>,
-//!       season_number: SeasonNumber(2),
+//!       season_number: SeasonNumber(3),
 //!       season: Some(<SeasonState from generate_league(0xCAFE_F00D)>),
-//!       breakthrough_states: empty,
+//!       roster: <3 hand-built SavedPlayerInstances with distinct non-default deltas>,
+//!       breakthrough_eval_watermark: 7,
 //!   })
-//!   Wire bytes: [0x03, ...] (V3 tag = 0x03). The ONLY frozen fixture that
-//!   carries a `Some(SeasonState)` — it catches a `SeasonState` serde
-//!   regression against frozen bytes, which the season-less v0/v1/v2 fixtures
-//!   cannot.
+//!   Wire bytes: [0x04, ...] (V4 tag = 0x04). The ONLY frozen V4 fixture;
+//!   roster is non-empty so the round-trip exercises `SavedPlayerInstance` serde.
 //!
 //! ## Regeneration
 //!
 //! Run:
 //!   cargo test -p fw-save --test migration_fixtures_test -- --ignored regenerate_fixtures
 //!
-//! The `#[ignore]`-gated `regenerate_fixtures` test writes all five files.
+//! The `#[ignore]`-gated `regenerate_fixtures` test writes all six files.
 //! Run it once to bootstrap; re-run any time the encoder changes (requires an
 //! intentional schema bump + re-pin, per T3-7 discipline).
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use fw_content::{ContentStore, SeasonState, generate_league};
-use fw_core::{MatchId, PlayerId, Q32, Seed, Tick};
+use fw_core::{AbilityCeiling, ClubId, MatchId, PlayerId, PlayerSeasonStats, Q32, Seed, Tick};
 use fw_memory::{
-    CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter, EmitterKind, Emotion,
-    EntityRef, EventClass, EventId, MemoryEvent, MemoryLedger, Participant, ParticipantRole,
-    SeasonNumber, SourceId,
+    BreakthroughState, CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter,
+    EmitterKind, Emotion, EntityRef, EventClass, EventId, MemoryEvent, MemoryLedger, Participant,
+    ParticipantRole, SeasonNumber, SourceId,
 };
 use fw_save::{
-    SaveEnvelope, SaveError, SaveV0, SaveV1, SaveV2, SaveV3, decode, encode, load_envelope,
+    SaveEnvelope, SaveError, SaveV0, SaveV1, SaveV2, SaveV3, SaveV4, SavedPlayerInstance, decode,
+    encode, load_envelope,
 };
 
 // -------------------------------------------------------------------------
@@ -126,6 +97,10 @@ fn v2_nonempty_path() -> PathBuf {
 
 fn v3_career_path() -> PathBuf {
     fixtures_dir().join("v3_career_sample.fwsave")
+}
+
+fn v4_career_path() -> PathBuf {
+    fixtures_dir().join("v4_career_sample.fwsave")
 }
 
 /// Workspace-root `content/` directory — for building the V3 fixture's real
@@ -168,6 +143,33 @@ const V3_CAREER_SEASON_NUMBER: u16 = 2;
 
 /// Seed handed to `generate_league` when building the V3 fixture's `SeasonState`.
 const V3_CAREER_LEAGUE_SEED: u64 = 0xCAFE_F00D;
+
+/// The career seed encoded into `v4_career_sample.fwsave`.
+const V4_CAREER_SEED: u64 = 0x7E57_C0DE_0004_0005;
+
+/// The `season_number` encoded into `v4_career_sample.fwsave`.
+const V4_CAREER_SEASON_NUMBER: u16 = 3;
+
+/// The `breakthrough_eval_watermark` encoded into `v4_career_sample.fwsave`.
+/// `u64` to match the `SaveV4` field (fixed-width wire type). NOTE: bincode-2
+/// varint encodes `usize` and `u64` identically, so this type change vs the
+/// original `usize` does NOT alter the frozen fixture bytes — the byte-identical
+/// round-trip test still holds against the committed `v4_career_sample.fwsave`.
+const V4_CAREER_WATERMARK: u64 = 7;
+
+/// Seed for the V4 fixture's `SeasonState` (same league seed as V3 — reuse
+/// the baked season so the fixture bytes stay minimal and the content
+/// dependency is clear).
+const V4_CAREER_LEAGUE_SEED: u64 = 0xCAFE_F00D;
+
+/// Number of `SavedPlayerInstance` rows in the V4 fixture's roster.
+/// The fixture has one club with 3 players (hand-built — fw-save tests must
+/// not depend on fw-tauri's `build_roster_from_league`).
+const V4_ROSTER_INSTANCE_COUNT: usize = 3;
+
+/// Sentinel: the `career_apps` value on the FIRST `SavedPlayerInstance` in
+/// the V4 fixture. Must be non-zero to prove the overlay is non-vacuous.
+const V4_SENTINEL_CAREER_APPS: u32 = 17;
 
 // -------------------------------------------------------------------------
 // Non-empty V2 ledger fixture construction
@@ -245,6 +247,83 @@ fn build_v3_career_envelope() -> SaveEnvelope {
         season_number: SeasonNumber(V3_CAREER_SEASON_NUMBER),
         season: Some(season),
         breakthrough_states: std::collections::BTreeMap::new(),
+    })
+}
+
+/// Build a deterministic `SavedPlayerInstance` for the V4 fixture.
+///
+/// Hand-constructed values — fw-save tests must NOT depend on fw-tauri's
+/// `build_roster_from_league` (that would create a circular dependency).
+/// The documented sentinel values (`V4_SENTINEL_CAREER_APPS`, etc.) are
+/// embedded here so assertions in the verifier tests stay non-vacuous.
+fn build_saved_player_instance(
+    player_id: u32,
+    club_id: u32,
+    slot: u8,
+    career_apps: u32,
+) -> SavedPlayerInstance {
+    SavedPlayerInstance {
+        player_id: PlayerId::new(player_id),
+        club_id: ClubId::new(club_id),
+        slot,
+        ceiling: AbilityCeiling::try_new(Q32::ZERO, Q32::ONE)
+            .expect("AbilityCeiling::try_new(0, 1) is always valid"),
+        breakthrough_state: BreakthroughState::new(),
+        season_stats: PlayerSeasonStats {
+            appearances: career_apps as u16,
+            goals: 0,
+            assists: 0,
+            minutes_played: career_apps * 90,
+            average_rating_numerator: 0,
+            rating_sample_count: 0,
+        },
+        career_apps,
+        observation_count: (career_apps / 5).max(1),
+    }
+}
+
+/// Build the `SaveEnvelope::V4` frozen into `v4_career_sample.fwsave`: a
+/// 2-event ledger, `season_number = 3`, a real `Some(SeasonState)` snapshot,
+/// a non-empty roster (3 hand-built `SavedPlayerInstance`s in one club with
+/// distinct `career_apps` values so the round-trip test is non-vacuous), and
+/// `breakthrough_eval_watermark = V4_CAREER_WATERMARK`.
+///
+/// fw-save tests never import fw-tauri (no `build_roster_from_league`), so
+/// `SavedPlayerInstance`s are constructed directly with known field values.
+fn build_v4_career_envelope() -> SaveEnvelope {
+    let content = ContentStore::load_sources(&content_root())
+        .expect("load content/ for the V4 fixture's SeasonState snapshot");
+    let league = generate_league(Seed::from_u64(V4_CAREER_LEAGUE_SEED), &content)
+        .expect("generate_league must succeed against the shipped pack");
+    let season = SeasonState::new(league, &content);
+
+    let mut ledger = MemoryLedger::new();
+    ledger.append(sample_memory_event(0, EventClass::DebutSenior));
+    ledger.append(sample_memory_event(2, EventClass::LegacyGoal));
+
+    // One club with 3 hand-built instances. ClubId(1) / PlayerIds 1_000_000..=1_000_002
+    // are plausible roster ids (≥ ROSTER_PLAYER_ID_BASE = 1_000_000) without
+    // importing fw-tauri's ROSTER_PLAYER_ID_BASE constant.
+    const BASE: u32 = 1_000_000;
+    const CLUB: u32 = 1;
+    let mut roster: BTreeMap<ClubId, Vec<SavedPlayerInstance>> = BTreeMap::new();
+    roster.insert(
+        ClubId::new(CLUB),
+        vec![
+            build_saved_player_instance(BASE, CLUB, 0, V4_SENTINEL_CAREER_APPS),
+            build_saved_player_instance(BASE + 1, CLUB, 1, 9),
+            build_saved_player_instance(BASE + 2, CLUB, 2, 3),
+        ],
+    );
+
+    SaveEnvelope::V4(SaveV4 {
+        career_seed: Seed::from_u64(V4_CAREER_SEED),
+        content_pack_version: 1,
+        ledger,
+        season_number: SeasonNumber(V4_CAREER_SEASON_NUMBER),
+        season: Some(season),
+        roster,
+        breakthrough_eval_watermark: V4_CAREER_WATERMARK,
     })
 }
 
@@ -341,6 +420,19 @@ fn regenerate_fixtures() {
     );
     std::fs::write(v3_career_path(), &v3_bytes).expect("write v3_career_sample.fwsave");
 
+    // --- v4_career_sample.fwsave ---
+    // A V4 career save: a 2-event ledger + season_number 3 + a real
+    // Some(SeasonState) snapshot + a non-empty roster (3 hand-built
+    // SavedPlayerInstances with distinct career_apps). This is the ONLY frozen
+    // fixture that exercises the SavedPlayerInstance serde surface against drift.
+    let v4_env = build_v4_career_envelope();
+    let v4_bytes = encode(&v4_env).expect("encode V4 fixture");
+    assert_eq!(
+        v4_bytes[0], 0x04,
+        "V4 wire tag must be 0x04 — schema-lock invariant"
+    );
+    std::fs::write(v4_career_path(), &v4_bytes).expect("write v4_career_sample.fwsave");
+
     println!("Fixtures written to: {}", dir.display());
     println!(
         "  v1_sample.fwsave  {} bytes  (first byte 0x{:02x})",
@@ -367,6 +459,11 @@ fn regenerate_fixtures() {
         v3_bytes.len(),
         v3_bytes[0]
     );
+    println!(
+        "  v4_career_sample.fwsave {} bytes  (first byte 0x{:02x})",
+        v4_bytes.len(),
+        v4_bytes[0]
+    );
 }
 
 // -------------------------------------------------------------------------
@@ -386,9 +483,9 @@ fn regenerate_fixtures() {
 // -------------------------------------------------------------------------
 
 /// `load_envelope` on the committed `v1_sample.fwsave` bytes produces a
-/// current-schema payload with the exact documented `career_seed` +
+/// current-schema (`SaveV4`) payload with the exact documented `career_seed` +
 /// `content_pack_version` and an empty ledger (V1 placeholder ledger drops on
-/// migration).
+/// migration). Roster is empty (V1 predates roster persistence).
 ///
 /// Non-vacuousness: mutating `migrate_v1_to_v2` to zero `career_seed` would
 /// fail the `assert_eq!(loaded.career_seed.to_u64(), V1_SAMPLE_SEED)`. Mutating
@@ -399,7 +496,7 @@ fn fixture_v1_forward_migrates() {
     let bytes = std::fs::read(v1_sample_path())
         .expect("read v1_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap");
     let loaded = load_envelope(&bytes)
-        .expect("v1_sample.fwsave must load via the V1→V2→V3 migration chain without error");
+        .expect("v1_sample.fwsave must load via the V1→V2→V3→V4 migration chain without error");
 
     assert_eq!(
         loaded.career_seed.to_u64(),
@@ -413,6 +510,10 @@ fn fixture_v1_forward_migrates() {
     assert!(
         loaded.ledger.is_empty(),
         "forward-migration: V1 placeholder ledger must migrate to an empty ledger"
+    );
+    assert!(
+        loaded.roster.is_empty(),
+        "forward-migration: V1 save predates roster persistence; roster must be empty"
     );
 }
 
@@ -778,28 +879,221 @@ fn fixture_v3_career_round_trip_byte_identical() {
 
 /// `load_envelope` on the committed `v3_career_sample.fwsave` resumes the
 /// career at the saved season — `season_number` + the `Some(SeasonState)`
-/// snapshot + the ledger all survive a real frozen-file load.
+/// snapshot + the ledger all survive a real frozen-file load. Now migrates to
+/// V4 (roster = empty, watermark = 0, all V3 fields preserved).
 #[test]
 fn fixture_v3_career_resumes_at_correct_season() {
     let bytes = std::fs::read(v3_career_path()).expect(
         "read v3_career_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap",
     );
 
-    let v3 = load_envelope(&bytes).expect("v3_career_sample.fwsave must load via load_envelope");
+    // load_envelope returns SaveV4 (V3 → migrate_v3_to_v4).
+    let v4 = load_envelope(&bytes).expect("v3_career_sample.fwsave must load via load_envelope");
 
     assert_eq!(
-        v3.season_number,
+        v4.season_number,
         SeasonNumber(V3_CAREER_SEASON_NUMBER),
-        "the frozen V3 career must resume at the saved season number"
+        "the frozen V3 career must resume at the saved season number (migrated to V4)"
     );
     assert!(
-        v3.season.is_some(),
-        "the frozen V3 season snapshot must survive a load_envelope round-trip"
+        v4.season.is_some(),
+        "the frozen V3 season snapshot must survive a V3→V4 migration + load_envelope round-trip"
     );
     assert_eq!(
-        v3.career_seed.to_u64(),
+        v4.career_seed.to_u64(),
         V3_CAREER_SEED,
+        "career_seed intact on V3→V4 migration"
+    );
+    assert_eq!(
+        v4.ledger.len(),
+        2,
+        "the ledger is intact on V3→V4 migration"
+    );
+    assert!(
+        v4.roster.is_empty(),
+        "roster must be empty on a V3→V4 migration (no deltas in V3 save)"
+    );
+    assert_eq!(
+        v4.breakthrough_eval_watermark, 0,
+        "watermark must be 0 on a V3→V4 migration"
+    );
+}
+
+// -------------------------------------------------------------------------
+// AC9: frozen V4 career fixture (T4-2.5g — mutable-subset roster)
+// -------------------------------------------------------------------------
+
+/// `decode` on the committed `v4_career_sample.fwsave` yields a
+/// `SaveEnvelope::V4` carrying the documented `season_number`, a `Some`
+/// season snapshot, a non-empty roster, and the correct watermark.
+///
+/// Non-vacuousness: an empty-roster fixture fails the `roster.len()` assertion;
+/// a fixture encoding a different sentinel `career_apps` fails the delta
+/// assertion; a different seed or season_number fail those assertions.
+#[test]
+fn fixture_v4_career_decodes() {
+    let bytes = std::fs::read(v4_career_path()).expect(
+        "read v4_career_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap",
+    );
+
+    assert_eq!(
+        bytes[0], 0x04,
+        "v4_career_sample.fwsave first byte must be 0x04 (V4 tag) — wrong fixture loaded?"
+    );
+
+    let env = decode(&bytes).expect("decode of committed v4_career_sample.fwsave must succeed");
+    let SaveEnvelope::V4(v4) = env else {
+        panic!("v4_career_sample.fwsave must decode as SaveEnvelope::V4, got {env:?}");
+    };
+
+    assert_eq!(
+        v4.career_seed.to_u64(),
+        V4_CAREER_SEED,
+        "decoded V4 career_seed must match the documented fixture value"
+    );
+    assert_eq!(
+        v4.season_number,
+        SeasonNumber(V4_CAREER_SEASON_NUMBER),
+        "decoded V4 season_number must match the documented fixture value"
+    );
+    assert!(
+        v4.season.is_some(),
+        "the frozen V4 fixture must carry a Some(SeasonState) snapshot"
+    );
+    assert_eq!(v4.ledger.len(), 2, "the frozen V4 ledger must carry 2 rows");
+    assert_eq!(
+        v4.breakthrough_eval_watermark, V4_CAREER_WATERMARK,
+        "decoded V4 breakthrough_eval_watermark must match documented fixture value"
+    );
+
+    // Roster: 1 club with V4_ROSTER_INSTANCE_COUNT instances.
+    let total_instances: usize = v4.roster.values().map(|v| v.len()).sum();
+    assert_eq!(
+        total_instances, V4_ROSTER_INSTANCE_COUNT,
+        "frozen V4 roster must carry {V4_ROSTER_INSTANCE_COUNT} instances"
+    );
+
+    // Sentinel: the first instance in the only club must have V4_SENTINEL_CAREER_APPS.
+    let first_instance = v4
+        .roster
+        .values()
+        .next()
+        .and_then(|v| v.first())
+        .expect("roster must have at least one instance");
+    assert_eq!(
+        first_instance.career_apps, V4_SENTINEL_CAREER_APPS,
+        "first roster instance career_apps must equal the documented sentinel value"
+    );
+}
+
+/// `encode(decode(committed_v4_bytes))` is byte-identical to the committed
+/// bytes. A `SavedPlayerInstance` serde regression (a field reorder, a varint
+/// change) produces different bytes here.
+#[test]
+fn fixture_v4_career_round_trip_byte_identical() {
+    let bytes = std::fs::read(v4_career_path()).expect(
+        "read v4_career_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap",
+    );
+
+    let envelope =
+        decode(&bytes).expect("decode of committed v4_career_sample.fwsave must succeed");
+    let re_encoded =
+        encode(&envelope).expect("re-encode of decoded v4_career_sample.fwsave must succeed");
+
+    assert_eq!(
+        bytes, re_encoded,
+        "round-trip-byte-identical: encode(decode(committed_v4_bytes)) must equal committed_v4_bytes"
+    );
+}
+
+/// `load_envelope` on the committed `v4_career_sample.fwsave` resumes the
+/// career with the full roster intact — `season_number`, `Some(SeasonState)`,
+/// ledger, non-empty roster, and watermark all survive.
+#[test]
+fn fixture_v4_career_resumes() {
+    let bytes = std::fs::read(v4_career_path()).expect(
+        "read v4_career_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap",
+    );
+
+    let v4 = load_envelope(&bytes).expect("v4_career_sample.fwsave must load via load_envelope");
+
+    assert_eq!(
+        v4.season_number,
+        SeasonNumber(V4_CAREER_SEASON_NUMBER),
+        "the frozen V4 career must resume at the saved season number"
+    );
+    assert!(
+        v4.season.is_some(),
+        "the frozen V4 season snapshot must survive a load_envelope round-trip"
+    );
+    assert_eq!(
+        v4.career_seed.to_u64(),
+        V4_CAREER_SEED,
         "career_seed intact on resume"
     );
-    assert_eq!(v3.ledger.len(), 2, "the ledger is intact on resume");
+    assert_eq!(v4.ledger.len(), 2, "ledger intact on resume");
+    assert_eq!(
+        v4.breakthrough_eval_watermark, V4_CAREER_WATERMARK,
+        "watermark intact on resume"
+    );
+
+    let total_instances: usize = v4.roster.values().map(|v| v.len()).sum();
+    assert_eq!(
+        total_instances, V4_ROSTER_INSTANCE_COUNT,
+        "roster count intact on resume"
+    );
+}
+
+/// `load_envelope` on the committed `v3_career_sample.fwsave` migrates forward
+/// to V4. The V3 fields (`career_seed`, `content_pack_version`, `ledger`,
+/// `season_number`, `season`) survive unchanged; `roster` is empty and
+/// `breakthrough_eval_watermark` is 0.
+///
+/// This is the `fixture_v3_forward_migrates_to_v4` test — the "AC1
+/// forward-migration" test for the V3→V4 hop, distinct from the
+/// `fixture_v3_career_resumes_at_correct_season` test above (which checks the
+/// full load_envelope resume path, not just the migration correctness).
+#[test]
+fn fixture_v3_forward_migrates_to_v4() {
+    let bytes = std::fs::read(v3_career_path()).expect(
+        "read v3_career_sample.fwsave — run `regenerate_fixtures` (--ignored) to bootstrap",
+    );
+
+    let v4 = load_envelope(&bytes)
+        .expect("v3_career_sample.fwsave must load via V3→V4 migration chain without error");
+
+    // V3 fields must survive migration unchanged.
+    assert_eq!(
+        v4.career_seed.to_u64(),
+        V3_CAREER_SEED,
+        "forward-migration V3→V4: career_seed must be preserved"
+    );
+    assert_eq!(
+        v4.content_pack_version, 1,
+        "forward-migration V3→V4: content_pack_version must be preserved"
+    );
+    assert_eq!(
+        v4.season_number,
+        SeasonNumber(V3_CAREER_SEASON_NUMBER),
+        "forward-migration V3→V4: season_number must be preserved"
+    );
+    assert!(
+        v4.season.is_some(),
+        "forward-migration V3→V4: Some(SeasonState) must survive migration"
+    );
+    assert_eq!(
+        v4.ledger.len(),
+        2,
+        "forward-migration V3→V4: 2-event ledger must survive migration"
+    );
+
+    // V4-only defaults.
+    assert!(
+        v4.roster.is_empty(),
+        "forward-migration V3→V4: roster must be empty (V3 has no roster data)"
+    );
+    assert_eq!(
+        v4.breakthrough_eval_watermark, 0,
+        "forward-migration V3→V4: watermark must be 0 (V3 never had one)"
+    );
 }

@@ -126,6 +126,22 @@ pub enum IpcError {
     #[error("settings load failed: {reason}")]
     SettingsLoadFailed { reason: String },
 
+    /// Career save file could not be written or read/decoded.
+    ///
+    /// Covers both I/O errors (disk full, permission denied) and decode errors
+    /// (corrupted save file, unknown future discriminant). Distinct from
+    /// `SettingsLoadFailed` so the frontend can surface "your save data could
+    /// not be read" vs "your settings could not be read" with targeted messages.
+    ///
+    /// Wire shape: `{ kind: "saveLoadFailed", reason: "..." }`.
+    ///
+    /// NOTE: The TypeScript `IpcError` union mirror does NOT yet include this
+    /// variant (out of scope for T4-2.5g per spec). Add `saveLoadFailed` to
+    /// `frontend/src/lib/types.ts` when the first frontend surface calls
+    /// `save_career` / `load_career`.
+    #[error("career save failed: {reason}")]
+    SaveLoadFailed { reason: String },
+
     /// An internal `RwLock` / `Mutex` was poisoned by a prior writer panic.
     ///
     /// Post-T2-5 silent-failure-hunter P1-3 fix: prior code used
