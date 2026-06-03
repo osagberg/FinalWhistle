@@ -148,6 +148,9 @@ import type {
   PlayerPhenotype,
   PlayerRosterDto,
   PossessionDto,
+  PressInboxDto,
+  PressItemDto,
+  PressTopicDto,
   Score,
   ScoutReportDto,
   SquadPlayer,
@@ -764,5 +767,63 @@ export function isScoutReportDto(v: unknown): v is ScoutReportDto {
   if (!v.categories.every(isCategoryEstimateDto)) return false;
   if (!Array.isArray(v.labels)) return false;
   if (!v.labels.every(isLabelEstimateDto)) return false;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// T4-2.5k press-inbox guards
+// ---------------------------------------------------------------------------
+
+const KNOWN_PRESS_TOPICS = new Set<PressTopicDto>([
+  "playerMilestone",
+  "contractTransfer",
+  "matchResult",
+  "relational",
+]) satisfies ReadonlySet<PressTopicDto>;
+
+function isPressTopicDto(v: unknown): v is PressTopicDto {
+  return (
+    typeof v === "string" &&
+    (KNOWN_PRESS_TOPICS as ReadonlySet<string>).has(v)
+  );
+}
+
+/**
+ * Runtime shape guard for `PressItemDto` — one entry in the press inbox.
+ *
+ * Guards checked:
+ *   - `eventId`: u32-bounded integer
+ *   - `season`: u16-bounded integer
+ *   - `eventClass`: u32-bounded integer
+ *   - `topic`: closed union member
+ *   - `headline`: non-empty string
+ *   - `managerQuote`: string or null
+ */
+export function isPressItemDto(v: unknown): v is PressItemDto {
+  if (!isObject(v)) return false;
+  if (!isU32(v.eventId)) return false;
+  if (!isU16(v.season)) return false;
+  if (!isU32(v.eventClass)) return false;
+  if (!isPressTopicDto(v.topic)) return false;
+  if (typeof v.headline !== "string" || v.headline.length === 0) return false;
+  // managerQuote is string | null — reject undefined or other types.
+  if (v.managerQuote !== null && typeof v.managerQuote !== "string") return false;
+  return true;
+}
+
+/**
+ * Runtime shape guard for `PressInboxDto` — the payload returned by
+ * `get_press_inbox`.
+ *
+ * Guards checked:
+ *   - `seasonNumber`: u16-bounded integer (mirrors the Rust `season_number: u16`)
+ *   - `items`: array of valid `PressItemDto` (may be empty — a new career
+ *     produces no press items until the first season is played)
+ */
+export function isPressInboxDto(v: unknown): v is PressInboxDto {
+  if (!isObject(v)) return false;
+  if (!isU16(v.seasonNumber)) return false;
+  if (!Array.isArray(v.items)) return false;
+  if (!v.items.every(isPressItemDto)) return false;
   return true;
 }

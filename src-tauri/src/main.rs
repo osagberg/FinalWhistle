@@ -102,6 +102,8 @@ fn main() {
             fw_tauri::commands::load_career,
             // T4-2.5h: default-club squad roster
             fw_tauri::commands::get_squad_roster,
+            // T4-2.5k: press inbox
+            fw_tauri::commands::get_press_inbox,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

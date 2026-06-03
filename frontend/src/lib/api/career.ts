@@ -17,9 +17,10 @@
 import {
   isAdvanceSeasonSummary,
   isCareerOverview,
+  isPressInboxDto,
   safeInvoke,
 } from "../runtime-validators";
-import type { AdvanceSeasonSummary, CareerOverview } from "../types";
+import type { AdvanceSeasonSummary, CareerOverview, PressInboxDto } from "../types";
 
 /**
  * Advance to the next season.
@@ -48,4 +49,19 @@ export async function advanceSeason(): Promise<AdvanceSeasonSummary> {
  */
 export async function getCareerOverview(): Promise<CareerOverview> {
   return safeInvoke("get_career_overview", {}, isCareerOverview);
+}
+
+/**
+ * Fetch the press inbox for the current career.
+ *
+ * Returns the current season number and a list of press items ordered by
+ * projected salience descending (event_id ascending tiebreak), capped at 20.
+ * Empty `items` is the normal state at career start — it is NOT an error
+ * condition.
+ *
+ * Throws `IpcShapeError` if the backend returns a payload that doesn't match
+ * the `PressInboxDto` shape.
+ */
+export async function getPressInbox(): Promise<PressInboxDto> {
+  return safeInvoke("get_press_inbox", {}, isPressInboxDto);
 }

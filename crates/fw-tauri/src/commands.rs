@@ -27,7 +27,8 @@ use fw_content::{
 use fw_core::{ClubId, PlayerId, Seed, Tick};
 use fw_match_sim::{MatchState, PLAYERS_PER_TEAM, tick_match};
 use fw_memory::event::{EventClass, SeasonNumber};
-use fw_memory::readers::{SalienceFilter, salience::SalienceReader};
+use fw_memory::readers::press::PressReader;
+use fw_memory::readers::{PressTopic, SalienceFilter, project_salience, salience::SalienceReader};
 use fw_memory::{BreakthroughContext, BreakthroughOutcome, evaluate};
 use fw_save::{self, SaveEnvelope, SaveV4, SavedPlayerInstance};
 
@@ -42,7 +43,7 @@ use crate::{
     AdvanceSeasonSummaryDto, AdvanceWeekSummaryDto, AppState, BackendHandshakeDto,
     CareerOverviewDto, ChampionHistoryEntryDto, FixtureWithResultDto, IpcError,
     MAX_FRAMES_PER_REQUEST, MatchFrameDto, MatchResult, PlayFixturesSummaryDto, PlayerDetailDto,
-    PlayerPhenotypeDto, SquadPlayerDto, StandingsRowDto, season,
+    PlayerPhenotypeDto, PressInboxDto, PressItemDto, SquadPlayerDto, StandingsRowDto, season,
 };
 
 // ---------------------------------------------------------------------------
@@ -136,6 +137,22 @@ pub async fn get_career_overview(
     state: tauri::State<'_, AppState>,
 ) -> Result<CareerOverviewDto, IpcError> {
     get_career_overview_inner(&state)
+}
+
+/// `get_press_inbox()` — return ranked press-conference items from the career ledger.
+///
+/// For each of the 4 `PressTopic` variants, calls `PressReader::candidates` to
+/// fetch callback-eligible events. Merges the four lists, deduplicates by
+/// `event_id` (keeping the first topic's assignment in declaration order:
+/// `PlayerMilestone` → `ContractTransfer` → `MatchResult` → `Relational`),
+/// re-sorts by projected salience descending with `event_id` ascending as a
+/// tiebreak, and caps at 20 items. Each item's `headline` is rendered via
+/// `render_memory_callback`.
+///
+/// Returns `IpcError::LockPoisoned` if the career write lock cannot be acquired.
+#[tauri::command]
+pub async fn get_press_inbox(state: tauri::State<'_, AppState>) -> Result<PressInboxDto, IpcError> {
+    get_press_inbox_inner(&state)
 }
 
 // ---------------------------------------------------------------------------
@@ -1525,6 +1542,248 @@ pub fn get_career_overview_inner(state: &AppState) -> Result<CareerOverviewDto, 
         season_number: current_season_num.0,
         history,
         cross_season_callbacks,
+    })
+}
+
+/// `get_press_inbox_inner` — sync inner logic for `get_press_inbox`.
+///
+/// Lock acquisition strategy: `PressReader::candidates` takes `&mut MemoryLedger`
+/// for lazy index rebuilds, so we need the WRITE lock. We collect all candidate
+/// data as owned values and drop the write guard before the render loop, following
+/// the same pattern as `get_player_detail_inner` / `get_career_overview_inner`.
+///
+/// ## Composition: top-K-per-topic merge
+///
+/// For each of the 4 `PressTopic` variants, take the top `PRESS_K_PER_TOPIC`
+/// candidates (already ranked by projected salience desc inside each topic).
+/// Merge across topics, dedup by `event_id` (first topic wins in declaration
+/// order), re-sort the merged set by projected salience desc / event_id asc,
+/// and cap at 20. This guarantees every non-empty topic is represented rather
+/// than flooding the inbox with e.g. 440 `DebutSenior` events.
+///
+/// ## Name resolution
+///
+/// For each event the Subject `PlayerId` participant is resolved against
+/// `career.roster` (flat scan) to populate `MemoryCallbackContext.player_name`.
+/// Falls back to an empty string for club-subject events (e.g. `TitleWon`) —
+/// the same behaviour as `get_career_overview_inner`.
+///
+/// ## Topic-string mapping (camelCase, matching TS union)
+/// - `PressTopic::PlayerMilestone`  → `"playerMilestone"`
+/// - `PressTopic::ContractTransfer` → `"contractTransfer"`
+/// - `PressTopic::MatchResult`      → `"matchResult"`
+/// - `PressTopic::Relational`       → `"relational"`
+pub fn get_press_inbox_inner(state: &AppState) -> Result<PressInboxDto, IpcError> {
+    /// Maximum candidates taken per topic before the cross-topic merge.
+    /// 4 topics × 6 = 24 candidates before dedup + final cap of 20.
+    const PRESS_K_PER_TOPIC: usize = 6;
+
+    let all_topics: &[(PressTopic, &'static str)] = &[
+        (PressTopic::PlayerMilestone, "playerMilestone"),
+        (PressTopic::ContractTransfer, "contractTransfer"),
+        (PressTopic::MatchResult, "matchResult"),
+        (PressTopic::Relational, "relational"),
+    ];
+
+    // Intermediate owned representation collected under the write lock so we
+    // can drop the guard before the render loop.
+    struct RawItem {
+        event_id: u32,
+        season: u16,
+        event_class_disc: u32,
+        topic: &'static str,
+        // Salience at collection time (used for cross-topic merge sort).
+        projected_salience: fw_core::Q32,
+        // Context slots for render_memory_callback — mirroring get_player_detail_inner.
+        player_name: String,
+        club_name: String,
+        opponent_name: String,
+        season_label: String,
+    }
+
+    let (raw_items, season_number) = {
+        let mut career = state.career().write().map_err(|_| IpcError::LockPoisoned {
+            lock: "career".to_string(),
+        })?;
+
+        let now_tick = career.current_tick();
+        let season_number = career.season_number;
+
+        // Build ClubId → display_name for club/opponent name resolution.
+        // Same pattern as get_player_detail_inner and get_career_overview_inner.
+        let club_names: std::collections::BTreeMap<fw_core::ClubId, String> = career
+            .season
+            .league
+            .clubs
+            .iter()
+            .map(|c| (c.id, c.display_name.clone()))
+            .collect();
+
+        // Build PlayerId → display_name for Subject participant resolution.
+        // Flat scan of all roster instances (O(clubs × 22)); done once, not per event.
+        // Keyed by PlayerId so we can look up the Subject of any player-subject event.
+        let roster_names: std::collections::BTreeMap<PlayerId, String> = career
+            .roster
+            .values()
+            .flat_map(|instances| instances.iter())
+            .map(|inst| (inst.player_id, inst.display_name.clone()))
+            .collect();
+
+        // Top-K-per-topic merge: collect up to PRESS_K_PER_TOPIC candidates from
+        // each topic, dedup by event_id keeping the FIRST topic assignment (topic
+        // discriminant sets are disjoint, so dedup here only fires when the same
+        // event_id is somehow indexed under two topics — a safety net, not a primary
+        // path). BTreeMap for deterministic insertion order and O(log n) dedup.
+        let mut seen: std::collections::BTreeMap<u32, RawItem> = std::collections::BTreeMap::new();
+
+        for (topic, topic_str) in all_topics {
+            let candidates = PressReader::candidates(&mut career.ledger, *topic, now_tick);
+            // Take only the top-K from this topic (PressReader already sorts salience desc).
+            for event in candidates.into_iter().take(PRESS_K_PER_TOPIC) {
+                let eid = event.event_id.0;
+                if seen.contains_key(&eid) {
+                    continue; // dedup: keep first topic's assignment
+                }
+
+                let projected_salience = project_salience(event, now_tick);
+
+                // Resolve Subject participant's display name from the roster.
+                // Mirrors the get_player_detail_inner / build_player_detail_dto pattern:
+                // look up by PlayerId in career.roster; fall back to empty string for
+                // club-subject events (TitleWon) where there is no Player Subject.
+                let player_name: String = event
+                    .participants
+                    .iter()
+                    .find_map(|p| {
+                        if p.role == fw_memory::event::ParticipantRole::Subject
+                            && let fw_memory::event::EntityRef::Player(pid) = p.entity
+                        {
+                            return roster_names.get(&pid).cloned();
+                        }
+                        None
+                    })
+                    .unwrap_or_default();
+
+                // Resolve club/opponent names — same pattern as get_career_overview_inner.
+                let first_club_cid: Option<fw_core::ClubId> =
+                    event.participants.iter().find_map(|p| {
+                        if let fw_memory::event::EntityRef::Club(cid) = p.entity {
+                            Some(cid)
+                        } else {
+                            None
+                        }
+                    });
+                let club_name = first_club_cid
+                    .and_then(|cid| club_names.get(&cid).map(|s| s.to_string()))
+                    .unwrap_or_default();
+
+                let opponent_name = event
+                    .participants
+                    .iter()
+                    .filter_map(|p| {
+                        if let fw_memory::event::EntityRef::Club(cid) = p.entity {
+                            if Some(cid) == first_club_cid {
+                                return None;
+                            }
+                            club_names.get(&cid).map(|s| s.to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .next()
+                    .unwrap_or_default();
+
+                let season_label = format!("Season {}", event.season.0 + 1);
+
+                seen.insert(
+                    eid,
+                    RawItem {
+                        event_id: eid,
+                        season: event.season.0,
+                        event_class_disc: event.event_class.discriminant(),
+                        topic: topic_str,
+                        projected_salience,
+                        player_name,
+                        club_name,
+                        opponent_name,
+                        season_label,
+                    },
+                );
+            }
+        }
+
+        (seen, season_number)
+    }; // career write guard dropped here
+
+    // Merge, re-sort by projected_salience desc + event_id asc, cap at 20.
+    // The per-topic pre-sort guarantees each topic's best items entered `seen`
+    // first; this final sort produces the cross-topic ranking.
+    let mut sorted: Vec<RawItem> = raw_items.into_values().collect();
+    sorted.sort_by(|a, b| {
+        b.projected_salience
+            .cmp(&a.projected_salience)
+            .then_with(|| a.event_id.cmp(&b.event_id))
+    });
+    sorted.truncate(20);
+
+    // Render each headline via render_memory_callback (no career lock held).
+    let bank = &state.content().memory_callback_grammars;
+    let career_seed = state.career_seed().to_u64();
+
+    let mut items: Vec<PressItemDto> = Vec::with_capacity(sorted.len());
+    for raw in sorted {
+        let disc = raw.event_class_disc;
+
+        let headline = if discriminant_to_family_key(disc).is_none() {
+            // No grammar family for this discriminant — static fallback so the
+            // UI degrades gracefully without surfacing a raw discriminant number.
+            log::error!(
+                "press inbox: no grammar family for event {} disc {} — using static fallback",
+                raw.event_id,
+                disc,
+            );
+            "a notable moment in the career".to_string()
+        } else {
+            let ctx = MemoryCallbackContext {
+                // player_name resolved from roster above; empty for club-subject
+                // events (TitleWon) — same fallback as get_career_overview_inner.
+                player_name: raw.player_name.clone(),
+                club_name: raw.club_name.clone(),
+                opponent_name: raw.opponent_name.clone(),
+                competition_name: String::new(),
+                season_label: raw.season_label.clone(),
+                score_line: String::new(),
+                outcome_phrase: String::new(),
+                role_label: String::new(),
+                detail_phrase: String::new(),
+            };
+            match render_memory_callback(career_seed, raw.event_id, disc, &ctx, bank) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::error!(
+                        "press inbox: memory-callback render failed for event {} disc {}: {}",
+                        raw.event_id,
+                        disc,
+                        e
+                    );
+                    "a notable moment in the career".to_string()
+                }
+            }
+        };
+
+        items.push(PressItemDto {
+            event_id: raw.event_id,
+            season: raw.season,
+            event_class: disc,
+            topic: raw.topic.to_string(),
+            headline,
+            manager_quote: None,
+        });
+    }
+
+    Ok(PressInboxDto {
+        items,
+        season_number: season_number.0,
     })
 }
 

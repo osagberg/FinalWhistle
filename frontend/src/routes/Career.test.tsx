@@ -33,11 +33,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("~/lib/api/career", () => ({
   getCareerOverview: vi.fn(),
   advanceSeason: vi.fn(),
+  getPressInbox: vi.fn(),
 }));
 
 // Import AFTER mocks are hoisted.
 import Career from "./Career";
-import { getCareerOverview, advanceSeason } from "~/lib/api/career";
+import { getCareerOverview, advanceSeason, getPressInbox } from "~/lib/api/career";
+import type { PressInboxDto } from "~/lib/types";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -47,6 +49,49 @@ const OVERVIEW_EMPTY: CareerOverview = {
   seasonNumber: 1,
   history: [],
   crossSeasonCallbacks: [],
+};
+
+const PRESS_INBOX_EMPTY: PressInboxDto = {
+  seasonNumber: 1,
+  items: [],
+};
+
+const PRESS_INBOX_WITH_ITEMS: PressInboxDto = {
+  seasonNumber: 3,
+  items: [
+    {
+      eventId: 1,
+      season: 0,
+      eventClass: 24,
+      topic: "playerMilestone",
+      headline: "Emeka Thorne made his senior debut and showed composure beyond his years",
+      managerQuote: null,
+    },
+    {
+      eventId: 47,
+      season: 1,
+      eventClass: 22,
+      topic: "matchResult",
+      headline: "Northshire Town are champions",
+      managerQuote: "The lads gave everything. A night nobody will forget.",
+    },
+    {
+      eventId: 63,
+      season: 2,
+      eventClass: 9,
+      topic: "contractTransfer",
+      headline: "Seren Voss signed a contract extension",
+      managerQuote: null,
+    },
+    {
+      eventId: 88,
+      season: 2,
+      eventClass: 18,
+      topic: "relational",
+      headline: "A partnership built over two seasons is drawing attention from rival clubs",
+      managerQuote: null,
+    },
+  ],
 };
 
 const OVERVIEW_WITH_HISTORY: CareerOverview = {
@@ -69,6 +114,7 @@ describe("Career page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getCareerOverview).mockResolvedValue(OVERVIEW_EMPTY);
+    vi.mocked(getPressInbox).mockResolvedValue(PRESS_INBOX_EMPTY);
     vi.mocked(advanceSeason).mockResolvedValue({
       completedSeason: 1,
       championClubName: "Aardvark FC",
@@ -329,5 +375,111 @@ describe("Career page", () => {
     expect(alert.textContent).toContain("career");
     // Must NOT show raw err.message.
     expect(alert.textContent).not.toContain("Cannot read properties");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Press inbox panel — T4-2.5k
+  // ---------------------------------------------------------------------------
+
+  // (a) Press items render: headline and topic label visible.
+  it("renders press items with headline text and topic label", async () => {
+    vi.mocked(getPressInbox).mockResolvedValue(PRESS_INBOX_WITH_ITEMS);
+
+    render(() => <Career />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/emeka thorne made his senior debut/i),
+      ).toBeInTheDocument();
+    });
+
+    // All four headlines must appear.
+    expect(screen.getByText(/northshire town are champions/i)).toBeInTheDocument();
+    expect(screen.getByText(/seren voss signed a contract extension/i)).toBeInTheDocument();
+    expect(screen.getByText(/a partnership built over two seasons/i)).toBeInTheDocument();
+
+    // Topic labels: all four topic types from the fixture.
+    expect(screen.getByText("Milestone")).toBeInTheDocument();
+    expect(screen.getByText("Result")).toBeInTheDocument();
+    expect(screen.getByText("Transfer")).toBeInTheDocument();
+    expect(screen.getByText("Story")).toBeInTheDocument();
+  });
+
+  // Manager quote renders when non-null; absent when null.
+  it("renders manager quote when present, omits when null", async () => {
+    vi.mocked(getPressInbox).mockResolvedValue(PRESS_INBOX_WITH_ITEMS);
+
+    render(() => <Career />);
+
+    // The champions item has a non-null managerQuote — it must appear.
+    await waitFor(() => {
+      expect(screen.getByText(/the lads gave everything/i)).toBeInTheDocument();
+    });
+
+    // The contract-transfer item has managerQuote: null — the unique phrase
+    // "nobody will forget" is from the champions quote, which is non-null.
+    // Cross-check: the debut, transfer, and relational items have null quotes —
+    // their headlines appear but their null-quotes do not add any extra text.
+    // We verify the *only* quoted text in the panel belongs to the champions item.
+    const inboxSection = screen.getByRole("region", { name: /press inbox/i });
+    // The champions quote text is present exactly once.
+    expect(inboxSection.textContent).toContain("nobody will forget");
+    // The seren voss item (transfer, null quote) has no quote text present.
+    // There is no unique phrase to check absence of since managerQuote is null.
+    // Instead assert count: only one quote wrapping (italic) element for the
+    // one non-null quote.
+    const italicElements = inboxSection.querySelectorAll("p.italic");
+    expect(italicElements.length).toBe(1);
+    expect(italicElements.item(0).textContent).toContain("lads gave everything");
+  });
+
+  // (b) Empty items renders football-native empty-state copy, NOT an error.
+  it("shows 'No press yet' empty-state when items array is empty", async () => {
+    vi.mocked(getPressInbox).mockResolvedValue(PRESS_INBOX_EMPTY);
+
+    render(() => <Career />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/no press yet/i)).toBeInTheDocument();
+    });
+
+    // Must not be a role="alert" — empty inbox is not an error condition.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  // (c) getPressInbox rejection degrades the press section gracefully without
+  //     breaking the overview panels (isolation guarantee).
+  it("press section degrades gracefully on getPressInbox rejection without breaking overview", async () => {
+    vi.mocked(getCareerOverview).mockResolvedValue(OVERVIEW_WITH_HISTORY);
+    vi.mocked(getPressInbox).mockRejectedValue(new Error("network error"));
+
+    render(() => <Career />);
+
+    // Overview panels must still render.
+    await waitFor(() => {
+      expect(screen.getByText("Aardvark FC")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Brindlewood City")).toBeInTheDocument();
+
+    // Press section shows graceful inline note.
+    await waitFor(() => {
+      const pressSection = screen.getByRole("region", { name: /press inbox/i });
+      expect(pressSection.textContent).toMatch(/couldn't be loaded/i);
+    });
+
+    // The overview error alert must NOT appear — failure is isolated.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  // Press inbox section heading renders when data is available.
+  it("renders the Press inbox section heading when items load", async () => {
+    vi.mocked(getPressInbox).mockResolvedValue(PRESS_INBOX_EMPTY);
+
+    render(() => <Career />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: /press inbox/i })).toBeInTheDocument();
+    });
   });
 });

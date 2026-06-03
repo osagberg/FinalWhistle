@@ -41,10 +41,10 @@ pub mod state;
 
 pub use commands::{
     advance_season, advance_week, apply_match_command, finish_live_match, get_backend_handshake,
-    get_career_overview, get_fixtures, get_match_snapshot, get_player_detail, get_roster_for_club,
-    get_scout_report, get_settings, get_squad, get_squad_roster, get_standings, load_career,
-    match_frames, play_fixtures, play_match, save_career, set_settings, start_live_match,
-    step_live_match,
+    get_career_overview, get_fixtures, get_match_snapshot, get_player_detail, get_press_inbox,
+    get_roster_for_club, get_scout_report, get_settings, get_squad, get_squad_roster,
+    get_standings, load_career, match_frames, play_fixtures, play_match, save_career, set_settings,
+    start_live_match, step_live_match,
 };
 // AppSettingsDto and ThemePrefDto are defined in this module below; they are
 // already pub and visible to integration tests via `fw_tauri::AppSettingsDto`.
@@ -322,6 +322,46 @@ pub struct PlayerDetailDto {
     pub memory_callbacks: Vec<String>,
     /// Contract information. `None` until the T4 career-roster layer lands.
     pub contract_status: Option<String>,
+}
+
+// -------------------------------------------------------------------------
+// T4-2.5k Press inbox DTOs
+// -------------------------------------------------------------------------
+
+/// One press-conference item returned by `get_press_inbox`.
+///
+/// `topic` is one of the strings `"playerMilestone"` | `"contractTransfer"` |
+/// `"matchResult"` | `"relational"`, matching the `PressTopic` variants.
+/// `manager_quote` is reserved for a future task and is always `None` here.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PressItemDto {
+    /// The raw `EventId.0` for this event.
+    pub event_id: u32,
+    /// The 0-indexed season number the event occurred in.
+    pub season: u16,
+    /// The `EventClass::discriminant()` value.
+    pub event_class: u32,
+    /// Topic string: `"playerMilestone"` | `"contractTransfer"` |
+    /// `"matchResult"` | `"relational"`.
+    pub topic: String,
+    /// Rendered headline sentence from `render_memory_callback`.
+    pub headline: String,
+    /// Reserved for a future task — always `None` at T4-2.5k.
+    pub manager_quote: Option<String>,
+}
+
+/// Returned by `get_press_inbox`.
+///
+/// `items` are ordered by projected salience descending (event_id ascending
+/// tiebreak), deduplicated by `event_id`, and capped at 20.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PressInboxDto {
+    /// Press items ranked by projected salience, capped at 20.
+    pub items: Vec<PressItemDto>,
+    /// The current 0-indexed season number.
+    pub season_number: u16,
 }
 
 // -------------------------------------------------------------------------

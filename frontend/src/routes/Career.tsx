@@ -1,17 +1,22 @@
 /*
- * Career page — T3-9.
+ * Career page — T3-9, extended T4-2.5k.
  *
- * Text-first per DESIGN_DOC.md §3. Three panels:
+ * Text-first per DESIGN_DOC.md §3. Four panels:
  *   1. Season header — current season number.
  *   2. Champion history — per-season champion list (oldest-to-newest).
  *   3. From past seasons — cross-season memory-event callbacks.
+ *   4. Press inbox — press items from the memory ledger (T4-2.5k).
  *
  * One action button: "Advance to next season" → calls `advance_season`,
  * refetches overview, renders a typed outcome line.
  *
  * IPC (read-only via career.ts wrappers):
  *   getCareerOverview()  → CareerOverview         — loaded on mount
+ *   getPressInbox()      → PressInboxDto           — loaded on mount (isolated)
  *   advanceSeason()      → AdvanceSeasonSummary   — action button
+ *
+ * Press inbox is an ISOLATED resource (mirrors T4-F4 Player.tsx scout pattern):
+ * a press-inbox failure never breaks the champion-history / callback panels.
  *
  * Rules compliance:
  *   - No `any` (Frontend/RULES.md §6)
@@ -24,7 +29,7 @@
  */
 
 import { createResource, createSignal, For, Show, type JSX } from "solid-js";
-import { advanceSeason, getCareerOverview } from "~/lib/api/career";
+import { advanceSeason, getCareerOverview, getPressInbox } from "~/lib/api/career";
 import ErrorBoundary from "~/components/ErrorBoundary";
 import Loading from "~/components/Loading";
 import { IpcShapeError } from "~/lib/runtime-validators";
@@ -33,6 +38,9 @@ import type {
   AdvanceSeasonSummary,
   CareerOverview,
   IpcError,
+  PressInboxDto,
+  PressItemDto,
+  PressTopicDto,
 } from "~/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -123,6 +131,37 @@ export default function Career(): JSX.Element {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Topic → human-readable label mapping
+//
+// Maps the closed `PressTopicDto` union to football-native display labels.
+// Exhaustiveness is enforced by the switch default never-branch.
+// ---------------------------------------------------------------------------
+
+function pressTopicLabel(topic: PressTopicDto): string {
+  switch (topic) {
+    case "playerMilestone": return "Milestone";
+    case "matchResult":     return "Result";
+    case "contractTransfer": return "Transfer";
+    case "relational":      return "Story";
+    default:
+      // Exhaustiveness check: if a new topic variant is added to PressTopicDto
+      // without updating this switch, the assignment to `never` fails at compile time.
+      return ((_: never) => "Press")(topic);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Press inbox outcome discriminant
+//
+// Isolated from the overview resource so a press failure never blocks the
+// champion-history or callbacks panels (mirrors T4-F4 ScoutOutcome pattern).
+// ---------------------------------------------------------------------------
+
+type PressOutcome =
+  | { kind: "ok"; inbox: PressInboxDto }
+  | { kind: "error"; err: IpcError | Error };
+
 function CareerInner(): JSX.Element {
   // Fetch error — typed signal so it's fully reactive in the jsdom test env.
   const [overviewError, setOverviewError] = createSignal<IpcError | Error | null>(
@@ -153,6 +192,32 @@ function CareerInner(): JSX.Element {
       }
     },
   );
+
+  // Press inbox — isolated resource, never blocks the overview panels.
+  const [pressOutcome, setPressOutcome] = createSignal<PressOutcome | null>(null);
+
+  const [_pressResource] = createResource<null>(async () => {
+    setPressOutcome(null);
+    try {
+      const inbox = await getPressInbox();
+      setPressOutcome({ kind: "ok", inbox });
+    } catch (e: unknown) {
+      if (e instanceof IpcShapeError) {
+        // eslint-disable-next-line no-console
+        console.error(
+          "[Career] get_press_inbox DTO contract drift:",
+          e.command,
+          e.reason,
+          e.payloadPreview,
+        );
+      } else {
+        // eslint-disable-next-line no-console
+        console.error("[Career] getPressInbox failed:", e);
+      }
+      setPressOutcome({ kind: "error", err: normaliseError(e) });
+    }
+    return null;
+  });
 
   // Action state.
   const [actionPending, setActionPending] = createSignal(false);
@@ -315,6 +380,106 @@ function CareerInner(): JSX.Element {
           }}
         </Show>
       </Show>
+
+      {/* Panel 3: Press inbox — isolated from overview resource */}
+      <PressInboxSection pressOutcome={pressOutcome()} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PressInboxSection — isolated panel for the press inbox
+//
+// Receives a `PressOutcome | null` — null means the resource is still loading.
+// A loading state renders nothing (no jank on first paint — the overview
+// panels render independently). Errors render a modest inline note, not a
+// full-page alert, so the rest of Career stays usable.
+// ---------------------------------------------------------------------------
+
+interface PressInboxSectionProps {
+  pressOutcome: PressOutcome | null;
+}
+
+function PressInboxSection(props: PressInboxSectionProps): JSX.Element {
+  return (
+    <>
+      {/* Error state — modest note, not a page-level alert */}
+      <Show when={props.pressOutcome?.kind === "error"}>
+        <section
+          aria-label="Press inbox"
+          class="fw-panel space-y-2 p-4"
+        >
+          <h2 class="text-lg font-semibold text-ink dark:text-paper">
+            Press inbox
+          </h2>
+          <p class="text-sm text-ink-mute dark:text-paper-subtle">
+            The press inbox couldn't be loaded right now.
+          </p>
+        </section>
+      </Show>
+
+      {/* Data state */}
+      <Show
+        when={
+          props.pressOutcome?.kind === "ok"
+            ? (props.pressOutcome as { kind: "ok"; inbox: PressInboxDto }).inbox
+            : null
+        }
+      >
+        {(inbox) => (
+          <section
+            aria-label="Press inbox"
+            class="fw-panel space-y-3 p-4"
+          >
+            <h2 class="text-lg font-semibold text-ink dark:text-paper">
+              Press inbox
+            </h2>
+
+            <Show
+              when={inbox().items.length > 0}
+              fallback={
+                <p class="text-sm text-ink-mute dark:text-paper-subtle">
+                  No press yet — play a season to make headlines.
+                </p>
+              }
+            >
+              <ul
+                class="space-y-3"
+                aria-label="Press items"
+              >
+                <For each={inbox().items}>
+                  {(item: PressItemDto) => (
+                    <li class="border-b border-ink-subtle/10 pb-3 last:border-b-0 last:pb-0 dark:border-paper-subtle/10">
+                      {/* Topic label + season metadata row */}
+                      <div class="mb-1 flex items-center gap-2 text-xs text-ink-mute dark:text-paper-subtle">
+                        <span
+                          class="rounded bg-pitch-100 px-1.5 py-0.5 font-mono text-pitch-700 dark:bg-pitch-900 dark:text-pitch-300"
+                          aria-label={`Topic: ${pressTopicLabel(item.topic)}`}
+                        >
+                          {pressTopicLabel(item.topic)}
+                        </span>
+                        <span>Season {item.season}</span>
+                      </div>
+
+                      {/* Headline */}
+                      <p class="text-sm text-ink dark:text-paper">
+                        {item.headline}
+                      </p>
+
+                      {/* Manager quote — only when non-null */}
+                      <Show when={item.managerQuote !== null}>
+                        <p class="mt-1 text-sm italic text-ink-subtle dark:text-paper-subtle">
+                          "{item.managerQuote}"
+                        </p>
+                      </Show>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </Show>
+          </section>
+        )}
+      </Show>
+    </>
   );
 }

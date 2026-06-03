@@ -526,6 +526,54 @@ export interface CareerOverview {
 }
 
 // ---------------------------------------------------------------------------
+// T4-2.5k press-inbox DTOs — mirrors fw-tauri::press_dto (camelCase serde)
+// ---------------------------------------------------------------------------
+
+/**
+ * Topic discriminant for a press-inbox item.
+ *
+ * Mirrors `PressTopicDto` on the Rust side.
+ * Closed union — adding a new variant requires an IPC-contract update.
+ */
+export type PressTopicDto =
+  | "playerMilestone"
+  | "contractTransfer"
+  | "matchResult"
+  | "relational";
+
+/**
+ * One press-inbox item returned as part of `PressInboxDto`.
+ *
+ * `eventId` is the raw u32 EventId from the memory ledger.
+ * `season` is the u16 season index in which the event occurred.
+ * `eventClass` is the raw u32 event class discriminant (informational only;
+ *   the UI uses `topic` for display routing).
+ * `headline` is a rendered football-native prose string.
+ * `managerQuote` is an optional short quote; null when the sim did not
+ *   generate a quote for this event.
+ */
+export interface PressItemDto {
+  eventId: number;
+  season: number;
+  eventClass: number;
+  topic: PressTopicDto;
+  headline: string;
+  managerQuote: string | null;
+}
+
+/**
+ * Returned by `get_press_inbox`.
+ *
+ * `seasonNumber` is the current season (mirrors CareerOverview.seasonNumber).
+ * `items` is ordered by projected salience descending (event_id ascending
+ * tiebreak), capped at 20. May be empty at career start.
+ */
+export interface PressInboxDto {
+  seasonNumber: number;
+  items: PressItemDto[];
+}
+
+// ---------------------------------------------------------------------------
 // T4-F4 scouting DTOs — mirrors fw-tauri::roster_dto (camelCase serde)
 // ---------------------------------------------------------------------------
 

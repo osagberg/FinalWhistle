@@ -451,8 +451,20 @@ pub fn render_memory_callback(
     merged.push(("origin".to_string(), single_origin));
 
     // Inject context vars as single-entry rules.
+    // Tracery's `from_map` rejects empty rule strings via its PEG parser
+    // ("expected rule" on `""`). Substitute a single space for any empty
+    // context slot so the grammar can expand — an empty slot in the context
+    // means the event has no value for that field (e.g. no player name on a
+    // club-subject event like TitleWon). The resulting phrase will contain a
+    // space in place of the slot, which is correct: phrases that omit the
+    // slot (e.g. "club won the title") won't use it at all.
     for (k, v) in &vars {
-        merged.push((k.clone(), vec![v.clone()]));
+        let safe_v = if v.is_empty() {
+            " ".to_string()
+        } else {
+            v.clone()
+        };
+        merged.push((k.clone(), vec![safe_v]));
     }
 
     let grammar =
@@ -467,6 +479,15 @@ pub fn render_memory_callback(
             grammar_key: "memory_callback",
             source,
         })?;
+
+    // Collapse whitespace runs + trim. The empty-slot `" "` substitution above
+    // (the workaround for Tracery rejecting empty rules) leaves a stray space
+    // wherever a grammar variant references a slot the event has no value for
+    // (e.g. `#player_name#` on a club-subject TitleWon) — which would otherwise
+    // surface as a visible "…and   was part of it" gap in a player-facing
+    // headline. Normalising to single-spaced + trimmed keeps the prose clean;
+    // the empty-output guard below still fires if a phrase collapses to nothing.
+    let output = output.split_whitespace().collect::<Vec<_>>().join(" ");
 
     if output.is_empty() {
         return Err(NewsRenderError::EmptyOutput {
@@ -596,6 +617,40 @@ mod tests {
         assert!(
             output.contains("Vale"),
             "player_name 'Vale' not found in output: {output:?}"
+        );
+    }
+
+    #[test]
+    fn render_with_empty_slots_succeeds_and_has_no_stray_whitespace() {
+        // Regression (T4-2.5k): empty context slots used to make Tracery's
+        // `from_map` reject the rule ("expected rule" on `""`), and every caller
+        // silently swallowed the Err into the generic "a notable moment in the
+        // career" fallback — so get_player_detail / get_career_overview / the
+        // press inbox NEVER rendered real prose (they always pass several empty
+        // slots). The `" "`-for-empty workaround unblocks rendering; the
+        // whitespace-collapse keeps a referenced-but-empty slot (e.g.
+        // `#player_name#` on a club-subject event) from leaving a visible "  "
+        // gap in a player-facing headline. This test would FAIL before the fix
+        // (Err → no render) AND would catch a regression of the stray-space.
+        let bank = MemoryCallbackGrammarBank::try_from_rules(minimal_rules()).expect("build bank");
+        let mut ctx = sample_ctx();
+        // The minimal grammar's variants all LEAD with `#player_name#`, so an
+        // empty player_name is exactly the stray-leading-space case.
+        ctx.player_name = String::new();
+        ctx.opponent_name = String::new();
+
+        let output = render_memory_callback(0xCAFE, 1, 0, &ctx, &bank)
+            .expect("render must SUCCEED with empty slots (no silent fallback)");
+
+        assert!(!output.is_empty(), "output was empty");
+        assert!(
+            !output.contains("  "),
+            "stray double-space (empty-slot artifact) in output: {output:?}"
+        );
+        assert_eq!(
+            output,
+            output.trim(),
+            "leading/trailing whitespace (empty-slot artifact) in output: {output:?}"
         );
     }
 
