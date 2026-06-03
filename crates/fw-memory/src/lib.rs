@@ -46,7 +46,7 @@ pub use event::{
     SeasonNumber, SourceId,
 };
 pub use fw_core::AttributeFamily;
-pub use ledger::MemoryLedger;
+pub use ledger::{LedgerIntegrityError, MemoryLedger};
 pub use readers::{
     EmotionTally, FAN_CULTURE_CLASS_DISCRIMINANTS, FanReaderOutput, PressTopic, SalienceFilter,
     project_salience,

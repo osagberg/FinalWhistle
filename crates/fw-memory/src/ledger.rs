@@ -23,6 +23,32 @@ use std::collections::BTreeMap;
 
 use fw_core::{ClubId, PlayerId, Q32};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+// -------------------------------------------------------------------------
+// Load-time integrity error (T4-8-CR1 P1-B fix)
+// -------------------------------------------------------------------------
+
+/// Error returned by `MemoryLedger::validate_for_load` when the deserialized
+/// event-id sequence violates the forever-save invariant.
+///
+/// The invariant is: `events[i].event_id.0 == i as u32` for all i. Every
+/// production write path (`append` / `compact`) always yields contiguous-from-zero
+/// ids; this check catches crafted or corrupted saves before `restore_transient_state`
+/// exposes the broken ledger to the runtime.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum LedgerIntegrityError {
+    /// `events[index].event_id.0` was `found` but expected `expected` (== `index as u32`).
+    #[error(
+        "non-contiguous event id at index {index}: found {found}, expected {expected} \
+         (ledger must satisfy events[i].event_id.0 == i for all i)"
+    )]
+    NonContiguousId {
+        index: usize,
+        found: u32,
+        expected: u32,
+    },
+}
 
 use crate::event::{EventId, MemoryEvent, SeasonNumber};
 
@@ -152,6 +178,35 @@ impl MemoryLedger {
     pub fn restore_transient_state(&mut self) {
         self.next_id = self.events.len() as u32;
         self.dirty = true;
+    }
+
+    /// Validate the deserialized event-id sequence before the ledger is handed
+    /// to the runtime.
+    ///
+    /// The forever-save invariant is `events[i].event_id.0 == i as u32` for all
+    /// i. Every production write path (`append` / `compact`) always yields
+    /// contiguous-from-zero ids; this precondition is what `restore_transient_state`
+    /// (`next_id = events.len()`) and `get_by_id` (binary-search by id) depend on.
+    ///
+    /// Returns `Ok(())` for an empty ledger or any ledger whose ids are exactly
+    /// 0, 1, 2, … (contiguous from zero).
+    /// Returns `Err(LedgerIntegrityError::NonContiguousId { .. })` at the first
+    /// position that violates the invariant.
+    ///
+    /// Pure read — no mutation, no clocks, no RNG. Determinism-safe.
+    #[must_use = "a load-boundary integrity check whose result is dropped lets a malformed ledger through; propagate with `?`"]
+    pub fn validate_for_load(&self) -> Result<(), LedgerIntegrityError> {
+        for (index, event) in self.events.iter().enumerate() {
+            let expected = index as u32;
+            if event.event_id.0 != expected {
+                return Err(LedgerIntegrityError::NonContiguousId {
+                    index,
+                    found: event.event_id.0,
+                    expected,
+                });
+            }
+        }
+        Ok(())
     }
 
     /// Build a read-only per-subject **view** from an existing slice of events,
@@ -1030,5 +1085,58 @@ mod tests {
             1,
             "exactly one Compaction event at the 5-season boundary"
         );
+    }
+
+    // ---- validate_for_load (T4-8-CR1 P1-B) ---------------------------------
+
+    /// An empty ledger passes validation — nothing to check.
+    #[test]
+    fn validate_for_load_empty_ledger_is_ok() {
+        let ledger = MemoryLedger::new();
+        assert!(
+            ledger.validate_for_load().is_ok(),
+            "an empty ledger must pass validate_for_load"
+        );
+    }
+
+    /// An append-built ledger (contiguous ids 0, 1, 2, …) passes validation.
+    #[test]
+    fn validate_for_load_append_built_ledger_is_ok() {
+        let mut ledger = MemoryLedger::new();
+        let p = PlayerId::new(1);
+        ledger.append(make_event(p, 0, EventClass::DebutSenior));
+        ledger.append(make_event(p, 1, EventClass::LegacyGoal));
+        ledger.append(make_event(p, 2, EventClass::HatTrickScored));
+        assert!(
+            ledger.validate_for_load().is_ok(),
+            "an append-built ledger (ids 0,1,2) must pass validate_for_load"
+        );
+    }
+
+    /// A `from_events` ledger with a gap (ids 0 and 5) fails validation at
+    /// index 1 (the first position where id != index).
+    #[test]
+    fn validate_for_load_gappy_ledger_fails() {
+        let p = PlayerId::new(1);
+        let mut ev_a = make_event(p, 0, EventClass::DebutSenior);
+        ev_a.event_id = EventId(0);
+        let mut ev_b = make_event(p, 1, EventClass::LegacyGoal);
+        ev_b.event_id = EventId(5);
+        let ledger = MemoryLedger::from_events(vec![ev_a, ev_b]);
+
+        let err = ledger
+            .validate_for_load()
+            .expect_err("gappy ledger [id0, id5] must fail validate_for_load");
+        match err {
+            LedgerIntegrityError::NonContiguousId {
+                index,
+                found,
+                expected,
+            } => {
+                assert_eq!(index, 1, "first gap is at index 1");
+                assert_eq!(found, 5, "found id 5 at index 1");
+                assert_eq!(expected, 1, "expected id 1 at index 1");
+            }
+        }
     }
 }

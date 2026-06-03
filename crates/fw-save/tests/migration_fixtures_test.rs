@@ -34,7 +34,7 @@
 //!       season_number: SeasonNumber(3),
 //!       season: Some(<SeasonState from generate_league(0xCAFE_F00D)>),
 //!       roster: <3 hand-built SavedPlayerInstances with distinct non-default deltas>,
-//!       breakthrough_eval_watermark: 7,
+//!       breakthrough_eval_watermark: 2,  // == ledger.len() (all events evaluated)
 //!   })
 //!   Wire bytes: [0x04, ...] (V4 tag = 0x04). The ONLY frozen V4 fixture;
 //!   roster is non-empty so the round-trip exercises `SavedPlayerInstance` serde.
@@ -155,7 +155,13 @@ const V4_CAREER_SEASON_NUMBER: u16 = 3;
 /// varint encodes `usize` and `u64` identically, so this type change vs the
 /// original `usize` does NOT alter the frozen fixture bytes — the byte-identical
 /// round-trip test still holds against the committed `v4_career_sample.fwsave`.
-const V4_CAREER_WATERMARK: u64 = 7;
+///
+/// The fixture ledger carries exactly 2 events (DebutSenior + LegacyGoal), so
+/// the valid watermark range is [0, 2]. Value 2 (all events evaluated) is the
+/// maximum valid value and is chosen here to exercise the non-zero / boundary
+/// case. Value 7 (old value) was invalid: watermark > ledger.len() — now
+/// rejected by `load_envelope` with `SaveError::WatermarkBeyondLedger`.
+const V4_CAREER_WATERMARK: u64 = 2;
 
 /// Seed for the V4 fixture's `SeasonState` (same league seed as V3 — reuse
 /// the baked season so the fixture bytes stay minimal and the content
@@ -1096,4 +1102,94 @@ fn fixture_v3_forward_migrates_to_v4() {
         v4.breakthrough_eval_watermark, 0,
         "forward-migration V3→V4: watermark must be 0 (V3 never had one)"
     );
+}
+
+// -------------------------------------------------------------------------
+// T4-8-CR1 negative tests — save boundary invariants
+// -------------------------------------------------------------------------
+
+/// AC1 — `load_envelope` REJECTS a V4 whose `breakthrough_eval_watermark`
+/// exceeds `ledger.len()`.
+///
+/// A watermark > ledger.len() means `advance_season_inner` would call
+/// `career.ledger.iter().skip(watermark)` and silently skip future
+/// breakthrough evaluation until the ledger grew past the bogus value.
+/// The production path always writes a valid watermark; this test guards
+/// the save boundary against crafted or corrupted saves.
+#[test]
+fn load_rejects_watermark_beyond_ledger() {
+    let mut ledger = MemoryLedger::new();
+    ledger.append(sample_memory_event(0, EventClass::DebutSenior));
+    ledger.append(sample_memory_event(1, EventClass::LegacyGoal));
+    // ledger.len() == 2; watermark 7 > 2 — must be rejected.
+    let bytes = encode(&SaveEnvelope::V4(SaveV4 {
+        career_seed: Seed::from_u64(0x1234_5678),
+        content_pack_version: 1,
+        ledger,
+        season_number: SeasonNumber(0),
+        season: None,
+        roster: BTreeMap::new(),
+        breakthrough_eval_watermark: 7,
+    }))
+    .expect("encode must succeed");
+
+    let err =
+        load_envelope(&bytes).expect_err("load_envelope must reject watermark > ledger.len()");
+    match err {
+        SaveError::WatermarkBeyondLedger {
+            watermark,
+            ledger_len,
+        } => {
+            assert_eq!(watermark, 7, "reported watermark must be 7");
+            assert_eq!(ledger_len, 2, "reported ledger_len must be 2");
+        }
+        other => panic!("expected WatermarkBeyondLedger, got {other:?}"),
+    }
+}
+
+/// AC2 — `load_envelope` REJECTS a V4 whose `MemoryLedger` violates the
+/// contiguous-from-zero event-id invariant.
+///
+/// `from_events([id0, id5])` produces a ledger whose ids are strictly
+/// ascending (passes `from_events`' ascending assert) but non-contiguous
+/// (id 0 and id 5 — gap at 1..=4). `validate_for_load` catches this at the
+/// save boundary before `restore_transient_state` exposes the broken ledger
+/// to the runtime.
+#[test]
+fn load_rejects_non_contiguous_ledger() {
+    // Build two events with NON-contiguous ids (0 and 5 — ascending but gappy).
+    let mut ev_a = sample_memory_event(0, EventClass::DebutSenior);
+    ev_a.event_id = EventId(0);
+    let mut ev_b = sample_memory_event(1, EventClass::LegacyGoal);
+    ev_b.event_id = EventId(5);
+    // from_events accepts ascending ids — the gap is not caught at construction.
+    let ledger = MemoryLedger::from_events(vec![ev_a, ev_b]);
+    assert_eq!(ledger.len(), 2);
+
+    let bytes = encode(&SaveEnvelope::V4(SaveV4 {
+        career_seed: Seed::from_u64(0xCAFE_BABE),
+        content_pack_version: 1,
+        ledger,
+        season_number: SeasonNumber(0),
+        season: None,
+        roster: BTreeMap::new(),
+        breakthrough_eval_watermark: 0, // valid: 0 <= ledger.len()
+    }))
+    .expect("encode must succeed");
+
+    let err =
+        load_envelope(&bytes).expect_err("load_envelope must reject non-contiguous event ids");
+    match err {
+        SaveError::MalformedLedger(fw_memory::LedgerIntegrityError::NonContiguousId {
+            index,
+            found,
+            expected,
+        }) => {
+            // The first gap is at index 1: found id 5, expected 1.
+            assert_eq!(index, 1, "error must point to index 1 (first gap)");
+            assert_eq!(found, 5, "found id must be 5");
+            assert_eq!(expected, 1, "expected id must be 1");
+        }
+        other => panic!("expected MalformedLedger(NonContiguousId), got {other:?}"),
+    }
 }

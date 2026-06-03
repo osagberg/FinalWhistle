@@ -368,6 +368,27 @@ pub enum SaveError {
          (corruption or splice)"
     )]
     TrailingBytes { consumed: usize, total: usize },
+
+    /// T4-8-CR1 P1-A: the encoded `breakthrough_eval_watermark` exceeds the
+    /// ledger length. A watermark > ledger.len() means `advance_season_inner`
+    /// would call `ledger.iter().skip(watermark)` and silently skip all future
+    /// breakthrough evaluation until the ledger grows past the bogus watermark.
+    ///
+    /// Watermark == ledger.len() is VALID (all events already evaluated).
+    /// Watermark > ledger.len() is REJECTED here, not clamped.
+    #[error(
+        "breakthrough_eval_watermark ({watermark}) exceeds ledger length ({ledger_len}); \
+         a crafted or corrupted save cannot advance breakthrough evaluation"
+    )]
+    WatermarkBeyondLedger { watermark: u64, ledger_len: usize },
+
+    /// T4-8-CR1 P1-B: the deserialized `MemoryLedger` fails the
+    /// contiguous-from-zero event-id invariant. `restore_transient_state` and
+    /// `get_by_id` both assume `events[i].event_id.0 == i`; a crafted save
+    /// can violate this and cause silent lookup misses or id collisions after
+    /// the next `append`.
+    #[error("malformed ledger in save file: {0}")]
+    MalformedLedger(#[from] fw_memory::LedgerIntegrityError),
 }
 
 /// Encode a save envelope to bincode bytes.
@@ -522,6 +543,27 @@ pub fn load_envelope(bytes: &[u8]) -> Result<SaveV4, SaveError> {
         SaveEnvelope::V3(v3) => migrate_v3_to_v4(v3),
         SaveEnvelope::V4(v4) => v4,
     };
+
+    // T4-8-CR1 P1-B: validate ledger event-id contiguity BEFORE restore.
+    // `restore_transient_state` sets next_id = events.len(), which is only
+    // correct when the invariant events[i].event_id.0 == i holds. A crafted
+    // or corrupted save that violates this would cause silent lookup misses
+    // (get_by_id binary search) or id collisions after the next append.
+    v4.ledger.validate_for_load()?;
+
+    // T4-8-CR1 P1-A: reject impossible breakthrough watermark.
+    // A watermark > ledger.len() means advance_season_inner would skip
+    // ledger.iter().skip(watermark) and suppress future breakthrough
+    // evaluation silently until the ledger grows past the bogus mark.
+    // Watermark == ledger.len() is valid (all events already evaluated).
+    let ledger_len = v4.ledger.len();
+    if v4.breakthrough_eval_watermark > ledger_len as u64 {
+        return Err(SaveError::WatermarkBeyondLedger {
+            watermark: v4.breakthrough_eval_watermark,
+            ledger_len,
+        });
+    }
+
     v4.ledger.restore_transient_state();
     Ok(v4)
 }
@@ -784,6 +826,41 @@ mod smoke {
 #[cfg(test)]
 mod migration {
     use super::*;
+    use fw_core::{MatchId, PlayerId, Q32, Tick};
+    use fw_memory::{
+        CallbackEligibility, CareerDate, Consequence, DecayFunction, Emitter, EmitterKind, Emotion,
+        EntityRef, EventClass, EventId, MemoryEvent, Participant, ParticipantRole, SourceId,
+    };
+
+    /// Build a minimal `MemoryEvent` for migration tests. `event_id` and
+    /// `salience` are overwritten by `MemoryLedger::append`.
+    fn make_migration_event(season: SeasonNumber) -> MemoryEvent {
+        MemoryEvent {
+            event_id: EventId(0),
+            schema_version: 1,
+            season,
+            tick: Some(Tick::ZERO),
+            career_date: CareerDate {
+                year: 1,
+                day_of_year: 1,
+            },
+            emitter: Emitter {
+                kind: EmitterKind::MatchEngine,
+                source_id: SourceId::Match(MatchId::new(0)),
+            },
+            participants: vec![Participant {
+                role: ParticipantRole::Subject,
+                entity: EntityRef::Player(PlayerId::new(1)),
+            }],
+            event_class: EventClass::DebutSenior,
+            stakes: Q32::ZERO,
+            emotion: Emotion::Neutral,
+            consequence: vec![Consequence::None],
+            callback_eligibility: CallbackEligibility::Immediate,
+            salience: Q32::ZERO,
+            decay_function: DecayFunction::Never,
+        }
+    }
 
     // ----- T2-9: AC2 + AC4a — forward-migration V0 → V1 -----
 
@@ -995,22 +1072,29 @@ mod migration {
         assert!(from_v3.roster.is_empty());
         assert_eq!(from_v3.breakthrough_eval_watermark, 0);
 
-        // V4 as-is
+        // V4 as-is — build a ledger with 2 appended events so a non-zero
+        // watermark of 2 is valid (watermark == ledger.len() == all events
+        // evaluated). The old shape used an EMPTY ledger with watermark 42,
+        // which would now be rejected by load_envelope with
+        // SaveError::WatermarkBeyondLedger (T4-8-CR1 P1-A fix).
+        let mut v4_ledger = MemoryLedger::new();
+        v4_ledger.append(make_migration_event(SeasonNumber(0)));
+        v4_ledger.append(make_migration_event(SeasonNumber(1)));
         let v4_bytes = encode(&SaveEnvelope::V4(SaveV4 {
             career_seed: seed,
             content_pack_version: 11,
-            ledger: MemoryLedger::new(),
+            ledger: v4_ledger,
             season_number: SeasonNumber(5),
             season: None,
             roster: BTreeMap::new(),
-            breakthrough_eval_watermark: 42,
+            breakthrough_eval_watermark: 2,
         }))
         .expect("encode v4");
         let from_v4 = load_envelope(&v4_bytes).expect("load v4");
         assert_eq!(from_v4.career_seed, seed);
         assert_eq!(from_v4.content_pack_version, 11);
         assert_eq!(from_v4.season_number, SeasonNumber(5));
-        assert_eq!(from_v4.breakthrough_eval_watermark, 42);
+        assert_eq!(from_v4.breakthrough_eval_watermark, 2);
     }
 
     // ----- T3-1: AC11 — V1→V2 callback-preservation -----
