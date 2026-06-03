@@ -55,9 +55,6 @@ function TopBar(): JSX.Element {
         <span class="font-display text-xl tracking-wide text-pitch-600 dark:text-pitch-300">
           FINAL WHISTLE
         </span>
-        <span class="fw-pill bg-paper-subtle dark:bg-midnight-subtle text-ink-mute dark:text-paper-subtle">
-          T4 in progress
-        </span>
       </div>
       <nav class="flex items-center gap-1" aria-label="Primary">
         <For each={NAV}>
@@ -130,7 +127,7 @@ function Sidebar(): JSX.Element {
 function StatusBar(): JSX.Element {
   return (
     <footer class="border-t border-ink-mute/15 dark:border-midnight-line bg-white dark:bg-midnight-panel px-4 py-1 flex items-center justify-between text-xs text-ink-mute dark:text-paper-subtle font-mono">
-      <span>v0.3.0 · T4 in progress</span>
+      <span>v0.1.0</span>
       <span>determinism: pinned · build: dev</span>
     </footer>
   );
