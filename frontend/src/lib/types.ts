@@ -124,6 +124,16 @@ export type IpcError =
       kind: "settingsLoadFailed";
       /** Human-readable decode failure reason. Not shown in player-facing UI. */
       reason: string;
+    }
+  | {
+      kind: "notYetObserved";
+      /** Content-pack-qualified player id, e.g. `"fwh.core:player_00042"`. */
+      playerId: string;
+    }
+  | {
+      kind: "leagueGenerationFailed";
+      /** Human-readable reason from the content store. Not shown raw in player-facing UI. */
+      reason: string;
     };
 
 // ---------------------------------------------------------------------------
@@ -513,4 +523,53 @@ export interface CareerOverview {
   seasonNumber: number;
   history: ChampionHistoryEntry[];
   crossSeasonCallbacks: string[];
+}
+
+// ---------------------------------------------------------------------------
+// T4-F4 scouting DTOs — mirrors fw-tauri::roster_dto (camelCase serde)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-category estimate from a scout observation.
+ *
+ * `category` is one of `"Physical"`, `"Mental"`, `"Technical"`.
+ * `band` is a football-native uncertainty label (e.g. `"a confident read"`).
+ * `low` / `high` are f64 in [0, 1] — NOT shown as raw numbers in the UI.
+ */
+export interface CategoryEstimateDto {
+  /** Closed set, mirroring Rust `fw_scouting::GeneCategory` (always these 3). */
+  category: "Physical" | "Mental" | "Technical";
+  low: number;
+  high: number;
+  band: string;
+}
+
+/**
+ * Per-label estimate from a scout observation.
+ *
+ * `label` is the human-readable phenotype label (e.g. `"Pure finisher"`).
+ * `confidence` is f64 in [0, 1] — NOT shown as raw number in the UI.
+ * `band` is a football-native uncertainty label.
+ */
+export interface LabelEstimateDto {
+  label: string;
+  confidence: number;
+  band: string;
+}
+
+/**
+ * Scouting report DTO returned by `get_scout_report`.
+ *
+ * `playerId` is the raw u32 roster PlayerId (distinct from the content-pack
+ * string id used by PlayerDetail). `confidence` and category `low`/`high`
+ * values are f64 in [0, 1] — surface as band text only, never raw numbers.
+ * `categories` always has 3 entries (Physical, Mental, Technical in order).
+ */
+export interface ScoutReportDto {
+  playerId: number;
+  confidence: number;
+  overallBand: string;
+  observationCount: number;
+  categories: CategoryEstimateDto[];
+  labels: LabelEstimateDto[];
 }

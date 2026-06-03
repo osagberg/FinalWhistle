@@ -135,12 +135,42 @@ describe("describeRouteError", () => {
     expect(detail(err)).toContain("changeFormation");
   });
 
+  it("notYetObserved: variant-specific headline, NOT the generic fallback", () => {
+    const err = { kind: "notYetObserved", playerId: "fwh.core:player_00042" };
+    expect(headline(err)).not.toBe(headline(GENERIC_SHAPE));
+  });
+
+  it("notYetObserved: headline and detail are football-native copy", () => {
+    const err = { kind: "notYetObserved", playerId: "fwh.core:player_00042" };
+    // Must not be the generic fallback — must be specific to scouting.
+    expect(headline(err)).not.toContain("went wrong");
+    expect(detail(err)).toMatch(/scouts/i);
+  });
+
+  it("leagueGenerationFailed: variant-specific headline, NOT the generic fallback", () => {
+    const err = { kind: "leagueGenerationFailed", reason: "missing culture" };
+    expect(headline(err)).not.toBe(headline(GENERIC_SHAPE));
+  });
+
+  it("leagueGenerationFailed: detail does NOT expose the raw reason to the player", () => {
+    const err = { kind: "leagueGenerationFailed", reason: "missing culture data in pack" };
+    // The raw reason string must not bleed into production copy.
+    expect(detail(err)).not.toContain("missing culture data in pack");
+  });
+
+  it("leagueGenerationFailed: detail is football-native copy, not a generic stub", () => {
+    const err = { kind: "leagueGenerationFailed", reason: "missing culture" };
+    // Must reference the game world (season / campaign / content pack), so a
+    // collapsed branch returning generic text would fail here.
+    expect(detail(err)).toMatch(/season|campaign|content pack/i);
+  });
+
   // ---------------------------------------------------------------------------
   // Uniqueness: no two variants produce identical headlines (coarse catch-all
   // for collapsed-branch regressions not caught by individual assertions).
   // ---------------------------------------------------------------------------
 
-  it("all 9 known variants produce distinct headlines from each other", () => {
+  it("all 12 known variants produce distinct headlines from each other", () => {
     const variants = [
       { kind: "tooManyFrames", requested: 9000, max: 7200 },
       { kind: "invalidSeed", input: "0xGGGG", reason: "not hex" },
@@ -151,6 +181,11 @@ describe("describeRouteError", () => {
       { kind: "playerNotFound", playerId: "fwh.core:player_99999" },
       { kind: "seasonNotComplete" },
       { kind: "liveMatchCommandUnimplemented", commandKind: "substitute" },
+      // T4-6a:
+      { kind: "settingsLoadFailed", reason: "bad bincode" },
+      // T4-F4:
+      { kind: "notYetObserved", playerId: "fwh.core:player_00042" },
+      { kind: "leagueGenerationFailed", reason: "missing culture" },
     ];
     const headlines = variants.map((v) => headline(v));
     const unique = new Set(headlines);

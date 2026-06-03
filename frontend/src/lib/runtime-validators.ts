@@ -45,9 +45,11 @@ import type {
   BackendHandshake,
   BallZone,
   CareerOverview,
+  CategoryEstimateDto,
   ChampionHistoryEntry,
   FinalMatchResult,
   FixtureWithResult,
+  LabelEstimateDto,
   LineupDto,
   LiveScoreDto,
   MatchEvent,
@@ -63,6 +65,7 @@ import type {
   PlayerRosterDto,
   PossessionDto,
   Score,
+  ScoutReportDto,
   SquadPlayer,
   SquadRosterDto,
   StandingsRow,
@@ -612,5 +615,62 @@ export function isAppSettings(v: unknown): v is AppSettingsDto {
   if (!isObject(v)) return false;
   if (!isThemePref(v.theme)) return false;
   if (typeof v.reduceMotion !== "boolean") return false;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// T4-F4 scout-report guards
+// ---------------------------------------------------------------------------
+
+function isCategoryEstimateDto(v: unknown): v is CategoryEstimateDto {
+  if (!isObject(v)) return false;
+  // category is a closed set (mirrors Rust GeneCategory) — reject any other
+  // string so a reordered/garbage payload can't slip a bogus label through.
+  if (
+    v.category !== "Physical" &&
+    v.category !== "Mental" &&
+    v.category !== "Technical"
+  ) {
+    return false;
+  }
+  // low / high are f64 ∈ [0, 1] at the DTO boundary.
+  if (typeof v.low !== "number" || !Number.isFinite(v.low)) return false;
+  if (typeof v.high !== "number" || !Number.isFinite(v.high)) return false;
+  if (typeof v.band !== "string") return false;
+  return true;
+}
+
+function isLabelEstimateDto(v: unknown): v is LabelEstimateDto {
+  if (!isObject(v)) return false;
+  if (typeof v.label !== "string") return false;
+  if (typeof v.confidence !== "number" || !Number.isFinite(v.confidence)) return false;
+  if (typeof v.band !== "string") return false;
+  return true;
+}
+
+/**
+ * Runtime shape guard for `ScoutReportDto` — the payload returned by
+ * `get_scout_report`.
+ *
+ * Guards checked:
+ *   - `playerId`: u32-bounded integer (roster PlayerId, NOT content-pack string)
+ *   - `confidence`: finite f64
+ *   - `overallBand`: non-empty string
+ *   - `observationCount`: u32-bounded integer
+ *   - `categories`: array of 3 valid `CategoryEstimateDto`
+ *   - `labels`: array of valid `LabelEstimateDto` (may be empty)
+ */
+export function isScoutReportDto(v: unknown): v is ScoutReportDto {
+  if (!isObject(v)) return false;
+  if (!isU32(v.playerId)) return false;
+  if (typeof v.confidence !== "number" || !Number.isFinite(v.confidence)) return false;
+  if (typeof v.overallBand !== "string" || v.overallBand.length === 0) return false;
+  if (!isU32(v.observationCount)) return false;
+  if (!Array.isArray(v.categories)) return false;
+  // The Rust side always emits exactly 3 categories (Physical/Mental/Technical).
+  if (v.categories.length !== 3) return false;
+  if (!v.categories.every(isCategoryEstimateDto)) return false;
+  if (!Array.isArray(v.labels)) return false;
+  if (!v.labels.every(isLabelEstimateDto)) return false;
   return true;
 }

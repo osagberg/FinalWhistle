@@ -50,6 +50,8 @@ const KNOWN_IPC_ERROR_KINDS = [
   "seasonNotComplete",
   "liveMatchCommandUnimplemented",
   "settingsLoadFailed",
+  "notYetObserved",
+  "leagueGenerationFailed",
 ] as const satisfies readonly IpcError["kind"][];
 
 const KNOWN_IPC_ERROR_KINDS_SET: ReadonlySet<string> = new Set(
@@ -148,6 +150,16 @@ export function describeRouteError(
       return {
         headline: "Preferences couldn't be loaded",
         detail: "The settings file looks to be damaged. The app will use the defaults. If this keeps happening, try removing the settings file and restarting.",
+      };
+    case "notYetObserved":
+      return {
+        headline: "No scouting read yet",
+        detail: "Your scouts haven't filed a report on this player — they need to watch them play first.",
+      };
+    case "leagueGenerationFailed":
+      return {
+        headline: "The league couldn't be assembled",
+        detail: "Something went wrong putting the season together in the back office. Restarting the campaign should clear it — if it keeps happening, check your content pack.",
       };
     default: {
       // Exhaustiveness gate: TypeScript flags this if a new IpcError variant
