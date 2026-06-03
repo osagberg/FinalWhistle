@@ -65,15 +65,18 @@ fn walk_ron_files(dir: &Path) -> Result<Vec<PathBuf>, ContentLoadError> {
 /// `BTreeMap<String, Vec<String>>` (Tracery's native JSON format) and mapped
 /// to a `MatchEventDiscriminant` by filename stem:
 ///
-///   `kickoff`                → `KickOff`
-///   `full_time`              → `FullTime`
-///   `goal`                   → `Goal`
-///   `shot`                   → `Shot`
-///   `pass`                   → `Pass`
-///   `signature_first_fired`  → `SignatureFirstFired`
+///   `kickoff`                                → `KickOff`
+///   `full_time`                              → `FullTime`
+///   `goal`                                   → `Goal`
+///   `shot`                                   → `Shot`
+///   `pass`                                   → `Pass`
+///   `signature_first_fired`                  → `SignatureFirstFired` (generic)
+///   `signature_first_fired.<slug>` (T4-2.5i) → per-signature sub-bank keyed by `<slug>`
 ///
 /// Returns `ContentLoadError::MissingCommentaryGrammar` for any missing class
-/// (fail-loud; all 6 are required).
+/// (fail-loud; all 6 are required). A malformed sub-bank file (bad JSON or
+/// missing origin rule) also returns an error — fail-loud posture extends to
+/// sub-banks (T4-2.5i spec).
 fn load_commentary_grammars(
     commentary_dir: &Path,
 ) -> Result<CommentaryGrammarBank, ContentLoadError> {
@@ -85,6 +88,8 @@ fn load_commentary_grammars(
     }
 
     let mut raw: BTreeMap<MatchEventDiscriminant, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+    // Per-signature sub-banks keyed by slug (e.g. "long-range-strike").
+    let mut sig_banks: Vec<(String, BTreeMap<String, Vec<String>>)> = Vec::new();
 
     for path in walk_files_with_ext(commentary_dir, ".tracery.json")? {
         // T2-R-C5 (post-T2 ultimate-review Track C-5): the prior
@@ -102,6 +107,26 @@ fn load_commentary_grammars(
                 });
             }
         };
+
+        // Detect per-signature sub-bank files: stem matches
+        // `signature_first_fired.<slug>` (one dot after the base name).
+        // The base `signature_first_fired` stem (no trailing dot) still
+        // maps to the generic SignatureFirstFired discriminant.
+        const SFF_PREFIX: &str = "signature_first_fired.";
+        if let Some(slug) = stem.strip_prefix(SFF_PREFIX) {
+            // slug is e.g. "long-range-strike".
+            let raw_json = fs::read_to_string(&path).map_err(|source| ContentLoadError::Io {
+                path: path.clone(),
+                source,
+            })?;
+            let rules: BTreeMap<String, Vec<String>> =
+                serde_json::from_str(&raw_json).map_err(|e| ContentLoadError::TraceryParse {
+                    path: path.clone(),
+                    source: tracery::Error::from(e),
+                })?;
+            sig_banks.push((slug.to_owned(), rules));
+            continue;
+        }
 
         let disc = match stem {
             "kickoff" => MatchEventDiscriminant::KickOff,
@@ -159,11 +184,24 @@ fn load_commentary_grammars(
     // grammars at construction time, not silently empty at render time).
     // All build-error variants map to the same fail-loud ContentLoadError
     // for now; T1-12 content-validation hardening can distinguish them.
-    CommentaryGrammarBank::try_from_map(raw).map_err(|e| {
+    let mut bank = CommentaryGrammarBank::try_from_map(raw).map_err(|e| {
         ContentLoadError::MissingCommentaryGrammar {
             event_class: e.discriminant(),
         }
-    })
+    })?;
+
+    // Attach per-signature sub-banks. Fail-loud: a malformed sub-bank (bad
+    // JSON already caught above; missing origin caught by insert_signature_bank)
+    // must error, not silently be skipped.
+    for (slug, rules) in sig_banks {
+        bank.insert_signature_bank(slug, rules).map_err(|e| {
+            ContentLoadError::MissingCommentaryGrammar {
+                event_class: e.discriminant(),
+            }
+        })?;
+    }
+
+    Ok(bank)
 }
 
 /// Load the narrative grammar bank (news headlines + manager quotes) from

@@ -125,8 +125,13 @@ fn load_sources_loads_all_commentary_grammars() {
         // The simplest observable behavior: render_event on a placeholder event
         // must not return empty string or panic for any of the 6 classes.
         let ev = disc_to_event(disc);
-        let result = render_event(&ev, 0xDEAD_BEEF_u64, &store.commentary_grammars)
-            .expect("render_event must succeed for committed fixtures");
+        let result = render_event(
+            &ev,
+            0xDEAD_BEEF_u64,
+            &store.commentary_grammars,
+            &std::collections::BTreeMap::new(),
+        )
+        .expect("render_event must succeed for committed fixtures");
         assert!(
             !result.is_empty(),
             "render_event returned empty string for {disc:?} — \
@@ -158,9 +163,10 @@ fn render_event_is_deterministic_across_100_seeds() {
 
     for event in all_events() {
         for seed in 0u64..100 {
-            let a = render_event(&event, seed, bank)
+            let empty_names = std::collections::BTreeMap::new();
+            let a = render_event(&event, seed, bank, &empty_names)
                 .expect("render_event must succeed for committed fixtures (a)");
-            let b = render_event(&event, seed, bank)
+            let b = render_event(&event, seed, bank, &empty_names)
                 .expect("render_event must succeed for committed fixtures (b)");
             assert_eq!(
                 a, b,
@@ -203,7 +209,7 @@ fn render_event_different_seeds_produce_variety_with_two_variant_grammar() {
     for event in all_events() {
         let results: Vec<String> = (0u64..20)
             .map(|seed| {
-                render_event(&event, seed, &bank)
+                render_event(&event, seed, &bank, &std::collections::BTreeMap::new())
                     .expect("render_event must succeed for valid 2-variant bank")
             })
             .collect();
@@ -290,7 +296,7 @@ fn disk_loaded_fixtures_produce_variant_diversity_across_seeds() {
     for event in all_events() {
         let results: Vec<String> = (0u64..30)
             .map(|seed| {
-                render_event(&event, seed, bank)
+                render_event(&event, seed, bank, &std::collections::BTreeMap::new())
                     .expect("render_event must succeed for committed fixtures")
             })
             .collect();
@@ -344,7 +350,12 @@ fn render_event_returns_tracery_error_on_undefined_substitution_variable() {
         .expect("bank construction succeeds — origin rule is non-empty");
 
     for event in all_events() {
-        let result = render_event(&event, 0xDEAD_BEEF_u64, &bank);
+        let result = render_event(
+            &event,
+            0xDEAD_BEEF_u64,
+            &bank,
+            &std::collections::BTreeMap::new(),
+        );
         assert!(
             matches!(result, Err(CommentaryRenderError::Tracery { .. })),
             "render_event({event:?}) should have returned CommentaryRenderError::Tracery \

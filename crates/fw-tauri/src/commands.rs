@@ -233,7 +233,15 @@ pub async fn play_match_inner(
     for _ in 0..tick_count {
         sim_state = tick_match(sim_state, state.signature_definitions());
     }
-    MatchResult::from_state(&sim_state, seed_hex, tick_count, state.content())
+    // No roster wired for the dev play_match path yet — pass empty slot_names;
+    // render_event will fall back to positional labels ("a forward" etc.).
+    MatchResult::from_state(
+        &sim_state,
+        seed_hex,
+        tick_count,
+        state.content(),
+        &std::collections::BTreeMap::new(),
+    )
 }
 
 pub async fn match_frames_inner(

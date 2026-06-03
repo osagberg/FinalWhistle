@@ -1,0 +1,22 @@
+{
+  "build_phrase": [
+    "steps back and catches the ball cleanly",
+    "takes one touch and opens the hips",
+    "holds the ball up before swinging through it",
+    "lets the ball run across the body before striking"
+  ],
+  "outcome_phrase": [
+    "the ball sears into the top corner from distance",
+    "it screams low and hard into the bottom right",
+    "the goalkeeper barely sees it before it hits the net",
+    "the effort curls and dips viciously past the keeper",
+    "all the power and placement combined into one moment"
+  ],
+  "origin": [
+    "#playerName# #build_phrase# — #outcome_phrase#.",
+    "#playerName# from range. #outcome_phrase#.",
+    "Who else? #playerName# #build_phrase# and #outcome_phrase#.",
+    "That's the signature. #playerName# #build_phrase#, and #outcome_phrase#.",
+    "#playerName# with the long shot — #outcome_phrase#."
+  ]
+}

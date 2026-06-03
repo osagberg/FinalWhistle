@@ -70,9 +70,19 @@ pub use crate::event::MatchEventDiscriminant;
 /// **Invariant:** `rules` has exactly one entry per `MatchEventDiscriminant`
 /// variant. Enforced by `try_from_map`; callers cannot break it.
 ///
+/// `signature_banks` is an optional sub-keyed override for
+/// `SignatureFirstFired` — keyed by the signature SLUG (the final
+/// dot-separated component of the signature ID, e.g. `"long-range-strike"`).
+/// When a slug is present, `render_event` routes `SignatureFirstFired` to
+/// that sub-bank; otherwise it falls back to the generic
+/// `MatchEventDiscriminant::SignatureFirstFired` rules.
+///
 /// BTreeMap — deterministic iteration order for any future validation pass.
 pub struct CommentaryGrammarBank {
     rules: BTreeMap<MatchEventDiscriminant, BTreeMap<String, Vec<String>>>,
+    /// Per-signature sub-banks. Keyed by signature slug (e.g. `"long-range-strike"`).
+    /// Each sub-bank must have a non-empty `origin` rule with ≥1 non-empty variant.
+    signature_banks: BTreeMap<String, BTreeMap<String, Vec<String>>>,
 }
 
 impl CommentaryGrammarBank {
@@ -112,7 +122,65 @@ impl CommentaryGrammarBank {
                 return Err(CommentaryBankBuildError::AllEmptyOriginVariants(disc));
             }
         }
-        Ok(Self { rules: map })
+        Ok(Self {
+            rules: map,
+            signature_banks: BTreeMap::new(),
+        })
+    }
+
+    /// Attach a per-signature sub-bank keyed by slug.
+    ///
+    /// Called by the content loader after the primary `try_from_map`
+    /// construction, once per `signature_first_fired.<slug>.tracery.json`
+    /// file it encounters. Validation mirrors `try_from_map`'s origin-rule
+    /// discipline: the sub-bank must have a non-empty `origin` with ≥1
+    /// non-empty variant, else `CommentaryBankBuildError` is returned.
+    ///
+    /// Inserting the same slug twice is last-writer-wins. This is unreachable
+    /// today: `load_commentary_grammars` walks a single directory and two
+    /// files there cannot share a name, so two `signature_first_fired.<slug>`
+    /// files cannot yield the same slug. There is intentionally NO
+    /// duplicate-slug guard here yet (it would guard a code path that does not
+    /// exist — see Rust/RULES "no speculative abstractions"). When commentary
+    /// loading spans mod overlays (multiple directories, post-T2-3), a
+    /// duplicate-slug check MUST be added in the loader before this call —
+    /// mirroring the RON loader's `insert_unique`/`DuplicateId` discipline —
+    /// so a mod cannot silently clobber a core sub-bank. Tracked as a
+    /// follow-up; see the T4-2.5i self-review note.
+    pub fn insert_signature_bank(
+        &mut self,
+        slug: String,
+        rules: BTreeMap<String, Vec<String>>,
+    ) -> Result<(), CommentaryBankBuildError> {
+        // Re-use the same origin-rule discipline as try_from_map. The
+        // discriminant used in error variants is SignatureFirstFired — the
+        // only discriminant these sub-banks belong to.
+        let disc = MatchEventDiscriminant::SignatureFirstFired;
+        let Some(origin_variants) = rules.get("origin") else {
+            return Err(CommentaryBankBuildError::MissingOriginRule(disc));
+        };
+        if origin_variants.is_empty() {
+            return Err(CommentaryBankBuildError::EmptyOriginRule(disc));
+        }
+        if origin_variants.iter().all(|v| v.is_empty()) {
+            return Err(CommentaryBankBuildError::AllEmptyOriginVariants(disc));
+        }
+        self.signature_banks.insert(slug, rules);
+        Ok(())
+    }
+
+    /// Return the number of `origin` variants in the named signature sub-bank.
+    ///
+    /// Returns 0 if the slug is not present or the `origin` rule is absent.
+    /// Used by tests to assert the ≥3 variant requirement without reaching
+    /// into internal fields directly.
+    #[must_use]
+    pub fn signature_bank_origin_len(&self, slug: &str) -> usize {
+        self.signature_banks
+            .get(slug)
+            .and_then(|rules| rules.get("origin"))
+            .map(|v| v.len())
+            .unwrap_or(0)
     }
 
     /// Look up the raw rules for a given discriminant.
@@ -134,6 +202,10 @@ impl std::fmt::Debug for CommentaryGrammarBank {
                 "loaded_discriminants",
                 &self.rules.keys().collect::<Vec<_>>(),
             )
+            .field(
+                "signature_slugs",
+                &self.signature_banks.keys().collect::<Vec<_>>(),
+            )
             .finish()
     }
 }
@@ -142,6 +214,7 @@ impl Clone for CommentaryGrammarBank {
     fn clone(&self) -> Self {
         Self {
             rules: self.rules.clone(),
+            signature_banks: self.signature_banks.clone(),
         }
     }
 }
@@ -273,9 +346,22 @@ impl std::error::Error for CommentaryRenderError {
 
 /// Render a commentary line for `event`.
 ///
-/// Determinism: same `(match_seed, event)` → same output, every platform.
+/// Determinism: same `(match_seed, event, slot_names)` → same output, every platform.
 /// `ChaCha8Rng` is seeded from `seed_fn(match_seed, tick, SeedLayer::Commentary,
 /// site)` — no `thread_rng`, no `OsRng`.
+///
+/// `slot_names` maps `PlayerSlot` → display name for the current match roster.
+/// For `SignatureFirstFired`, the `playerName` substitution variable is
+/// populated from this map if the slot is present; otherwise a deterministic
+/// positional label is used ("a forward", "a midfielder", etc.). Pass
+/// `&BTreeMap::new()` when no roster is available (dev/test paths).
+///
+/// **Per-signature routing (T4-2.5i):** for `SignatureFirstFired`, if the
+/// bank contains a sub-bank keyed by the signature slug (the final
+/// dot-separated component of `signature_id`, e.g. `"long-range-strike"`),
+/// that sub-bank is used in preference to the generic
+/// `SignatureFirstFired` rules. Fall-through to the generic bank if no
+/// sub-bank exists for the slug.
 ///
 /// **Returns `Result<String, CommentaryRenderError>`** (changed from `String`
 /// at T1-4b fix-pass per Codex silent-failure P0 — see `CommentaryRenderError`
@@ -292,6 +378,7 @@ pub fn render_event(
     event: &MatchEvent,
     match_seed: u64,
     bank: &CommentaryGrammarBank,
+    slot_names: &BTreeMap<PlayerSlot, String>,
 ) -> Result<String, CommentaryRenderError> {
     let disc = MatchEventDiscriminant::from_event(event);
     let (tick_raw, player_slot) = event_tick_and_slot(event);
@@ -300,8 +387,28 @@ pub fn render_event(
     let derived = seed_fn(match_seed, tick_raw, SeedLayer::Commentary, site);
     let mut rng = ChaCha8Rng::seed_from_u64(derived);
 
-    let base_rules = bank.get_rules(disc);
-    let vars = build_vars(event);
+    // For SignatureFirstFired: try slug-keyed sub-bank first, fall back to
+    // the generic rules.
+    let base_rules: &BTreeMap<String, Vec<String>> = match event {
+        MatchEvent::SignatureFirstFired { signature_id, .. } => {
+            let slug = signature_slug(signature_id.as_str());
+            bank.signature_banks
+                .get(slug)
+                .unwrap_or_else(|| bank.get_rules(disc))
+        }
+        _ => bank.get_rules(disc),
+    };
+
+    let mut vars = build_vars(event);
+
+    // Inject playerName for SignatureFirstFired.
+    if let MatchEvent::SignatureFirstFired { player_slot, .. } = event {
+        let name = slot_names
+            .get(player_slot)
+            .cloned()
+            .unwrap_or_else(|| slot_positional_label(*player_slot).to_string());
+        vars.push(("playerName".into(), name));
+    }
 
     let output = render_with_vars(base_rules, &vars, &mut rng).map_err(|source| {
         CommentaryRenderError::Tracery {
@@ -320,6 +427,34 @@ pub fn render_event(
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/// Extract the slug from a signature ID string.
+///
+/// The slug is the final dot-separated component of the ID. For
+/// `"fwh.core:signature.long-range-strike"` the slug is
+/// `"long-range-strike"`. For a malformed ID with no dot the full
+/// string is returned (safe fallback — just won't match any sub-bank).
+fn signature_slug(id: &str) -> &str {
+    id.rsplit('.').next().unwrap_or(id)
+}
+
+/// Return a football-native positional label for a player slot.
+///
+/// Slot layout (22-player match, 0-based):
+///   - Home side: 0=GK, 1-4=DEF, 5-7=MID, 8-10=FWD
+///   - Away side: 11=GK, 12-15=DEF, 16-18=MID, 19-21=FWD
+///
+/// Slots outside the known range produce "a player" (safe fallback that
+/// doesn't expose a raw number to commentary output).
+fn slot_positional_label(slot: PlayerSlot) -> &'static str {
+    match slot {
+        0 | 11 => "the goalkeeper",
+        1..=4 | 12..=15 => "a defender",
+        5..=7 | 16..=18 => "a midfielder",
+        8..=10 | 19..=21 => "a forward",
+        _ => "a player",
+    }
+}
 
 /// Sentinel player slot for events with no natural player (KickOff / FullTime).
 const SLOT_SENTINEL: PlayerSlot = 0xFF;
@@ -570,7 +705,7 @@ mod tests {
     #[test]
     fn render_event_kickoff_is_non_empty() {
         let bank = two_variant_bank();
-        let result = render_event(&kickoff_event(), 0xDEAD_BEEF, &bank)
+        let result = render_event(&kickoff_event(), 0xDEAD_BEEF, &bank, &BTreeMap::new())
             .expect("render_event must succeed for test bank");
         assert!(
             !result.is_empty(),
@@ -581,7 +716,7 @@ mod tests {
     #[test]
     fn render_event_fulltime_is_non_empty() {
         let bank = two_variant_bank();
-        let result = render_event(&fulltime_event(), 0xDEAD_BEEF, &bank)
+        let result = render_event(&fulltime_event(), 0xDEAD_BEEF, &bank, &BTreeMap::new())
             .expect("render_event must succeed for test bank");
         assert!(
             !result.is_empty(),
@@ -592,7 +727,7 @@ mod tests {
     #[test]
     fn render_event_goal_is_non_empty() {
         let bank = two_variant_bank();
-        let result = render_event(&goal_event(), 0xDEAD_BEEF, &bank)
+        let result = render_event(&goal_event(), 0xDEAD_BEEF, &bank, &BTreeMap::new())
             .expect("render_event must succeed for test bank");
         assert!(
             !result.is_empty(),
@@ -603,7 +738,7 @@ mod tests {
     #[test]
     fn render_event_shot_is_non_empty() {
         let bank = two_variant_bank();
-        let result = render_event(&shot_event(), 0xDEAD_BEEF, &bank)
+        let result = render_event(&shot_event(), 0xDEAD_BEEF, &bank, &BTreeMap::new())
             .expect("render_event must succeed for test bank");
         assert!(
             !result.is_empty(),
@@ -614,7 +749,7 @@ mod tests {
     #[test]
     fn render_event_pass_is_non_empty() {
         let bank = two_variant_bank();
-        let result = render_event(&pass_event(), 0xDEAD_BEEF, &bank)
+        let result = render_event(&pass_event(), 0xDEAD_BEEF, &bank, &BTreeMap::new())
             .expect("render_event must succeed for test bank");
         assert!(
             !result.is_empty(),
@@ -625,7 +760,7 @@ mod tests {
     #[test]
     fn render_event_signature_first_fired_is_non_empty() {
         let bank = two_variant_bank();
-        let result = render_event(&sig_event(), 0xDEAD_BEEF, &bank)
+        let result = render_event(&sig_event(), 0xDEAD_BEEF, &bank, &BTreeMap::new())
             .expect("render_event must succeed for test bank");
         assert!(
             !result.is_empty(),
@@ -639,10 +774,10 @@ mod tests {
     fn render_event_is_deterministic_kickoff() {
         let bank = two_variant_bank();
         let ev = kickoff_event();
-        let a =
-            render_event(&ev, 0xCAFE_BABE, &bank).expect("render_event must succeed for test bank");
-        let b =
-            render_event(&ev, 0xCAFE_BABE, &bank).expect("render_event must succeed for test bank");
+        let a = render_event(&ev, 0xCAFE_BABE, &bank, &BTreeMap::new())
+            .expect("render_event must succeed for test bank");
+        let b = render_event(&ev, 0xCAFE_BABE, &bank, &BTreeMap::new())
+            .expect("render_event must succeed for test bank");
         assert_eq!(
             a, b,
             "render_event(KickOff) produced different outputs for same seed"
@@ -653,10 +788,10 @@ mod tests {
     fn render_event_is_deterministic_shot() {
         let bank = two_variant_bank();
         let ev = shot_event();
-        let a =
-            render_event(&ev, 0x1234_5678, &bank).expect("render_event must succeed for test bank");
-        let b =
-            render_event(&ev, 0x1234_5678, &bank).expect("render_event must succeed for test bank");
+        let a = render_event(&ev, 0x1234_5678, &bank, &BTreeMap::new())
+            .expect("render_event must succeed for test bank");
+        let b = render_event(&ev, 0x1234_5678, &bank, &BTreeMap::new())
+            .expect("render_event must succeed for test bank");
         assert_eq!(
             a, b,
             "render_event(Shot) produced different outputs for same seed"
@@ -667,10 +802,10 @@ mod tests {
     fn render_event_is_deterministic_pass() {
         let bank = two_variant_bank();
         let ev = pass_event();
-        let a =
-            render_event(&ev, 0xABCD_EF01, &bank).expect("render_event must succeed for test bank");
-        let b =
-            render_event(&ev, 0xABCD_EF01, &bank).expect("render_event must succeed for test bank");
+        let a = render_event(&ev, 0xABCD_EF01, &bank, &BTreeMap::new())
+            .expect("render_event must succeed for test bank");
+        let b = render_event(&ev, 0xABCD_EF01, &bank, &BTreeMap::new())
+            .expect("render_event must succeed for test bank");
         assert_eq!(
             a, b,
             "render_event(Pass) produced different outputs for same seed"
@@ -688,7 +823,10 @@ mod tests {
         let bank = two_variant_bank();
         let ev = shot_event(); // Shot has a real player slot — standard site formula path
         let results: Vec<String> = (0u64..20)
-            .map(|s| render_event(&ev, s, &bank).expect("render_event must succeed for test bank"))
+            .map(|s| {
+                render_event(&ev, s, &bank, &BTreeMap::new())
+                    .expect("render_event must succeed for test bank")
+            })
             .collect();
         let unique: BTreeSet<&str> = results.iter().map(String::as_str).collect();
         assert!(
@@ -704,7 +842,10 @@ mod tests {
         let bank = two_variant_bank();
         let ev = kickoff_event();
         let results: Vec<String> = (0u64..20)
-            .map(|s| render_event(&ev, s, &bank).expect("render_event must succeed for test bank"))
+            .map(|s| {
+                render_event(&ev, s, &bank, &BTreeMap::new())
+                    .expect("render_event must succeed for test bank")
+            })
             .collect();
         let unique: BTreeSet<&str> = results.iter().map(String::as_str).collect();
         assert!(
@@ -770,7 +911,8 @@ mod tests {
             target_y: Q32::ZERO,
             on_target: false,
         };
-        let result = render_event(&ev, 0, &bank).expect("render_event must succeed for test bank");
+        let result = render_event(&ev, 0, &bank, &BTreeMap::new())
+            .expect("render_event must succeed for test bank");
         assert!(
             result.contains("42"),
             "expected tick=42 to appear in rendered string; got: {result:?}"

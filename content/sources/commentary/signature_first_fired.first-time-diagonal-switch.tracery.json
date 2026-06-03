@@ -1,0 +1,15 @@
+{
+  "receiver_phrase": [
+    "finding the full-back in acres of space",
+    "picking out the overlapping run on the far side",
+    "switching the point of attack completely",
+    "turning the whole shape of the game in one touch"
+  ],
+  "origin": [
+    "#playerName# with the first-time diagonal — #receiver_phrase#.",
+    "One touch from #playerName#, right to left, #receiver_phrase#.",
+    "#playerName# doesn't wait — the diagonal switch #receiver_phrase#.",
+    "Only #playerName# plays that ball first time — #receiver_phrase#.",
+    "#playerName# with the raking switch, #receiver_phrase#."
+  ]
+}

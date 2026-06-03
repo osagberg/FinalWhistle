@@ -3,6 +3,8 @@
 //! This is a one-way projection (DTO) from `MatchState`. It is NEVER
 //! serialized back into canonical state (Tauri/RULES.md §3).
 
+use std::collections::BTreeMap;
+
 use fw_content::{CommentaryRenderError, ContentStore, MatchEvent, render_event};
 use fw_match_sim::MatchState;
 use serde::{Deserialize, Serialize};
@@ -137,11 +139,16 @@ impl MatchResult {
     /// `canonical_hash` is computed via BLAKE3 over `state.encode_canonical()`.
     /// `commentary_preview` renders each event via `render_event`; on
     /// `CommentaryRenderError` the slot contains `"(commentary unavailable)"`.
+    ///
+    /// `slot_names` maps `PlayerSlot` → display name for the current roster.
+    /// Pass `&BTreeMap::new()` when no roster is available (dev path — no
+    /// roster is wired for `play_match_inner` yet; positional labels are used).
     pub fn from_state(
         state: &MatchState,
         seed_hex: String,
         tick_count: u32,
         content: &ContentStore,
+        slot_names: &BTreeMap<fw_core::PlayerSlot, String>,
     ) -> Result<Self, IpcError> {
         let canonical_bytes = state.encode_canonical();
         let hash_bytes: [u8; 32] = blake3::hash(&canonical_bytes).into();
@@ -162,8 +169,8 @@ impl MatchResult {
         let mut first_render_error: Option<CommentaryRenderError> = None;
         let commentary_preview: Vec<CommentaryLine> = raw_events
             .iter()
-            .map(
-                |ev| match render_event(ev, match_seed, &content.commentary_grammars) {
+            .map(|ev| {
+                match render_event(ev, match_seed, &content.commentary_grammars, slot_names) {
                     Ok(line) => line,
                     Err(e) => {
                         render_failures += 1;
@@ -172,8 +179,8 @@ impl MatchResult {
                         }
                         "(commentary unavailable)".to_string()
                     }
-                },
-            )
+                }
+            })
             .collect();
         if render_failures > 0 {
             log::warn!(
@@ -235,7 +242,8 @@ mod tests {
         let seed = Seed::from_u64(1);
         let state = MatchState::initial(seed);
         let result =
-            MatchResult::from_state(&state, "0x1".to_string(), 0, &content).expect("from_state");
+            MatchResult::from_state(&state, "0x1".to_string(), 0, &content, &BTreeMap::new())
+                .expect("from_state");
         assert!(
             result.canonical_hash.starts_with("blake3:"),
             "canonical_hash must start with 'blake3:'"
@@ -262,9 +270,14 @@ mod tests {
             state = tick_match(state, &content.signature_definitions);
         }
 
-        let result =
-            MatchResult::from_state(&state, "0xdeadbeefdeadbeef".to_string(), 60, &content)
-                .expect("from_state");
+        let result = MatchResult::from_state(
+            &state,
+            "0xdeadbeefdeadbeef".to_string(),
+            60,
+            &content,
+            &BTreeMap::new(),
+        )
+        .expect("from_state");
 
         // Re-compute independently.
         let bytes = state.encode_canonical();
@@ -294,9 +307,14 @@ mod tests {
         for _ in 0..60 {
             state = tick_match(state, &content.signature_definitions);
         }
-        let result =
-            MatchResult::from_state(&state, "0xdeadbeefdeadbeef".to_string(), 60, &content)
-                .expect("from_state");
+        let result = MatchResult::from_state(
+            &state,
+            "0xdeadbeefdeadbeef".to_string(),
+            60,
+            &content,
+            &BTreeMap::new(),
+        )
+        .expect("from_state");
         assert_eq!(
             result.commentary_preview.len(),
             result.match_events.len(),
@@ -310,7 +328,8 @@ mod tests {
         let seed = Seed::from_u64(42);
         let state = MatchState::initial(seed);
         let result =
-            MatchResult::from_state(&state, "0x2a".to_string(), 0, &content).expect("from_state");
+            MatchResult::from_state(&state, "0x2a".to_string(), 0, &content, &BTreeMap::new())
+                .expect("from_state");
         assert_eq!(result.seed_hex, "0x2a");
         assert_eq!(result.tick_count, 0);
     }
