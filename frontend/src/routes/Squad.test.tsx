@@ -1,12 +1,12 @@
 /*
- * Squad page — Vitest tests (T2-7).
+ * Squad page — Vitest tests (T4-2.5h).
  *
  * Substance requirements:
- *   AC1 — 4-column table renders correct headers (Player, Role, Region, Traits).
- *   AC2 — squad data sourced from IPC via getSquad() on mount.
- *   AC3 — rows render from a fixture; phenotype cell shows readable text
- *          (not a raw enum identifier like "ExplosiveFirstStep").
+ *   AC1 — 5-column table renders correct headers (Player, Role, Apps, Goals, Minutes).
+ *   AC2 — roster data sourced from IPC via getSquadRoster() on mount.
+ *   AC3 — rows render from a fixture; stats are displayed correctly.
  *   AC4 — loading, IPC error, and empty states render correctly.
+ *   AC5 — club name placeholder shown in the sub-header.
  *
  * Mocking strategy:
  *   - ~/lib/api/squad is mocked globally. Each test configures per-function
@@ -16,51 +16,78 @@
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@solidjs/testing-library";
-import type { SquadPlayer } from "~/lib/types";
+import type { SquadRosterDto } from "~/lib/types";
 
 // ---------------------------------------------------------------------------
 // Module mocks — hoisted before component import
 // ---------------------------------------------------------------------------
 
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn().mockResolvedValue([]),
+  invoke: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock("~/lib/api/squad", () => ({
   getSquad: vi.fn(),
+  getSquadRoster: vi.fn(),
 }));
 
 // Import AFTER mocks are hoisted.
 import Squad from "./Squad";
-import { getSquad } from "~/lib/api/squad";
+import { getSquadRoster } from "~/lib/api/squad";
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const FIXTURE_THREE_PLAYERS: SquadPlayer[] = [
-  {
-    playerId: "fwh.core:player_00001",
-    name: "Emeka Thorne",
-    role: "Striker",
-    birthRegion: "Ashvale",
-    phenotypeLabels: ["Pure finisher", "Poacher", "Late bloomer"],
-  },
-  {
-    playerId: "fwh.core:player_00002",
-    name: "Seren Voss",
-    role: "Goalkeeper",
-    birthRegion: "Brackwater",
-    phenotypeLabels: ["Sweeper-keeper", "Composed under pressure"],
-  },
-  {
-    playerId: "fwh.core:player_00003",
-    name: "Orin Dake",
-    role: "Centre-back",
-    birthRegion: "Thornholt",
-    phenotypeLabels: [],
-  },
-];
+const FIXTURE_ROSTER: SquadRosterDto = {
+  clubId: 1,
+  clubName: "Ashvale United",
+  players: [
+    {
+      playerId: 1000000,
+      name: "Emeka Thorne",
+      clubId: 1,
+      slot: 0,
+      appearances: 3,
+      goals: 0,
+      assists: 0,
+      minutesPlayed: 270,
+    },
+    {
+      playerId: 1000001,
+      name: "Seren Voss",
+      clubId: 1,
+      slot: 5,
+      appearances: 3,
+      goals: 2,
+      assists: 1,
+      minutesPlayed: 270,
+    },
+    {
+      playerId: 1000002,
+      name: "Orin Dake",
+      clubId: 1,
+      slot: 9,
+      appearances: 1,
+      goals: 1,
+      assists: 0,
+      minutesPlayed: 90,
+    },
+    {
+      // Bench/depth slot (≥11). Must render role "Sub", NOT a fabricated
+      // formation position (the T4-2.5h self-review P1 fix — slots 11–21 are
+      // this club's reserves, not a second team's XI).
+      playerId: 1000011,
+      name: "Bex Harlow",
+      clubId: 1,
+      slot: 11,
+      appearances: 0,
+      goals: 0,
+      assists: 0,
+      minutesPlayed: 0,
+    },
+  ],
+};
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -69,15 +96,15 @@ const FIXTURE_THREE_PLAYERS: SquadPlayer[] = [
 describe("Squad page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getSquad).mockResolvedValue(FIXTURE_THREE_PLAYERS);
+    vi.mocked(getSquadRoster).mockResolvedValue(FIXTURE_ROSTER);
   });
 
-  // AC1: correct column headers (4 columns total).
-  it("renders four column headers: Player, Role, Region, Traits", async () => {
+  // AC1: correct column headers (5 columns total).
+  it("renders five column headers: Player, Role, Apps, Goals, Minutes", async () => {
     render(() => <Squad />);
 
     await waitFor(() => {
-      expect(screen.getAllByRole("columnheader")).toHaveLength(4);
+      expect(screen.getAllByRole("columnheader")).toHaveLength(5);
     });
 
     const headers = screen.getAllByRole("columnheader");
@@ -85,13 +112,13 @@ describe("Squad page", () => {
 
     expect(headerTexts).toContain("Player");
     expect(headerTexts).toContain("Role");
-    expect(headerTexts).toContain("Region");
-    expect(headerTexts).toContain("Traits");
-    expect(headers).toHaveLength(4);
+    expect(headerTexts).toContain("Apps");
+    expect(headerTexts).toContain("Goals");
+    expect(headerTexts).toContain("Minutes");
   });
 
   // AC2: data sourced from IPC on mount.
-  it("calls getSquad() on mount and renders player names", async () => {
+  it("calls getSquadRoster() on mount and renders player names", async () => {
     render(() => <Squad />);
 
     await waitFor(() => {
@@ -100,70 +127,49 @@ describe("Squad page", () => {
 
     expect(screen.getByText("Seren Voss")).toBeInTheDocument();
     expect(screen.getByText("Orin Dake")).toBeInTheDocument();
-    expect(vi.mocked(getSquad)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(getSquadRoster)).toHaveBeenCalledTimes(1);
   });
 
-  // AC3a: rows render role and region correctly.
-  it("renders role and region data for players", async () => {
-    render(() => <Squad />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Striker")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText("Goalkeeper")).toBeInTheDocument();
-    expect(screen.getByText("Centre-back")).toBeInTheDocument();
-    expect(screen.getByText("Ashvale")).toBeInTheDocument();
-    expect(screen.getByText("Brackwater")).toBeInTheDocument();
-  });
-
-  // AC3b: phenotype cell shows readable comma-joined text — NOT raw enum
-  // identifiers like "ExplosiveFirstStep" and NOT raw JSON like ["..."].
-  it("renders phenotype labels as readable comma-joined text", async () => {
+  // AC3a: rows render stats correctly.
+  it("renders appearances, goals, and minutes from fixture data", async () => {
     render(() => <Squad />);
 
     await waitFor(() => {
       expect(screen.getByText("Emeka Thorne")).toBeInTheDocument();
     });
 
-    // "Pure finisher, Poacher, Late bloomer" — human-readable, comma-joined.
-    const phenotypeCell = screen.getByText(/Pure finisher/);
-    expect(phenotypeCell).toBeInTheDocument();
-    // The text should contain commas (comma-joined), not brackets (raw JSON).
-    expect(phenotypeCell.textContent).toContain(",");
-    expect(phenotypeCell.textContent).not.toContain("[");
-    expect(phenotypeCell.textContent).not.toContain("]");
+    // Seren Voss: goals == 2, appearances == 3, minutes == 270.
+    // Multiple cells with same value — check at least one occurrence.
+    const goalCells = screen.getAllByText("2");
+    expect(goalCells.length).toBeGreaterThan(0);
 
-    // "Sweeper-keeper, Composed under pressure"
-    expect(screen.getByText(/Sweeper-keeper/)).toBeInTheDocument();
+    const minuteCells = screen.getAllByText("270");
+    expect(minuteCells.length).toBeGreaterThan(0);
 
-    // Player with no labels renders "—" (em-dash fallback).
-    expect(screen.getByText("—")).toBeInTheDocument();
+    // Orin Dake: minutes == 90.
+    expect(screen.getByText("90")).toBeInTheDocument();
   });
 
-  // AC3c: phenotype cell must not contain raw CamelCase enum identifiers.
-  it("phenotype labels are never raw CamelCase enum identifiers", async () => {
+  // AC3b: role derived from slot correctly.
+  it("renders role derived from slot (GK/MID/FWD for the XI; Sub for the bench)", async () => {
     render(() => <Squad />);
 
     await waitFor(() => {
       expect(screen.getByText("Emeka Thorne")).toBeInTheDocument();
     });
 
-    // Collect all text content from cells and assert no entry looks like a
-    // raw CamelCase identifier (two consecutive uppercase letters indicate
-    // a CamelCase run like "ExplosiveFirstStep").
-    const allText = document.body.textContent ?? "";
-    // "PureFinisher", "Poacher" as CamelCase — check specific known raw IDs
-    // do NOT appear anywhere in the rendered page.
-    expect(allText).not.toContain("PureFinisher");
-    expect(allText).not.toContain("SweeperKeeper");
-    expect(allText).not.toContain("ComposedUnderPressure");
-    expect(allText).not.toContain("LateBloomer");
+    // slot 0 → GK, slot 5 → MID, slot 9 → FWD.
+    expect(screen.getByText("GK")).toBeInTheDocument();
+    expect(screen.getByText("MID")).toBeInTheDocument();
+    expect(screen.getByText("FWD")).toBeInTheDocument();
+    // slot 11 (bench/depth) → "Sub", NOT a fabricated formation position
+    // (T4-2.5h self-review P1: no slot-11 away-shift on a single-club roster).
+    expect(screen.getByText("Sub")).toBeInTheDocument();
   });
 
   // AC4a: loading state shows fallback copy.
-  it("shows loading fallback before squad resolves", () => {
-    vi.mocked(getSquad).mockImplementation(
+  it("shows loading fallback before roster resolves", () => {
+    vi.mocked(getSquadRoster).mockImplementation(
       () => new Promise(() => {/* pending */}),
     );
 
@@ -173,10 +179,10 @@ describe("Squad page", () => {
   });
 
   // AC4b: IPC error shows the error alert with football-native copy.
-  it("shows error state when getSquad rejects with IpcError", async () => {
-    vi.mocked(getSquad).mockRejectedValue({
+  it("shows error state when getSquadRoster rejects with IpcError", async () => {
+    vi.mocked(getSquadRoster).mockRejectedValue({
       kind: "lockPoisoned",
-      lock: "season",
+      lock: "career",
     });
 
     render(() => <Squad />);
@@ -186,15 +192,14 @@ describe("Squad page", () => {
     });
 
     const alert = screen.getByRole("alert");
-    // Must show the football-native placeholder headline (not raw err.message).
     expect(alert.textContent).not.toContain("Cannot read properties");
     // The lockPoisoned copy mentions the lock name in the detail.
-    expect(alert.textContent).toContain("season");
+    expect(alert.textContent).toContain("career");
   });
 
   // AC4b-extra: error state must NOT show raw technical exception strings.
   it("error alert does not contain raw err.message on generic failure", async () => {
-    vi.mocked(getSquad).mockRejectedValue(
+    vi.mocked(getSquadRoster).mockRejectedValue(
       new Error("Cannot read properties of undefined (reading 'invoke')"),
     );
 
@@ -209,14 +214,18 @@ describe("Squad page", () => {
     expect(alert.textContent).not.toContain("invoke");
   });
 
-  // AC4c: empty state when getSquad returns an empty array.
-  it("shows empty-state message when squad is an empty array", async () => {
-    vi.mocked(getSquad).mockResolvedValue([]);
-
+  // AC5: club name placeholder shown in sub-header.
+  it("shows club name placeholder in sub-header when roster loads", async () => {
     render(() => <Squad />);
 
     await waitFor(() => {
-      expect(screen.getByText(/no players in the pool/i)).toBeInTheDocument();
+      expect(screen.getByText("Emeka Thorne")).toBeInTheDocument();
     });
+
+    expect(screen.getByText("Ashvale United")).toBeInTheDocument();
+    // The placeholder text pattern.
+    expect(
+      screen.getByText(/no club selected yet/i),
+    ).toBeInTheDocument();
   });
 });

@@ -100,6 +100,8 @@ fn main() {
             // T4-2.5g: career save / load
             fw_tauri::commands::save_career,
             fw_tauri::commands::load_career,
+            // T4-2.5h: default-club squad roster
+            fw_tauri::commands::get_squad_roster,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

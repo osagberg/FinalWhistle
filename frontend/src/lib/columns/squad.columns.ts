@@ -1,28 +1,78 @@
 /*
- * Squad column definitions — T2-7.
+ * Squad column definitions — T4-2.5h.
  *
- * Four columns: Player, Role, Region, Phenotype labels.
- * No Age/Contract — those are T4+ career-roster state absent from PlayerBio.
+ * Roster-based columns: Player (name), Role (derived from slot), Apps,
+ * Goals, Minutes. Region and Traits are dropped — they live on PlayerBio,
+ * not on the roster PlayerInstance, and are accessible via the Player detail
+ * page (get_player_detail).
+ *
+ * Role is derived from the SQUAD slot (0–21 within one club, per
+ * `SLOTS_PER_CLUB = 22`). These are squad-depth slots, NOT match slots —
+ * a single club's roster has no "away XI", so there is no slot-11 shift.
+ * The starting XI (slots 0–10) maps to the 4-3-3 formation; slots 11–21 are
+ * bench/squad depth with no formation position until a real lineup model
+ * exists (a later row):
+ *   slot 0       → GK
+ *   slots 1–4    → DEF
+ *   slots 5–7    → MID
+ *   slots 8–10   → FWD
+ *   slots 11–21  → Sub (bench/depth — NOT a fabricated formation position)
+ *
+ * Row virtualization is not needed — 22 rows is well below the 50-row
+ * threshold (Frontend/RULES.md §3).
  *
  * Separated from Squad.tsx per Frontend/RULES.md §3 ("Column defs in
  * dedicated *.columns.ts files alongside the route").
- *
- * The phenotype labels column renders a comma-joined human-readable string —
- * never raw JSON (e.g. '["Explosive first step","Poacher"]') and never
- * raw enum identifiers (e.g. "ExplosiveFirstStep").
  */
 
-import { type ColumnDef, type CellContext } from "@tanstack/solid-table";
-import type { SquadPlayer } from "../types";
+import { type CellContext, type ColumnDef } from "@tanstack/solid-table";
+import type { PlayerRosterDto, SquadPlayer } from "../types";
+
+/** Closed set of position labels a squad slot can render as. */
+export type SquadRole = "GK" | "DEF" | "MID" | "FWD" | "Sub";
 
 /**
- * Render the player name as a link to their detail page.
+ * Derive a position label from a SQUAD slot index (0–21 within one club).
  *
- * Uses a plain `<a>` tag so keyboard navigation works without extra ARIA.
- * `href` is `/player/<playerId>` (the route registered in App.tsx at T3-6).
- * encodeURIComponent guards against special characters in content-pack IDs
- * (e.g. colons in `fwh.core:player_00001`).
+ * Starting XI (0–10) → 4-3-3 formation; bench/depth (11–21) → `"Sub"`.
+ * There is NO slot-11 away-shift: a single club's roster is not two teams,
+ * so slots 11–21 are this club's reserves, not a second starting XI.
  */
+function slotToRole(slot: number): SquadRole {
+  if (slot >= 11) return "Sub";
+  if (slot === 0) return "GK";
+  if (slot >= 1 && slot <= 4) return "DEF";
+  if (slot >= 5 && slot <= 7) return "MID";
+  return "FWD";
+}
+
+export const rosterColumns: ColumnDef<PlayerRosterDto>[] = [
+  {
+    accessorKey: "name",
+    header: "Player",
+  },
+  {
+    id: "role",
+    header: "Role",
+    accessorFn: (row) => slotToRole(row.slot),
+  },
+  {
+    accessorKey: "appearances",
+    header: "Apps",
+  },
+  {
+    accessorKey: "goals",
+    header: "Goals",
+  },
+  {
+    accessorKey: "minutesPlayed",
+    header: "Minutes",
+  },
+];
+
+// Legacy bio-pool columns retained for the old `getSquad` path (still used by
+// some tests). Not used by the T4-2.5h roster view. Imports hoisted to the top.
+// TODO(T4-F4): retire `squadColumns` + `getSquad` once no route/test uses them.
 function playerNameCell(info: CellContext<SquadPlayer, string>): HTMLElement {
   const a = document.createElement("a");
   a.href = `/player/${encodeURIComponent(info.row.original.playerId)}`;
@@ -36,7 +86,6 @@ export const squadColumns: ColumnDef<SquadPlayer>[] = [
   {
     accessorKey: "name",
     header: "Player",
-    // T3-6: name cell links to /player/:id. Keyboard-accessible via <a> href.
     cell: playerNameCell,
   },
   {
@@ -50,15 +99,10 @@ export const squadColumns: ColumnDef<SquadPlayer>[] = [
   {
     accessorKey: "phenotypeLabels",
     header: "Traits",
-    // Render the string[] as readable comma-joined text.
-    // Do NOT render raw JSON — that would expose implementation details to
-    // the player. `toString()` on an array gives comma-joined without brackets.
     cell: (info) => {
       const labels = info.getValue<string[]>();
       return labels.length > 0 ? labels.join(", ") : "—";
     },
-    // Disable sorting on the array column — sort semantics are undefined for
-    // multi-value cells and would mislead the user.
     enableSorting: false,
   },
 ];

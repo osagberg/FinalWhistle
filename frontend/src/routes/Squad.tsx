@@ -1,22 +1,26 @@
 /*
- * Squad page — T2-7.
+ * Squad page — T4-2.5h.
  *
- * Text-first per DESIGN_DOC.md §3. Player list (TanStack Table v8) backed by
- * `get_squad` IPC command. Renders the 22-player pool from the content store.
+ * Text-first per DESIGN_DOC.md §3. Roster-based player list (TanStack Table
+ * v8) backed by `get_squad_roster` IPC command. Shows the DEFAULT club's
+ * 22-player roster with season stats.
  *
- * Columns: Player, Role, Region, Traits (phenotype labels).
- * Age and contract columns are absent by design — they are T4+ career-roster
- * state that PlayerBio does not carry.
+ * Columns: Player, Role (derived from slot), Apps, Goals, Minutes.
+ * Region and Traits are dropped — they live on PlayerBio, accessible via
+ * the Player detail page.
+ *
+ * The default club is the lowest ClubId in career.roster — a deterministic
+ * stand-in until career-start club selection is implemented.
  *
  * IPC (read-only via squad.ts wrapper):
- *   getSquad() → SquadPlayer[]    — loaded on mount
+ *   getSquadRoster() → SquadRosterDto    — loaded on mount
  *
  * Rules compliance:
  *   - No `any` (Frontend/RULES.md §6)
  *   - Solid signals / createResource, not React hooks (Frontend/RULES.md §1)
  *   - IpcError exhaustive switch + never discriminant (matches League.tsx pattern)
  *   - Dark-mode tokens on every color-bearing class (Frontend/RULES.md §2)
- *   - Column defs split into ~/lib/columns/squad.columns.ts (Frontend/RULES.md §3)
+ *   - Column defs in ~/lib/columns/squad.columns.ts (Frontend/RULES.md §3)
  *   - UI never drives canonical state — read-only fetch only
  */
 
@@ -24,21 +28,17 @@ import { createResource, createSignal, Show, type JSX } from "solid-js";
 import DataTable from "~/components/DataTable";
 import ErrorBoundary from "~/components/ErrorBoundary";
 import Loading from "~/components/Loading";
-import { getSquad } from "~/lib/api/squad";
-import { squadColumns } from "~/lib/columns/squad.columns";
+import { getSquadRoster } from "~/lib/api/squad";
+import { rosterColumns } from "~/lib/columns/squad.columns";
 import { IpcShapeError } from "~/lib/runtime-validators";
 import { describeRouteError } from "~/lib/route-errors";
-import type { IpcError, SquadPlayer } from "~/lib/types";
+import type { IpcError, SquadRosterDto } from "~/lib/types";
 
 // ---------------------------------------------------------------------------
 // IpcError type guard + exhaustiveness helper
 //
 // Self-contained per project convention — shared helpers go in ~/lib only if
 // needed by 3+ routes. Mirrors the pattern in routes/League.tsx.
-//
-// The `satisfies` annotation pins KNOWN_IPC_ERROR_KINDS to IpcError["kind"],
-// so adding a new variant to the IpcError union in lib/types.ts produces a
-// compile error here, forcing a coordinated update.
 // ---------------------------------------------------------------------------
 
 const KNOWN_IPC_ERROR_KINDS = new Set([
@@ -49,11 +49,8 @@ const KNOWN_IPC_ERROR_KINDS = new Set([
   "clubNotFound",
   "lockPoisoned",
   "playerNotFound",
-  // T3-9: career-loop variant.
   "seasonNotComplete",
-  // T4-5a: live-match command variant.
   "liveMatchCommandUnimplemented",
-  // T4-6a: settings variant.
   "settingsLoadFailed",
 ] as const) satisfies ReadonlySet<IpcError["kind"]>;
 
@@ -86,32 +83,32 @@ export default function Squad(): JSX.Element {
 }
 
 function SquadInner(): JSX.Element {
-  // Fetch error — typed signal so it's fully reactive in the jsdom test env.
   const [squadError, setSquadError] = createSignal<IpcError | Error | null>(
     null,
   );
 
-  // Resource: drives getSquad() on mount.
-  // Returns null on failure (distinct from [] which means "store is empty").
-  const [squad] = createResource<SquadPlayer[] | null>(async () => {
+  // Resource: drives getSquadRoster() on mount.
+  // Returns null on failure (distinct from an empty roster which would be a
+  // structural error — all careers start with 22 players).
+  const [roster] = createResource<SquadRosterDto | null>(async () => {
     setSquadError(null);
     try {
-      return await getSquad();
+      return await getSquadRoster();
     } catch (e: unknown) {
       if (e instanceof IpcShapeError) {
         // Backend DTO contract drift — log as its own greppable class so a
-        // SquadPlayerDto ↔ SquadPlayer mismatch is distinguishable from a
-        // transient runtime error during triage.
+        // SquadRosterDto shape mismatch is distinguishable from a transient
+        // runtime error during triage.
         // eslint-disable-next-line no-console
         console.error(
-          "[Squad] get_squad DTO contract drift:",
+          "[Squad] get_squad_roster DTO contract drift:",
           e.command,
           e.reason,
           e.payloadPreview,
         );
       } else {
         // eslint-disable-next-line no-console
-        console.error("[Squad] getSquad failed:", e);
+        console.error("[Squad] getSquadRoster failed:", e);
       }
       setSquadError(normaliseError(e));
       return null;
@@ -124,29 +121,34 @@ function SquadInner(): JSX.Element {
         <h1 class="font-display text-3xl text-pitch-600 dark:text-pitch-300">
           Squad
         </h1>
-        {/* Sub-header: short honest description of this page's current scope.
-            Age and contract columns arrive with the T4+ career-roster layer. */}
-        <p class="mt-1 text-sm text-ink-subtle dark:text-paper-subtle">
-          Player pool — role, region, and scouted traits. Career details arrive
-          with the T4 roster layer.
-        </p>
+        {/* Sub-header: placeholder honesty — no club is selected yet.
+            `!= null` (loose) so the undefined-while-loading resource value is
+            also gated, not just an explicit null. */}
+        <Show when={roster() != null && !roster.loading}>
+          <p class="mt-1 text-sm text-ink-subtle dark:text-paper-subtle">
+            No club selected yet — showing{" "}
+            <span class="font-medium text-ink dark:text-paper">
+              {roster()?.clubName ?? ""}
+            </span>
+          </p>
+        </Show>
       </header>
 
       {/* Loading state first — no white-flash before spinner. */}
-      <Show when={squad.loading}>
+      <Show when={roster.loading}>
         <Loading message="Loading squad…" />
       </Show>
 
       {/* Player list: error / data states (only when not loading). */}
-      <Show when={!squad.loading}>
+      <Show when={!roster.loading}>
         <Show
           when={squadError()}
           fallback={
-            <Show when={squad() !== null}>
+            <Show when={roster() != null}>
               <DataTable
-                columns={squadColumns}
-                data={squad() ?? []}
-                emptyMessage="No players in the pool — content store may be empty."
+                columns={rosterColumns}
+                data={roster()?.players ?? []}
+                emptyMessage="No players in the squad — career roster may be empty."
               />
             </Show>
           }
@@ -159,7 +161,9 @@ function SquadInner(): JSX.Element {
                 role="alert"
               >
                 <p class="font-semibold">{copy.headline}</p>
-                <p class="mt-1 text-ink-subtle dark:text-paper-subtle">{copy.detail}</p>
+                <p class="mt-1 text-ink-subtle dark:text-paper-subtle">
+                  {copy.detail}
+                </p>
               </div>
             );
           }}

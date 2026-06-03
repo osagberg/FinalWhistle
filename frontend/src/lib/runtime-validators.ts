@@ -60,9 +60,11 @@ import type {
   PlayFixturesSummary,
   PlayerDetail,
   PlayerPhenotype,
+  PlayerRosterDto,
   PossessionDto,
   Score,
   SquadPlayer,
+  SquadRosterDto,
   StandingsRow,
   StepResult,
   ThemePref,
@@ -353,6 +355,45 @@ export function isSquadPlayer(v: unknown): v is SquadPlayer {
 
 export function isSquadPlayerArray(v: unknown): v is SquadPlayer[] {
   return Array.isArray(v) && v.every(isSquadPlayer);
+}
+
+// ---------------------------------------------------------------------------
+// T4-2.5b / T4-2.5h roster guards
+// ---------------------------------------------------------------------------
+
+export function isPlayerRosterDto(v: unknown): v is PlayerRosterDto {
+  if (!isObject(v)) return false;
+  if (!isU32(v.playerId)) return false;
+  if (typeof v.name !== "string") return false;
+  if (!isU32(v.clubId)) return false;
+  // slot is u8 (0..21)
+  if (
+    typeof v.slot !== "number" ||
+    !Number.isInteger(v.slot) ||
+    v.slot < 0 ||
+    v.slot > 21
+  )
+    return false;
+  // appearances, goals, assists are u16
+  if (!isU16(v.appearances)) return false;
+  if (!isU16(v.goals)) return false;
+  if (!isU16(v.assists)) return false;
+  // minutesPlayed is u32
+  if (!isU32(v.minutesPlayed)) return false;
+  return true;
+}
+
+export function isPlayerRosterDtoArray(v: unknown): v is PlayerRosterDto[] {
+  return Array.isArray(v) && v.every(isPlayerRosterDto);
+}
+
+export function isSquadRosterDto(v: unknown): v is SquadRosterDto {
+  if (!isObject(v)) return false;
+  if (!isU32(v.clubId)) return false;
+  if (typeof v.clubName !== "string") return false;
+  if (!Array.isArray(v.players)) return false;
+  if (!v.players.every(isPlayerRosterDto)) return false;
+  return true;
 }
 
 // ---------------------------------------------------------------------------

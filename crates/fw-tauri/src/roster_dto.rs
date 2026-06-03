@@ -72,6 +72,27 @@ impl PlayerRosterDto {
 }
 
 // ---------------------------------------------------------------------------
+// SquadRosterDto — default-club squad overview (T4-2.5h)
+// ---------------------------------------------------------------------------
+
+/// Returned by `get_squad_roster`.
+///
+/// Bundles the default club's identity with its 22-player roster rows.
+/// The "default club" is the lowest `ClubId` in the career roster — a
+/// deterministic stand-in until career-start club selection is implemented
+/// (a future feature, not this row).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SquadRosterDto {
+    /// Raw `ClubId.raw()` of the club being displayed.
+    pub club_id: u32,
+    /// Display name resolved from `career.season.league`.
+    pub club_name: String,
+    /// 22 slot-ordered player rows for this club.
+    pub players: Vec<PlayerRosterDto>,
+}
+
+// ---------------------------------------------------------------------------
 // ScoutReportDto and sub-DTOs (T4-2.5f) — scouting projections
 // ---------------------------------------------------------------------------
 

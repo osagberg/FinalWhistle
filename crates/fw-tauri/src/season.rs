@@ -163,20 +163,23 @@ pub fn play_one_match(
     Ok((outcome, sim_state))
 }
 
-/// Harvest player-subject `MemoryEvent`s from a just-played match and append
-/// them to the ledger.
+/// Harvest player-subject `MemoryEvent`s from a just-played match AND accrue
+/// per-player season stats (`PlayerSeasonStats`).
 ///
-/// ## What is emitted
+/// ## What is emitted / accrued
 ///
 /// For each of the 22 match slots (home 0-10, away 11-21):
 /// - **Appearance**: if the slot maps to a rostered `PlayerInstance`, increment
-///   `career_apps`. On the 0 → 1 transition, append a `DebutSenior` event
+///   `career_apps`, `season_stats.appearances`, and `season_stats.minutes_played`
+///   (by 90 — one appearance = one full match; no subs modeled until T5-5b).
+///   On the 0 → 1 `career_apps` transition, append a `DebutSenior` event
 ///   (subject = that `PlayerId`). `DebutSenior` (not `DebutClub`) because at
 ///   T4-2.5e every player is at their career-start club — the `DebutClub` path
 ///   is reserved for post-transfer appearances (T4-2.5g).
 /// - **Goal**: for every `MatchEvent::Goal { scorer_slot }`, map `scorer_slot`
-///   to the rostered `PlayerInstance` and append a `LegacyGoal` event
-///   (subject = that `PlayerId`).
+///   to the rostered `PlayerInstance`, append a `LegacyGoal` event
+///   (subject = that `PlayerId`), AND increment `season_stats.goals` on the
+///   scorer's instance.
 ///
 /// ## Slot → roster mapping
 ///
@@ -250,6 +253,9 @@ pub fn harvest_match_memory_events(
             if let Some(inst) = home_instances.get_mut(slot) {
                 let was_zero = inst.career_apps == 0;
                 inst.career_apps += 1;
+                // season_stats is per-season (reset at advance_season); career_apps is career-long.
+                inst.season_stats.appearances += 1;
+                inst.season_stats.minutes_played += 90;
                 (was_zero, Some(inst.player_id), Some(inst.club_id))
             } else {
                 (false, None, None)
@@ -257,6 +263,9 @@ pub fn harvest_match_memory_events(
         } else if let Some(inst) = away_instances.get_mut(slot - 11) {
             let was_zero = inst.career_apps == 0;
             inst.career_apps += 1;
+            // season_stats is per-season (reset at advance_season); career_apps is career-long.
+            inst.season_stats.appearances += 1;
+            inst.season_stats.minutes_played += 90;
             (was_zero, Some(inst.player_id), Some(inst.club_id))
         } else {
             (false, None, None)
@@ -308,24 +317,22 @@ pub fn harvest_match_memory_events(
         });
     }
 
-    // ---- Pass 3: emit LegacyGoal events for every Goal in the match.
+    // ---- Pass 3: emit LegacyGoal events AND increment season_stats.goals for
+    // every Goal in the match.
     //
     // Participants: Subject = scorer, Counterparty = scorer's own club.
     //
-    // NOTE (T4-2.5h): `scorer_slot` is derived from `last_touched_by`, so an
-    // own-goal would attribute a LegacyGoal to the conceding player. This is a
-    // known limitation until own-goals are distinctly modeled in the sim.
-    //
-    // NOTE (T4-2.5h): `PlayerSeasonStats.goals` is NOT incremented here —
-    // full season_stats accrual (appearances, goals, minutes) is T4-2.5h.
-    // Only the career ledger event is emitted at T4-2.5e.
+    // NOTE: `scorer_slot` is derived from `last_touched_by`, so an own-goal
+    // would attribute a LegacyGoal to the conceding player. This is a known
+    // limitation until own-goals are distinctly modeled in the sim.
     //
     // When called with an empty `home_instances` or `away_instances` (split-call
     // pattern), goals scored by the absent team's half are skipped because
     // `scorer_slot < 11` maps to home (empty) and `scorer_slot >= 11` maps to
     // away. The split-call caller (advance_week_inner) calls this function twice
     // per fixture — once for home slots, once for away — so each team's goals
-    // are attributed on the correct call.
+    // are attributed on the correct call. This prevents double-counting: each
+    // goal is attributed exactly once, on the call that holds the scorer's slice.
     for match_event in match_state.match_events() {
         if let MatchEvent::Goal {
             scorer_slot, tick, ..
@@ -343,20 +350,24 @@ pub fn harvest_match_memory_events(
                 scorer_usize
             );
 
+            // Extract identity and increment season_stats.goals in one branch.
+            // Using get_mut to increment goals on the scorer's instance.
+            // None means the scorer's team half was passed as empty (split-call);
+            // the other call in the pair handles this goal. Skip cleanly.
             let (scorer_player_id, scorer_club_id) = if scorer_usize < 11 {
-                home_instances
-                    .get(scorer_usize)
-                    .map(|i| (Some(i.player_id), Some(i.club_id)))
-                    .unwrap_or((None, None))
+                if let Some(inst) = home_instances.get_mut(scorer_usize) {
+                    inst.season_stats.goals += 1;
+                    (Some(inst.player_id), Some(inst.club_id))
+                } else {
+                    (None, None)
+                }
+            } else if let Some(inst) = away_instances.get_mut(scorer_usize - 11) {
+                inst.season_stats.goals += 1;
+                (Some(inst.player_id), Some(inst.club_id))
             } else {
-                away_instances
-                    .get(scorer_usize - 11)
-                    .map(|i| (Some(i.player_id), Some(i.club_id)))
-                    .unwrap_or((None, None))
+                (None, None)
             };
 
-            // None here means the scorer's team half was passed as empty (split-call).
-            // The other call in the pair handles this goal. Skip cleanly.
             let (Some(player_id), Some(club_id)) = (scorer_player_id, scorer_club_id) else {
                 continue;
             };

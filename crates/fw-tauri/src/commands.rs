@@ -803,6 +803,77 @@ pub fn get_roster_for_club_inner(
     Ok(dtos)
 }
 
+/// `get_squad_roster()` — return the default club's squad roster for the Squad screen.
+///
+/// The "default club" is the lowest `ClubId` in `career.roster` (BTreeMap
+/// key order is deterministic; lowest key = club 0 in league order). This is
+/// a placeholder until career-start club selection is implemented.
+///
+/// Returns `IpcError::LeagueGenerationFailed` if the roster is empty (should
+/// not occur in a well-formed career; defensive only).
+#[tauri::command]
+pub async fn get_squad_roster(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::roster_dto::SquadRosterDto, IpcError> {
+    get_squad_roster_inner(&state)
+}
+
+pub fn get_squad_roster_inner(
+    state: &AppState,
+) -> Result<crate::roster_dto::SquadRosterDto, IpcError> {
+    use crate::roster_dto::{PlayerRosterDto, SquadRosterDto};
+
+    let career = state.career().read().map_err(|_| IpcError::LockPoisoned {
+        lock: "career".to_string(),
+    })?;
+
+    // Resolve the default club: lowest ClubId in BTreeMap order.
+    let (club_id, instances) =
+        career
+            .roster
+            .iter()
+            .next()
+            .ok_or_else(|| IpcError::LeagueGenerationFailed {
+                reason: "career roster is empty — no default club available".to_string(),
+            })?;
+
+    // Structural invariant: each club must have exactly 22 instances.
+    assert!(
+        instances.len() == 22,
+        "get_squad_roster_inner: default club {:?} has {} instances, expected 22 \
+         (programming error in generate_career_roster — Sim/RULES §11)",
+        club_id,
+        instances.len()
+    );
+
+    // Resolve the club's display name from the current season's league.
+    let club_name = career
+        .season
+        .league
+        .clubs
+        .iter()
+        .find(|c| c.id == *club_id)
+        .map(|c| c.display_name.clone())
+        .ok_or_else(|| IpcError::LeagueGenerationFailed {
+            reason: format!(
+                "default club {} is in roster but not in league.clubs — \
+                 league/roster sync invariant violated",
+                club_id.raw()
+            ),
+        })?;
+
+    let players: Vec<PlayerRosterDto> = instances
+        .iter()
+        .map(PlayerRosterDto::from_instance)
+        .collect();
+
+    Ok(SquadRosterDto {
+        club_id: club_id.raw(),
+        club_name,
+        players,
+    })
+}
+
 /// Return the cached scouting report for one roster player.
 ///
 /// Routing:
@@ -1307,6 +1378,14 @@ pub fn advance_season_inner(state: &AppState) -> Result<AdvanceSeasonSummaryDto,
     } else {
         false
     };
+
+    // Per-season stats reset: season_stats is per-season (reset here);
+    // career_apps is career-long (never reset).
+    for instances in career.roster.values_mut() {
+        for inst in instances.iter_mut() {
+            inst.season_stats = fw_core::PlayerSeasonStats::default();
+        }
+    }
 
     // Swap in the fresh season and increment season_number — both under the
     // same write guard so the transition is atomic.
@@ -2547,6 +2626,285 @@ mod tests {
             league_club_ids, roster_club_ids,
             "roster club ids must match league club ids"
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // T4-2.5h: stat-accrual + get_squad_roster tests
+    // -------------------------------------------------------------------------
+
+    /// AC-stat-1: after one advance_week, all starting-XI players (slots 0-10)
+    /// have appearances == 1, minutes_played == 90.
+    ///
+    /// Only the starting XI (slots 0-10) appear in each match; slots 11-21
+    /// are bench/subs who do not feature until a sub system is modeled (T5-5b).
+    /// Each club's starting 11 map to match slots as either home (0-10) or
+    /// away (11-21 in the match, but drawn from instances[0..11]).
+    #[test]
+    fn t4_2_5h_appearances_and_minutes_accrue_after_one_matchday() {
+        let state = test_app_state();
+        advance_week_inner(&state).expect("advance_week");
+
+        let career = state.career().read().expect("career lock");
+
+        // Only slots 0-10 (starting XI) receive appearances per match-day.
+        // Slots 11-21 are bench — they should remain at 0.
+        for (club_id, instances) in &career.roster {
+            for inst in &instances[..11] {
+                assert_eq!(
+                    inst.season_stats.appearances, 1,
+                    "club {:?} player {:?} (slot {}) must have appearances == 1 \
+                     after match-day 1; got {}",
+                    club_id, inst.player_id, inst.slot, inst.season_stats.appearances
+                );
+                assert_eq!(
+                    inst.season_stats.minutes_played, 90,
+                    "club {:?} player {:?} (slot {}) must have minutes_played == 90 \
+                     after match-day 1; got {}",
+                    club_id, inst.player_id, inst.slot, inst.season_stats.minutes_played
+                );
+            }
+            // Bench (slots 11-21) must not have been credited.
+            for inst in &instances[11..] {
+                assert_eq!(
+                    inst.season_stats.appearances, 0,
+                    "bench player {:?} (slot {}) must have appearances == 0; got {}",
+                    inst.player_id, inst.slot, inst.season_stats.appearances
+                );
+            }
+        }
+    }
+
+    /// AC-stat-2: goals — at least one player has goals > 0 after playing a full season.
+    ///
+    /// Goals depend on match simulation output. Running a full season (play_fixtures)
+    /// guarantees enough matches that at least some goals must have occurred (the sim
+    /// produces goals in 600-tick matches). Proves the goal-accrual path is wired.
+    #[test]
+    fn t4_2_5h_goals_accrue_after_full_season() {
+        let state = test_app_state();
+        play_fixtures_inner(&state).expect("play_fixtures");
+
+        let career = state.career().read().expect("career lock");
+
+        // Count LegacyGoal events per scorer (Subject player) from the ledger —
+        // the independent source of truth for who scored.
+        let mut ledger_goals: std::collections::BTreeMap<PlayerId, u32> =
+            std::collections::BTreeMap::new();
+        for event in career.ledger.iter() {
+            if !matches!(event.event_class, EventClass::LegacyGoal) {
+                continue;
+            }
+            let subject = event.participants.iter().find_map(|p| {
+                if matches!(p.role, fw_memory::event::ParticipantRole::Subject)
+                    && let fw_memory::event::EntityRef::Player(pid) = p.entity
+                {
+                    Some(pid)
+                } else {
+                    None
+                }
+            });
+            if let Some(pid) = subject {
+                *ledger_goals.entry(pid).or_insert(0) += 1;
+            }
+        }
+
+        let total_ledger_goals: u32 = ledger_goals.values().sum();
+        assert!(
+            total_ledger_goals > 0,
+            "a full season must emit at least one LegacyGoal — else the per-player check below is vacuous"
+        );
+
+        // Each player's season_stats.goals must EXACTLY equal its LegacyGoal count
+        // in the ledger. The bare `total > 0` this replaced was vacuous: it passed
+        // even if goals were credited to the wrong player or double-counted under
+        // the split-call harvest. This catches wrong-player attribution AND
+        // double-count (T4-2.5h code-review P1).
+        let mut total_season_goals: u32 = 0;
+        for inst in career.roster.values().flat_map(|v| v.iter()) {
+            let expected = ledger_goals.get(&inst.player_id).copied().unwrap_or(0);
+            assert_eq!(
+                inst.season_stats.goals as u32, expected,
+                "player {:?} season_stats.goals ({}) must equal its LegacyGoal count in the ledger ({})",
+                inst.player_id, inst.season_stats.goals, expected
+            );
+            total_season_goals += inst.season_stats.goals as u32;
+        }
+
+        // Conservation: sum of per-player season goals == total LegacyGoal events
+        // (no goal counted twice, none dropped).
+        assert_eq!(
+            total_season_goals, total_ledger_goals,
+            "sum of season_stats.goals must equal total LegacyGoal events (no double-count / no drop)"
+        );
+    }
+
+    /// AC-stat-3: career_apps persists across season rollover; season_stats resets.
+    ///
+    /// - After season 1: career_apps >= 1 for each player, season_stats.appearances >= 1.
+    /// - After advance_season: career_apps unchanged; season_stats.appearances == 0.
+    /// - After advance_week in season 2: season_stats.appearances == 1 again.
+    #[test]
+    fn t4_2_5h_season_stats_reset_career_apps_persist_across_season() {
+        let state = test_app_state();
+
+        // Play a full season to accrue stats.
+        play_fixtures_inner(&state).expect("play_fixtures season 1");
+
+        // Snapshot career_apps before season rollover.
+        let career_apps_before: Vec<u32> = {
+            let career = state.career().read().expect("career lock");
+            career
+                .roster
+                .values()
+                .flat_map(|v| v.iter())
+                .map(|inst| inst.career_apps)
+                .collect()
+        };
+
+        // Guard against a vacuous "persistence" check: if the accrual path were
+        // broken and career_apps stayed 0 for everyone, `before == after` would
+        // pass trivially (all-zeros). Prove career_apps was actually accrued
+        // before the rollover (a full season → every starting-XI player ≥ 1 app).
+        assert!(
+            career_apps_before.iter().any(|&c| c > 0),
+            "career_apps must be > 0 for at least one player before advance_season \
+             (else the persistence assertion is vacuous)"
+        );
+
+        // Roll over to season 2.
+        advance_season_inner(&state).expect("advance_season");
+
+        {
+            let career = state
+                .career()
+                .read()
+                .expect("career lock after advance_season");
+
+            let career_apps_after: Vec<u32> = career
+                .roster
+                .values()
+                .flat_map(|v| v.iter())
+                .map(|inst| inst.career_apps)
+                .collect();
+
+            // career_apps must be identical before and after advance_season.
+            assert_eq!(
+                career_apps_before, career_apps_after,
+                "career_apps must not be reset by advance_season"
+            );
+
+            // season_stats must all be zeroed.
+            for inst in career.roster.values().flat_map(|v| v.iter()) {
+                assert_eq!(
+                    inst.season_stats.appearances, 0,
+                    "season_stats.appearances must be 0 after advance_season; player {:?} has {}",
+                    inst.player_id, inst.season_stats.appearances
+                );
+                assert_eq!(
+                    inst.season_stats.goals, 0,
+                    "season_stats.goals must be 0 after advance_season; player {:?} has {}",
+                    inst.player_id, inst.season_stats.goals
+                );
+                assert_eq!(
+                    inst.season_stats.minutes_played, 0,
+                    "season_stats.minutes_played must be 0 after advance_season; player {:?} has {}",
+                    inst.player_id, inst.season_stats.minutes_played
+                );
+            }
+        }
+
+        // Play one match-day in season 2 — starting XI appearances should be 1 again.
+        advance_week_inner(&state).expect("advance_week season 2");
+
+        let career = state.career().read().expect("career lock season 2");
+        for instances in career.roster.values() {
+            // Starting XI (slots 0-10) must have one appearance in season 2.
+            for inst in &instances[..11] {
+                assert_eq!(
+                    inst.season_stats.appearances, 1,
+                    "season_stats.appearances must be 1 after first match-day of season 2; \
+                     player {:?} (slot {}) has {}",
+                    inst.player_id, inst.slot, inst.season_stats.appearances
+                );
+            }
+        }
+    }
+
+    /// AC-squad-roster-1: get_squad_roster_inner returns 22 players + non-empty club name.
+    #[test]
+    fn t4_2_5h_get_squad_roster_returns_22_players_and_club_name() {
+        let state = test_app_state();
+        let dto = get_squad_roster_inner(&state).expect("get_squad_roster_inner");
+
+        assert_eq!(
+            dto.players.len(),
+            22,
+            "squad roster must have 22 players; got {}",
+            dto.players.len()
+        );
+        assert!(
+            !dto.club_name.is_empty(),
+            "squad roster club_name must not be empty"
+        );
+    }
+
+    /// AC-squad-roster-2: get_squad_roster_inner resolves the lowest ClubId.
+    #[test]
+    fn t4_2_5h_get_squad_roster_is_lowest_club_id() {
+        let state = test_app_state();
+
+        // Derive the expected lowest club id from the career directly.
+        let expected_club_id = {
+            let career = state.career().read().expect("career lock");
+            career
+                .roster
+                .keys()
+                .next()
+                .expect("at least one club")
+                .raw()
+        };
+
+        let dto = get_squad_roster_inner(&state).expect("get_squad_roster_inner");
+        assert_eq!(
+            dto.club_id, expected_club_id,
+            "get_squad_roster_inner must return the lowest ClubId's squad"
+        );
+    }
+
+    /// AC-squad-roster-3: stats appear in the DTO after playing a match-day.
+    ///
+    /// The first club's starting XI (slots 0-10) should have appearances == 1
+    /// and minutes_played == 90. Bench slots (11-21) remain at 0.
+    #[test]
+    fn t4_2_5h_get_squad_roster_reflects_accrued_stats() {
+        let state = test_app_state();
+        advance_week_inner(&state).expect("advance_week");
+
+        let dto = get_squad_roster_inner(&state).expect("get_squad_roster_inner");
+
+        // Partition players by starting XI (slots 0-10) vs bench (slots 11-21).
+        for player in &dto.players {
+            if player.slot <= 10 {
+                // Starting XI must have appearances == 1, minutes == 90.
+                assert_eq!(
+                    player.appearances, 1,
+                    "starting XI slot {} appearances must be 1 after match-day 1; got {}",
+                    player.slot, player.appearances
+                );
+                assert_eq!(
+                    player.minutes_played, 90,
+                    "starting XI slot {} minutes_played must be 90 after match-day 1; got {}",
+                    player.slot, player.minutes_played
+                );
+            } else {
+                // Bench must have appearances == 0 (no sub system until T5-5b).
+                assert_eq!(
+                    player.appearances, 0,
+                    "bench slot {} appearances must be 0 (no sub system); got {}",
+                    player.slot, player.appearances
+                );
+            }
+        }
     }
 
     // -------------------------------------------------------------------------

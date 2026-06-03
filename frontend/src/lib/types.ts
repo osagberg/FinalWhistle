@@ -288,6 +288,26 @@ export interface PlayerRosterDto {
 }
 
 // ---------------------------------------------------------------------------
+// T4-2.5h squad-roster DTO — mirrors fw-tauri::roster_dto::SquadRosterDto
+// ---------------------------------------------------------------------------
+
+/**
+ * Returned by `get_squad_roster`.
+ *
+ * Bundles the default club identity with its 22-player roster rows.
+ * The "default club" is the lowest ClubId in the career roster — a
+ * placeholder until career-start club selection is implemented.
+ */
+export interface SquadRosterDto {
+  /** Raw u32 of the club being displayed. */
+  clubId: number;
+  /** Display name resolved from the current season's league. */
+  clubName: string;
+  /** 22 slot-ordered player rows. */
+  players: PlayerRosterDto[];
+}
+
+// ---------------------------------------------------------------------------
 // T1-2a tactical board DTOs — mirrors fw-match-sim::dto (camelCase serde)
 // ---------------------------------------------------------------------------
 
