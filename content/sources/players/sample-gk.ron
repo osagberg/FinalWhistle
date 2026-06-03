@@ -1,0 +1,97 @@
+// Sample player template — a commanding goalkeeper. Hand-authored for
+// T4-2.5j; exercises the commanding-claim signature predicate.
+//
+// Attributes relevant for commanding_claim_trigger:
+//   goalkeeper.aerial_reach >= 0.45 threshold: 0.70
+//   goalkeeper.handling    >= 0.45 threshold: 0.70
+//   goalkeeper.command_of_area >= 0.45 threshold: 0.68
+//
+// Non-goalkeeper attributes are mid-range (0.50). All Q32 in [0, 1].
+// Q32 bits: round(decimal * 2^32). 0.70 = 3006477107, 0.68 = 2920577761.
+
+PlayerTemplate(
+    schema_version: 1,
+    id: 43,
+    qualified_id: "fwh.core:player_00043",
+    display_name: "Leo Vance",
+    attributes: (
+        technical: (
+            finishing:       (bits: 858993459),   // 0.20 — keeper, not a finisher
+            long_shots:      (bits: 858993459),   // 0.20
+            passing:         (bits: 2147483648),  // 0.50
+            crossing:        (bits: 858993459),   // 0.20
+            first_touch:     (bits: 2147483648),  // 0.50
+            technique:       (bits: 2147483648),  // 0.50
+            dribbling:       (bits: 858993459),   // 0.20
+            heading:         (bits: 2576980378),  // 0.60
+            tackling:        (bits: 858993459),   // 0.20
+            marking:         (bits: 1288490189),  // 0.30
+            free_kicks:      (bits: 1288490189),  // 0.30
+            penalty_taking:  (bits: 1288490189),  // 0.30
+            corners:         (bits: 858993459),   // 0.20
+            long_throws:     (bits: 858993459),   // 0.20
+        ),
+        mental: (
+            anticipation:    (bits: 2791728742),  // 0.65
+            composure:       (bits: 3006477107),  // 0.70
+            decisions:       (bits: 2791728742),  // 0.65
+            vision:          (bits: 2576980378),  // 0.60
+            off_the_ball:    (bits: 1932735283),  // 0.45
+            positioning:     (bits: 2791728742),  // 0.65
+            concentration:   (bits: 3006477107),  // 0.70
+            bravery:         (bits: 3006477107),  // 0.70
+            teamwork:        (bits: 2576980378),  // 0.60
+            flair:           (bits: 1288490189),  // 0.30
+        ),
+        physical: (
+            pace:            (bits: 1717986918),  // 0.40
+            acceleration:    (bits: 1717986918),  // 0.40
+            stamina:         (bits: 2576980378),  // 0.60
+            strength:        (bits: 2791728742),  // 0.65
+            agility:         (bits: 2576980378),  // 0.60
+            balance:         (bits: 2576980378),  // 0.60
+            jumping_reach:   (bits: 3221225472),  // 0.75
+            natural_fitness: (bits: 2791728742),  // 0.65
+        ),
+        goalkeeper: (
+            handling:         (bits: 3006477107),  // 0.70 — above threshold
+            reflexes:         (bits: 3092376453),  // 0.72
+            one_on_ones:      (bits: 2791728742),  // 0.65
+            aerial_reach:     (bits: 3006477107),  // 0.70 — above threshold
+            command_of_area:  (bits: 2920577761),  // 0.68 — above threshold
+            kicking:          (bits: 2576980378),  // 0.60
+        ),
+        personality: (
+            determination:        (bits: 3006477107),  // 0.70
+            work_rate:            (bits: 2791728742),  // 0.65
+            ambition:             (bits: 2576980378),  // 0.60
+            professionalism:      (bits: 3006477107),  // 0.70
+            loyalty:              (bits: 2576980378),  // 0.60
+            temperament:          (bits: 3006477107),  // 0.70
+            pressure_tolerance:   (bits: 3092376453),  // 0.72
+            big_match_appetite:   (bits: 3006477107),  // 0.70
+            adaptability:         (bits: 2576980378),  // 0.60
+            aggression:           (bits: 2147483648),  // 0.50
+            risk_appetite:        (bits: 1932735283),  // 0.45
+            selflessness:         (bits: 2576980378),  // 0.60
+            consistency:          (bits: 2920577761),  // 0.68
+            versatility:          (bits: 1932735283),  // 0.45
+        ),
+        durability: (
+            injury_proneness:     (bits: 1288490189),  // 0.30
+            recovery_rate:        (bits: 2791728742),  // 0.65
+            dirtiness:            (bits: 858993459),   // 0.20
+        ),
+    ),
+    ceiling: (
+        current:   (bits: 2576980378),  // 0.60
+        potential: (bits: 3221225472),  // 0.75
+    ),
+    preferred_role: "GK",
+    signature_candidates: [
+        (
+            signature_id: SignatureId("fwh.core:signature.commanding-claim"),
+            affinity: (bits: 3221225472),  // 0.75 — GK identity move
+        ),
+    ],
+)

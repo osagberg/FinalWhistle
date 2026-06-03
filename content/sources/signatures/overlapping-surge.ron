@@ -1,0 +1,38 @@
+// T4-2.5j: OverlappingSurge signature definition.
+// id: fwh.core:signature.overlapping-surge
+//
+// A full-back burns past their winger in an overlapping run and arrives
+// at the byline with space to cross. The width comes from the back line
+// and the opponent doesn't know whether to track the runner or hold shape.
+//
+// Bias: amplifies Dribble (carry into the crossing position) and Pass
+// (the cross itself); suppresses Cover (they've vacated the defensive slot).
+//
+// Q32 serde form: (bits: <i64>) where i64 = round(decimal * 2^32).
+// Q32::ONE = (bits: 4294967296); Q32::ZERO = (bits: 0).
+// 1.4 = 6012954214; 1.3 = 5583457485; 0.7 = 3006477107.
+//
+// Trigger: overlapping_surge_trigger in fw-match-sim/signature/triggers.rs.
+//
+// Schema version 1.
+SignatureDefinition(
+    schema_version: 1,
+    id: SignatureId("fwh.core:signature.overlapping-surge"),
+    display_name: "Overlapping Surge",
+    role_family: FullBack,
+    trigger: NoOpStub,
+    bias_snapshot: (
+        shoot_mul:   (bits: 4294967296),   // 1.0 — neutral: unlikely to shoot from there
+        pass_mul:    (bits: 5583457485),   // 1.3 — amplify: cross from the byline
+        dribble_mul: (bits: 6012954214),   // 1.4 — amplify: carry into the channel
+        press_mul:   (bits: 4294967296),   // 1.0 — neutral: out of defensive shape
+        cover_mul:   (bits: 3006477107),   // 0.7 — suppress: vacated the back line
+    ),
+    presentation: (
+        commentary_line_bank_id: "fwh.core:commentary.overlapping-surge",
+        camera_framing_hint: "wide_tracking_overlap",
+        schema_version: 1,
+    ),
+    cooldown: EveryTicks(600),
+    stacking: Exclusive(category: BuildUp),
+)

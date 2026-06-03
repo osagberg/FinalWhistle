@@ -1,4 +1,4 @@
-//! Smoke tests: T1-11 chunk 4 + T4-2.5c non-slot-7 wiring.
+//! Smoke tests: T1-11 chunk 4 + T4-2.5c non-slot-7 wiring + T4-2.5j all-role wiring.
 //!
 //! Test 1 (slot_7_fires_at_least_one_signature_in_600_ticks): asserts that
 //! running `initial_with_content` (role-matched MID slots carry AM candidates
@@ -7,10 +7,9 @@
 //! player_slot 7.
 //!
 //! Test 2 (non_slot_7_fires_signature_first_fired): asserts that at least one
-//! role-matched slot OTHER than slot 7 (i.e. one of the other 5 MID slots:
-//! home 5,6 or away 16,17,18) fires a `SignatureFirstFired` event in 600 ticks.
-//! This proves the role-matched spread flows through dispatch_tick for
-//! non-slot-7 MID players (the T4-2.5c AC-2 falsifiable gate).
+//! role-matched slot OTHER than slot 7 fires a `SignatureFirstFired` event in
+//! 600 ticks. T4-2.5j expanded this from MID-only to all 22 slots — GK/DEF/FWD
+//! templates now exist so non-MID slots also carry candidates.
 //!
 //! These are the non-vacuous wiring gates: they prove the full path from
 //! `ContentStore → initial_with_content → tick_match(sig_definitions)` emits
@@ -19,8 +18,9 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use fw_content::{ContentStore, MatchEvent};
-use fw_core::Seed;
+use fw_content::{ContentStore, MatchEvent, RoleFamily};
+use fw_core::{Q32, Seed};
+use fw_match_sim::signature::build_trigger_table;
 use fw_match_sim::{MatchState, tick_match};
 
 fn content_root() -> PathBuf {
@@ -109,18 +109,16 @@ fn slot_7_fires_at_least_one_signature_in_600_ticks() {
 }
 
 // ---------------------------------------------------------------------------
-// T4-2.5c AC-2: a non-slot-7 role-matched slot fires SignatureFirstFired
+// T4-2.5j AC-2: a non-slot-7 slot fires SignatureFirstFired
 //
-// After the role-matched spread, MID slots 5,6,7 (home) and 16,17,18 (away)
-// carry AM candidates. This test proves dispatch_tick routes signature firings
-// for the 5 OTHER role-matched slots besides slot 7.
+// After T4-2.5j's role-matched spread, ALL 22 slots carry candidates:
+//   MID (5-7, 16-18):  AM template — diagonal-switch, long-range-strike, etc.
+//   GK  (0, 11):       GK template — commanding-claim
+//   DEF (1-4, 12-15):  DEF template — overlapping-surge
+//   FWD (8-10, 19-21): FWD template — touchline-beat, poachers-dart
 //
-// Eligible non-slot-7 slots for long-range-strike trigger:
-//   home:  5,6 (in_team 5,6 ∈ 5..=10 ✓)
-//   away: 16,17,18 (in_team = slot%11 = 5,6,7 ∈ 5..=10 ✓)
-// Eligible for first-time-diagonal-switch (in_team ∈ 5..=7):
-//   home: 5,6 (in_team 5,6)
-//   away: 16,17,18 (in_team 5,6,7)
+// This test proves that at least one slot OTHER than slot 7 fires a signature
+// within 600 ticks, demonstrating the multi-role spread flows end-to-end.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -136,24 +134,17 @@ fn non_slot_7_role_matched_slot_fires_signature_first_fired() {
     )
     .expect("initial_with_content should succeed with role-matched spread");
 
-    // Verify: only role-matched MID slots carry candidates (T4-2.5c AC-1 refined).
-    let mid_slots: &[usize] = &[5, 6, 7, 16, 17, 18];
-    for &slot in mid_slots {
+    // T4-2.5j: All 22 slots should have candidates (MID from AM template,
+    // GK/DEF/FWD from new role templates).
+    for slot in 0..22usize {
         assert!(
             !state.players[slot].signature_candidates().is_empty(),
-            "MID slot {slot} should have non-empty candidates after role-matched spread"
-        );
-    }
-    let non_mid_slots: &[usize] = &[0, 1, 2, 3, 4, 8, 9, 10, 11, 12, 13, 14, 15, 19, 20, 21];
-    for &slot in non_mid_slots {
-        assert!(
-            state.players[slot].signature_candidates().is_empty(),
-            "Non-MID slot {slot} should have empty candidates after role-matched spread"
+            "Slot {slot} should have non-empty candidates after T4-2.5j role-matched spread"
         );
     }
 
     // Run 600 ticks; collect (slot, sig_id) for all SignatureFirstFired events
-    // from role-matched slots OTHER than slot 7.
+    // from slots OTHER than slot 7.
     let mut non_slot7_firings: Vec<(u8, String)> = Vec::new();
     let mut prev_event_count = state.match_events().len();
 
@@ -174,29 +165,90 @@ fn non_slot_7_role_matched_slot_fires_signature_first_fired() {
         prev_event_count = events.len();
     }
 
-    // Non-vacuous gate: at least one firing from a non-slot-7 MID slot.
-    // With 5 additional MID slots carrying AM candidates, at least one of
-    // {5,6,16,17,18} should fire within 600 ticks on this seed.
+    // Non-vacuous gate: at least one firing from a slot ≠ 7.
+    // With all 22 slots carrying candidates, at least one of the other 21
+    // slots should fire within 600 ticks on this seed.
     assert!(
         !non_slot7_firings.is_empty(),
-        "expected ≥1 SignatureFirstFired for a role-matched slot ≠ 7 in 600 ticks; got 0. \
-         Seed: 0xfeedbeefcafefade. Check that MID slots 5,6,16,17,18 carry candidates \
-         AND their trigger predicates fire. Role-matched slots seen: \
-         {mid_slots:?}. signature_first_fired_seen slots: {:?}",
+        "expected ≥1 SignatureFirstFired for a slot ≠ 7 in 600 ticks; got 0. \
+         Seed: 0xfeedbeefcafefade. Check that all slots carry candidates \
+         AND at least one non-slot-7 trigger predicate fires. \
+         signature_first_fired_seen slots: {:?}",
         state
             .signature_first_fired_seen
             .iter()
-            .filter(|(slot, _)| *slot != 7)
             .map(|(s, _)| s)
             .collect::<Vec<_>>()
     );
+}
 
-    // Confirm the firing came from a role-matched MID slot (not an unexpected slot).
-    let first = &non_slot7_firings[0];
+// ---------------------------------------------------------------------------
+// T4-2.5j self-review (type-design guard): each IMPLEMENTED signature's RON
+// `role_family` must agree with its predicate's code slot-gate.
+//
+// The per-predicate unit tests in `triggers.rs` hardcode the slot they probe
+// (the same `in_team` literal the predicate gates on), so they CANNOT catch a
+// RON `role_family` that disagrees with the gate, nor a gate-literal typo that
+// drifts from the declared family — both would just make the signature
+// silently never fire. This test closes that gap: for every signature whose
+// id has a trigger binding (the implemented ones; the no-op stub is excluded),
+// it maps the RON `role_family` to that family's canonical home-XI slot (per
+// `design/signatures.md`) and asserts the predicate actually fires there.
+//
+// `MatchState::initial` builds every player with `mid_range_baseline()` (all
+// attributes 0.5), which clears every signature's 0.45 attribute threshold, so
+// a non-fire at the canonical slot can ONLY mean the role gate rejects that
+// slot — i.e. the declared family and the code gate have diverged.
+#[test]
+fn implemented_signature_role_family_agrees_with_predicate_gate() {
+    /// Canonical home-XI slot for each role family (4-3-3; see design/signatures.md).
+    fn canonical_slot(rf: RoleFamily) -> u8 {
+        match rf {
+            RoleFamily::Goalkeeper => 0,
+            RoleFamily::FullBack => 1,
+            RoleFamily::CentreBack => 2,
+            RoleFamily::DefensiveMidfielder => 5,
+            RoleFamily::CentralMidfielder => 6,
+            RoleFamily::AttackingMidfielder => 7,
+            RoleFamily::Winger => 8,
+            RoleFamily::Striker => 9,
+        }
+    }
+
+    let store = load_store();
+    let table = build_trigger_table();
+    // All 22 players carry mid_range_baseline (0.5) attributes → above every
+    // 0.45 threshold, so any non-fire is a role-gate rejection, not a low stat.
+    let state = MatchState::initial(Seed::from_u64(1));
+
+    let mut checked = 0u32;
+    for (id, def) in &store.signature_definitions {
+        // Only implemented signatures have a predicate binding.
+        let Some(trigger) = table.get(id.as_str()) else {
+            continue;
+        };
+        // The no-op stub is intentionally never-fire; exclude it.
+        if id.as_str() == "fwh.core:signature.no-op-stub" {
+            continue;
+        }
+
+        let slot = canonical_slot(def.role_family);
+        let fit = (*trigger)(&state, slot);
+        assert!(
+            fit > Q32::ZERO,
+            "signature {id} declares role_family {:?} (canonical slot {slot}) but its \
+             trigger returns ZERO there with a maxed-baseline player — the RON role_family \
+             and the predicate's slot-gate have diverged (or the gate excludes the family's \
+             canonical slot)",
+            def.role_family
+        );
+        checked += 1;
+    }
+
+    // Guard against the test silently checking nothing (e.g. an empty store or
+    // a build_trigger_table that lost its bindings).
     assert!(
-        mid_slots.contains(&(first.0 as usize)),
-        "non-slot-7 firing came from slot {} which is NOT a role-matched MID slot {:?}",
-        first.0,
-        mid_slots
+        checked >= 8,
+        "expected ≥8 implemented signatures cross-checked (1 per role family); checked {checked}"
     );
 }

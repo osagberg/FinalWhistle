@@ -1,0 +1,99 @@
+// Sample player template — an overlapping full-back. Hand-authored for
+// T4-2.5j; exercises the overlapping-surge signature predicate.
+//
+// Attributes relevant for overlapping_surge_trigger (in_team==1||4):
+//   physical.pace     >= 0.45 threshold: 0.72
+//   physical.stamina  >= 0.45 threshold: 0.70
+//   technical.crossing >= 0.45 threshold: 0.68
+//
+// preferred_role "DEF" spreads to all defender slots 1-4, 12-15;
+// the trigger predicate restricts firing to in_team==1||4 (full-backs).
+// All Q32 in [0, 1]. Q32 bits: round(decimal * 2^32).
+// 0.72 = 3092376453; 0.70 = 3006477107; 0.68 = 2920577761.
+
+PlayerTemplate(
+    schema_version: 1,
+    id: 44,
+    qualified_id: "fwh.core:player_00044",
+    display_name: "Sam Burrows",
+    attributes: (
+        technical: (
+            finishing:       (bits: 1503238554),  // 0.35
+            long_shots:      (bits: 1503238554),  // 0.35
+            passing:         (bits: 2576980378),  // 0.60
+            crossing:        (bits: 2920577761),  // 0.68 — above threshold
+            first_touch:     (bits: 2576980378),  // 0.60
+            technique:       (bits: 2362232013),  // 0.55
+            dribbling:       (bits: 2576980378),  // 0.60
+            heading:         (bits: 2147483648),  // 0.50
+            tackling:        (bits: 2791728742),  // 0.65
+            marking:         (bits: 2791728742),  // 0.65
+            free_kicks:      (bits: 1503238554),  // 0.35
+            penalty_taking:  (bits: 1503238554),  // 0.35
+            corners:         (bits: 1932735283),  // 0.45
+            long_throws:     (bits: 1717986918),  // 0.40
+        ),
+        mental: (
+            anticipation:    (bits: 2576980378),  // 0.60
+            composure:       (bits: 2576980378),  // 0.60
+            decisions:       (bits: 2576980378),  // 0.60
+            vision:          (bits: 2362232013),  // 0.55
+            off_the_ball:    (bits: 2576980378),  // 0.60
+            positioning:     (bits: 2791728742),  // 0.65
+            concentration:   (bits: 2576980378),  // 0.60
+            bravery:         (bits: 2791728742),  // 0.65
+            teamwork:        (bits: 3006477107),  // 0.70
+            flair:           (bits: 1932735283),  // 0.45
+        ),
+        physical: (
+            pace:            (bits: 3092376453),  // 0.72 — above threshold
+            acceleration:    (bits: 3006477107),  // 0.70
+            stamina:         (bits: 3006477107),  // 0.70 — above threshold
+            strength:        (bits: 2576980378),  // 0.60
+            agility:         (bits: 2920577761),  // 0.68
+            balance:         (bits: 2791728742),  // 0.65
+            jumping_reach:   (bits: 2147483648),  // 0.50
+            natural_fitness: (bits: 3006477107),  // 0.70
+        ),
+        goalkeeper: (
+            handling:         (bits: 0),
+            reflexes:         (bits: 0),
+            one_on_ones:      (bits: 0),
+            aerial_reach:     (bits: 0),
+            command_of_area:  (bits: 0),
+            kicking:          (bits: 0),
+        ),
+        personality: (
+            determination:        (bits: 2791728742),  // 0.65
+            work_rate:            (bits: 3092376453),  // 0.72
+            ambition:             (bits: 2576980378),  // 0.60
+            professionalism:      (bits: 2791728742),  // 0.65
+            loyalty:              (bits: 2791728742),  // 0.65
+            temperament:          (bits: 2576980378),  // 0.60
+            pressure_tolerance:   (bits: 2576980378),  // 0.60
+            big_match_appetite:   (bits: 2791728742),  // 0.65
+            adaptability:         (bits: 2576980378),  // 0.60
+            aggression:           (bits: 2576980378),  // 0.60
+            risk_appetite:        (bits: 2791728742),  // 0.65
+            selflessness:         (bits: 3006477107),  // 0.70
+            consistency:          (bits: 2576980378),  // 0.60
+            versatility:          (bits: 2576980378),  // 0.60
+        ),
+        durability: (
+            injury_proneness:     (bits: 1503238554),  // 0.35
+            recovery_rate:        (bits: 2791728742),  // 0.65
+            dirtiness:            (bits: 1288490189),  // 0.30
+        ),
+    ),
+    ceiling: (
+        current:   (bits: 2362232013),  // 0.55
+        potential: (bits: 3092376453),  // 0.72
+    ),
+    preferred_role: "DEF",
+    signature_candidates: [
+        (
+            signature_id: SignatureId("fwh.core:signature.overlapping-surge"),
+            affinity: (bits: 3092376453),  // 0.72 — full-back identity move
+        ),
+    ],
+)

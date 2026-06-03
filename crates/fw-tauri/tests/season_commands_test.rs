@@ -580,10 +580,22 @@ fn ac5_roster_slot_signatures_delivers_candidates_to_non_slot_7_mid() {
          got 0."
     );
 
-    // GK slot 0 must remain empty (role-match never assigns AM candidates to GK).
-    assert!(
-        sim_state.players[0].signature_candidates().is_empty(),
-        "AC-5: GK slot 0 must remain empty after roster wiring (no GK template exists)"
+    // GK slot 0: T4-2.5j added a GK player-template (sample-gk.ron), so
+    // `initial_with_content` now wires the GK signature (commanding-claim) to
+    // slot 0. The career-roster override (`build_slot_signatures`) is MID-only
+    // (in_team 5-7), so it does NOT touch slot 0 — proving the AM/MID candidates
+    // do not leak to the keeper. (Pre-T4-2.5j slot 0 was empty: no GK template.)
+    let slot0_ids: Vec<String> = sim_state.players[0]
+        .signature_candidates()
+        .iter()
+        .map(|c| c.signature_id.as_str().to_owned())
+        .collect();
+    assert_eq!(
+        slot0_ids,
+        vec!["fwh.core:signature.commanding-claim".to_string()],
+        "AC-5: GK slot 0 must carry exactly the GK signature from the T4-2.5j GK \
+         template (the MID-only career override must not leak AM candidates to GK); \
+         got {slot0_ids:?}"
     );
 }
 

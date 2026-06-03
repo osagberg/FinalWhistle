@@ -720,13 +720,32 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   envelope healthy + is the correct first increment (real per-role/per-player
 ///   signature diversity arrives at T4.5-E1). Authorized by the T4-2.5c spec in
 ///   MEMORY.md.
+/// - 2026-06-03 (T4-2.5j signature catalogue toward 8 live) — **re-baselined to
+///   `12ce5ab7…4c1c`** per ADR-0012 trigger #3 (sim behavior change with
+///   documented intent). 5 new trigger predicates landed (commanding-claim/GK,
+///   overlapping-surge/FullBack, screening-interception/DefMid, touchline-beat/
+///   Winger, poachers-dart/Striker — one per previously-uncovered role family,
+///   bringing all 8 families to ≥1 implemented predicate), wired via 3 new
+///   role player-templates (GK/DEF/FWD) + a 4th candidate on the AM template.
+///   Every one of the 22 slots now carries ≥1 signature candidate (was MID-only
+///   after T4-2.5c) → more `signature_candidates` in canonical state + new
+///   cross-family signature firings over the 600-tick run alter player
+///   trajectories + cooldown maps. **SINGLE-pin drift:** the 60-tick smoke pin
+///   uses bare `MatchState::initial` (no content/signatures) and is UNCHANGED.
+///   New-signature biases sit in Defensive/BuildUp lanes (not Attacking), so the
+///   pinned seed's final score is UNCHANGED at 2-2 (4 goals, in [2,5]); main
+///   thread independently re-verified the 5-seed envelope (pinned in [2,5]; all
+///   5 in [0,7]) BEFORE rebaselining per the post-T1-15 multi-pin discipline.
+///   USER-AUTHORIZED 2026-06-03 (present, via AskUserQuestion): auto-rebaseline
+///   with Claude verifying the envelope, and the full row in one go; also per
+///   the T4-2.5j row's "canonical hash rebaselined (authorized)" gate.
 ///
 /// Re-baselining: update this constant AND the `expected_hash` field of
 /// `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron` in the same commit,
 /// per `docs/specs/determinism-gate.md` §9 — the same protocol that
 /// governs PINNED_60_TICK above.
 const PINNED_600_TICK: [u8; 32] =
-    hex!("206bddaef4df4fec909b9456e2efb04f6c5120ef4104dbdf6aec9665b45b57a9");
+    hex!("12ce5ab79c53a3229f59d92ea61fd14b1c2d2a5cf52b71c111e403279c464c1c");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

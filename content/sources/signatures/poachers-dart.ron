@@ -1,0 +1,41 @@
+// T4-2.5j: PoachersDart signature definition.
+// id: fwh.core:signature.poachers-dart
+//
+// The striker peels off the last defender's shoulder a fraction of a
+// second before the pass is played, arriving at the ball in space behind
+// the line. Pure instinct — the movement was already made before the
+// decision was taken.
+//
+// Bias: strongly amplifies Shoot (arrive in space to finish); mild
+// suppression on Press and Cover (fully committed to the attacking run,
+// no defensive contribution).
+//
+// Q32 serde form: (bits: <i64>) where i64 = round(decimal * 2^32).
+// Q32::ONE = (bits: 4294967296); Q32::ZERO = (bits: 0).
+// 1.9 = 8160437862; 0.6 = 2576980378; 0.4 = 1717986918.
+// Note: 1.9 × 2^32 = 8160437861.4 → 8160437861. Use 8160437861.
+//
+// Trigger: poachers_dart_trigger in fw-match-sim/signature/triggers.rs.
+//
+// Schema version 1.
+SignatureDefinition(
+    schema_version: 1,
+    id: SignatureId("fwh.core:signature.poachers-dart"),
+    display_name: "Poacher's Dart",
+    role_family: Striker,
+    trigger: NoOpStub,
+    bias_snapshot: (
+        shoot_mul:   (bits: 8160437861),   // 1.9 — strongly amplify: be the finisher
+        pass_mul:    (bits: 4294967296),   // 1.0 — neutral: can lay off if needed
+        dribble_mul: (bits: 4294967296),   // 1.0 — neutral: minimal dribble in tight space
+        press_mul:   (bits: 2576980378),   // 0.6 — suppress: no defensive work on this run
+        cover_mul:   (bits: 1717986918),   // 0.4 — suppress: behind the line, exposed
+    ),
+    presentation: (
+        commentary_line_bank_id: "fwh.core:commentary.poachers-dart",
+        camera_framing_hint: "close_on_striker_run",
+        schema_version: 1,
+    ),
+    cooldown: EveryTicks(900),
+    stacking: Exclusive(category: BuildUp),
+)

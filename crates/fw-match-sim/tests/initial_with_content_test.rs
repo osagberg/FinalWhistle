@@ -2,11 +2,14 @@
 //!
 //! These tests verify:
 //! 1. Slot 7 (home AM/MID) gets `signature_candidates` from sample-am.ron.
-//! 2. Role-matched MID slots (5-7, 16-18) have candidates; GK/DEF/FWD empty.
+//! 2. Role-matched slots have candidates per-role; all 22 slots covered by T4-2.5j.
 //! 3. Same-seed → same canonical bytes (determinism preserved).
 //! 4. Empty ContentStore (no templates) → Err (fail-loud).
 //! 5. initial_with_content + tick_match still advances normally.
 //! 6. with_slot_signatures overrides only the slots present in the map.
+//!
+//! T4-2.5j update: 4 new role templates added (GK, DEF, FWD + screening-interception
+//! on the existing AM template). All 22 slots now have candidates from the 4 templates.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -47,10 +50,12 @@ fn slot_7_has_signature_candidates_from_sample_am() {
     .expect("initial_with_content should succeed");
 
     let candidates = state.players[7].signature_candidates();
+    // T4-2.5j: sample-am.ron now carries 4 candidates (added screening-interception
+    // for the DM pivot slot, in addition to the original 3).
     assert_eq!(
         candidates.len(),
-        3,
-        "slot 7 should have exactly 3 signature_candidates from sample-am.ron; got {}",
+        4,
+        "slot 7 should have exactly 4 signature_candidates from sample-am.ron (T4-2.5j); got {}",
         candidates.len()
     );
 
@@ -71,19 +76,23 @@ fn slot_7_has_signature_candidates_from_sample_am() {
         "slot 7 should have long-range-strike candidate; got {:?}",
         ids
     );
+    assert!(
+        ids.contains(&"fwh.core:signature.screening-interception"),
+        "slot 7 should have screening-interception candidate (T4-2.5j); got {:?}",
+        ids
+    );
 }
 
 // ---------------------------------------------------------------------------
-// T4-2.5c test 2: role-matched MID slots (5-7, 16-18) have candidates;
-//                 GK (0, 11), DEF (1-4, 12-15), FWD (8-10, 19-21) empty.
+// T4-2.5j test 2: all 22 slots now have candidates from 4 role templates.
 //
-// With 1 AM template (preferred_role = "AM" → Role::Midfielder), only the
-// 6 midfielder slots receive candidates. All others remain empty until
-// per-role templates are added at T4.5-E1.
+// T4-2.5c had only the AM template → only MID slots 5-7, 16-18 had candidates.
+// T4-2.5j adds GK (sample-gk.ron), DEF (sample-fb.ron), and FWD (sample-fwd.ron)
+// templates so all roles are covered.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn role_matched_mid_slots_have_candidates_others_empty() {
+fn all_role_slots_have_candidates_from_t4_2_5j_templates() {
     let store = load_store();
     let seed = Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
 
@@ -95,26 +104,35 @@ fn role_matched_mid_slots_have_candidates_others_empty() {
     )
     .expect("initial_with_content should succeed");
 
-    // MID slots in 4-3-3: home 5,6,7 and away 16,17,18 (= 11+5, 11+6, 11+7).
-    // These receive AM candidates because preferred_role="AM" maps to Role::Midfielder.
-    let mid_slots: &[usize] = &[5, 6, 7, 16, 17, 18];
-    for &slot in mid_slots {
+    // MID slots (home 5-7, away 16-18): AM template with 4 candidates.
+    for slot in [5usize, 6, 7, 16, 17, 18] {
         assert!(
             !state.players[slot].signature_candidates().is_empty(),
-            "MID slot {slot} should have non-empty candidates from the AM template \
-             (preferred_role=AM → Role::Midfielder); got 0"
+            "MID slot {slot} should have candidates from AM template"
         );
     }
 
-    // Non-MID slots: GK (0, 11), DEF (1-4, 12-15), FWD (8-10, 19-21) stay empty
-    // until matching templates are added at T4.5-E1.
-    let non_mid_slots: &[usize] = &[0, 1, 2, 3, 4, 8, 9, 10, 11, 12, 13, 14, 15, 19, 20, 21];
-    for &slot in non_mid_slots {
+    // GK slots (home 0, away 11): GK template with commanding-claim.
+    for slot in [0usize, 11] {
         assert!(
-            state.players[slot].signature_candidates().is_empty(),
-            "Non-MID slot {slot} should have empty candidates (no template matches its role); \
-             got {} candidates",
-            state.players[slot].signature_candidates().len()
+            !state.players[slot].signature_candidates().is_empty(),
+            "GK slot {slot} should have candidates from GK template (T4-2.5j)"
+        );
+    }
+
+    // DEF slots (home 1-4, away 12-15): DEF template with overlapping-surge.
+    for slot in [1usize, 2, 3, 4, 12, 13, 14, 15] {
+        assert!(
+            !state.players[slot].signature_candidates().is_empty(),
+            "DEF slot {slot} should have candidates from DEF template (T4-2.5j)"
+        );
+    }
+
+    // FWD slots (home 8-10, away 19-21): FWD template with touchline-beat + poachers-dart.
+    for slot in [8usize, 9, 10, 19, 20, 21] {
+        assert!(
+            !state.players[slot].signature_candidates().is_empty(),
+            "FWD slot {slot} should have candidates from FWD template (T4-2.5j)"
         );
     }
 }
@@ -244,12 +262,17 @@ fn with_slot_signatures_overrides_only_present_slots() {
         );
     }
 
-    // Non-MID slots (GK/DEF/FWD) remain empty — they were already empty from
-    // role-matched spread and no override can add candidates to them here.
-    for slot in [0usize, 1, 2, 3, 4, 8, 9, 10, 11, 12, 13, 14, 15, 19, 20, 21] {
+    // T4-2.5j: GK/DEF/FWD templates now exist so those slots DO have candidates
+    // from the role-matched spread. Override only affected slots 5 and 7.
+    // Other non-overridden slots (6, 16-18 for MID; GK/DEF/FWD slots) retain
+    // their role-matched candidates. The old assumption of "non-MID = empty"
+    // no longer holds after T4-2.5j added the GK/DEF/FWD templates.
+    //
+    // Verify non-overridden MID slots still have candidates.
+    for slot in [6usize, 16, 17, 18] {
         assert!(
-            state.players[slot].signature_candidates().is_empty(),
-            "Non-MID slot {slot} should remain empty (no role-matched template)"
+            !state.players[slot].signature_candidates().is_empty(),
+            "Non-overridden MID slot {slot} should retain role-matched candidates"
         );
     }
 }

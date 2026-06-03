@@ -1,0 +1,39 @@
+// T4-2.5j: CommandingClaim signature definition.
+// id: fwh.core:signature.commanding-claim
+//
+// A goalkeeper with presence and command claims the ball with authority
+// in their penalty area, punching through the cross with aerial dominance
+// and sure hands. The box belongs to them.
+//
+// Bias: suppresses Shoot (not the keeper's job); mildly amplifies Cover
+// (positional dominance after the claim); amplifies Press slightly
+// (keeper organising the defensive line); neutral on Pass/Dribble.
+//
+// Q32 serde form: (bits: <i64>) where i64 = round(decimal * 2^32).
+// Q32::ONE = (bits: 4294967296); Q32::ZERO = (bits: 0).
+// 1.4 = 6012954214; 1.2 = 5153960755; 0.5 = 2147483648; 1.0 = 4294967296.
+//
+// Trigger: commanding_claim_trigger in fw-match-sim/signature/triggers.rs.
+//
+// Schema version 1.
+SignatureDefinition(
+    schema_version: 1,
+    id: SignatureId("fwh.core:signature.commanding-claim"),
+    display_name: "Commanding Claim",
+    role_family: Goalkeeper,
+    trigger: NoOpStub,
+    bias_snapshot: (
+        shoot_mul:   (bits: 2147483648),   // 0.5 — suppress: keepers don't shoot here
+        pass_mul:    (bits: 4294967296),   // 1.0 — neutral: distribution normal
+        dribble_mul: (bits: 4294967296),   // 1.0 — neutral: keeper stays composed
+        press_mul:   (bits: 5153960755),   // 1.2 — mild amplify: organise the press
+        cover_mul:   (bits: 6012954214),   // 1.4 — amplify: dominant positional hold
+    ),
+    presentation: (
+        commentary_line_bank_id: "fwh.core:commentary.commanding-claim",
+        camera_framing_hint: "low_angle_keeper_claim",
+        schema_version: 1,
+    ),
+    cooldown: EveryTicks(600),
+    stacking: Exclusive(category: Defensive),
+)

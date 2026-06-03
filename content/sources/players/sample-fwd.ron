@@ -1,0 +1,116 @@
+// Sample player template — a forward (winger + striker). Hand-authored for
+// T4-2.5j; exercises touchline-beat (in_team==8||10) and poachers-dart
+// (in_team==9) signature predicates.
+//
+// Attributes relevant for touchline_beat_trigger (in_team==8||10):
+//   technical.dribbling  >= 0.45 threshold: 0.72
+//   physical.pace        >= 0.45 threshold: 0.80
+//   technical.crossing   >= 0.45 threshold: 0.60
+//
+// Attributes relevant for poachers_dart_trigger (in_team==9):
+//   mental.off_the_ball  >= 0.45 threshold: 0.70
+//   mental.anticipation  >= 0.45 threshold: 0.68
+//   technical.finishing  >= 0.45 threshold: 0.72
+//   physical.acceleration >= 0.45 threshold: 0.75
+//   physical.pace        >= 0.45 threshold: 0.80
+//
+// preferred_role "FWD" spreads to forward slots 8-10, 19-21.
+// Each trigger predicate gates to its specific in_team index.
+// All Q32 in [0, 1]. Q32 bits: round(decimal * 2^32).
+// 0.80 = 3435973837; 0.75 = 3221225472; 0.72 = 3092376453; 0.70 = 3006477107.
+// 0.68 = 2920577761; 0.60 = 2576980378.
+
+PlayerTemplate(
+    schema_version: 1,
+    id: 46,
+    qualified_id: "fwh.core:player_00046",
+    display_name: "Jared Osei",
+    attributes: (
+        technical: (
+            finishing:       (bits: 3092376453),  // 0.72 — above poachers threshold
+            long_shots:      (bits: 2362232013),  // 0.55
+            passing:         (bits: 2362232013),  // 0.55
+            crossing:        (bits: 2576980378),  // 0.60 — above touchline threshold
+            first_touch:     (bits: 2920577761),  // 0.68
+            technique:       (bits: 2920577761),  // 0.68
+            dribbling:       (bits: 3092376453),  // 0.72 — above touchline threshold
+            heading:         (bits: 2362232013),  // 0.55
+            tackling:        (bits: 858993459),   // 0.20
+            marking:         (bits: 858993459),   // 0.20
+            free_kicks:      (bits: 2147483648),  // 0.50
+            penalty_taking:  (bits: 2791728742),  // 0.65
+            corners:         (bits: 1932735283),  // 0.45
+            long_throws:     (bits: 1288490189),  // 0.30
+        ),
+        mental: (
+            anticipation:    (bits: 2920577761),  // 0.68 — above poachers threshold
+            composure:       (bits: 2791728742),  // 0.65
+            decisions:       (bits: 2576980378),  // 0.60
+            vision:          (bits: 2362232013),  // 0.55
+            off_the_ball:    (bits: 3006477107),  // 0.70 — above poachers threshold
+            positioning:     (bits: 2791728742),  // 0.65
+            concentration:   (bits: 2576980378),  // 0.60
+            bravery:         (bits: 3006477107),  // 0.70
+            teamwork:        (bits: 2362232013),  // 0.55
+            flair:           (bits: 3221225472),  // 0.75
+        ),
+        physical: (
+            pace:            (bits: 3435973837),  // 0.80 — above both thresholds
+            acceleration:    (bits: 3221225472),  // 0.75 — above poachers threshold
+            stamina:         (bits: 2791728742),  // 0.65
+            strength:        (bits: 2147483648),  // 0.50
+            agility:         (bits: 3221225472),  // 0.75
+            balance:         (bits: 3006477107),  // 0.70
+            jumping_reach:   (bits: 2362232013),  // 0.55
+            natural_fitness: (bits: 3006477107),  // 0.70
+        ),
+        goalkeeper: (
+            handling:         (bits: 0),
+            reflexes:         (bits: 0),
+            one_on_ones:      (bits: 0),
+            aerial_reach:     (bits: 0),
+            command_of_area:  (bits: 0),
+            kicking:          (bits: 0),
+        ),
+        personality: (
+            determination:        (bits: 2791728742),  // 0.65
+            work_rate:            (bits: 2791728742),  // 0.65
+            ambition:             (bits: 3221225472),  // 0.75
+            professionalism:      (bits: 2576980378),  // 0.60
+            loyalty:              (bits: 2147483648),  // 0.50
+            temperament:          (bits: 2576980378),  // 0.60
+            pressure_tolerance:   (bits: 2791728742),  // 0.65
+            big_match_appetite:   (bits: 3435973837),  // 0.80
+            adaptability:         (bits: 2576980378),  // 0.60
+            aggression:           (bits: 2576980378),  // 0.60
+            risk_appetite:        (bits: 3435973837),  // 0.80
+            selflessness:         (bits: 1932735283),  // 0.45
+            consistency:          (bits: 2576980378),  // 0.60
+            versatility:          (bits: 2362232013),  // 0.55
+        ),
+        durability: (
+            injury_proneness:     (bits: 1503238554),  // 0.35
+            recovery_rate:        (bits: 2791728742),  // 0.65
+            dirtiness:            (bits: 1503238554),  // 0.35
+        ),
+    ),
+    ceiling: (
+        current:   (bits: 2576980378),  // 0.60
+        potential: (bits: 3435973837),  // 0.80
+    ),
+    preferred_role: "FWD",
+    // T4-2.5j: two forward signature candidates.
+    // touchline-beat fires for in_team==8||10 (wide forwards).
+    // poachers-dart fires for in_team==9 (centre-forward).
+    // Both are carried on all FWD slots; triggers gate to specific positions.
+    signature_candidates: [
+        (
+            signature_id: SignatureId("fwh.core:signature.touchline-beat"),
+            affinity: (bits: 3221225472),  // 0.75 — winger identity move
+        ),
+        (
+            signature_id: SignatureId("fwh.core:signature.poachers-dart"),
+            affinity: (bits: 3435973837),  // 0.80 — striker identity move
+        ),
+    ],
+)

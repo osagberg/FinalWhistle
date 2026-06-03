@@ -1,0 +1,38 @@
+// T4-2.5j: ScreeningInterception signature definition.
+// id: fwh.core:signature.screening-interception
+//
+// The defensive-mid pivot reads the pass before it's played and steps
+// into the lane, cutting off the line. The reading of the game is the
+// signature — the tackle is the punctuation.
+//
+// Bias: strongly amplifies Press and Cover (screening posture); suppresses
+// Shoot (screen-and-hold, not attack); neutral on Dribble/Pass.
+//
+// Q32 serde form: (bits: <i64>) where i64 = round(decimal * 2^32).
+// Q32::ONE = (bits: 4294967296); Q32::ZERO = (bits: 0).
+// 1.5 = 6442450944; 1.4 = 6012954214; 0.5 = 2147483648.
+//
+// Trigger: screening_interception_trigger in fw-match-sim/signature/triggers.rs.
+//
+// Schema version 1.
+SignatureDefinition(
+    schema_version: 1,
+    id: SignatureId("fwh.core:signature.screening-interception"),
+    display_name: "Screening Interception",
+    role_family: DefensiveMidfielder,
+    trigger: NoOpStub,
+    bias_snapshot: (
+        shoot_mul:   (bits: 2147483648),   // 0.5 — suppress: not in a shooting moment
+        pass_mul:    (bits: 4294967296),   // 1.0 — neutral: recycle if needed
+        dribble_mul: (bits: 4294967296),   // 1.0 — neutral: hold position
+        press_mul:   (bits: 6442450944),   // 1.5 — amplify: commit to the screen
+        cover_mul:   (bits: 6012954214),   // 1.4 — amplify: defensive shape holds
+    ),
+    presentation: (
+        commentary_line_bank_id: "fwh.core:commentary.screening-interception",
+        camera_framing_hint: "tight_on_interception",
+        schema_version: 1,
+    ),
+    cooldown: EveryTicks(600),
+    stacking: Exclusive(category: Defensive),
+)

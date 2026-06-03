@@ -108,6 +108,13 @@ PlayerTemplate(
     // James Tabor is an AM with high vision/passing — good diagonal switch
     // affinity; modest long-range striker (composure is there, not a striker).
     // No body-shield affinity (that is a defender trait for this player).
+    //
+    // T4-2.5j: also carries screening-interception (DM pivot candidate at
+    // slot in_team==5). The trigger gates to in_team==5 so it only fires for
+    // the DM pivot slot even though the MID template spreads to slots 5-7.
+    // Tabor's tackling/marking are low (0.35) — he won't clear the threshold,
+    // but the candidate is wired for the slot. A future DM-specific template
+    // replaces this carry-forward at T4.5-E1.
     signature_candidates: [
         (
             signature_id: SignatureId("fwh.core:signature.no-op-stub"),
@@ -120,6 +127,10 @@ PlayerTemplate(
         (
             signature_id: SignatureId("fwh.core:signature.long-range-strike"),
             affinity: (bits: 2576980378),  // 0.60 — moderate: has composure + long_shots
+        ),
+        (
+            signature_id: SignatureId("fwh.core:signature.screening-interception"),
+            affinity: (bits: 1717986918),  // 0.40 — low: not a natural screener (AM)
         ),
     ],
 )

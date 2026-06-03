@@ -1,0 +1,39 @@
+// T4-2.5j: TouchlineBeat signature definition.
+// id: fwh.core:signature.touchline-beat
+//
+// The winger drops a shoulder, shifts the ball onto the stronger foot
+// and drives past the full-back on the outside. The touchline is the
+// channel; the cross from the byline is the outcome.
+//
+// Bias: strongly amplifies Dribble (beat the man); mildly amplifies Pass
+// (cross at the end); suppresses Cover (entirely forward-focused).
+//
+// Q32 serde form: (bits: <i64>) where i64 = round(decimal * 2^32).
+// Q32::ONE = (bits: 4294967296); Q32::ZERO = (bits: 0).
+// 1.8 = 7730941133; 1.1 = 4724464026; 0.5 = 2147483648.
+// Note: 1.8 × 2^32 = 7730941132.8 → 7730941133.
+//
+// Trigger: touchline_beat_trigger in fw-match-sim/signature/triggers.rs.
+//
+// Schema version 1.
+SignatureDefinition(
+    schema_version: 1,
+    id: SignatureId("fwh.core:signature.touchline-beat"),
+    display_name: "Touchline Beat",
+    role_family: Winger,
+    trigger: NoOpStub,
+    bias_snapshot: (
+        shoot_mul:   (bits: 4294967296),   // 1.0 — neutral: winger may cut in and shoot
+        pass_mul:    (bits: 4724464026),   // 1.1 — mild amplify: cross after the beat
+        dribble_mul: (bits: 7730941133),   // 1.8 — strongly amplify: beat the defender
+        press_mul:   (bits: 4294967296),   // 1.0 — neutral
+        cover_mul:   (bits: 2147483648),   // 0.5 — suppress: fully committed forward
+    ),
+    presentation: (
+        commentary_line_bank_id: "fwh.core:commentary.touchline-beat",
+        camera_framing_hint: "tight_on_winger_duel",
+        schema_version: 1,
+    ),
+    cooldown: EveryTicks(600),
+    stacking: Exclusive(category: BuildUp),
+)

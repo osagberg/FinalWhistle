@@ -84,6 +84,38 @@ pub const DIAGONAL_SWITCH_THRESHOLD_VISION: Q32 = Q32::from_raw(1_932_735_283_i6
 pub const DIAGONAL_SWITCH_THRESHOLD_PASSING: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
 
 // ---------------------------------------------------------------------------
+// T4-2.5j: Five new signature thresholds (all at 0.45 matching existing pattern)
+// ---------------------------------------------------------------------------
+
+/// `CommandingClaim` — GK must have aerial-reach + handling + command of area.
+pub const COMMANDING_CLAIM_THRESHOLD_AERIAL_REACH: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+pub const COMMANDING_CLAIM_THRESHOLD_HANDLING: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+pub const COMMANDING_CLAIM_THRESHOLD_COMMAND_OF_AREA: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+
+/// `OverlappingSurge` — full-back with pace + stamina + crossing.
+pub const OVERLAPPING_SURGE_THRESHOLD_PACE: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+pub const OVERLAPPING_SURGE_THRESHOLD_STAMINA: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+pub const OVERLAPPING_SURGE_THRESHOLD_CROSSING: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+
+/// `ScreeningInterception` — defensive-mid slot with anticipation + positioning + tackling + marking.
+pub const SCREENING_INTERCEPTION_THRESHOLD_ANTICIPATION: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+pub const SCREENING_INTERCEPTION_THRESHOLD_POSITIONING: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+pub const SCREENING_INTERCEPTION_THRESHOLD_TACKLING: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+pub const SCREENING_INTERCEPTION_THRESHOLD_MARKING: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+
+/// `TouchlineBeat` — winger slots with dribbling + pace + crossing.
+pub const TOUCHLINE_BEAT_THRESHOLD_DRIBBLING: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+pub const TOUCHLINE_BEAT_THRESHOLD_PACE: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+pub const TOUCHLINE_BEAT_THRESHOLD_CROSSING: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+
+/// `Poacher's Dart` — striker slot with off-the-ball + anticipation + finishing + acceleration + pace.
+pub const POACHERS_DART_THRESHOLD_OFF_THE_BALL: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+pub const POACHERS_DART_THRESHOLD_ANTICIPATION: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+pub const POACHERS_DART_THRESHOLD_FINISHING: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+pub const POACHERS_DART_THRESHOLD_ACCELERATION: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+pub const POACHERS_DART_THRESHOLD_PACE: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+
+// ---------------------------------------------------------------------------
 // Trigger functions
 // ---------------------------------------------------------------------------
 
@@ -208,6 +240,206 @@ pub fn first_time_diagonal_switch_trigger(state: &MatchState, slot: PlayerSlot) 
 }
 
 // ---------------------------------------------------------------------------
+// T4-2.5j: Five new trigger functions
+// ---------------------------------------------------------------------------
+
+/// `fwh.core:signature.commanding-claim`
+///
+/// A goalkeeper with aerial presence and command of the penalty area
+/// claims the ball decisively, dominating their box.
+///
+/// Role check: goalkeeper only (in_team == 0, slots 0 + 11).
+/// Attributes:
+/// - `goalkeeper.aerial_reach` (claim height)
+/// - `goalkeeper.handling` (secure the catch)
+/// - `goalkeeper.command_of_area` (dominance in the box)
+///
+/// Returns `Q32::ZERO` if not eligible; fit-score = product of three attributes.
+pub fn commanding_claim_trigger(state: &MatchState, slot: PlayerSlot) -> Q32 {
+    let idx = slot as usize;
+    if idx >= state.players.len() {
+        return Q32::ZERO;
+    }
+    let a = &state.players[idx].attributes;
+
+    // Role check: goalkeeper only (in_team == 0).
+    let in_team = idx % 11;
+    if in_team != 0 {
+        return Q32::ZERO;
+    }
+
+    if a.goalkeeper.aerial_reach < COMMANDING_CLAIM_THRESHOLD_AERIAL_REACH
+        || a.goalkeeper.handling < COMMANDING_CLAIM_THRESHOLD_HANDLING
+        || a.goalkeeper.command_of_area < COMMANDING_CLAIM_THRESHOLD_COMMAND_OF_AREA
+    {
+        return Q32::ZERO;
+    }
+
+    // Fit-score: product of three goalkeeper attributes.
+    a.goalkeeper.aerial_reach * a.goalkeeper.handling * a.goalkeeper.command_of_area
+}
+
+/// `fwh.core:signature.overlapping-surge`
+///
+/// A full-back makes an overlapping run, combining physical drive with
+/// the quality to deliver a cross from deep.
+///
+/// Role check: full-back positions (in_team == 1 or in_team == 4).
+/// In the 4-3-3: slot 1 = home left-back, slot 4 = home right-back;
+/// slot 12 = away left-back, slot 15 = away right-back.
+/// Attributes:
+/// - `physical.pace` (burst capacity)
+/// - `physical.stamina` (sustain the run)
+/// - `technical.crossing` (quality of the delivery)
+///
+/// Returns `Q32::ZERO` if not eligible; fit-score = product of three attributes.
+pub fn overlapping_surge_trigger(state: &MatchState, slot: PlayerSlot) -> Q32 {
+    let idx = slot as usize;
+    if idx >= state.players.len() {
+        return Q32::ZERO;
+    }
+    let a = &state.players[idx].attributes;
+
+    // Role check: full-back positions (flanks of the back four).
+    let in_team = idx % 11;
+    if in_team != 1 && in_team != 4 {
+        return Q32::ZERO;
+    }
+
+    if a.physical.pace < OVERLAPPING_SURGE_THRESHOLD_PACE
+        || a.physical.stamina < OVERLAPPING_SURGE_THRESHOLD_STAMINA
+        || a.technical.crossing < OVERLAPPING_SURGE_THRESHOLD_CROSSING
+    {
+        return Q32::ZERO;
+    }
+
+    // Fit-score: pace × stamina × crossing.
+    a.physical.pace * a.physical.stamina * a.technical.crossing
+}
+
+/// `fwh.core:signature.screening-interception`
+///
+/// A defensive midfielder reads the passing lane and steps in to
+/// intercept, shielding the back four.
+///
+/// Role check: defensive midfielder slot (in_team == 5).
+/// In the 4-3-3: slot 5 = home defensive-mid pivot; slot 16 = away.
+/// Attributes:
+/// - `mental.anticipation` (reads the pass)
+/// - `mental.positioning` (occupies the lane)
+/// - `technical.tackling` (executes the interception)
+/// - `technical.marking` (stays tight)
+///
+/// Returns `Q32::ZERO` if not eligible; fit-score = product of four attributes.
+pub fn screening_interception_trigger(state: &MatchState, slot: PlayerSlot) -> Q32 {
+    let idx = slot as usize;
+    if idx >= state.players.len() {
+        return Q32::ZERO;
+    }
+    let a = &state.players[idx].attributes;
+
+    // Role check: defensive-mid pivot (lowest midfielder slot in 4-3-3).
+    let in_team = idx % 11;
+    if in_team != 5 {
+        return Q32::ZERO;
+    }
+
+    if a.mental.anticipation < SCREENING_INTERCEPTION_THRESHOLD_ANTICIPATION
+        || a.mental.positioning < SCREENING_INTERCEPTION_THRESHOLD_POSITIONING
+        || a.technical.tackling < SCREENING_INTERCEPTION_THRESHOLD_TACKLING
+        || a.technical.marking < SCREENING_INTERCEPTION_THRESHOLD_MARKING
+    {
+        return Q32::ZERO;
+    }
+
+    // Fit-score: anticipation × positioning × tackling × marking.
+    a.mental.anticipation * a.mental.positioning * a.technical.tackling * a.technical.marking
+}
+
+/// `fwh.core:signature.touchline-beat`
+///
+/// A winger takes on the full-back on the touchline, using pace and
+/// dribbling skill to get to the byline and cross.
+///
+/// Role check: winger slots (in_team == 8 or in_team == 10).
+/// In the 4-3-3: slot 8 = home left-winger, slot 10 = home right-winger;
+/// slot 19 = away left-winger, slot 21 = away right-winger.
+/// Attributes:
+/// - `technical.dribbling` (close control in tight space)
+/// - `physical.pace` (burst past the defender)
+/// - `technical.crossing` (quality of the final delivery)
+///
+/// Returns `Q32::ZERO` if not eligible; fit-score = product of three attributes.
+pub fn touchline_beat_trigger(state: &MatchState, slot: PlayerSlot) -> Q32 {
+    let idx = slot as usize;
+    if idx >= state.players.len() {
+        return Q32::ZERO;
+    }
+    let a = &state.players[idx].attributes;
+
+    // Role check: wide forward positions (flanks of the front three).
+    let in_team = idx % 11;
+    if in_team != 8 && in_team != 10 {
+        return Q32::ZERO;
+    }
+
+    if a.technical.dribbling < TOUCHLINE_BEAT_THRESHOLD_DRIBBLING
+        || a.physical.pace < TOUCHLINE_BEAT_THRESHOLD_PACE
+        || a.technical.crossing < TOUCHLINE_BEAT_THRESHOLD_CROSSING
+    {
+        return Q32::ZERO;
+    }
+
+    // Fit-score: dribbling × pace × crossing.
+    a.technical.dribbling * a.physical.pace * a.technical.crossing
+}
+
+/// `fwh.core:signature.poachers-dart`
+///
+/// A striker peels off the last defender's shoulder and darts in behind
+/// to meet the ball, pure instinct and movement quality.
+///
+/// Role check: centre-forward slot (in_team == 9).
+/// In the 4-3-3: slot 9 = home centre-forward; slot 20 = away.
+/// Attributes:
+/// - `mental.off_the_ball` (movement quality)
+/// - `mental.anticipation` (reads the pass before it comes)
+/// - `technical.finishing` (clinical in the chance)
+/// - `physical.acceleration` (first burst of pace)
+/// - `physical.pace` (sustained run to meet the ball)
+///
+/// Returns `Q32::ZERO` if not eligible; fit-score = product of five attributes.
+pub fn poachers_dart_trigger(state: &MatchState, slot: PlayerSlot) -> Q32 {
+    let idx = slot as usize;
+    if idx >= state.players.len() {
+        return Q32::ZERO;
+    }
+    let a = &state.players[idx].attributes;
+
+    // Role check: centre-forward (central slot of the front three).
+    let in_team = idx % 11;
+    if in_team != 9 {
+        return Q32::ZERO;
+    }
+
+    if a.mental.off_the_ball < POACHERS_DART_THRESHOLD_OFF_THE_BALL
+        || a.mental.anticipation < POACHERS_DART_THRESHOLD_ANTICIPATION
+        || a.technical.finishing < POACHERS_DART_THRESHOLD_FINISHING
+        || a.physical.acceleration < POACHERS_DART_THRESHOLD_ACCELERATION
+        || a.physical.pace < POACHERS_DART_THRESHOLD_PACE
+    {
+        return Q32::ZERO;
+    }
+
+    // Fit-score: off_the_ball × anticipation × finishing × acceleration × pace.
+    a.mental.off_the_ball
+        * a.mental.anticipation
+        * a.technical.finishing
+        * a.physical.acceleration
+        * a.physical.pace
+}
+
+// ---------------------------------------------------------------------------
 // Trigger binding table
 // ---------------------------------------------------------------------------
 
@@ -241,6 +473,21 @@ pub fn build_trigger_table() -> BTreeMap<&'static str, TriggerFn> {
         "fwh.core:signature.first-time-diagonal-switch",
         first_time_diagonal_switch_trigger,
     );
+    // T4-2.5j: five new role-family predicates
+    table.insert(
+        "fwh.core:signature.commanding-claim",
+        commanding_claim_trigger,
+    );
+    table.insert(
+        "fwh.core:signature.overlapping-surge",
+        overlapping_surge_trigger,
+    );
+    table.insert(
+        "fwh.core:signature.screening-interception",
+        screening_interception_trigger,
+    );
+    table.insert("fwh.core:signature.touchline-beat", touchline_beat_trigger);
+    table.insert("fwh.core:signature.poachers-dart", poachers_dart_trigger);
     // NoOpStub: always-zero trigger (the no-op fixture's trigger)
     table.insert("fwh.core:signature.no-op-stub", no_op_trigger);
     table
@@ -281,6 +528,20 @@ mod tests {
         p.attributes.technical.long_shots = val;
         p.attributes.mental.vision = val;
         p.attributes.technical.passing = val;
+        // T4-2.5j: additional fields for new predicates.
+        p.attributes.goalkeeper.aerial_reach = val;
+        p.attributes.goalkeeper.handling = val;
+        p.attributes.goalkeeper.command_of_area = val;
+        p.attributes.physical.pace = val;
+        p.attributes.physical.stamina = val;
+        p.attributes.technical.crossing = val;
+        p.attributes.mental.anticipation = val;
+        p.attributes.mental.positioning = val;
+        p.attributes.technical.tackling = val;
+        p.attributes.technical.dribbling = val;
+        p.attributes.mental.off_the_ball = val;
+        p.attributes.technical.finishing = val;
+        p.attributes.physical.acceleration = val;
     }
 
     // ---- body_shield_pressure ----
@@ -476,6 +737,270 @@ mod tests {
         }
     }
 
+    // ---- commanding_claim ----
+
+    #[test]
+    fn commanding_claim_fires_for_gk_above_threshold() {
+        let mut state = baseline_state();
+        // slot 0 = home GK
+        set_all_attrs(&mut state, 0, Q32::ONE);
+        let fit = commanding_claim_trigger(&state, 0);
+        assert!(
+            fit > Q32::ZERO,
+            "commanding_claim should fire for GK slot 0 with max attrs"
+        );
+    }
+
+    #[test]
+    fn commanding_claim_fit_score_is_product_of_three_gk_attrs() {
+        let mut state = baseline_state();
+        let half = Q32::from_raw(1i64 << 31); // 0.5
+        state.players[0].attributes.goalkeeper.aerial_reach = half;
+        state.players[0].attributes.goalkeeper.handling = half;
+        state.players[0].attributes.goalkeeper.command_of_area = half;
+        let fit = commanding_claim_trigger(&state, 0);
+        // 0.5 × 0.5 × 0.5 = 0.125 — above threshold (0.45), positive fit.
+        assert!(
+            fit > Q32::ZERO,
+            "fit must be positive for GK with attrs=0.5"
+        );
+        assert!(fit < Q32::ONE, "fit 0.125 must be < 1.0");
+        // Exact value: 0.5^3 = 0.125 = Q32::from_raw(round(0.125 * 2^32)) = 536870912
+        let expected = half * half * half;
+        assert_eq!(fit, expected, "fit must equal the exact attribute product");
+    }
+
+    #[test]
+    fn commanding_claim_zero_for_wrong_role() {
+        let mut state = baseline_state();
+        // slot 1 = home DEF (in_team=1) — not a GK
+        set_all_attrs(&mut state, 1, Q32::ONE);
+        assert_eq!(commanding_claim_trigger(&state, 1), Q32::ZERO);
+    }
+
+    #[test]
+    fn commanding_claim_zero_for_attrs_below_threshold() {
+        let mut state = baseline_state();
+        // slot 0 = home GK; zero GK attrs
+        state.players[0].attributes.goalkeeper.aerial_reach = Q32::ZERO;
+        state.players[0].attributes.goalkeeper.handling = Q32::ZERO;
+        state.players[0].attributes.goalkeeper.command_of_area = Q32::ZERO;
+        assert_eq!(commanding_claim_trigger(&state, 0), Q32::ZERO);
+    }
+
+    // ---- overlapping_surge ----
+
+    #[test]
+    fn overlapping_surge_fires_for_left_back_above_threshold() {
+        let mut state = baseline_state();
+        // slot 1 = home left-back (in_team=1)
+        set_all_attrs(&mut state, 1, Q32::ONE);
+        let fit = overlapping_surge_trigger(&state, 1);
+        assert!(
+            fit > Q32::ZERO,
+            "overlapping_surge should fire for slot 1 (left-back)"
+        );
+    }
+
+    #[test]
+    fn overlapping_surge_fires_for_right_back_above_threshold() {
+        let mut state = baseline_state();
+        // slot 4 = home right-back (in_team=4)
+        set_all_attrs(&mut state, 4, Q32::ONE);
+        let fit = overlapping_surge_trigger(&state, 4);
+        assert!(
+            fit > Q32::ZERO,
+            "overlapping_surge should fire for slot 4 (right-back)"
+        );
+    }
+
+    #[test]
+    fn overlapping_surge_fit_score_is_product_of_pace_stamina_crossing() {
+        let mut state = baseline_state();
+        let half = Q32::from_raw(1i64 << 31); // 0.5
+        state.players[1].attributes.physical.pace = half;
+        state.players[1].attributes.physical.stamina = half;
+        state.players[1].attributes.technical.crossing = half;
+        let fit = overlapping_surge_trigger(&state, 1);
+        assert!(fit > Q32::ZERO, "fit must be positive");
+        let expected = half * half * half;
+        assert_eq!(fit, expected, "fit must equal pace × stamina × crossing");
+    }
+
+    #[test]
+    fn overlapping_surge_zero_for_centre_back() {
+        let mut state = baseline_state();
+        // slot 2 = home centre-back (in_team=2) — not a full-back
+        set_all_attrs(&mut state, 2, Q32::ONE);
+        assert_eq!(overlapping_surge_trigger(&state, 2), Q32::ZERO);
+    }
+
+    #[test]
+    fn overlapping_surge_zero_for_attrs_below_threshold() {
+        let mut state = baseline_state();
+        state.players[1].attributes.physical.pace = Q32::ZERO;
+        state.players[1].attributes.physical.stamina = Q32::ZERO;
+        state.players[1].attributes.technical.crossing = Q32::ZERO;
+        assert_eq!(overlapping_surge_trigger(&state, 1), Q32::ZERO);
+    }
+
+    // ---- screening_interception ----
+
+    #[test]
+    fn screening_interception_fires_for_dm_slot_above_threshold() {
+        let mut state = baseline_state();
+        // slot 5 = home defensive-mid pivot (in_team=5)
+        set_all_attrs(&mut state, 5, Q32::ONE);
+        let fit = screening_interception_trigger(&state, 5);
+        assert!(
+            fit > Q32::ZERO,
+            "screening_interception should fire for slot 5 (DM pivot)"
+        );
+    }
+
+    #[test]
+    fn screening_interception_fit_score_is_product_of_four_attrs() {
+        let mut state = baseline_state();
+        let half = Q32::from_raw(1i64 << 31); // 0.5
+        state.players[5].attributes.mental.anticipation = half;
+        state.players[5].attributes.mental.positioning = half;
+        state.players[5].attributes.technical.tackling = half;
+        state.players[5].attributes.technical.marking = half;
+        let fit = screening_interception_trigger(&state, 5);
+        assert!(fit > Q32::ZERO, "fit must be positive");
+        let expected = half * half * half * half;
+        assert_eq!(
+            fit, expected,
+            "fit must equal anticipation × positioning × tackling × marking"
+        );
+    }
+
+    #[test]
+    fn screening_interception_zero_for_non_dm_midfielder() {
+        let mut state = baseline_state();
+        // slot 6 = home central-mid (in_team=6) — not the DM pivot
+        set_all_attrs(&mut state, 6, Q32::ONE);
+        assert_eq!(screening_interception_trigger(&state, 6), Q32::ZERO);
+    }
+
+    #[test]
+    fn screening_interception_zero_for_attrs_below_threshold() {
+        let mut state = baseline_state();
+        state.players[5].attributes.mental.anticipation = Q32::ZERO;
+        state.players[5].attributes.mental.positioning = Q32::ZERO;
+        state.players[5].attributes.technical.tackling = Q32::ZERO;
+        state.players[5].attributes.technical.marking = Q32::ZERO;
+        assert_eq!(screening_interception_trigger(&state, 5), Q32::ZERO);
+    }
+
+    // ---- touchline_beat ----
+
+    #[test]
+    fn touchline_beat_fires_for_left_winger_above_threshold() {
+        let mut state = baseline_state();
+        // slot 8 = home left-winger (in_team=8)
+        set_all_attrs(&mut state, 8, Q32::ONE);
+        let fit = touchline_beat_trigger(&state, 8);
+        assert!(
+            fit > Q32::ZERO,
+            "touchline_beat should fire for slot 8 (left-winger)"
+        );
+    }
+
+    #[test]
+    fn touchline_beat_fires_for_right_winger_above_threshold() {
+        let mut state = baseline_state();
+        // slot 10 = home right-winger (in_team=10)
+        set_all_attrs(&mut state, 10, Q32::ONE);
+        let fit = touchline_beat_trigger(&state, 10);
+        assert!(
+            fit > Q32::ZERO,
+            "touchline_beat should fire for slot 10 (right-winger)"
+        );
+    }
+
+    #[test]
+    fn touchline_beat_fit_score_is_product_of_dribbling_pace_crossing() {
+        let mut state = baseline_state();
+        let half = Q32::from_raw(1i64 << 31); // 0.5
+        state.players[8].attributes.technical.dribbling = half;
+        state.players[8].attributes.physical.pace = half;
+        state.players[8].attributes.technical.crossing = half;
+        let fit = touchline_beat_trigger(&state, 8);
+        assert!(fit > Q32::ZERO, "fit must be positive");
+        let expected = half * half * half;
+        assert_eq!(fit, expected, "fit must equal dribbling × pace × crossing");
+    }
+
+    #[test]
+    fn touchline_beat_zero_for_centre_forward() {
+        let mut state = baseline_state();
+        // slot 9 = home centre-forward (in_team=9) — not a winger
+        set_all_attrs(&mut state, 9, Q32::ONE);
+        assert_eq!(touchline_beat_trigger(&state, 9), Q32::ZERO);
+    }
+
+    #[test]
+    fn touchline_beat_zero_for_attrs_below_threshold() {
+        let mut state = baseline_state();
+        state.players[8].attributes.technical.dribbling = Q32::ZERO;
+        state.players[8].attributes.physical.pace = Q32::ZERO;
+        state.players[8].attributes.technical.crossing = Q32::ZERO;
+        assert_eq!(touchline_beat_trigger(&state, 8), Q32::ZERO);
+    }
+
+    // ---- poachers_dart ----
+
+    #[test]
+    fn poachers_dart_fires_for_striker_slot_above_threshold() {
+        let mut state = baseline_state();
+        // slot 9 = home centre-forward (in_team=9)
+        set_all_attrs(&mut state, 9, Q32::ONE);
+        let fit = poachers_dart_trigger(&state, 9);
+        assert!(
+            fit > Q32::ZERO,
+            "poachers_dart should fire for slot 9 (striker)"
+        );
+    }
+
+    #[test]
+    fn poachers_dart_fit_score_is_product_of_five_attrs() {
+        let mut state = baseline_state();
+        let half = Q32::from_raw(1i64 << 31); // 0.5
+        state.players[9].attributes.mental.off_the_ball = half;
+        state.players[9].attributes.mental.anticipation = half;
+        state.players[9].attributes.technical.finishing = half;
+        state.players[9].attributes.physical.acceleration = half;
+        state.players[9].attributes.physical.pace = half;
+        let fit = poachers_dart_trigger(&state, 9);
+        assert!(fit > Q32::ZERO, "fit must be positive");
+        // 0.5^5 = 0.03125 — above threshold (0.45), all five attributes at 0.5
+        let expected = half * half * half * half * half;
+        assert_eq!(
+            fit, expected,
+            "fit must equal off_the_ball × anticipation × finishing × acceleration × pace"
+        );
+    }
+
+    #[test]
+    fn poachers_dart_zero_for_wrong_slot() {
+        let mut state = baseline_state();
+        // slot 8 = home left-winger (in_team=8) — not in_team==9
+        set_all_attrs(&mut state, 8, Q32::ONE);
+        assert_eq!(poachers_dart_trigger(&state, 8), Q32::ZERO);
+    }
+
+    #[test]
+    fn poachers_dart_zero_for_attrs_below_threshold() {
+        let mut state = baseline_state();
+        state.players[9].attributes.mental.off_the_ball = Q32::ZERO;
+        state.players[9].attributes.mental.anticipation = Q32::ZERO;
+        state.players[9].attributes.technical.finishing = Q32::ZERO;
+        state.players[9].attributes.physical.acceleration = Q32::ZERO;
+        state.players[9].attributes.physical.pace = Q32::ZERO;
+        assert_eq!(poachers_dart_trigger(&state, 9), Q32::ZERO);
+    }
+
     // ---- binding table ----
 
     #[test]
@@ -484,6 +1009,16 @@ mod tests {
         assert!(table.contains_key("fwh.core:signature.body-shield-pressure"));
         assert!(table.contains_key("fwh.core:signature.long-range-strike"));
         assert!(table.contains_key("fwh.core:signature.first-time-diagonal-switch"));
+    }
+
+    #[test]
+    fn trigger_table_contains_all_t4_2_5j_signatures() {
+        let table = build_trigger_table();
+        assert!(table.contains_key("fwh.core:signature.commanding-claim"));
+        assert!(table.contains_key("fwh.core:signature.overlapping-surge"));
+        assert!(table.contains_key("fwh.core:signature.screening-interception"));
+        assert!(table.contains_key("fwh.core:signature.touchline-beat"));
+        assert!(table.contains_key("fwh.core:signature.poachers-dart"));
     }
 
     #[test]
