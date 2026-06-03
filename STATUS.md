@@ -4,13 +4,13 @@
 
 ## Phase
 
-**Phase T4 — Pillar Wiring + Polish — IN PROGRESS.** T4-1/2/3/4/5a/6a + T4-2.5a + T4-sim-halt + T4-2.5b + T4-2.5c (+T1-25/T1-26) + T4-2.5e + T4-2.5d + T4-2.5f + T4-F1 + T4-F2 + T4-2.5g + T4-2.5h + T4-F4 + T4-I1 + **QA-3** DONE. **Running AUTONOMOUS (user out): a self-paced /loop runs /next through Phase T4, making recommended calls on forks, stopping at the T4 phase boundary or a real blocker.** The career layer is **correct (F1/F2) + persistent (T4-2.5g) + visible (T4-2.5h + T4-F4) + browser-previewable (T4-I1) + seed-diversity-locked (QA-3)**. Both match-state pins UNCHANGED. T4.5 (World Scale + Content Bake) is the EA-critical phase between T4 and T5.
+**Phase T4 — Pillar Wiring + Polish — IN PROGRESS.** T4-1/2/3/4/5a/6a + T4-2.5a + T4-sim-halt + T4-2.5b + T4-2.5c (+T1-25/T1-26) + T4-2.5e + T4-2.5d + T4-2.5f + T4-F1 + T4-F2 + T4-2.5g + T4-2.5h + T4-F4 + T4-I1 + QA-3 + **QA-5** DONE. **Running AUTONOMOUS (user out): a self-paced /loop runs /next through Phase T4, making recommended calls on forks, stopping at the T4 phase boundary or a real blocker.** The career layer is **correct (F1/F2) + persistent (T4-2.5g) + visible (T4-2.5h + T4-F4) + browser-previewable (T4-I1) + seed-diversity-locked (QA-3) + Home-route-covered (QA-5)**. Both match-state pins UNCHANGED. T4.5 (World Scale + Content Bake) is the EA-critical phase between T4 and T5.
 
-**2026-06-02 external dual review** correct → persistent → visible all landed; I1 (preview shim) + QA-3 (seed-diversity proptest) done. Remaining T4: QA-5, the pillar polish rows (T4-2.5i/j/k/L), T4-7, then the T4-8 phase gate. F5/F6 (match-engine) second; C1 at private-flip. **Filed follow-ups:** roster Squad → Player navigation (navigable qualified-id); match-sim `team_width` proptest flake; T4-I1 `import type` reorder.
+**2026-06-02 external dual review** correct → persistent → visible all landed; the QA rows (QA-3 seed-diversity, QA-5 Home.test) done. Remaining T4: the pillar polish rows (T4-2.5i/j/k/L), T4-7, then the T4-8 phase gate. F5/F6 (match-engine) second; C1 at private-flip. **Filed follow-ups:** roster Squad → Player navigation (navigable qualified-id); match-sim `team_width` proptest flake; T4-I1 `import type` reorder.
 
 ## Active task
 
-**QA-5 next** (autonomous loop) — `Home.test.tsx` loading/error/success coverage: loading skeleton, football-native error copy (not raw `err.message`), success render, all tested. Deps T4-4 (DONE). `qa-lead`/`ui-programmer`.
+**T4-2.5i next** (autonomous loop) — Pillar 5: per-signature commentary routing + slot→name. Two different signatures must produce two different commentary strings, each naming the player; ≥3 variants per signature. Deps T4-2.5c + T4-2.5e (both DONE). `narrative-director`/`gameplay-programmer`.
 
 ## Blockers
 
@@ -20,7 +20,7 @@ Previously: T2-1d2 (xg_utility honesty / cross-band oscillation) re-anchored to 
 
 ## Last green verify
 
-2026-06-03 (QA-3 close): `scripts/fw verify` exit 0 (the unrelated `fw-match-sim` `team_width` proptest flake did not fire; both canonical pins pinned-ok in the release run). New `crates/fw-content/tests/world_diversity_proptest.rs` — `distinct_seeds_produce_distinct_leagues` (50 pairs, full-identity fingerprint) + `same_seed_is_identity_stable` (vacuity guard); both ok inside the umbrella. Test-only — zero production/canonical surface; **both match-state pins UNCHANGED** (`85f45bf8…`/`206bddae…`). 74 code LoC < 100 → self-review triple not triggered; mutation pre-check clean. 279 frontend tests + `tsc` + `pnpm lint` still green. KNOWN unrelated: the match-sim `team_width` proptest flake remains filed (probabilistically reddens the full verify; not a regression here). Prior: T4-I1 (fixture shim); T4-F4 (Player scout); T4-2.5h (stats+Squad); T4-2.5g (SaveV4); T4-F2; T4-F1. Clippy + fmt + determinism-audit + banned-terms + cargo audit/deny clean throughout.
+2026-06-03 (QA-5 close): `scripts/fw verify` exit 0 — the `fw-match-sim` `team_width_when_in_possession_within_band` proptest PASSED this run (flake did not fire); both canonical pins pinned-ok. New `frontend/src/routes/Home.test.tsx` (4 tests: loading skeleton, Tauri-path success, browser-stub success, football-native-error-no-raw-leak); `Home.test.tsx` green inside the umbrella; frontend 19 files / **283 tests** + `tsc` + `pnpm lint` clean. Test-only — zero production/canonical surface; **both match-state pins UNCHANGED** (`85f45bf8…`/`206bddae…`). 74 code LoC < 100 → self-review triple not triggered; mutation pre-check clean (both pill branches covered across the two success tests). Prior: QA-3 (world-gen seed-diversity proptest); T4-I1 (fixture shim); T4-F4 (Player scout); T4-2.5h (stats+Squad); T4-2.5g (SaveV4). KNOWN unrelated: the match-sim `team_width` flake remains filed (probabilistically reddens the full verify; not a regression here). Clippy + fmt + determinism-audit + banned-terms + cargo audit/deny clean throughout.
 
 ## Last canonical hash
 
