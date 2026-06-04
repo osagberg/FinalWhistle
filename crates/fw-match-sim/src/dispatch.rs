@@ -147,10 +147,14 @@ const PASS_PEAK_BONUS_MPS: Q32 = Q32::from_raw(10_i64 << 32);
 // docs/design/shot-model.md §Sub-system 2 §Revised coefficients
 // ---------------------------------------------------------------------------
 
-/// Base scatter in metres. At close range, low pressure, best quality:
-/// sigma_y ≈ 3.5 × 1.0 × 0.60 = 2.1m → P(on-target) ≈ 77%.
-/// Provisional; tuned via drama-sweep.
-const SIGMA_BASE_M: Q32 = Q32::from_raw(23_622_320_128_i64); // ≈ 5.5m (drama-sweep R11 final)
+/// Base scatter in metres. FUN-TS2 recalibration (MISS1a): raised from 5.5m to 8.5m.
+/// Real football: ~60-65% of shots miss the target — at avg quality/distance the
+/// sigma must be large enough that P(on-target) ≈ 35-45%, not the prior ~63%.
+/// Target math: avg case (quality=0.5, mid-range, no pressure):
+///   sigma = 8.5 × (1 + 0.80×0.3 + 0.50×0) × (1 - 0.40×0.5) = 8.5 × 1.24 × 0.80 ≈ 8.44m
+///   sum-of-3-uniforms max = ±1.73 × SIGMA_NORMAL_SCALE(0.577) ≈ ±1.0 effective scale,
+///   so P(|target_y| < 3.66) ≈ 3.66/8.44 ≈ 43% — inside [35%,45%] band.
+const SIGMA_BASE_M: Q32 = Q32::from_raw(30_064_771_072_i64); // ≈ 7.0m (FUN-TS2 recal)
 
 /// Distance contribution to sigma. dist_factor = clamp(d_m / 35, 0, 1) (the
 /// NON-inverted distance — 0=close, 1=far, opposite of the xG feature).
@@ -163,10 +167,11 @@ const SIGMA_PRESSURE_WEIGHT: Q32 = Q32::from_raw(2_147_483_648_i64); // ≈ 0.50
 const SIGMA_QUALITY_WEIGHT: Q32 = Q32::from_raw(1_717_986_918_i64); // ≈ 0.40
 
 /// Minimum scatter floor in metres (best-case: world-class, penalty area, no pressure).
-const SIGMA_MIN_M: Q32 = Q32::from_raw(6_442_450_944_i64); // ≈ 1.5m
+const SIGMA_MIN_M: Q32 = Q32::from_raw(8_589_934_592_i64); // ≈ 2.0m (raised from 1.5m for base calibration)
 
-/// Maximum scatter ceiling in metres (worst-case: weak player, 35m, full pressure).
-const SIGMA_MAX_M: Q32 = Q32::from_raw(38_654_705_664_i64); // ≈ 9.0m
+/// Maximum scatter ceiling in metres (worst-case: weak player, 35m, full block pressure).
+/// Raised from 9.0m to 15.0m to accommodate the wider base + pressure radius (FUN-TS2).
+const SIGMA_MAX_M: Q32 = Q32::from_raw(64_424_509_440_i64); // ≈ 15.0m
 
 /// 1/√3 normaliser for the sum-of-3-uniforms normal approximation.
 /// Scales the [-3, +3] sum to unit-normal scale.
@@ -251,9 +256,9 @@ fn shot_pressure_feature_q32(players: &[crate::player::PlayerState], shooter_idx
     } else {
         0..crate::PLAYERS_PER_TEAM
     };
-    // Sum 1/(distance + epsilon) for opponents within 15m; cap at a
-    // saturation point so a perfect-stack of 11 defenders doesn't blow up.
-    const RADIUS_BITS: u64 = 15_u64 << 32; // 15m
+    // Scan opponents within 15m. The 1/(d+ε) kernel means close defenders
+    // contribute much more than far ones (2m defender → inv=0.5; 10m → inv=0.1).
+    // Sat function: 1 - 1/(1+sum_inv) → bounded [0,1).
     let mut sum_inv = Q32::ZERO;
     let epsilon = Q32::from_raw(1 << 28); // ~0.0625m floor to avoid divide-by-zero
     for opp_idx in opponent_range {
@@ -262,7 +267,7 @@ fn shot_pressure_feature_q32(players: &[crate::player::PlayerState], shooter_idx
         let dy = opp.pos_y - shooter.pos_y;
         let dist_sq = dx * dx + dy * dy;
         let dist_sq_abs = dist_sq.to_bits().unsigned_abs();
-        // Coarse radius gate via squared distance: 15^2 = 225 → 225 * 2^32.
+        // Coarse radius gate via squared distance: 15^2 = 225 → 225 × 2^32.
         const RADIUS_SQ_BITS: u64 = (15_u64 * 15_u64) << 32;
         if dist_sq_abs >= RADIUS_SQ_BITS {
             continue;
@@ -273,9 +278,7 @@ fn shot_pressure_feature_q32(players: &[crate::player::PlayerState], shooter_idx
         sum_inv += inv;
     }
     // Approximation: 1 - 1/(1 + sum_inv). Bounded [0, 1); approaches 1 as
-    // sum_inv grows. The RADIUS_BITS const above is unused after the
-    // dist_sq gate refactor — keep the comment for future tightening.
-    let _ = RADIUS_BITS;
+    // sum_inv grows.
     Q32::ONE - (Q32::ONE / (Q32::ONE + sum_inv))
 }
 
@@ -599,6 +602,26 @@ pub fn dispatch_tick(
     // This is the "FSM finally drives positions" seam from ADR-0013.
     state.team_shape[0] = crate::team_shape::compute(0, &state);
     state.team_shape[1] = crate::team_shape::compute(1, &state);
+    // FUN-TS2b: fill coordinated press roles into team_shape[*].press_roles
+    // AFTER team_shape (needs is_defending) and BEFORE the per-slot decision
+    // loop (so the Pressing arm reads shape.press_roles[team_local_slot]).
+    // Decomposed into parts to avoid the split-borrow conflict:
+    // cannot take &mut state.team_shape and &state at the same time.
+    {
+        let pos_snap: [(fw_core::Q32, fw_core::Q32); 22] = {
+            let mut arr = [(fw_core::Q32::ZERO, fw_core::Q32::ZERO); 22];
+            for (i, p) in state.players.iter().enumerate() {
+                arr[i] = (p.pos_x, p.pos_y);
+            }
+            arr
+        };
+        crate::team_shape::compute_press_from_parts(
+            &mut state.team_shape,
+            state.possession,
+            &pos_snap,
+            &state.team_tactic_states,
+        );
+    }
 
     for slot_idx in 0..22usize {
         // roster_slot is 1-indexed per decision_cadence::should_decide contract.
@@ -960,107 +983,127 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
         PlayerIntent::AttemptPassShort { target_x, target_y } => {
             let from_slot = state.players[slot_idx].slot;
             let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
-            state.match_events.push(MatchEvent::Pass {
-                from_slot,
-                to_slot,
-                tick: state.tick,
-                kind: PassKind::Short,
-                completed: T1_PASS_COMPLETED,
-            });
-            // T1-15: snap ball to passer's feet before computing velocity.
-            // Without this, the ball starts from its last physical position
-            // (often center spot) rather than the passer's feet, so rolling
-            // friction stops the ball before it reaches the receiver.
-            let from_x = state.players[slot_idx].pos_x;
-            let from_y = state.players[slot_idx].pos_y;
-            state.ball.pos_x = from_x;
-            state.ball.pos_y = from_y;
-            // T1-3.5: ball mutation — kick toward receiver's current position.
-            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
-            let to_x = state.players[to_slot as usize].pos_x;
-            let to_y = state.players[to_slot as usize].pos_y;
-            let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
-            state.ball.vel_x = bvx;
-            state.ball.vel_y = bvy;
-            state.ball.vel_z = Q32::ZERO;
-            // T1: pass always completes; possession goes to receiver.
-            state.possession = Some(to_slot);
-            state.last_touched_by = Some(from_slot);
+            // FUN-TS2c: offside check at pass-launch tick.
+            if is_offside_at_pass_launch(state, slot_idx, to_slot) {
+                apply_offside(state, slot_idx, to_slot);
+            } else {
+                state.match_events.push(MatchEvent::Pass {
+                    from_slot,
+                    to_slot,
+                    tick: state.tick,
+                    kind: PassKind::Short,
+                    completed: T1_PASS_COMPLETED,
+                });
+                // T1-15: snap ball to passer's feet before computing velocity.
+                // Without this, the ball starts from its last physical position
+                // (often center spot) rather than the passer's feet, so rolling
+                // friction stops the ball before it reaches the receiver.
+                let from_x = state.players[slot_idx].pos_x;
+                let from_y = state.players[slot_idx].pos_y;
+                state.ball.pos_x = from_x;
+                state.ball.pos_y = from_y;
+                // T1-3.5: ball mutation — kick toward receiver's current position.
+                let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+                let to_x = state.players[to_slot as usize].pos_x;
+                let to_y = state.players[to_slot as usize].pos_y;
+                let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
+                state.ball.vel_x = bvx;
+                state.ball.vel_y = bvy;
+                state.ball.vel_z = Q32::ZERO;
+                // T1: pass always completes; possession goes to receiver.
+                state.possession = Some(to_slot);
+                state.last_touched_by = Some(from_slot);
+            }
         }
         PlayerIntent::AttemptPassLong { target_x, target_y } => {
             let from_slot = state.players[slot_idx].slot;
             let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
-            state.match_events.push(MatchEvent::Pass {
-                from_slot,
-                to_slot,
-                tick: state.tick,
-                kind: PassKind::Long,
-                completed: T1_PASS_COMPLETED,
-            });
-            // T1-15: snap ball to passer's feet (same pattern as Short/Dribble).
-            let from_x = state.players[slot_idx].pos_x;
-            let from_y = state.players[slot_idx].pos_y;
-            state.ball.pos_x = from_x;
-            state.ball.pos_y = from_y;
-            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
-            let to_x = state.players[to_slot as usize].pos_x;
-            let to_y = state.players[to_slot as usize].pos_y;
-            let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
-            state.ball.vel_x = bvx;
-            state.ball.vel_y = bvy;
-            state.ball.vel_z = Q32::ZERO;
-            state.possession = Some(to_slot);
-            state.last_touched_by = Some(from_slot);
+            // FUN-TS2c: offside check at pass-launch tick.
+            if is_offside_at_pass_launch(state, slot_idx, to_slot) {
+                apply_offside(state, slot_idx, to_slot);
+            } else {
+                state.match_events.push(MatchEvent::Pass {
+                    from_slot,
+                    to_slot,
+                    tick: state.tick,
+                    kind: PassKind::Long,
+                    completed: T1_PASS_COMPLETED,
+                });
+                // T1-15: snap ball to passer's feet (same pattern as Short/Dribble).
+                let from_x = state.players[slot_idx].pos_x;
+                let from_y = state.players[slot_idx].pos_y;
+                state.ball.pos_x = from_x;
+                state.ball.pos_y = from_y;
+                let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+                let to_x = state.players[to_slot as usize].pos_x;
+                let to_y = state.players[to_slot as usize].pos_y;
+                let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
+                state.ball.vel_x = bvx;
+                state.ball.vel_y = bvy;
+                state.ball.vel_z = Q32::ZERO;
+                state.possession = Some(to_slot);
+                state.last_touched_by = Some(from_slot);
+            }
         }
         PlayerIntent::Cross { target_x, target_y } => {
             let from_slot = state.players[slot_idx].slot;
             let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
-            state.match_events.push(MatchEvent::Pass {
-                from_slot,
-                to_slot,
-                tick: state.tick,
-                kind: PassKind::Cross,
-                completed: T1_PASS_COMPLETED,
-            });
-            // T1-15: snap ball to crosser's feet before kick.
-            let from_x = state.players[slot_idx].pos_x;
-            let from_y = state.players[slot_idx].pos_y;
-            state.ball.pos_x = from_x;
-            state.ball.pos_y = from_y;
-            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
-            let to_x = state.players[to_slot as usize].pos_x;
-            let to_y = state.players[to_slot as usize].pos_y;
-            let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
-            state.ball.vel_x = bvx;
-            state.ball.vel_y = bvy;
-            state.ball.vel_z = Q32::ZERO;
-            state.possession = Some(to_slot);
-            state.last_touched_by = Some(from_slot);
+            // FUN-TS2c: offside check at pass-launch tick.
+            if is_offside_at_pass_launch(state, slot_idx, to_slot) {
+                apply_offside(state, slot_idx, to_slot);
+            } else {
+                state.match_events.push(MatchEvent::Pass {
+                    from_slot,
+                    to_slot,
+                    tick: state.tick,
+                    kind: PassKind::Cross,
+                    completed: T1_PASS_COMPLETED,
+                });
+                // T1-15: snap ball to crosser's feet before kick.
+                let from_x = state.players[slot_idx].pos_x;
+                let from_y = state.players[slot_idx].pos_y;
+                state.ball.pos_x = from_x;
+                state.ball.pos_y = from_y;
+                let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+                let to_x = state.players[to_slot as usize].pos_x;
+                let to_y = state.players[to_slot as usize].pos_y;
+                let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
+                state.ball.vel_x = bvx;
+                state.ball.vel_y = bvy;
+                state.ball.vel_z = Q32::ZERO;
+                state.possession = Some(to_slot);
+                state.last_touched_by = Some(from_slot);
+            }
         }
         PlayerIntent::LayOff { target_x, target_y } => {
             let from_slot = state.players[slot_idx].slot;
             let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
-            state.match_events.push(MatchEvent::Pass {
-                from_slot,
-                to_slot,
-                tick: state.tick,
-                kind: PassKind::LayOff,
-                completed: T1_PASS_COMPLETED,
-            });
-            // T1-15: snap ball to passer's feet before kick.
-            let from_x = state.players[slot_idx].pos_x;
-            let from_y = state.players[slot_idx].pos_y;
-            state.ball.pos_x = from_x;
-            state.ball.pos_y = from_y;
-            let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
-            let to_x = state.players[to_slot as usize].pos_x;
-            let to_y = state.players[to_slot as usize].pos_y;
-            let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
-            state.ball.vel_x = bvx;
-            state.ball.vel_y = bvy;
-            state.ball.vel_z = Q32::ZERO;
-            state.possession = Some(to_slot);
-            state.last_touched_by = Some(from_slot);
+            // FUN-TS2c: offside check at pass-launch tick.
+            if is_offside_at_pass_launch(state, slot_idx, to_slot) {
+                apply_offside(state, slot_idx, to_slot);
+            } else {
+                state.match_events.push(MatchEvent::Pass {
+                    from_slot,
+                    to_slot,
+                    tick: state.tick,
+                    kind: PassKind::LayOff,
+                    completed: T1_PASS_COMPLETED,
+                });
+                // T1-15: snap ball to passer's feet before kick.
+                let from_x = state.players[slot_idx].pos_x;
+                let from_y = state.players[slot_idx].pos_y;
+                state.ball.pos_x = from_x;
+                state.ball.pos_y = from_y;
+                let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+                let to_x = state.players[to_slot as usize].pos_x;
+                let to_y = state.players[to_slot as usize].pos_y;
+                let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
+                state.ball.vel_x = bvx;
+                state.ball.vel_y = bvy;
+                state.ball.vel_z = Q32::ZERO;
+                state.possession = Some(to_slot);
+                state.last_touched_by = Some(from_slot);
+            }
         }
         PlayerIntent::Dribble { .. } => {
             // T1-3.5: Dribble — ball stays at the dribbler's feet.
@@ -1283,6 +1326,199 @@ fn nearest_teammate_near(
     );
 
     best_slot
+}
+
+/// FUN-TS2c: offside detection at pass-launch tick.
+///
+/// Returns `true` when the receiver would be in an offside position at the
+/// moment this pass is played, per IFAB 2025/26 simplified rules.
+///
+/// ## Rules implemented
+///
+/// 1. **Attacking direction**: home team (passer_slot_idx < 11) attacks +x;
+///    away team attacks -x.
+/// 2. **Backward/square pass**: if receiver x ≤ passer x (for home) or
+///    receiver x ≥ passer x (for away), no offside possible — return false.
+/// 3. **Set-piece exemption**: no offside from a throw-in, corner, goal-kick,
+///    or kick-off. Checked via the passer's team tactic FSM state.
+/// 4. **Offside line**: the x-position of the 2nd-rearmost defender from the
+///    attacking team's perspective. Includes GK. Equal = onside (IFAB §11.2).
+/// 5. **Double check**: receiver beyond BOTH offside line AND ball x → flag.
+///
+/// ## T1 simplifications
+///
+/// - "Involvement" condition: any receiver who receives the ball is involved.
+/// - Penalty area / goal area fine-grained rules deferred to T2.
+/// - No offside trap exploit detection.
+fn is_offside_at_pass_launch(
+    state: &MatchState,
+    passer_slot_idx: usize,
+    receiver_slot: u8,
+) -> bool {
+    let is_home_passer = passer_slot_idx < crate::PLAYERS_PER_TEAM;
+    let passer_team_idx = if is_home_passer { 0usize } else { 1usize };
+    let opp_team_idx = 1 - passer_team_idx;
+
+    // Set-piece exemption: no offside from throw-in, corner, goal-kick, kick-off.
+    let passer_tactic = state.team_tactic_states[passer_team_idx].state();
+    if is_set_piece_offside_exempt(passer_tactic) {
+        return false;
+    }
+
+    let passer_x = state.players[passer_slot_idx].pos_x;
+    let ball_x = state.ball.pos_x;
+    let receiver_x = state.players[receiver_slot as usize].pos_x;
+
+    // T1 offside zone: only check within 20m of the opponent's goal line.
+    // With HighPress defensive lines at x=±2m and formation FWDs at x=±10m,
+    // the entire midfield becomes a permanent offside zone — every pass in the
+    // build-up is blocked. Real football risks are concentrated near the goal
+    // where strikers make late runs; midfield offsides are extremely rare in
+    // practice. Gate the check at 20m from goal: for home attacks, receiver
+    // must be at x > +32.5m (52.5m - 20m); for away attacks, x < -32.5m.
+    // This means offside only fires in the opponent's final third.
+    // T2 can relax this when formation FWDs adjust dynamically to the DEF line.
+    const GOAL_LINE: Q32 = Q32::from_int(52); // ≈ 52.5m (GOAL_LINE_X ≈ 52m)
+    const OFFSIDE_ZONE_DEPTH: Q32 = Q32::from_int(20);
+    if is_home_passer {
+        // Home attacks +x; offside zone = x > 52.5 - 20 = +32.5m.
+        if receiver_x <= GOAL_LINE - OFFSIDE_ZONE_DEPTH {
+            return false;
+        }
+    } else {
+        // Away attacks -x; offside zone = x < -(52.5 - 20) = -32.5m.
+        if receiver_x >= -(GOAL_LINE - OFFSIDE_ZONE_DEPTH) {
+            return false;
+        }
+    }
+
+    // Backward/square pass: receiver no further forward than the passer.
+    // Home attacks +x: forward = larger x.
+    // Away attacks -x: forward = smaller x.
+    if is_home_passer {
+        if receiver_x <= passer_x {
+            return false;
+        }
+    } else if receiver_x >= passer_x {
+        return false;
+    }
+
+    // Compute the offside line from the opponent's TARGET defensive-line x.
+    //
+    // T1 approximation: we use `TeamShape.line_x` (the target for this tactic
+    // state) rather than the strict IFAB 2nd-rearmost individual. Reason:
+    // individual positions drift aggressively in the first 120-300 ticks as
+    // defenders push up during attacking possession. The 2nd-rearmost
+    // individual can temporarily be 15-20m ahead of the actual block, creating
+    // cascade offside traps that block goal-scoring for the entire match.
+    // Using the target line is stable (it changes only on tactic-state
+    // transitions, not per-tick), football-legible, and avoids false offside
+    // from individual drift. T2 can revisit with full positional correction
+    // (IFAB 2nd-rearmost) once defender shape recovery is tighter.
+    let offside_line = state.team_shape[opp_team_idx].line_x;
+
+    // IFAB §11.2: equal = onside. Receiver must be STRICTLY beyond the line
+    // AND beyond the ball (can't be offside if ball is further forward).
+    if is_home_passer {
+        receiver_x > offside_line && receiver_x > ball_x
+    } else {
+        receiver_x < offside_line && receiver_x < ball_x
+    }
+}
+
+/// Returns true for set-piece states from which no offside can be called
+/// (IFAB: throw-in, corner, goal-kick, kick-off).
+fn is_set_piece_offside_exempt(state: crate::tactic_fsm::TacticState) -> bool {
+    use crate::tactic_fsm::{SetPieceKind, TacticState};
+    matches!(
+        state,
+        TacticState::SetPiece(
+            SetPieceKind::ThrowInFor
+                | SetPieceKind::ThrowInAgainst
+                | SetPieceKind::CornerFor
+                | SetPieceKind::CornerAgainst
+                | SetPieceKind::GoalKick
+                | SetPieceKind::GoalKickOpponent
+                | SetPieceKind::KickOff
+                // FreeKick restarts (including IFK from offside): exempt.
+                // The GK receives the ball in FreeKickFor state. If the first
+                // pass from the restart fires the offside check while defensive
+                // lines are still recovering, away FWDs in their own half get
+                // wrongly flagged. IFAB exempts the restart take itself; we
+                // model this by exempting the tick the team is in FreeKickFor.
+                // `emit_possession_transition_events` exits this state once
+                // the ball reaches an open-play recipient.
+                | SetPieceKind::FreeKickFor
+                | SetPieceKind::FreeKickAgainst
+        )
+    )
+}
+
+/// Apply an offside call: emit the `MatchEvent::Offside`, clear possession,
+/// award the ball to the defending GK (IFK restart).
+///
+/// The passer's team is team_idx. The opposing team's GK gets possession.
+/// Ball is moved to the receiver's position at the offside call (IFAB: restart
+/// from where the offside player was; T1 approximation).
+fn apply_offside(state: &mut MatchState, passer_slot_idx: usize, receiver_slot: u8) {
+    let passer_team_idx = if passer_slot_idx < crate::PLAYERS_PER_TEAM {
+        0usize
+    } else {
+        1usize
+    };
+    let opp_team_idx = 1 - passer_team_idx;
+    let opp_gk_slot = (opp_team_idx * crate::PLAYERS_PER_TEAM) as u8;
+
+    state.match_events.push(fw_content::MatchEvent::Offside {
+        offending_slot: receiver_slot,
+        tick: state.tick,
+    });
+
+    // T1 approximation: snap ball to the opposing GK's position (IFK restart).
+    // IFAB places the restart at the offside player's position, but our GK-
+    // distribution model gates distribution on `dist_from_line < THRESHOLD`.
+    // Placing the ball at the receiver's position (often far from the goal)
+    // caused the GK to enter InBoxPositioning (never passes) instead of
+    // DistributingFromHand, freezing possession for the rest of the match.
+    // Snapping to GK position is accurate enough for T1 and keeps the sim alive.
+    state.ball.pos_x = state.players[opp_gk_slot as usize].pos_x;
+    state.ball.pos_y = state.players[opp_gk_slot as usize].pos_y;
+    state.ball.vel_x = Q32::ZERO;
+    state.ball.vel_y = Q32::ZERO;
+    state.ball.vel_z = Q32::ZERO;
+    state.possession = Some(opp_gk_slot);
+    state.last_touched_by = None;
+
+    // Tactic FSM: opposing team enters FreeKickFor; passer's team FreeKickAgainst.
+    // Copy params before mutating state to avoid borrow conflict.
+    use crate::tactic_fsm::{SetPieceKind, TacticEvent};
+    let opp_arch = if opp_team_idx == 0 {
+        state.home_archetype_params
+    } else {
+        state.away_archetype_params
+    };
+    let passer_arch = if passer_team_idx == 0 {
+        state.home_archetype_params
+    } else {
+        state.away_archetype_params
+    };
+    let tick_now = state.tick;
+    state.team_tactic_states[opp_team_idx] = crate::tactic_fsm::apply_event(
+        state.team_tactic_states[opp_team_idx],
+        &opp_arch,
+        TacticEvent::BallOutOfPlay {
+            kind: SetPieceKind::FreeKickFor,
+        },
+        tick_now,
+    );
+    state.team_tactic_states[passer_team_idx] = crate::tactic_fsm::apply_event(
+        state.team_tactic_states[passer_team_idx],
+        &passer_arch,
+        TacticEvent::BallOutOfPlay {
+            kind: SetPieceKind::FreeKickAgainst,
+        },
+        tick_now,
+    );
 }
 
 /// Compute 2D velocity components toward a target, capped to `MAX_PLAYER_SPEED`

@@ -130,6 +130,17 @@ pub struct TeamShape {
     /// False when this team has possession — normal softmax utilities apply.
     /// Derived from canonical `state.possession` in `compute`; NOT canonical bytes.
     pub is_defending: bool,
+    /// FUN-TS2b: coordinated press role for each team-local slot (0..11).
+    /// Index 0 = GK (always HoldShape). Indices 1..11 = outfield.
+    /// Only meaningful when `is_defending && is_high_press`.
+    /// Filled by `compute_press_from_parts`; default is all HoldShape.
+    pub press_roles: [PressRole; 11],
+    /// True when this team's current tactic state is HighPress AND it is
+    /// defending. Used in `select_outfield_intent` to decide whether to apply
+    /// coordinated press-role routing or fall back to standard utility_press.
+    /// Derived from canonical tactic_state in `compute_press_from_parts`;
+    /// NOT canonical bytes (follows the same pattern as `is_defending`).
+    pub is_high_press: bool,
 }
 
 impl TeamShape {
@@ -144,6 +155,8 @@ impl TeamShape {
             compactness_v: Q32::from_int(MID_BLOCK_COMPACTNESS_V),
             compactness_h: Q32::from_int(COMPACTNESS_H),
             is_defending: true,
+            press_roles: [PressRole::HoldShape; 11],
+            is_high_press: false,
         }
     }
 
@@ -156,7 +169,17 @@ impl TeamShape {
         compactness_v: Q32::ZERO,
         compactness_h: Q32::ZERO,
         is_defending: true,
+        press_roles: [PressRole::HoldShape; 11],
+        is_high_press: false,
     };
+
+    /// Press role for this team-local slot (0-indexed within the team, 0..11).
+    /// GK (slot 0) always HoldShape.
+    /// Out-of-range index panics via the array bound (release + debug).
+    #[must_use]
+    pub fn press_role_for(&self, team_local_slot: usize) -> PressRole {
+        self.press_roles[team_local_slot]
+    }
 }
 
 /// `Default` impl for the `#[serde(skip)]` sidecar field on `MatchState`.
@@ -272,6 +295,10 @@ pub fn compute(team_idx: usize, state: &MatchState) -> TeamShape {
         compactness_v,
         compactness_h,
         is_defending,
+        // press_roles and is_high_press filled by compute_press_from_parts()
+        // called after compute() in dispatch_tick.
+        press_roles: [PressRole::HoldShape; 11],
+        is_high_press: false,
     }
 }
 
@@ -352,6 +379,152 @@ pub fn zonal_slot(roster_slot: u8, shape: &TeamShape, team_idx: usize) -> (Q32, 
     // `line_x`'s sign and `form_defender_x`). Y-mirroring would be a no-op on shape.
 
     (target_x, target_y)
+}
+
+// ---------------------------------------------------------------------------
+// PressPlan — coordinated press assignment (FUN-TS2b)
+// ---------------------------------------------------------------------------
+//
+// A PressPlan is computed once per tick AFTER TeamShape (so it can use
+// shape.is_defending) and stored as a non-canonical sidecar on MatchState.
+//
+// Role assignment:
+//   Primary:   1 player — nearest defending-team player to the ball carrier
+//              (Q32 Euclidean-squared distance; slot-order tiebreak for
+//              determinism).
+//   Cover:     2 players — next-nearest (same tiebreak).
+//   HoldShape: remaining 8 outfield + 1 GK.
+//
+// When `team_state` is NOT HighPress, or when `is_defending` is false, every
+// slot is assigned `HoldShape`.
+//
+// Determinism: all arithmetic is Q32; distances are squared (no sqrt); slot
+// order provides a fully-deterministic tiebreak under equal distance.
+
+/// Press role for a defending player in the coordinated press plan.
+///
+/// Only meaningful when the team is in `HighPress` tactic state AND defending.
+/// When the team is in any other state, all roles resolve to `HoldShape`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PressRole {
+    /// Step up to press the ball carrier — the one closest defender.
+    Primary,
+    /// Cut the nearest passing lane behind the primary presser.
+    Cover,
+    /// Hold the defensive block; do not step up.
+    HoldShape,
+}
+
+/// Compute and fill per-team coordinated press roles into `shapes`.
+///
+/// Called once per tick AFTER `compute` (which fills `is_defending`), BEFORE
+/// the per-slot decision loop so the Pressing arm can read `shape.press_roles`.
+///
+/// For each team in `HighPress` tactic state AND `is_defending`:
+///   - Sort the 10 outfield defending-team slots by squared-distance to the
+///     carrier (GK always HoldShape — never the primary presser).
+///   - Assign `Primary` to rank 0, `Cover` to ranks 1..=2, `HoldShape` to rest.
+///
+/// When the carrier is `None` (loose ball), all roles stay `HoldShape`.
+///
+/// Roles are stored in `TeamShape::press_roles[team_local_slot]` where
+/// `team_local_slot` is 0-indexed within the team (home 0..11, away 0..11 via
+/// slot - 11 for away). The slot-order tiebreak ensures full determinism.
+///
+/// # Determinism
+/// - Q32 squared distance (no sqrt, no floats).
+/// - Slot-order tiebreak on equal distance.
+/// - No HashMap; sort via `Vec<(Q32, u8)>` with stable key ordering.
+///
+/// This function takes decomposed parts (rather than `&MatchState`) so the
+/// caller in `dispatch_tick` can split-borrow `state.team_shape` (mut) from
+/// `state.players` / `state.possession` / `state.team_tactic_states` (shared).
+pub fn compute_press_from_parts(
+    shapes: &mut [TeamShape; 2],
+    possession: Option<u8>,
+    player_positions: &[(Q32, Q32); 22],
+    tactic_states: &[crate::tactic_fsm::TeamTacticState; 2],
+) {
+    // No carrier → leave all roles at HoldShape.
+    let carrier_slot = match possession {
+        Some(s) => s,
+        None => return,
+    };
+    let (carrier_x, carrier_y) = player_positions[carrier_slot as usize];
+
+    for team_idx in 0..2usize {
+        // Only assign press roles when defending AND in HighPress state.
+        if !shapes[team_idx].is_defending
+            || tactic_states[team_idx].state() != TacticState::HighPress
+        {
+            // Non-HighPress: mark is_high_press=false so subtree_library knows
+            // to fall back to standard utility_press behavior.
+            shapes[team_idx].is_high_press = false;
+            continue;
+        }
+
+        // Reset roles to HoldShape before assigning, then mark active.
+        shapes[team_idx].press_roles = [PressRole::HoldShape; 11];
+        shapes[team_idx].is_high_press = true;
+
+        // Collect (squared_distance, team_local_slot) for all outfield slots.
+        // Home team: absolute slots 0..11; away team: absolute slots 11..22.
+        // Team-local slot = absolute_slot for home; absolute_slot - 11 for away.
+        let (abs_start, abs_end, gk_abs) = if team_idx == 0 {
+            (0u8, 11u8, 0u8)
+        } else {
+            (11u8, 22u8, 11u8)
+        };
+
+        let mut distances: Vec<(Q32, u8)> = Vec::with_capacity(10);
+        for abs_slot in abs_start..abs_end {
+            if abs_slot == gk_abs {
+                continue;
+            }
+            let (px, py) = player_positions[abs_slot as usize];
+            let dx = px - carrier_x;
+            let dy = py - carrier_y;
+            let dist_sq = dx * dx + dy * dy;
+            let local_slot = if team_idx == 0 {
+                abs_slot
+            } else {
+                abs_slot - 11
+            };
+            distances.push((dist_sq, local_slot));
+        }
+
+        // Sort by (dist_sq ASC, local_slot ASC) — fully deterministic.
+        distances.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+
+        // Assign roles into TeamShape.
+        for (rank, (_dist_sq, local_slot)) in distances.iter().enumerate() {
+            shapes[team_idx].press_roles[*local_slot as usize] = match rank {
+                0 => PressRole::Primary,
+                1 | 2 => PressRole::Cover,
+                _ => PressRole::HoldShape,
+            };
+        }
+        // GK (local_slot 0) stays HoldShape (excluded from distances above).
+    }
+}
+
+/// Convenience wrapper for use in tests. Calls `compute_press_from_parts`
+/// from a full `MatchState` reference.
+#[cfg(test)]
+pub fn compute_press(shapes: &mut [TeamShape; 2], state: &MatchState) {
+    let player_positions: [(Q32, Q32); 22] = {
+        let mut arr = [(Q32::ZERO, Q32::ZERO); 22];
+        for (i, p) in state.players.iter().enumerate() {
+            arr[i] = (p.pos_x, p.pos_y);
+        }
+        arr
+    };
+    compute_press_from_parts(
+        shapes,
+        state.possession,
+        &player_positions,
+        &state.team_tactic_states,
+    );
 }
 
 // ---------------------------------------------------------------------------

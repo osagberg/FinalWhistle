@@ -212,14 +212,57 @@ pub fn select_outfield_intent(
             ]
         }
 
-        // Pressing focus.
+        // Pressing focus — FUN-TS2b: route by coordinated press role.
+        //
+        // `Primary` → full press utility (closest to carrier, steps up).
+        // `Cover`   → hold zonal via enforce_hold_zonal (cuts passing lane
+        //             behind the Primary presser; does not chase the carrier).
+        // `HoldShape` in HighPress → maintain the block; avoids swarm.
+        //
+        // When the team is NOT in HighPress (`shape.is_high_press == false`),
+        // fall back to the standard utility_press + utility_track_back
+        // competition that MidBlock / LowBlock pressing used pre-FUN-TS2.
         PlayerRoleState::Defender(DefenderState::Pressing)
         | PlayerRoleState::Midfielder(MidfielderState::Pressing)
         | PlayerRoleState::Forward(ForwardState::Pressing) => {
-            vec![
-                utility_press(player, roster_slot, carrier_pos),
-                utility_track_back(player, roster_slot, shape, team_idx),
-            ]
+            if !shape.is_high_press {
+                // MidBlock / LowBlock: standard individual press (pre-TS2 behavior).
+                vec![
+                    utility_press(player, roster_slot, carrier_pos),
+                    utility_track_back(player, roster_slot, shape, team_idx),
+                ]
+            } else {
+                // HighPress: route by coordinated role.
+                // Team-local slot: roster_slot is 0-indexed (0..22), matching
+                // the writer's local_slot in compute_press_from_parts:
+                //   home  → local_slot = abs_slot        = roster_slot (0..10)
+                //   away  → local_slot = abs_slot - 11   = roster_slot - 11 (0..10)
+                let team_local = if team_idx == 0 {
+                    roster_slot as usize
+                } else {
+                    (roster_slot - 11) as usize
+                };
+                let press_role = shape.press_roles[team_local];
+                match press_role {
+                    crate::team_shape::PressRole::Primary => {
+                        // Step up and press the carrier aggressively.
+                        vec![
+                            utility_press(player, roster_slot, carrier_pos),
+                            utility_track_back(player, roster_slot, shape, team_idx),
+                        ]
+                    }
+                    crate::team_shape::PressRole::Cover
+                    | crate::team_shape::PressRole::HoldShape => {
+                        // Hold zonal position — maintain the defensive block line,
+                        // cut passing lanes by staying in position rather than
+                        // chasing the carrier alongside the Primary presser.
+                        vec![
+                            enforce_hold_zonal(roster_slot, shape, team_idx),
+                            utility_track_back(player, roster_slot, shape, team_idx),
+                        ]
+                    }
+                }
+            }
         }
 
         // Off-ball forward running.
@@ -306,10 +349,23 @@ pub fn select_outfield_intent(
     // Each intent variant maps to a BiasConsideration; the multiplier is
     // applied after personality bias (which is already in the score from
     // the utility functions above).
+    //
+    // FUN-TS2a enforcement exemption: when the team is defending and the
+    // candidate is HoldFormation (emitted by enforce_hold_zonal), skip the
+    // bias pass entirely. enforce_hold_zonal's dominance must be unconditional
+    // — a signature with cover_mul=0.25 must not pull it below competing press
+    // utility scores and break zonal shape. The bias multiplier is meaningful
+    // for the voluntary utility_hold_formation path (possession team) but NOT
+    // for the enforcement path (defending team, structural invariant).
     let candidates: Vec<(PlayerIntent, Q32)> = if let Some(snap) = active_bias {
         candidates
             .into_iter()
             .map(|(intent, score)| {
+                // Enforcement exemption: zonal hold for defending team is
+                // non-negotiable — signature bias cannot override team shape.
+                if shape.is_defending && matches!(&intent, PlayerIntent::HoldFormation { .. }) {
+                    return (intent, score);
+                }
                 let consideration = intent_to_bias_consideration(&intent);
                 let biased = apply_signature_bias(score, snap, consideration);
                 (intent, biased)

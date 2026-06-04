@@ -677,7 +677,8 @@ impl MatchState {
             // FUN-0b+c: tackle_cooldown_until — all Tick::ZERO at match init (no cooldowns).
             tackle_cooldown_until: [Tick::ZERO; 22],
             // FUN-TS1: team_shape sidecar — initialized to zero() defaults.
-            // Recomputed each tick by dispatch_tick; not canonical bytes.
+            // FUN-TS2b: press_roles within TeamShape also initialized to HoldShape
+            // via TeamShape::zero(). Filled by compute_press each tick.
             team_shape: [team_shape::TeamShape::zero(); 2],
         }
     }
@@ -1004,12 +1005,13 @@ impl MatchState {
 // ---------------------------------------------------------------------------
 
 // Minimum save probability for the worst GK (attrs = 0.0) in a perfect position.
-// Provisional: 0.55. Tuning lever: lower = more goals, higher = fewer.
-const SAVE_BASE_MIN: Q32 = Q32::from_raw(3_135_326_126_i64); // ≈ 0.73 (drama-sweep R11 final)
+// FUN-TS2 recal: lowered from 0.73 to 0.62 to compensate for higher base sigma
+// (sigma=7.0m) reducing on-target shot count; keeps M1 reachable at ~2.3-2.6.
+const SAVE_BASE_MIN: Q32 = Q32::from_raw(2_662_879_723_i64); // ≈ 0.62
 
 // Maximum save probability for the best GK (attrs = 1.0) in a perfect position.
-// Provisional: 0.90.
-const SAVE_BASE_MAX: Q32 = Q32::from_raw(3_951_369_912_i64); // ≈ 0.92 (drama-sweep R11 final)
+// FUN-TS2 recal: lowered from 0.92 to 0.82 in lockstep with SAVE_BASE_MIN.
+const SAVE_BASE_MAX: Q32 = Q32::from_raw(3_521_873_182_i64); // ≈ 0.82
 
 // Position penalty per metre of GK-to-ball y-error.
 // At 1m error: factor drops by 0.15. At 3m error: factor ≈ 0.55.
@@ -1018,8 +1020,9 @@ const POSITION_PENALTY_RATE: Q32 = Q32::from_raw(644_245_094_i64); // ≈ 0.15 p
 // Minimum positional factor (GK completely out of position — last-chance reach).
 const POSITION_MIN: Q32 = Q32::from_raw(429_496_729_i64); // ≈ 0.10
 
-// Maximum save probability cap — even the best GK misses 8% of all on-target shots.
-const SAVE_PROB_MAX: Q32 = Q32::from_raw(3_951_369_912_i64); // ≈ 0.92
+// Maximum save probability cap — best GK misses ~18% of on-target shots.
+// FUN-TS2 recal: lowered from 0.92 to 0.82 in lockstep with SAVE_BASE_MAX.
+const SAVE_PROB_MAX: Q32 = Q32::from_raw(3_521_873_182_i64); // ≈ 0.82
 
 // Site discriminant for the GK save roll (0x5A7E = "SAVE" mnemonic).
 const SAVE_ROLL_SITE_DISCRIMINANT: u32 = 0x5A7E;

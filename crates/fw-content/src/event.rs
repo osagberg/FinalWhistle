@@ -38,6 +38,7 @@
 //! | 3 | `Shot` |
 //! | 4 | `Pass` |
 //! | 5 | `SignatureFirstFired` |
+//! | 6 | `Offside` |
 //!
 //! ## `PassKind` discriminants (stable; do not reorder)
 //!
@@ -182,6 +183,26 @@ pub enum MatchEvent {
         /// The tick at which the signature fired.
         tick: Tick,
     },
+
+    /// An offside infringement was detected at pass-launch (FUN-TS2b).
+    ///
+    /// Checked in `apply_intent` at the moment a forward pass is played:
+    /// if the intended receiver is beyond both the ball position AND the
+    /// defending team's second-rearmost defender (incl. GK) at the instant
+    /// the pass is made, an offside flag is emitted.
+    ///
+    /// Per Laws of the Game (IFAB 2025/26, Law 11):
+    /// - Equal line = ONSIDE (not offside if level with last defender).
+    /// - Backward/square passes (toward own goal) never offside.
+    /// - No offside from throw-ins, corners, or goal-kicks.
+    ///
+    /// Discriminant 6 (append-only — do NOT reorder).
+    Offside {
+        /// The offending player (receiver who was in an offside position).
+        offending_slot: PlayerSlot,
+        /// The tick at which the pass was launched (and the offside detected).
+        tick: Tick,
+    },
 }
 
 impl MatchEvent {
@@ -226,6 +247,7 @@ impl MatchEvent {
             MatchEvent::Shot { .. } => MatchEventDiscriminant::Shot,
             MatchEvent::Pass { .. } => MatchEventDiscriminant::Pass,
             MatchEvent::SignatureFirstFired { .. } => MatchEventDiscriminant::SignatureFirstFired,
+            MatchEvent::Offside { .. } => MatchEventDiscriminant::Offside,
         }
     }
 }
@@ -245,6 +267,7 @@ impl MatchEvent {
 /// | 3            | `Shot`               |
 /// | 4            | `Pass`               |
 /// | 5            | `SignatureFirstFired` |
+/// | 6            | `Offside`            |
 ///
 /// `#[repr(u8)]` per Codex Tier-2 type-design P1 on T1-4b: pins the
 /// discriminant layout for any future `transmute` / FFI / serde-repr
@@ -264,6 +287,8 @@ pub enum MatchEventDiscriminant {
     Shot = 3,
     Pass = 4,
     SignatureFirstFired = 5,
+    /// FUN-TS2b: offside detection at pass-launch.
+    Offside = 6,
 }
 
 impl MatchEventDiscriminant {
@@ -283,7 +308,7 @@ impl MatchEventDiscriminant {
 
     /// All discriminants in canonical order — used by the `ContentStore` loader
     /// to validate that every event class has a grammar loaded.
-    pub fn all() -> [MatchEventDiscriminant; 6] {
+    pub fn all() -> [MatchEventDiscriminant; 7] {
         [
             Self::KickOff,
             Self::FullTime,
@@ -291,6 +316,7 @@ impl MatchEventDiscriminant {
             Self::Shot,
             Self::Pass,
             Self::SignatureFirstFired,
+            Self::Offside,
         ]
     }
 }

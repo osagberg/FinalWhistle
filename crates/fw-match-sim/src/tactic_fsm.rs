@@ -257,10 +257,22 @@ pub fn archetype_params_for(arch: &fw_content::TacticalArchetype) -> ArchetypePa
     } else {
         CounterIntent::Default
     };
-    let default_in_defence_state = if arch.press_radius_metres <= 20 {
-        TacticState::LowBlock
-    } else {
-        TacticState::MidBlock
+    // FUN-TS2d: decouple line-height from press-intensity.
+    // When `line_height_metres` is set by the content author, use it directly
+    // for `default_in_defence_state`; otherwise fall back to the legacy coupled
+    // rule (`press_radius_metres <= 20 → LowBlock`, else `MidBlock`).
+    let default_in_defence_state = match arch.line_height_metres {
+        Some(h) if h < 20 => TacticState::LowBlock,
+        Some(h) if h > 35 => TacticState::HighPress,
+        Some(_) => TacticState::MidBlock,
+        None => {
+            // Legacy coupled rule: preserves existing archetype behaviour.
+            if arch.press_radius_metres <= 20 {
+                TacticState::LowBlock
+            } else {
+                TacticState::MidBlock
+            }
+        }
     };
     ArchetypeParams {
         default_in_defence_state,
@@ -939,6 +951,7 @@ mod tests {
             id: "fwh.core:archetype.attacking-fullback".into(),
             formation: vec![],
             press_radius_metres: 30,
+            line_height_metres: None, // derive from press_radius (legacy coupled rule)
             buildup_speed_factor_bps: 9_000,
         }
     }
@@ -948,6 +961,7 @@ mod tests {
             id: "fwh.core:archetype.low-block-counter".into(),
             formation: vec![],
             press_radius_metres: 15,
+            line_height_metres: None,
             buildup_speed_factor_bps: 11_500,
         }
     }
@@ -995,6 +1009,7 @@ mod tests {
             id: "fwh.test:archetype.threshold-20".into(),
             formation: vec![],
             press_radius_metres: 20,
+            line_height_metres: None,
             buildup_speed_factor_bps: 10_000,
         };
         let p = archetype_params_for(&archetype);
@@ -1011,6 +1026,7 @@ mod tests {
             id: "fwh.test:archetype.threshold-21".into(),
             formation: vec![],
             press_radius_metres: 21,
+            line_height_metres: None,
             buildup_speed_factor_bps: 10_000,
         };
         let p = archetype_params_for(&archetype);
@@ -1191,6 +1207,7 @@ mod tests {
             id: "fwh.test:archetype.buildup-11000".into(),
             formation: vec![],
             press_radius_metres: 25,
+            line_height_metres: None,
             buildup_speed_factor_bps: 11_000,
         };
         assert_eq!(
@@ -1202,6 +1219,7 @@ mod tests {
             id: "fwh.test:archetype.buildup-10999".into(),
             formation: vec![],
             press_radius_metres: 25,
+            line_height_metres: None,
             buildup_speed_factor_bps: 10_999,
         };
         assert_eq!(

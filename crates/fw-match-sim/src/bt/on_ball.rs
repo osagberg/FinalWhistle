@@ -56,11 +56,12 @@ use crate::subtree_library::formation_position;
 /// (R11 final) settled on ≈0.095 — high enough to suppress blind 50m+ pokes
 /// while letting plausible efforts through.
 ///
-/// Calibrated value: ≈0.095 (raw 408,021,893; 0.095 × 2^32 ≈ 408,021,893).
-/// doc/design/shot-model.md §Calibration cadence tuning lever:
-///   - If shots/match > 14: raise this constant (+0.003 per sweep).
-///   - If shots/match < 10: lower this constant (-0.003 per sweep).
-pub(crate) const XG_SHOOT_THRESHOLD: Q32 = Q32::from_raw(408_021_893_i64); // ≈ 0.095 (drama-sweep R11 final)
+/// FUN-TS2 recal: lowered from 0.095 to 0.070. Per the calibration rule
+/// (shots/match < 10 → lower by 0.003/sweep), TS2 coordinated press suppressed
+/// shot volume to ~7/match; -0.025 recovers ~3-4 shots/match from speculative
+/// mid-range efforts (15-30m zone). Keeps blind 50m+ pokes gated (xG ≈ 0.031
+/// at formation start positions stays below even 0.070).
+pub(crate) const XG_SHOOT_THRESHOLD: Q32 = Q32::from_raw(300_647_710_i64); // ≈ 0.070 (FUN-TS2 recal)
 
 /// Shooter quality composite weights for `xg_utility` feature extraction.
 /// `shooter_quality = finishing × 0.55 + composure × 0.25 + technique × 0.20`

@@ -323,6 +323,7 @@ mod tests {
             id: "fwh.core:archetype.test".to_string(),
             formation: vec![],
             press_radius_metres: 15,
+            line_height_metres: None,
             buildup_speed_factor_bps: 10_000,
         };
         store

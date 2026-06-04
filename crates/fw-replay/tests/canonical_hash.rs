@@ -808,13 +808,26 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   no runaway); main-thread verified BEFORE re-pinning per the post-T1-15
 ///   multi-pin discipline + drama-sweep M1 in band. Authorized by the
 ///   watchable-match spec in MEMORY.md (Tier-F + user "go" 2026-06-04).
+/// - 2026-06-04 (FUN-TS2 shot-quality tuning) — **re-baselined to `f139c76a…6d1c`**
+///   per ADR-0012 trigger #3 (sim behavior change with documented intent). Shot
+///   dispersion parameters retuned to pull on-target% from 63% toward the 35-45%
+///   believability band: `SIGMA_BASE_M` 5.5m → 7.0m, `SIGMA_MIN_M` 1.5m → 2.0m,
+///   `SIGMA_MAX_M` 9.0m → 15.0m. `XG_SHOOT_THRESHOLD` 0.095 → 0.070 to restore
+///   shot volume after coordinated-block suppression. GK save model lowered:
+///   `SAVE_BASE_MIN` 0.73 → 0.62, `SAVE_BASE_MAX`/`SAVE_PROB_MAX` 0.92 → 0.82,
+///   to compensate for higher sigma reducing on-target shots and hold M1 in band.
+///   20-seed drama-sweep result: M1=2.40 (in [2.3,3.2]), on-target=45.7%
+///   (1.7% above 45% ceiling — informational), shots/match=9.9, max-single=5.
+///   ts2_proptest.rs: `clone()` on Copy type removed (clippy); TS2-P2 offside
+///   test extended to 5400 ticks. **60-tick smoke pin UNCHANGED** (bare init,
+///   no content/GK-save path within 60 ticks). Authorized by FUN-TS2 spec.
 ///
 /// Re-baselining: update this constant AND the `expected_hash` field of
 /// `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron` in the same commit,
 /// per `docs/specs/determinism-gate.md` §9 — the same protocol that
 /// governs PINNED_60_TICK above.
 const PINNED_600_TICK: [u8; 32] =
-    hex!("6833aa332edbe83a1421b66236046c8cd51566074d8b3ae368b670d707b74cbf");
+    hex!("f139c76a631b7eb104e9d7619e9fb94ac9502e9afa5477fca9eaae6ec8c96d1c");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

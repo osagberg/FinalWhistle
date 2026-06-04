@@ -96,7 +96,8 @@ impl MatchEventDto {
             | MatchEvent::Goal { tick, .. }
             | MatchEvent::Shot { tick, .. }
             | MatchEvent::Pass { tick, .. }
-            | MatchEvent::SignatureFirstFired { tick, .. } => tick.to_raw(),
+            | MatchEvent::SignatureFirstFired { tick, .. }
+            | MatchEvent::Offside { tick, .. } => tick.to_raw(),
         };
         let minute = tick.div_euclid(TICKS_PER_GAME_MINUTE).max(0) as u32;
         MatchEventDto {

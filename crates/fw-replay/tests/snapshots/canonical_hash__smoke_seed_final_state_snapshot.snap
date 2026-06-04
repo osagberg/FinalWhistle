@@ -1,5 +1,6 @@
 ---
 source: crates/fw-replay/tests/canonical_hash.rs
+assertion_line: 621
 expression: state
 ---
 MatchState {
@@ -4923,6 +4924,20 @@ MatchState {
                 35,
             ),
             is_defending: false,
+            press_roles: [
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+            ],
+            is_high_press: false,
         },
         TeamShape {
             line_x: Q32(
@@ -4941,6 +4956,20 @@ MatchState {
                 35,
             ),
             is_defending: true,
+            press_roles: [
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+                HoldShape,
+            ],
+            is_high_press: false,
         },
     ],
 }

@@ -61,7 +61,8 @@ export type MatchEventKind =
   | "FullTime"
   | "Card"
   | "Substitution"
-  | "SignatureFirstFired";
+  | "SignatureFirstFired"
+  | "Offside";
 
 export interface MatchEvent {
   tick: number;

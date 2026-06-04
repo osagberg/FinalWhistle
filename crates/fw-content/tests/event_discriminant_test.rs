@@ -55,6 +55,8 @@ const GOAL_DISC: u8 = 2;
 const SHOT_DISC: u8 = 3;
 const PASS_DISC: u8 = 4;
 const SIGNATURE_FIRST_FIRED_DISC: u8 = 5;
+/// FUN-TS2b: Offside detection (discriminant 6).
+const OFFSIDE_DISC: u8 = 6;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -177,11 +179,28 @@ fn signature_first_fired_discriminant_is_5() {
     );
 }
 
-/// Anti-vacuousness: all 6 discriminants are DISTINCT.
+fn offside_ev() -> MatchEvent {
+    MatchEvent::Offside {
+        offending_slot: 8,
+        tick: Tick::from_raw(55),
+    }
+}
+
+#[test]
+fn offside_discriminant_is_6() {
+    assert_eq!(
+        offside_ev().discriminant() as u8,
+        OFFSIDE_DISC,
+        "Offside discriminant must be {} (FUN-TS2b canonical encoder)",
+        OFFSIDE_DISC
+    );
+}
+
+/// Anti-vacuousness: all 7 discriminants are DISTINCT.
 ///
 /// This test catches a naive implementation that returns a constant for all
 /// variants (which would pass each individual test above if the constant
-/// were 0..5, but would fail this one).
+/// were 0..6, but would fail this one).
 #[test]
 fn all_discriminants_are_distinct() {
     let all = [
@@ -191,6 +210,7 @@ fn all_discriminants_are_distinct() {
         shot().discriminant() as u8,
         pass_ev().discriminant() as u8,
         signature_first_fired().discriminant() as u8,
+        offside_ev().discriminant() as u8,
     ];
     // All must be distinct: collect into a BTreeSet and check the size.
     use std::collections::BTreeSet;
@@ -223,6 +243,7 @@ fn discriminant_agrees_with_match_event_discriminant_from_event() {
             signature_first_fired(),
             MatchEventDiscriminant::SignatureFirstFired,
         ),
+        (offside_ev(), MatchEventDiscriminant::Offside),
     ];
 
     for (event, expected_disc) in pairs {

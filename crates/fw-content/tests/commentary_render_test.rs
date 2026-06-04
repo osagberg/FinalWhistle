@@ -148,6 +148,10 @@ fn disc_to_event(disc: MatchEventDiscriminant) -> MatchEvent {
         MatchEventDiscriminant::Shot => shot_event(),
         MatchEventDiscriminant::Pass => pass_event(),
         MatchEventDiscriminant::SignatureFirstFired => sig_event(),
+        MatchEventDiscriminant::Offside => MatchEvent::Offside {
+            offending_slot: 8,
+            tick: fw_core::Tick::from_raw(42),
+        },
     }
 }
 

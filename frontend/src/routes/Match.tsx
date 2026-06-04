@@ -91,6 +91,8 @@ function eventLabel(kind: MatchEventKind): string {
       return "Substitution";
     case "SignatureFirstFired":
       return "Signature";
+    case "Offside":
+      return "Offside";
     default: {
       // Post-T2-close Track C-1 gate-blocker fix: throw not return — see
       // formatIpcError above for full rationale. A future MatchEventKind
@@ -118,6 +120,7 @@ function badgeClass(kind: MatchEventKind): string {
     case "Pass":
     case "Substitution":
     case "SignatureFirstFired":
+    case "Offside":
       return "bg-paper-bold text-ink-subtle dark:bg-midnight-subtle dark:text-paper-subtle";
     default: {
       // Post-T2-close Track C-1 gate-blocker fix: throw not return. Prior

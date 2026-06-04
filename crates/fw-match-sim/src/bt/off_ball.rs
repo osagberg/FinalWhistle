@@ -361,6 +361,8 @@ mod tests {
             compactness_v: Q32::from_int(32),
             compactness_h: Q32::from_int(35),
             is_defending: true,
+            press_roles: [crate::team_shape::PressRole::HoldShape; 11],
+            is_high_press: false,
         }
     }
 

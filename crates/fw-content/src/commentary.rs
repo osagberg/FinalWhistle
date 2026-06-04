@@ -476,6 +476,10 @@ fn event_tick_and_slot(event: &MatchEvent) -> (u32, PlayerSlot) {
         MatchEvent::SignatureFirstFired {
             tick, player_slot, ..
         } => (tick.to_raw() as u32, *player_slot),
+        MatchEvent::Offside {
+            tick,
+            offending_slot,
+        } => (tick.to_raw() as u32, *offending_slot),
     }
 }
 
@@ -546,6 +550,14 @@ fn build_vars(event: &MatchEvent) -> Vec<(String, String)> {
             ("tick".into(), tick.to_raw().to_string()),
             ("playerSlot".into(), player_slot.to_string()),
             ("signatureId".into(), signature_id.as_str().to_string()),
+        ],
+        // FUN-TS2b: Offside event variables.
+        MatchEvent::Offside {
+            tick,
+            offending_slot,
+        } => vec![
+            ("tick".into(), tick.to_raw().to_string()),
+            ("offendingSlot".into(), offending_slot.to_string()),
         ],
     }
 }

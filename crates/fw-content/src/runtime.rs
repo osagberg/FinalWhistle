@@ -135,6 +135,8 @@ fn load_commentary_grammars(
             "shot" => MatchEventDiscriminant::Shot,
             "pass" => MatchEventDiscriminant::Pass,
             "signature_first_fired" => MatchEventDiscriminant::SignatureFirstFired,
+            // FUN-TS2b: offside grammar. Narrative-director to polish later.
+            "offside" => MatchEventDiscriminant::Offside,
             other => {
                 // T2-R-C5 (post-T2 ultimate-review Track C-5): the prior
                 // shape claimed "log and skip" in the comment but never
@@ -401,6 +403,26 @@ pub struct TacticalArchetype {
     pub id: String,
     pub formation: Vec<FormationSlot>,
     pub press_radius_metres: u32,
+    /// Optional explicit line-height in metres (home orientation, signed).
+    /// When `Some(m)`, the bridge uses this value directly for
+    /// `default_in_defence_state` rather than deriving it from
+    /// `press_radius_metres`. When `None`, the bridge falls back to the
+    /// legacy coupled rule (press_radius > 20 → MidBlock, else LowBlock).
+    ///
+    /// FUN-TS2d (2026-06-04): decouples line-height from press-intensity.
+    /// A team can set a high line WITHOUT high press (e.g. "high line, low
+    /// press" = deep-lying playmaker system) or press hard from a mid-block
+    /// (e.g. "low line, high press" = ultra-defensive trap-press).
+    ///
+    /// Values:
+    ///   < 20  → LowBlock (own half, deep)
+    ///   20-35 → MidBlock (middle third)
+    ///   > 35  → HighPress (high line, near or past centre)
+    ///
+    /// Existing archetypes that omit this field retain the prior derived
+    /// behaviour (no canonical-hash drift).
+    #[serde(default)]
+    pub line_height_metres: Option<u32>,
     /// Buildup-speed multiplier in basis points; see the type-level doc.
     /// `BUILDUP_SPEED_BASELINE_BPS` (10_000) is neutral 1.0; valid range
     /// is `BUILDUP_SPEED_MIN_BPS..=BUILDUP_SPEED_MAX_BPS`. The BT-runner

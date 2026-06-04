@@ -545,6 +545,17 @@ impl CanonicalEncoder {
                 self.write_u16(id_bytes.len() as u16);
                 self.buf.extend_from_slice(id_bytes);
             }
+            // FUN-TS2b: Offside detection at pass-launch (discriminant 6).
+            // Payload: offending_slot (u8) + tick (i64). Compact; no position
+            // fields — the offside line is a sidecar derived from canonical
+            // state, not stored separately.
+            MatchEvent::Offside {
+                offending_slot,
+                tick,
+            } => {
+                self.write_u8(*offending_slot);
+                self.write_i64(tick.to_raw());
+            }
         }
     }
 

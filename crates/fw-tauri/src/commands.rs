@@ -3580,16 +3580,14 @@ mod tests {
     ///
     /// Seeds and tick counts mirror `crates/fw-replay/tests/canonical_hash.rs`:
     /// - 60-tick: seed `0xDEAD_BEEF_DEAD_BEEF`, plain `MatchState::initial`
-    ///   → `e56562f8…`
+    ///   → `d1170bfc…`
     /// - 600-tick: seed `0xfeed_beef_cafe_fade`, `initial_with_content`
-    ///   → `6805c105…`
+    ///   → `f139c76a…` (FUN-TS2 shot-quality tuning: SIGMA_BASE 7m, threshold
+    ///   0.070, SAVE_BASE 0.62/0.82) — then further updated at FUN-TS2 press-role
+    ///   fix (off-by-one corrected; hash moves again — see re-baseline history
+    ///   in `crates/fw-replay/tests/canonical_hash.rs`).
     ///
-    /// Both rebaselined at the FUN-0b+c watchable-match fix (shot-quality xG
-    /// gate + dispossession/tackle + GK save model + drama-sweep tuning), which
-    /// changed per-tick player trajectories + shot/pass selection across the
-    /// run; see the re-baseline history in
-    /// `crates/fw-replay/tests/canonical_hash.rs`. This hand-synced pin must
-    /// move in lockstep with fw-replay's pins.
+    /// This hand-synced pin must move in lockstep with fw-replay's pins.
     ///
     /// The harvest path only writes to `career.ledger` and `career.roster`
     /// (career_apps increments) — it does NOT touch `MatchState` canonical
@@ -3620,7 +3618,7 @@ mod tests {
         };
         assert!(
             hash_60.starts_with("blake3:d1170bfc"),
-            "60-tick canonical hash must start with d1170bfc (FUN-TS1 team defensive shape baseline; keep in lockstep with fw-replay's PINNED_60_TICK); got {hash_60}"
+            "60-tick canonical hash must start with d1170bfc (FUN-TS2 coordinated pressing + offside; keep in lockstep with fw-replay's PINNED_60_TICK); got {hash_60}"
         );
 
         // 600-tick pin — seed `0xfeed_beef_cafe_fade`, 600 ticks.
@@ -3647,9 +3645,9 @@ mod tests {
             )
         };
         assert!(
-            hash_600.starts_with("blake3:6833aa33"),
-            "600-tick canonical hash must start with 6833aa33 (FUN-TS1 team defensive shape \
-             baseline; keep in lockstep with fw-replay's PINNED_600_TICK); got {hash_600}"
+            hash_600.starts_with("blake3:f139c76a"),
+            "600-tick canonical hash must start with f139c76a (FUN-TS2 + shot-quality tuning; \
+             keep in lockstep with fw-replay's PINNED_600_TICK); got {hash_600}"
         );
     }
 

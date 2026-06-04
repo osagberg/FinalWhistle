@@ -939,6 +939,7 @@ mod tests {
                 })
                 .collect(),
             press_radius_metres: 20,
+            line_height_metres: None,
             buildup_speed_factor_bps: BUILDUP_SPEED_BASELINE_BPS,
         }
     }

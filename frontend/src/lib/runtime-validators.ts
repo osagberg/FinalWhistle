@@ -269,6 +269,7 @@ const KNOWN_MATCH_EVENT_KINDS = new Set([
   "Card",
   "Substitution",
   "SignatureFirstFired",
+  "Offside",
 ] as const) satisfies ReadonlySet<MatchEventKind>;
 
 function isMatchEventKind(v: unknown): v is MatchEventKind {

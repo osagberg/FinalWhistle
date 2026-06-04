@@ -31,6 +31,7 @@ fn event_tick(ev: &MatchEvent) -> Tick {
         MatchEvent::Shot { tick, .. } => *tick,
         MatchEvent::Pass { tick, .. } => *tick,
         MatchEvent::SignatureFirstFired { tick, .. } => *tick,
+        MatchEvent::Offside { tick, .. } => *tick,
     }
 }
 
