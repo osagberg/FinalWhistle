@@ -225,6 +225,8 @@ At 5-season boundary, older events compact to summarized state (preserves callba
 
 ### MVP scope
 
+> **2026-06-04 reframe (DECISIONS 2026-06-04 "No EA milestone"):** this section is no longer an EA feature cut-line. The roadmap is now dynamic and best-game-first — believability and depth set the priority order, not a release date. Read the list below as a PRIORITY set (what the game needs to be worth playing), not a scope contract bounded by an EA gate. EA may remain a future release / pricing choice, but it does NOT drive scope. The content is retained for reference; the framing is what changed.
+
 The following are confirmed IN for EA / MVP launch (2026-05-29 decision — see DECISIONS.md):
 
 - Single procedurally generated nation, one six-tier pyramid (~96 clubs), ~2000-2400 procedural players — full LLM-baked content pipeline.
