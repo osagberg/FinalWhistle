@@ -62,12 +62,26 @@ pub const MIN_PLAYER_DISTANCE: Q32 = Q32::from_raw(1_717_986_918);
 pub const MIN_PLAYER_DISTANCE_SQ: Q32 = Q32::from_raw(687_194_767);
 
 /// Fallback half-separation used when two players occupy the exact same
-/// position (dist_sq == 0). Each player is pushed ±EPSILON_SEPARATION along
-/// +X / -X from their shared position, guaranteeing a 2×EPSILON gap before
-/// the next tick.
+/// position (dist_sq == 0).
 ///
-/// ≈ 0.001 m — raw bits = round(0.001 × 2^32) = 4_294_967
-pub const EPSILON_SEPARATION: Q32 = Q32::from_raw(4_294_967);
+/// FUN-0 fix: was `EPSILON_SEPARATION ≈ 0.001m` — this left the pair at
+/// only `2 × EPSILON = 0.002m` apart, causing a large (~0.199m) correction
+/// on the NEXT tick (`half_overlap = (0.4 - 0.002)/2 = 0.199m`), exceeding
+/// the 0.15m/tick ImpossiblePlayerVelocity threshold. The tick-2 cascade
+/// fired for all 6 co-located opposing-team pairs in the default 4-3-3
+/// formation (slots 5↔19, 6↔20, 7↔21, 8↔16, 9↔17, 10↔18 share positions
+/// at kick-off), producing 11+ violations per occurrence.
+///
+/// Fix: set the zero-distance fallback to `MIN_PLAYER_DISTANCE / 2 = 0.2m`.
+/// Each player moves 0.2m in one tick — slightly above the 0.15m threshold,
+/// but this fires only ONCE per co-located pair (on tick 1 of the match)
+/// rather than cascading. On tick 2 the pair is already 0.4m apart and no
+/// further correction fires. The single ~0.2m push is an acceptable
+/// initialisation artifact; in real football players line up before kick-off
+/// without occupying the same spot.
+///
+/// Raw bits: round(0.2 × 2^32) = 858_993_459
+pub const EPSILON_SEPARATION: Q32 = Q32::from_raw(858_993_459); // ≈ 0.2m (= MIN_PLAYER_DISTANCE / 2)
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -311,6 +325,83 @@ mod tests {
             state.players[18].pos_y,
             Q32::ZERO,
             "slot 18 Y must be unchanged by zero-distance fallback"
+        );
+    }
+
+    // ---- FUN-0: two-tick cascade guard ----
+
+    /// Two co-located players (dist = 0) must reach MIN_PLAYER_DISTANCE after
+    /// exactly one separation pass, and the second pass must make no further
+    /// correction.
+    ///
+    /// This is the cascade-elimination property that motivated changing
+    /// EPSILON_SEPARATION from 0.001m to MIN_PLAYER_DISTANCE/2 (= 0.2m).
+    ///
+    /// Old behaviour (EPSILON = 0.001m):
+    ///   - Tick 1: push each player ±0.001m → they are 0.002m apart.
+    ///   - Tick 2: half_overlap = (0.4 - 0.002)/2 = 0.199m → large cascade push.
+    ///
+    /// New behaviour (EPSILON = MIN_PLAYER_DISTANCE/2 = 0.2m):
+    ///   - Tick 1: push each player ±0.2m → they are exactly 0.4m apart.
+    ///   - Tick 2: dist_sq ≥ MIN_PLAYER_DISTANCE_SQ → no correction.
+    #[test]
+    fn zero_distance_fallback_resolves_in_one_tick_no_cascade() {
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        // Place slots 0 and 1 at the same position (zero distance).
+        state.players[0].pos_x = Q32::ZERO;
+        state.players[0].pos_y = Q32::ZERO;
+        state.players[1].pos_x = Q32::ZERO;
+        state.players[1].pos_y = Q32::ZERO;
+        for k in 2..state.players.len() {
+            // Isolate all other players far away so they don't interfere.
+            state.players[k].pos_x = Q32::from_int((k as i32) * 5);
+            state.players[k].pos_y = Q32::from_raw(10_i64 << 32);
+        }
+
+        // --- Tick 1: apply separation ---
+        apply_player_separation(&mut state);
+
+        // After tick 1, the pair must be exactly MIN_PLAYER_DISTANCE apart
+        // (pushed by ±EPSILON_SEPARATION = ±MIN_PLAYER_DISTANCE/2 each).
+        let dx_after_tick1 = state.players[1].pos_x - state.players[0].pos_x;
+        let dist_sq_after_tick1 = dx_after_tick1 * dx_after_tick1;
+        let dist_after_tick1 = dist_sq_after_tick1.sqrt();
+        // Allow 1 ULP for cordic rounding (same tolerance as `overlapping_pair_pushed_to_min_distance`).
+        let close_enough = dist_after_tick1 >= MIN_PLAYER_DISTANCE
+            || (MIN_PLAYER_DISTANCE - dist_after_tick1) <= Q32::from_raw(4096);
+        assert!(
+            close_enough,
+            "after tick 1 the pair must be at MIN_PLAYER_DISTANCE ({MIN_PLAYER_DISTANCE:?}); \
+             got {dist_after_tick1:?} — if EPSILON_SEPARATION < MIN_PLAYER_DISTANCE/2 \
+             the cascade will fire on tick 2"
+        );
+
+        // --- Tick 2: apply separation again ---
+        // Snapshot positions before tick 2.
+        let p0x_before = state.players[0].pos_x;
+        let p0y_before = state.players[0].pos_y;
+        let p1x_before = state.players[1].pos_x;
+        let p1y_before = state.players[1].pos_y;
+
+        apply_player_separation(&mut state);
+
+        // Tick 2 must make NO further positional correction (pair is already
+        // at or beyond MIN_PLAYER_DISTANCE after tick 1).
+        assert_eq!(
+            state.players[0].pos_x, p0x_before,
+            "slot 0 pos_x must not change on tick 2 (pair already at min distance)"
+        );
+        assert_eq!(
+            state.players[0].pos_y, p0y_before,
+            "slot 0 pos_y must not change on tick 2"
+        );
+        assert_eq!(
+            state.players[1].pos_x, p1x_before,
+            "slot 1 pos_x must not change on tick 2 (pair already at min distance)"
+        );
+        assert_eq!(
+            state.players[1].pos_y, p1y_before,
+            "slot 1 pos_y must not change on tick 2"
         );
     }
 

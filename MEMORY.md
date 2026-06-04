@@ -31,7 +31,9 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-<!-- none active. Tier-F foundation in progress (user-directed: DX-2 → FUN-H1 → FUN-0). DONE 2026-06-04: DX-1 (HTTP play-harness `fw-dev-server` @127.0.0.1:1422, `?backend=http`); DX-2 (match-quality inspection — `inspect_frames` 7 glitch-detectors + `render_contact_sheet` PNG; full match = 5400 ticks; the broken match flags 32,737 ImpossiblePlayerVelocity = the FUN-0 target). NEXT: FUN-H1 (`drama-sweep` tool over docs/design/drama-model.md), then FUN-0 (fix match-feel — start with the velocity-cap bypass; sim change + authorized rebaseline). Detail in CHANGELOG + DECISIONS + docs/design/match-quality-inspection.md. Filed follow-ups: dev-server↔Tauri registry-parity test; inspect_frames detector-name enum + stall-gate + contact-sheet 11-vs-n_players seam. -->
+<!-- none active. FUN-0 VELOCITY SLICE DONE 2026-06-04: the player velocity-cap bypass (dispatch.rs 2D-magnitude cap via apply_vel_toward_target + separation EPSILON 0.001→0.2m). ImpossiblePlayerVelocity 32,183→12; score 54-53→43-43; movement now physical. Canonical hash REBASELINED (authorized, multi-pin, main-thread envelope-verified): 60-tick→a490489b, 600-tick→3efd5623 (6 sites). Self-review triple ACCEPT + 3 test-quality fixes. Detail in CHANGELOG + DECISIONS + canonical_hash.rs history. NOT yet watchable (43-43 = goal-rate/ball-physics: BallPhasingPlayer 844 + BallTeleport 237 + shot-decision frequency). NEXT (Tier-F): FUN-H1 (drama-sweep tool over docs/design/drama-model.md) + the ball-physics/shot-rate slice to reach the watchable-match bar; then FUN-1..5 + T4.5. Follow-up noted: inspect_frames tick→minute display + signatures-stamped-0' (display-only). -->
+
+<!-- Tier-F foundation DONE 2026-06-04: DX-1 (HTTP play-harness) + DX-2 (inspection: inspect_frames + render_contact_sheet; full match=5400 ticks). Filed follow-ups: dev-server↔Tauri registry-parity test; inspect_frames detector-name enum + stall-gate + contact-sheet seam. -->
 
 <!-- T4-7 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
 

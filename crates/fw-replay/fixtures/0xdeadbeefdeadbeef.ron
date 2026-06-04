@@ -218,7 +218,7 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:85f45bf8ae8821182a45a82969ec36bc5b2d70ba2518b8271de24782fd8064fa",
+    expected_hash: "blake3:a490489b534ecd16dde46bd5a8f2022b7a3fd127778b8f73050712bcd1b99dba",
     metadata: (
         description: "T4-sim-halt: sim self-halts at FullTime. match_end_tick default 60 → FULL_MATCH_TICKS (5400 = 90 min); tick_match gained a step-0 freeze guard (no-op once FullTime is the tail) + an in-play gate wrapping gameplay steps 2-8. On this 60-tick smoke seed gameplay is byte-identical to the T2-1b baseline (60 < 5400 → gate never closes, freeze never fires); the canonical deltas are match_end_tick (60→5400) + match_events losing the single FullTime the old default emitted at tick 60. Score 0-0. Per-team archetype divergence (T2-1b) and the bare-init attacking-fullback ArchetypeParams are otherwise unchanged.",
         generated_at: "2026-06-02",

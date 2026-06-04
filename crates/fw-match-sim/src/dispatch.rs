@@ -99,7 +99,19 @@ use fw_content::{MatchEvent, PassKind, is_shot_on_target};
 /// so outfield players can close a ~10m gap toward a loose ball within
 /// ~10 ticks (~0.17s) rather than never converging at the old 5 m/s jog.
 /// In Q32.32 format: 8 × 2^32 = 8 << 32.
+///
+/// FUN-0: `apply_vel_toward_target` enforces this as a 2D magnitude cap
+/// (not per-component). Per-component clamping to ±8 allowed diagonal
+/// movement at sqrt(2)×8 ≈ 11.31 m/s → 0.189m/tick, tripping the
+/// ImpossiblePlayerVelocity detector (0.15m threshold) on every tick
+/// for any diagonally-moving player. The 2D normalisation keeps all
+/// movements within 8/60 ≈ 0.133m/tick regardless of direction.
 const MAX_PLAYER_SPEED: Q32 = Q32::from_raw(8_i64 << 32); // 8.0 in Q32.32
+
+/// `MAX_PLAYER_SPEED²` in (m/s)². Pre-computed for the 2D magnitude check
+/// in `apply_vel_toward_target` — avoids a redundant Q32 multiply in the
+/// hot path for every player every tick.
+const MAX_PLAYER_SPEED_SQ: Q32 = Q32::from_raw((8_i64 * 8_i64) << 32); // 64.0 in Q32.32
 
 // ---------------------------------------------------------------------------
 // Ball-speed constants (T1-3.5)
@@ -607,12 +619,14 @@ pub fn dispatch_tick(
 ///   player to the target point. T2 will refine with passing-lane model.
 /// - `Pass.completed`: always `true` in T1 (no contest physics yet).
 ///
-/// ## Velocity model
+/// ## Velocity model (FUN-0)
 ///
 /// All variants with a target use the same velocity-toward-target model:
-/// clamp each component to `±MAX_PLAYER_SPEED` independently. No 2D
-/// normalisation — diagonal movement is slightly faster than cardinal but
-/// acceptable for the skeleton tier.
+/// `apply_vel_toward_target(dx, dy)` — 2D magnitude cap at `MAX_PLAYER_SPEED`.
+/// If `sqrt(dx² + dy²) <= MAX_PLAYER_SPEED`, velocity = `(dx, dy)`.
+/// If the magnitude exceeds the cap, the vector is scaled to `MAX_PLAYER_SPEED`.
+/// This ensures per-tick displacement ≤ `MAX_PLAYER_SPEED × dt ≈ 0.133m`
+/// in all movement directions, not just cardinal.
 /// T1 placeholder for `MatchEvent::Pass.completed`. Always `true` until the
 /// contest model lands in T2 — at which point this const becomes a function
 /// of the contest outcome AND every reference here must become a real bool.
@@ -904,7 +918,8 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
         // All variants with a target use the same velocity-toward-target model.
         // The target semantics differ per variant (aim point / run endpoint /
         // recipient position) but the locomotion physics are identical in this
-        // tier: clamp each component to ±MAX_PLAYER_SPEED.
+        // tier: 2D normalisation to MAX_PLAYER_SPEED (FUN-0 fix — replaces the
+        // prior per-component clamp that allowed sqrt(2)×MAX diagonal movement).
         PlayerIntent::MoveToPosition { target_x, target_y }
         | PlayerIntent::AttemptShot { target_x, target_y }
         | PlayerIntent::AttemptPassShort { target_x, target_y }
@@ -925,8 +940,9 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
         | PlayerIntent::GkDistributeLong { target_x, target_y } => {
             let dx = target_x - p.pos_x;
             let dy = target_y - p.pos_y;
-            p.vel_x = clamp_speed(dx);
-            p.vel_y = clamp_speed(dy);
+            let (vx, vy) = apply_vel_toward_target(dx, dy);
+            p.vel_x = vx;
+            p.vel_y = vy;
         }
     }
 }
@@ -1004,15 +1020,50 @@ fn nearest_teammate_near(
     best_slot
 }
 
-/// Clamp a Q32 delta to `[-MAX_PLAYER_SPEED, +MAX_PLAYER_SPEED]`.
-fn clamp_speed(delta: Q32) -> Q32 {
-    if delta > MAX_PLAYER_SPEED {
-        MAX_PLAYER_SPEED
-    } else if delta < -MAX_PLAYER_SPEED {
-        -MAX_PLAYER_SPEED
-    } else {
-        delta
+/// Compute 2D velocity components toward a target, capped to `MAX_PLAYER_SPEED`
+/// as a **vector magnitude** (not per-component).
+///
+/// ## Why vector-magnitude cap (FUN-0)
+///
+/// The prior `clamp_speed(dx)` + `clamp_speed(dy)` independent clamping
+/// allowed diagonal movement at magnitude `sqrt(2) × MAX_PLAYER_SPEED ≈ 11.31 m/s`
+/// when both `|dx|` and `|dy|` were each ≥ 8m. This produced per-tick
+/// displacement of `11.31/60 ≈ 0.189m`, tripping the `ImpossiblePlayerVelocity`
+/// detector (threshold 0.15m) on every tick for any diagonally-moving player —
+/// causing 32,000+ violations per 5400-tick match.
+///
+/// The new rule: if `dist_sq = dx² + dy² > MAX_PLAYER_SPEED²`, scale the
+/// vector to have magnitude exactly `MAX_PLAYER_SPEED`. This bounds all
+/// per-tick displacement to `MAX_PLAYER_SPEED × dt = 8/60 ≈ 0.133m`.
+///
+/// ## Zero-delta fallback
+///
+/// When `dx == dy == 0` (player is already at target), returns `(ZERO, ZERO)`.
+/// The division-by-zero path is avoided by the `dist_sq == Q32::ZERO` guard.
+///
+/// ## Q32 determinism
+///
+/// Uses `Q32::sqrt()` (cordic-backed), same path as `separation.rs` and
+/// `ball_unit_vel`. No floats, no clocks, no RNG.
+fn apply_vel_toward_target(dx: Q32, dy: Q32) -> (Q32, Q32) {
+    let dist_sq = dx * dx + dy * dy;
+
+    if dist_sq == Q32::ZERO {
+        // Already at target — zero velocity.
+        return (Q32::ZERO, Q32::ZERO);
     }
+
+    if dist_sq <= MAX_PLAYER_SPEED_SQ {
+        // Within cap — use raw delta as velocity (no normalisation needed).
+        return (dx, dy);
+    }
+
+    // Over cap: normalise to MAX_PLAYER_SPEED magnitude.
+    // dist = sqrt(dx² + dy²); vel = (dx/dist) × MAX_PLAYER_SPEED.
+    let dist = dist_sq.sqrt();
+    let vel_x = dx / dist * MAX_PLAYER_SPEED;
+    let vel_y = dy / dist * MAX_PLAYER_SPEED;
+    (vel_x, vel_y)
 }
 
 // ---------------------------------------------------------------------------
@@ -1700,6 +1751,174 @@ mod tests {
              transitioned to ShotStopping (or another state) — meaning preempt + \
              GK FSM both fired this tick, violating ADR-0006's 'preempt OR role \
              dispatch, never both' contract"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // FUN-0: velocity-cap 2D normalisation tests
+    //
+    // These tests verify that the 2D velocity vector magnitude never exceeds
+    // MAX_PLAYER_SPEED, regardless of the direction of movement. The prior
+    // per-component clamp allowed diagonal movement at sqrt(2) * MAX_SPEED
+    // ≈ 11.31 m/s, producing 0.189m/tick — well above the 0.133m/tick cap.
+    // -----------------------------------------------------------------------
+
+    /// Cardinal movement within MAX_PLAYER_SPEED is unchanged (regression guard).
+    #[test]
+    fn apply_intent_cardinal_within_cap_unchanged() {
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        let p0_x = state.players[0].pos_x;
+        let p0_y = state.players[0].pos_y;
+        // Move exactly 5 m in +X (within cap).
+        apply_intent(
+            &mut state,
+            0,
+            PlayerIntent::MoveToPosition {
+                target_x: p0_x + Q32::from_int(5),
+                target_y: p0_y,
+            },
+        );
+        assert_eq!(state.players[0].vel_x, Q32::from_int(5));
+        assert_eq!(state.players[0].vel_y, Q32::ZERO);
+    }
+
+    /// Diagonal movement with both components at MAX_PLAYER_SPEED must be
+    /// normalised so the vector magnitude equals MAX_PLAYER_SPEED, not
+    /// sqrt(2) * MAX_PLAYER_SPEED.
+    ///
+    /// Old behaviour: vel_x = MAX_PLAYER_SPEED, vel_y = MAX_PLAYER_SPEED →
+    ///   magnitude = sqrt(2) * 8 ≈ 11.31 m/s.
+    /// New behaviour: the vector (8, 8) is scaled so its magnitude = 8 →
+    ///   each component ≈ 8/sqrt(2) ≈ 5.66 m/s.
+    #[test]
+    fn apply_intent_diagonal_at_max_speed_normalised_to_cap() {
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        let p0_x = state.players[0].pos_x;
+        let p0_y = state.players[0].pos_y;
+        // Target 100m away diagonally — both components clamped to MAX_PLAYER_SPEED
+        // under the old per-component logic, producing an over-cap magnitude.
+        apply_intent(
+            &mut state,
+            0,
+            PlayerIntent::MoveToPosition {
+                target_x: p0_x + Q32::from_int(100),
+                target_y: p0_y + Q32::from_int(100),
+            },
+        );
+        let vx = state.players[0].vel_x;
+        let vy = state.players[0].vel_y;
+        // Magnitude = sqrt(vx^2 + vy^2) must not exceed MAX_PLAYER_SPEED.
+        // Compute in Q32 (cordic sqrt).
+        let mag_sq = vx * vx + vy * vy;
+        let mag = mag_sq.sqrt();
+        assert!(
+            mag <= MAX_PLAYER_SPEED,
+            "diagonal velocity magnitude {mag:?} exceeds MAX_PLAYER_SPEED={MAX_PLAYER_SPEED:?} \
+             after 2D normalisation (old per-component clamp would give sqrt(2)*MAX)"
+        );
+        // Both components must be equal (symmetric diagonal) and positive.
+        assert_eq!(
+            vx, vy,
+            "symmetric diagonal (dx=dy=100) should yield equal velocity components"
+        );
+        assert!(vx > Q32::ZERO, "vel_x must be positive for +X movement");
+    }
+
+    /// A 45-degree diagonal target within MAX_PLAYER_SPEED is not clipped —
+    /// only vectors whose magnitude exceeds the cap are normalised.
+    #[test]
+    fn apply_intent_diagonal_within_cap_not_clipped() {
+        let mut state = MatchState::initial(Seed::from_u64(1));
+        let p0_x = state.players[0].pos_x;
+        let p0_y = state.players[0].pos_y;
+        // Target 3m in X, 3m in Y — magnitude = sqrt(18) ≈ 4.24 m/s (below 8 m/s cap).
+        apply_intent(
+            &mut state,
+            0,
+            PlayerIntent::MoveToPosition {
+                target_x: p0_x + Q32::from_int(3),
+                target_y: p0_y + Q32::from_int(3),
+            },
+        );
+        assert_eq!(
+            state.players[0].vel_x,
+            Q32::from_int(3),
+            "vel_x within-cap diagonal should equal the raw delta (3)"
+        );
+        assert_eq!(
+            state.players[0].vel_y,
+            Q32::from_int(3),
+            "vel_y within-cap diagonal should equal the raw delta (3)"
+        );
+    }
+
+    /// Per-tick displacement for diagonal full-speed movement must not
+    /// exceed `MAX_PLAYER_SPEED × dt` (≈ 0.133m).
+    ///
+    /// This test is an integration-level discriminator: it calls `apply_intent`
+    /// with a fully diagonal over-cap target (100m in both X and Y), reads the
+    /// resulting velocity from the player state, then applies the same position
+    /// integration step `tick_match` uses (`pos += vel * dt`) and checks that
+    /// the Euclidean displacement is ≤ `MAX_PLAYER_SPEED × dt`.
+    ///
+    /// Mutation discriminator: under the OLD per-component clamp, `apply_intent`
+    /// would set `vel_x = vel_y = MAX_PLAYER_SPEED = 8`, producing a diagonal
+    /// displacement of `sqrt((8dt)² + (8dt)²) = 8√2 dt ≈ 0.189m` — which
+    /// fails the `≤ 8dt ≈ 0.133m` assertion. The new 2D normalisation yields
+    /// `vel_x = vel_y = 8/√2 ≈ 5.66`, giving displacement exactly `8dt`.
+    #[test]
+    fn tick_match_diagonal_full_speed_displacement_within_cap() {
+        use crate::ball_physics::dt_per_tick;
+        let seed = Seed::from_u64(42);
+        let mut state = MatchState::initial(seed);
+        let pos_before_x = state.players[0].pos_x;
+        let pos_before_y = state.players[0].pos_y;
+
+        // Drive apply_intent with a target 100m diagonally away — both
+        // components far exceed MAX_PLAYER_SPEED, so the 2D normaliser kicks in.
+        apply_intent(
+            &mut state,
+            0,
+            PlayerIntent::MoveToPosition {
+                target_x: pos_before_x + Q32::from_int(100),
+                target_y: pos_before_y + Q32::from_int(100),
+            },
+        );
+
+        // Integrate position one tick (mirrors tick_match step 7).
+        let dt = dt_per_tick();
+        let pos_after_x = pos_before_x + state.players[0].vel_x * dt;
+        let pos_after_y = pos_before_y + state.players[0].vel_y * dt;
+
+        // Euclidean displacement.
+        let ddx = pos_after_x - pos_before_x;
+        let ddy = pos_after_y - pos_before_y;
+        let disp_sq = ddx * ddx + ddy * ddy;
+        let disp = disp_sq.sqrt();
+
+        // Must not exceed MAX_PLAYER_SPEED × dt.  The old per-component clamp
+        // would produce ≈ 0.189m here (sqrt(2) × 0.133m), failing this assert.
+        let max_allowed = MAX_PLAYER_SPEED * dt;
+        assert!(
+            disp <= max_allowed,
+            "diagonal per-tick displacement {disp:?} exceeds MAX_PLAYER_SPEED×dt \
+             {max_allowed:?}; old per-component clamp would give ~0.189m here"
+        );
+    }
+
+    /// `MAX_PLAYER_SPEED_SQ` must equal `MAX_PLAYER_SPEED * MAX_PLAYER_SPEED`.
+    ///
+    /// Both constants are hand-written (8<<32 and (8*8)<<32). A future speed
+    /// retune that updates `MAX_PLAYER_SPEED` without updating `MAX_PLAYER_SPEED_SQ`
+    /// would silently produce a wrong cap threshold in `apply_vel_toward_target`.
+    /// This test makes that desync a compile-time assertion failure.
+    #[test]
+    fn max_player_speed_sq_matches_speed_squared() {
+        assert_eq!(
+            MAX_PLAYER_SPEED_SQ,
+            MAX_PLAYER_SPEED * MAX_PLAYER_SPEED,
+            "MAX_PLAYER_SPEED_SQ must equal MAX_PLAYER_SPEED * MAX_PLAYER_SPEED; \
+             if MAX_PLAYER_SPEED is retuned, update MAX_PLAYER_SPEED_SQ to match"
         );
     }
 }

@@ -268,6 +268,22 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   (`extended_seed_600_tick_goal_count_in_t1_exit_gate_envelope`) still
 ///   holds before rebaselining per the post-T1-15 multi-pin discipline.
 ///   Authorized by the T4-sim-halt spec in MEMORY.md.
+/// - 2026-06-04 (FUN-0 velocity-cap fix) — **re-baselined to `a490489b…99dba`**
+///   per ADR-0012 trigger #3 (sim behavior change with documented intent): the
+///   player velocity-cap bypass was fixed — (A) `dispatch.rs::apply_intent`
+///   replaced a per-COMPONENT speed clamp (which permitted √2×MAX ≈ 11.3 m/s on
+///   the diagonal) with a 2D-MAGNITUDE cap (`apply_vel_toward_target`, cordic
+///   sqrt normalisation to `MAX_PLAYER_SPEED`); (B) `separation.rs`
+///   `EPSILON_SEPARATION` 0.001 m → 0.2 m so co-located 4-3-3 opposing pairs
+///   resolve in one tick instead of lurching ~0.2 m. Per-tick player
+///   displacement is now physically bounded → canonical bytes shift across all
+///   players every tick. Main-thread verified before re-pinning per the
+///   post-T1-15 multi-pin discipline: `inspect_frames` ImpossiblePlayerVelocity
+///   32,183 → 12 on the 5400-tick `0xfeedbeefcafefade` run, and the 5-seed
+///   `extended_seed_600_tick_goal_count_in_t1_exit_gate_envelope` still holds.
+///   Authorized by the FUN-0 spec in MEMORY.md (Tier-F + user "go" 2026-06-04).
+///   (The residual 43-43 full-match scoreline is a SEPARATE goal-rate /
+///   ball-physics issue, scoped to the next Tier-F slice, not this fix.)
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -276,7 +292,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("85f45bf8ae8821182a45a82969ec36bc5b2d70ba2518b8271de24782fd8064fa");
+    hex!("a490489b534ecd16dde46bd5a8f2022b7a3fd127778b8f73050712bcd1b99dba");
 
 /// Read `env_var` as the number of fresh runs for an intra-process determinism
 /// test, falling back to `default` when the env var is absent or unparseable.
@@ -739,13 +755,29 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   USER-AUTHORIZED 2026-06-03 (present, via AskUserQuestion): auto-rebaseline
 ///   with Claude verifying the envelope, and the full row in one go; also per
 ///   the T4-2.5j row's "canonical hash rebaselined (authorized)" gate.
+/// - 2026-06-04 (FUN-0 velocity-cap fix) — **re-baselined to `3efd5623…b2d0`**
+///   per ADR-0012 trigger #3 (sim behavior change with documented intent). Same
+///   fix as the PINNED_60_TICK FUN-0 entry above: the player velocity-cap bypass
+///   was fixed — (A) per-component speed clamp → 2D-magnitude cap (the diagonal
+///   permitted √2×MAX ≈ 11.3 m/s); (B) `separation` EPSILON 0.001 m → 0.2 m for
+///   co-located 4-3-3 pairs. Over this content-driven 600-tick run, per-tick
+///   player displacement is now physically bounded, so player trajectories,
+///   cooldown maps, and signature firings all shift → canonical bytes change.
+///   The exit-gate envelope STILL HOLDS —
+///   `extended_seed_600_tick_goal_count_in_t1_exit_gate_envelope`
+///   passes: the pinned seed stays in [2,5] over 600 ticks and the 5-seed sweep
+///   stays in band; main-thread verified BEFORE re-pinning per the post-T1-15
+///   discipline (the velocity fix did NOT break the 600-tick goal envelope; the
+///   43-43 FULL-match (5400-tick) scoreline is a SEPARATE goal-rate / ball-physics
+///   issue for the next Tier-F slice). Authorized by the FUN-0 spec in MEMORY.md
+///   (Tier-F + user "go" 2026-06-04).
 ///
 /// Re-baselining: update this constant AND the `expected_hash` field of
 /// `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron` in the same commit,
 /// per `docs/specs/determinism-gate.md` §9 — the same protocol that
 /// governs PINNED_60_TICK above.
 const PINNED_600_TICK: [u8; 32] =
-    hex!("12ce5ab79c53a3229f59d92ea61fd14b1c2d2a5cf52b71c111e403279c464c1c");
+    hex!("3efd5623b1e85d67d1b18cc350c86ea97f6e5740208651132e97e78fcd35b2d0");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {
