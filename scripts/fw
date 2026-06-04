@@ -59,6 +59,7 @@ COMMANDS
     clean            Purge target/ + frontend/node_modules
     bake             Regenerate content corpus (T2+ stub until baker lands)
     cross-check      Smoke-compile Win/Linux targets from Mac via cargo-zigbuild
+    drama-sweep      FUN-H1: N-seed drama metric sweep (M1-M8); reports guard/target results
     inspect-frames   DX-2: run 7 glitch-detectors over a dump_frames JSON file
     contact-sheet    DX-2: render a contact-sheet PNG from a dump_frames JSON file
     help             Print this message
@@ -158,6 +159,14 @@ EOF
         require_just
         cd "$ROOT"
         just determinism-audit
+        ;;
+
+    drama-sweep)
+        # FUN-H1: N-seed drama-metric sweep (M1-M8) per docs/design/drama-model.md.
+        # Usage: scripts/fw drama-sweep [--seeds N] [--content content] [--baseline <file>] [--output <file>] [args...]
+        # Forwards all args directly to the drama_sweep binary.
+        cd "$ROOT"
+        cargo run --release -p fw-match-sim --bin drama_sweep -- "$@"
         ;;
 
     inspect-frames)

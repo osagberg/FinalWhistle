@@ -165,6 +165,12 @@ PER_RULE_EXEMPT: dict[Path, set[str]] = {
     # RNG bans stay active on these files.
     Path("crates/fw-match-sim/src/bin/inspect_frames.rs"): {FLOAT_RULE_NAME},
     Path("crates/fw-match-sim/src/bin/render_contact_sheet.rs"): {FLOAT_RULE_NAME},
+    # FUN-H1: drama_sweep + drama are pure read-only analysis over the MatchEvent
+    # stream — never canonical state. drama.rs is bin-local (src/bin/drama_sweep/drama.rs,
+    # declared via `mod drama;` in main.rs). Float rule exempted for the same
+    # reason as inspect_frames. HashMap / time / RNG bans stay active on both files.
+    Path("crates/fw-match-sim/src/bin/drama_sweep/main.rs"): {FLOAT_RULE_NAME},
+    Path("crates/fw-match-sim/src/bin/drama_sweep/drama.rs"): {FLOAT_RULE_NAME},
     # T1-10: integration test that re-bakes the math LUTs via f64 + asserts
     # equality with the committed const tables in src/math_luts.rs. f64 is
     # intentional + bake-time-only; the test is `#[ignore]`-gated so it

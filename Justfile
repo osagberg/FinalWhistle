@@ -195,6 +195,17 @@ bake-content:
     @echo "  cargo run -p fw-content-baker -- bake-names --culture fwh.core:culture.anglo --output content/baked"
 
 # ----------------------------------------------------------------
+# Fun-evaluation harness (FUN-H1)
+# ----------------------------------------------------------------
+
+# FUN-H1: N-seed drama-metric sweep. Runs N full matches and reports M1-M8.
+# Usage: just drama-sweep [extra args] — forwards to the drama_sweep binary.
+# Example: just drama-sweep -- --seeds 20 --content content
+# Example (A/B): just drama-sweep -- --seeds 20 --content content --baseline /tmp/before.json
+drama-sweep *args:
+    cargo run --release -p fw-match-sim --bin drama_sweep -- {{args}}
+
+# ----------------------------------------------------------------
 # Snapshot maintenance
 # ----------------------------------------------------------------
 
