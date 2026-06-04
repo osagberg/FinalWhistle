@@ -17,6 +17,7 @@
 
 import type { BackendHandshake, MatchResult } from "./types";
 import {
+  httpBackendActive as httpBackendActiveImpl,
   isBackendHandshake,
   isMatchResult,
   safeInvoke,
@@ -64,4 +65,33 @@ export async function playMatch(
 export function isTauri(): boolean {
   // Tauri 2 exposes `__TAURI_INTERNALS__` instead of v1's `__TAURI__`.
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/**
+ * Returns `true` when the DEV-ONLY HTTP backend bridge is active.
+ *
+ * Activation: DEV-only + either
+ *   VITE_FW_BROWSER_BACKEND=http  (env var, e.g. in `.env.local`)
+ *   ?backend=http in the URL      (handy for one-off preview tabs)
+ *
+ * The HTTP bridge talks to the `fw-dev-server` binary at 127.0.0.1:1422,
+ * reached via Vite's dev proxy (see `vite.config.ts` `/__cmd` → `/cmd`).
+ *
+ * NEVER returns `true` in a production build. Orthogonal to `isTauri()`.
+ *
+ * Implemented in `runtime-validators.ts` to avoid the circular-import cycle
+ * (`tauri.ts` → `runtime-validators.ts` → `tauri.ts`). Re-exported here so
+ * route components have a single import location.
+ */
+export const httpBackendActive: () => boolean = httpBackendActiveImpl;
+
+/**
+ * Returns `true` when a real backend is reachable — either via Tauri IPC or
+ * the DEV-ONLY HTTP bridge (`?backend=http`).
+ *
+ * Use this instead of `isTauri()` at gates that should work with both the
+ * production backend and the dev HTTP bridge.
+ */
+export function backendAvailable(): boolean {
+  return isTauri() || httpBackendActiveImpl();
 }

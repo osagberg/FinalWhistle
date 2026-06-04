@@ -1,0 +1,29 @@
+[package]
+name = "fw-dev-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+# DEV-ONLY binary crate. Depends on axum + tokio which must NEVER appear in
+# the production app dep tree (src-tauri). Kept as a separate workspace
+# member so `cargo build -p fw-app` (the Tauri shell) does NOT pull these in.
+description = "Dev-only HTTP bridge: exposes the real fw-tauri AppState over a local HTTP server so browser tooling can drive the backend without Tauri IPC."
+
+[[bin]]
+name = "fw-dev-server"
+path = "src/main.rs"
+
+[dependencies]
+fw-tauri = { workspace = true }
+# HTTP stack — DEV-ONLY; must not appear in src-tauri/Cargo.toml.
+axum       = { version = "0.7", features = ["json"] }
+tokio      = { version = "1",   features = ["full"] }
+# Serialization (shared with fw-tauri; workspace pin)
+serde      = { workspace = true }
+serde_json = { workspace = true }
+# Error handling
+anyhow     = { workspace = true }
+# Logging
+log        = { workspace = true }
+env_logger = { workspace = true }

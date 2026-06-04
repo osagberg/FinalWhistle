@@ -59,13 +59,21 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue({}),
 }));
 
-// Mock ~/lib/tauri — isTauri returns false (browser-preview path).
-// playMatch is overridden per-test when needed.
-vi.mock("~/lib/tauri", () => ({
-  isTauri: vi.fn(() => false),
-  playMatch: vi.fn(),
-  getDummyState: vi.fn(),
-}));
+// Mock ~/lib/tauri — isTauri + backendAvailable return false (browser-preview
+// path) by default. playMatch is overridden per-test when needed.
+// `backendAvailable` delegates to the mocked `isTauri` so that per-test
+// `vi.mocked(tauriMod.isTauri).mockReturnValue(true)` still toggles the
+// real-backend path in Match.tsx (which now checks `backendAvailable()`).
+vi.mock("~/lib/tauri", () => {
+  const isTauri = vi.fn(() => false);
+  const backendAvailable = vi.fn(() => isTauri());
+  return {
+    isTauri,
+    backendAvailable,
+    playMatch: vi.fn(),
+    getDummyState: vi.fn(),
+  };
+});
 
 // Mock the production TacticalBoard to avoid Pixi full init in the toggle path.
 vi.mock("~/components/TacticalBoard", () => ({

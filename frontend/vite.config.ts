@@ -46,6 +46,20 @@ export default defineConfig(() => ({
       // Don't waste fs watcher slots on the Rust shell.
       ignored: ["**/src-tauri/**"],
     },
+    // DEV-ONLY: proxy /__cmd/* → fw-dev-server at 127.0.0.1:1422/cmd/*.
+    // Port 1422, NOT 1421 — 1421 is the HMR websocket port above (under
+    // TAURI_DEV_HOST), so the dev-server must not collide with it.
+    // Same-origin → no CORS. Activate with ?backend=http or VITE_FW_BROWSER_BACKEND=http.
+    // This proxy entry is harmless when fw-dev-server is not running — requests
+    // fail with a network error surfaced via IpcShapeError at the safeInvoke seam.
+    proxy: {
+      "/__cmd": {
+        target: "http://127.0.0.1:1422",
+        // Rewrite /__cmd/get_standings → /cmd/get_standings
+        rewrite: (path: string) => path.replace(/^\/__cmd/, "/cmd"),
+        changeOrigin: false,
+      },
+    },
   },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
   build: {

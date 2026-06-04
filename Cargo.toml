@@ -10,6 +10,8 @@ members = [
   "crates/fw-replay",
   "crates/fw-save",
   "crates/fw-tauri",
+  # DEV-ONLY: HTTP bridge for browser-preview tooling. axum+tokio kept OUT of src-tauri.
+  "crates/fw-dev-server",
   "src-tauri",
 ]
 

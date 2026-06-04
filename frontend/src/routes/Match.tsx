@@ -35,7 +35,7 @@ import {
 } from "solid-js";
 import ErrorBoundary from "~/components/ErrorBoundary";
 import { describeRouteError } from "~/lib/route-errors";
-import { isTauri, playMatch } from "~/lib/tauri";
+import { backendAvailable, playMatch } from "~/lib/tauri";
 import type {
   MatchEvent,
   MatchEventKind,
@@ -336,7 +336,7 @@ export default function Match(): JSX.Element {
 
     setBusy(true);
     try {
-      if (!isTauri()) {
+      if (!backendAvailable()) {
         // Browser-preview fallback — return a reasonable mock so the surface
         // renders without a live sim. The mock includes goals + a full event
         // list so the minute-marker + badge rendering is exercised.
@@ -348,8 +348,8 @@ export default function Match(): JSX.Element {
       setLastTicks(ticks);
       // Load frames for the production board after a successful run.
       // Frames are loaded in the background; the board renders as they arrive.
-      // In browser-preview mode we skip Tauri IPC and leave frames empty.
-      if (isTauri()) {
+      // In pure browser-preview mode (no backend) we skip frame loading.
+      if (backendAvailable()) {
         setFramesLoading(true);
         setBoardFrames([]);
         setFramesError(null);
@@ -401,7 +401,7 @@ export default function Match(): JSX.Element {
             mock MatchResult. Without this banner a developer can think
             they exercised the real IPC path; the all-zero blake3 hash is
             visible but only in the small commentary aside footer. */}
-        <Show when={!isTauri()}>
+        <Show when={!backendAvailable()}>
           <div
             class="rounded border border-flag-amber bg-flag-amber/10 px-3 py-2 text-xs font-mono text-ink-subtle dark:text-paper-subtle"
             role="status"

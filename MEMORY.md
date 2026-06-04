@@ -31,7 +31,9 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-<!-- none active. QA-T4H (post-T4 hardening batch) DONE 2026-06-03 — spec pruned per /next Step 7.2; detail in CHANGELOG + DECISIONS. Phase-T4 is READY TO TAG: next is the v0.4.0-polish tag + git push (cross-OS CI matrix). Do NOT start T4.5 until the tag is cut + CI green. T4-8-CR1 (Codex gate-blockers) + QA-T4H both landed; both canonical pins UNCHANGED throughout. -->
+<!-- none active. DX-1 (dev play-harness — HTTP backend bridge `fw-dev-server`) DONE 2026-06-04 — spec pruned; detail in CHANGELOG + DECISIONS. The harness lets an agent drive the REAL backend in a browser via `?backend=http` (Vite `/__cmd` proxy → fw-dev-server on 127.0.0.1:1422 → `*_inner(&AppState)`). Run it: `cargo run -p fw-dev-server` + `pnpm --filter ./frontend dev` + browser at `localhost:1420/<route>?backend=http`. Self-review triple ACCEPT; live-validated (real squad/match/board rendered); both canonical pins UNCHANGED. FOLLOW-UP (filed, non-blocking): a registry-parity test so the dev-server's 24-command dispatch can't silently drift from the Tauri `generate_handler!` list (today: a forgotten command → loud 404, not silent). NEXT in the user's sequence: DX-2 (frame glitch-detectors + GIF filmstrip) → fun-roadmap pivot → feature-backlog research. -->
+
+<!-- T4-7 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
 
 <!-- T4-7 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
 

@@ -77,6 +77,80 @@ export function fixtureBackendActive(): boolean {
 }
 
 /**
+ * Returns `true` when the DEV-ONLY HTTP backend bridge is active.
+ *
+ * The bridge posts to `/__cmd/<command>` which Vite proxies to the
+ * `fw-dev-server` binary at `127.0.0.1:1421/cmd/<command>`.
+ *
+ * Activation: DEV-only + either
+ *   VITE_FW_BROWSER_BACKEND=http  (env var, e.g. `.env.local`)
+ *   ?backend=http in the URL      (handy for one-off preview tabs)
+ *
+ * NEVER returns `true` in a production build.
+ *
+ * Defined here (not imported from `tauri.ts`) to avoid the circular-import
+ * cycle: `tauri.ts` → `runtime-validators.ts` → `tauri.ts`.
+ * `tauri.ts` re-exports a wrapper of this logic as `httpBackendActive()`.
+ */
+export function httpBackendActive(): boolean {
+  if (!import.meta.env.DEV) return false;
+  if (import.meta.env.VITE_FW_BROWSER_BACKEND === "http") return true;
+  if (typeof window !== "undefined" && window.location?.search) {
+    return (
+      new URLSearchParams(window.location.search).get("backend") === "http"
+    );
+  }
+  return false;
+}
+
+/**
+ * POST `args` as JSON to the local dev HTTP bridge at `/__cmd/<command>`.
+ *
+ * On HTTP 200 returns the parsed JSON body.
+ * On non-2xx parses the IpcError JSON from the body and re-throws it so the
+ * same catch paths in route components work unchanged.
+ *
+ * FAIL-LOUD: any network or parse failure throws an `IpcShapeError` naming
+ * the command and the failure reason — same fail-loud contract as `loadFixture`.
+ */
+async function loadHttp(
+  command: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  const url = `/__cmd/${command}`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args),
+    });
+  } catch (networkErr) {
+    throw new IpcShapeError(
+      command,
+      `http backend active but fetch('${url}') threw a network error: ${String(networkErr)} — is fw-dev-server running? (cargo run -p fw-dev-server)`,
+      null,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = await response.json();
+  } catch (parseErr) {
+    throw new IpcShapeError(
+      command,
+      `http backend active but '${url}' returned non-JSON (HTTP ${response.status}): ${String(parseErr)}`,
+      null,
+    );
+  }
+  if (!response.ok) {
+    // Non-2xx: the body IS the IpcError JSON. Re-throw it so the existing
+    // IpcError narrowing in route components works unchanged.
+    throw parsed;
+  }
+  return parsed;
+}
+
+/**
  * Fetch a static fixture JSON for `command` from `/dev-fixtures/<command>.json`.
  *
  * Vite serves `frontend/public/` at the root during `pnpm dev`, so the file
@@ -532,16 +606,27 @@ export async function safeInvoke<T>(
   args: Record<string, unknown>,
   guard: (v: unknown) => v is T,
 ): Promise<T> {
-  // T4-I1: DEV-ONLY fixture shim — checked first. When inactive the branch is
-  // unreachable and the `invoke` path below is byte-identical to the prior impl.
-  // Capture ONCE so the error-message source label can't disagree with the path
-  // actually taken (don't re-read the env/URL flag mid-fn).
+  // Priority order: fixture > http > tauri invoke.
+  // Capture flags ONCE so the error-message source label agrees with the path
+  // actually taken (don't re-read the env/URL mid-fn).
   const usingFixture = fixtureBackendActive();
-  const raw: unknown = usingFixture
-    ? await loadFixture(command) // fixture path: args IGNORED (static preview)
-    : await invoke(command, args); // normal Tauri path (UNCHANGED)
+  const usingHttp = !usingFixture && httpBackendActive();
+
+  let raw: unknown;
+  let source: string;
+  if (usingFixture) {
+    raw = await loadFixture(command); // fixture path: args IGNORED (static preview)
+    source = "fixture";
+  } else if (usingHttp) {
+    // DEV-ONLY HTTP bridge path. `loadHttp` re-throws IpcError on non-2xx,
+    // so any non-shape-guard failure propagates exactly like a Tauri IpcError.
+    raw = await loadHttp(command, args);
+    source = "http";
+  } else {
+    raw = await invoke(command, args); // normal Tauri path (UNCHANGED)
+    source = "invoke";
+  }
   if (!guard(raw)) {
-    const source = usingFixture ? "fixture" : "invoke";
     throw new IpcShapeError(
       command,
       `response from ${source} failed runtime shape guard`,
