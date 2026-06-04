@@ -234,14 +234,17 @@ Added 2026-05-22 alongside the `/dev/board-preview` harness (T4-1 follow-up). Ph
 
 Tauri-dependent routes (`/match`, and anything that calls `invoke` — `match_frames`, `get_squad`, etc.) cannot render in a plain browser: `invoke` is undefined outside the Tauri runtime. So preview-verify against a **browser-safe route**:
 
-- `/dev/board-preview` — the production `<TacticalBoard>` mounted on a committed `dump_frames` fixture, no IPC. Use this for any tactical-board change.
+- `/dev/board-preview` — the production `<TacticalBoard>` mounted on a committed `dump_frames` fixture, no IPC.
+- `/dev/board?source=fixture:/dev-fixtures/<name>.json` — the same board against a FRESH fixture you generate from current code (the per-tick `board-shots.mjs` flow below). Use either for any tactical-board change.
 - Any other route that does not call `invoke` at mount.
 
-Procedure (Claude Preview MCP):
-1. `mcp__Claude_Preview__preview_start` with `name: "frontend-dev"` — reuses the server if already running; returns a `serverId`.
-2. Navigate via `mcp__Claude_Preview__preview_eval`: set `window.location.hash` to the route hash (e.g. `"#/dev/board-preview"`), then let it settle.
-3. `mcp__Claude_Preview__preview_screenshot` — eyeball layout + the feature under test.
-4. `mcp__Claude_Preview__preview_console_logs` with `level: "error"` — MUST be clean of any NEW error introduced by this task. Pre-existing IPC errors on Tauri routes are expected; a *new* error on the route you changed is a Step-5 failure (one fix attempt, then pause).
+**Procedure — Playwright harness (DEFAULT; the ONLY option in a CLI session, where Claude Preview is unavailable).** Headless system Chrome via `playwright-core` against the dev server (`pnpm dev`, port 1420):
+1. **Tactical-board / match-feel change:** generate a fresh fixture — `target/release/dump_frames --seed 0x… --ticks N --content content --compact > frontend/public/dev-fixtures/<name>.json` — then `node frontend/scripts/board-shots.mjs /dev-fixtures/<name>.json <comma-ticks>` (e.g. `0,1300,5400`). It scrubs each tick via `window.fwDev.scrubTo`, writes one PNG/tick to `/tmp/fw-board/`, and prints a JSON summary. **Read the PNGs** and confirm the summary's `consoleErrors` has no NEW error (the `getSettings`/`invoke`-undefined fallback + a 404 asset are the expected pre-existing baseline).
+2. **Other UI screen:** add a `{route,file}` entry to `frontend/scripts/capture-visual-screenshots.mjs`, run `pnpm screenshots`, then Read the PNG from `docs/visual/`.
+
+**Procedure — Claude Preview MCP (Desktop only; optional live pane).** If the `mcp__Claude_Preview__*` tools are present (Claude desktop app): `preview_start` → navigate via `preview_eval` (`window.location.href = 'http://localhost:1420/<path>'`, history-mode) → `preview_screenshot` → `preview_console_logs` (`level: "error"`). `preview_resize` to 1280×800 first if the viewport is collapsed.
+
+Either driver: a *new* console error on the route you changed is a Step-5 failure (one fix attempt, then pause). Pre-existing IPC/`invoke` errors on Tauri routes are expected.
 
 If the change is genuinely not browser-previewable (a Tauri-only IPC surface with no fixture harness), record `preview screenshot: n/a (Tauri-only route, no browser harness)` in the commit body's `Verification:` block and rely on the build gates. Do NOT invent or fake a screenshot.
 
