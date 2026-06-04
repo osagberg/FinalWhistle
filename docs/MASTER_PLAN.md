@@ -70,6 +70,7 @@ Already decided in `docs/DESIGN_DOC.md` §2. Do not relitigate during normal imp
 | T2 | League + Season | 10 | A full season cycles; league table updates; transfer-window stub UI exists; first save survives a schema-version bump. |
 | T3 | Career + Memory | 8 | Multi-season careers run; memory ledger surfaces callbacks in player-facing surfaces; breakthrough events fire. |
 | T4 | Pillar Wiring + Polish | ~20 rows (T4-1..T4-8 core + T4-2.5a..L roster layer + T4-P2-fixes + QA-3/5); T4-5b/T4-2b auto-promote when T4-2.5h closes | All 5 pillars produce player-visible output in a played career; visual identity locked; Codex gate #3 ACCEPT. `v0.4.0-polish`. |
+| TF | Fun + Match-Feel (PARALLEL track, opens post-T4) | DX-2 + FUN-H1 + FUN-0..5 | A watchable, dramatic, gripping match + season: realism guards in-band, drama-targets met across an N-seed `drama-sweep`, commentary + callbacks pass the LLM-judge rubric, zero glitch-flags. Uses determinism to MEASURE fun, automating the owner out of the loop. No phase-version tag (it's a continuous track, not a gate). |
 | T4.5 | World Scale + Content Bake | 11 rows (T4.5-A..J + QA-2) | 6-tier ~96-club pyramid deterministic; ~2000+ procedural players; LLM-baked corpus committed + manifest-pinned; perf budget re-derived. `v0.5.0-world`. |
 | T5 | Ship to Steam | 8 | Public EA release on Steam; itch.io demo validated update pipeline first; all 5 pillars visible in shipped build. `v1.0.0-ea`. |
 
@@ -367,7 +368,46 @@ NOTE: T4-5b (live-mode UI) is DEFERRED — gate passes on replay surface. T4-6b 
 
 ---
 
-## Tier 4.5 — World Scale + Content Bake (NEW PHASE — EA-critical)
+## Tier F — Fun + Match-Feel (PARALLEL track, opens post-T4)
+
+**2026-06-04 fun-pivot** (`docs/DECISIONS.md` 2026-06-04; design: `docs/design/drama-model.md`
++ `docs/design/fun-evaluation-harness.md` + `docs/design/match-quality-inspection.md`).
+The T0→T5 plan builds a deterministic simulation but schedules almost no explicit
+work on making the match FUN — and the one task that touches feel (T5-5b match
+calibration) is scheduled near SHIP, so match-fun can't even be evaluated until it's
+too late to act on. That's backwards: determinism's entire payout is tight,
+measurable iteration on feel, and we've built the machine without scheduling
+ourselves to use it. This track fixes that. Three principles:
+
+1. **Realism ≠ drama.** A realistic 0-0 is realistic and boring. We tune toward drama
+   (late winners, comebacks, tight races) WITHIN realism guards (sane goals/match,
+   timing spread). See `drama-model.md`.
+2. **Pull a watchable-match milestone FORWARD.** A first-pass calibration that
+   produces recognisable football opens the fun track early, so iteration runs in
+   PARALLEL with T4.5 instead of bolted on at ship.
+3. **Automate the judgment.** Deterministic `drama-sweep` metrics + an agent-run
+   LLM-judge rubric replace the owner manually playing builds and reporting "felt
+   fun." See `fun-evaluation-harness.md`. This is the substrate for director mode.
+
+**Sequencing (RECOMMENDED — the T4.5-vs-TF ordering is an owner call):** do the
+FOUNDATION first — `DX-2` (glitch-detectors + GIF) → `FUN-H1` (`drama-sweep` tool) →
+`FUN-0` (watchable-match first-pass) — because without it we're admiring the machine.
+Then run `FUN-1..5` as a continuous PARALLEL track alongside T4.5 (world scale is
+largely independent of match-feel calibration). `FUN-0` pulls a first-pass slice of
+the match-engine calibration valley (F5/F6/T5-5b) forward; the deep calibration valley
+still exists, but fun-iteration no longer waits for it.
+
+| Task | Class | Description | Status | Started | Deps | Acceptance |
+|---|---|---|---|---|---|---|
+| FUN-H1 | DEV-TOOLING | **`drama-sweep` tool** — implements the `drama-model.md` metrics over an N-seed sweep (match + season scope), with a `--baseline` A/B-diff mode for tuning. Emits JSON (agent-parseable) + a human summary: per-metric distribution, realism-guard violations loud, drama-target scores vs band, per-metric delta vs baseline. Pure deterministic replay; no sim change. The measurable half of the fun-evaluation harness. | TODO | — | DX-2 | `drama-sweep --match --seeds N` + `--season` run + report all `drama-model.md` metrics as distributions; `--baseline` shows per-metric deltas; identical input → identical report; `scripts/fw verify` green; both pins UNCHANGED. |
+| FUN-0 | MVP | **Watchable-match first-pass milestone** — the GATE that opens the fun track. A first-pass match calibration to recognisable, watchable football: realism guards M1 (goals/match) + M2 (goal-timing spread) in-band on a `drama-sweep`, ZERO `inspect-frames` glitch-flags on a 5-seed × full-match run, and the DX-2 GIF passes the 'football-shaped' rubric. NOT full calibration — just "looks like football, no glitches." Pulls a slice of F5/F6/T5-5b forward. **Canonical rebaseline is likely + AUTHORIZED here** (sim behavior change) — follow the multi-pin discipline (main-thread envelope verify before re-pin). | TODO | — | DX-2, FUN-H1 | M1+M2 guards in-band over an N-seed sweep; zero glitch-flags on 5-seed full-match; GIF reads as football; canonical pins rebaselined (authorized, envelope-verified). |
+| FUN-1 | MVP | **Match drama tuning** — tune M3-M7 (competitive margin, lead changes, late drama, comebacks, nervy finishes) toward their target bands WITHIN the M1/M2 realism guards. Feel-probe: across 20 seeds, `drama-sweep` shows the drama-targets in band AND ≥12/20 matches score ≥4/5 on the LLM-judge 'gripping' rubric. Same-seed replay A/B for each coefficient change. | TODO | — | FUN-0 | The FUN-1 feel-probe passes; each tuning change A/B'd on identical seeds; pins rebaselined as authorized per change. |
+| FUN-2 | MVP | **Commentary quality pass** — raise commentary from functional to genuinely good (the text-first surface IS the game's face). Feel-probe: on a 20-match sample, ≥90% of lines score ≥4/5 on the readable+specific LLM-judge rubric, zero repeated phrasings within a match, football-native throughout. `narrative-director`. | TODO | — | FUN-0 | The FUN-2 feel-probe passes; banned-terms clean; read-projection only (pins UNCHANGED). |
+| FUN-3 | MVP | **Callback-landing pass (Pillar 2)** — does a memory callback land as EARNED + specific, not generic? Feel-probe: across 10 seeded multi-season careers, the surfaced callbacks reference the specific event and score ≥4/5 on the earned-ness + legible rubric. `narrative-director` + memory readers. | TODO | — | FUN-0 | The FUN-3 feel-probe passes across 10 seeded careers; read-projection only. |
+| FUN-4 | MVP | **Season-arc / "one more match" retention** — tune season-level drama (S1 title-race tightness, S2 upsets, S3 table variance, S4 underdog runs) toward their bands so a season pulls the player forward. Feel-probe: `drama-sweep --season` shows S1-S4 in band across N seeded seasons. (Note systems-designer open-Q: S2 needs a squad-rating composite defined first.) | TODO | — | FUN-0, FUN-H1 | `drama-sweep --season` shows S1-S4 in band; squad-rating composite defined (resolves the drama-model open question). |
+| FUN-5 | Stretch | **Decision satisfaction** — does a signing / tactic / youth bet feel like a meaningful gamble that pays off over seasons (scouting uncertainty resolving)? Partly gated on feature breadth (see feature-backlog) — leans on management depth that may not exist yet. Scope TBD after the feature-backlog research. | TODO | — | FUN-0, feature-backlog | TBD after feature-backlog research scopes the decision surfaces; feel-probe authored then. |
+
+
 
 **Goal:** Build the procedural world and LLM-baked content corpus the EA product promises. Zero rows existed before the 2026-05-29 re-baseline.
 
