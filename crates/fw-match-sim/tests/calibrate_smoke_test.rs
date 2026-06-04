@@ -30,7 +30,7 @@
 
 use fw_content::ContentStore;
 use fw_core::Seed;
-use fw_match_sim::{MatchState, tick_match};
+use fw_match_sim::{FULL_MATCH_TICKS, MatchState, tick_match};
 use std::path::PathBuf;
 
 /// AC1 + AC2 — telemetry capture + post-match goal back-fill correlation.
@@ -65,7 +65,13 @@ fn calibrate_smoke_5_matches_capture_telemetry_and_backfill_goals() {
 
         let mut state = MatchState::initial_with_content(seed, &content, home_id, away_id)
             .expect("initial_with_content");
-        for _ in 0..600 {
+        // FUN-0b+c: run FULL matches (5400 ticks), not 600. The watchable-match
+        // engine spreads shots across the 90-minute match (~10 shots/match);
+        // a 600-tick (10-min) window is too sparse to exercise the telemetry
+        // machinery meaningfully (it captured only 2 shots across 5 windows,
+        // tripping the T2-R-A6 `>= 10` floor). Full matches give ~50 shots
+        // across 5 games, restoring the floor's teeth without weakening it.
+        for _ in 0..FULL_MATCH_TICKS {
             state = tick_match(state, &sig_defs);
         }
 

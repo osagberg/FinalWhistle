@@ -536,3 +536,201 @@ sub-systems:
 5. If shots/match > 14: raise `XG_SHOOT_THRESHOLD`.
 6. If shots/match < 10: lower `XG_SHOOT_THRESHOLD`.
 7. Update this doc with a dated "Phase-N re-fit" block. Do NOT delete prior values (audit trail).
+
+---
+
+## Dispossession — Slice B (FUN-0b+c)
+
+**Status:** PROVISIONAL coefficients — tune via drama-sweep after combined A+B baseline.
+**Owner:** `gameplay-programmer` (mechanics); `systems-designer` (coefficient tuning).
+
+### Problem
+
+The possession-lock: whoever gets the ball first keeps it indefinitely. Off-ball defenders
+ran `Press` / `MarkPlayer` intents toward the opponent GK formation slot — not the actual
+carrier — so they never converged. The 0-0/infinite-score bimodal split confirmed this.
+
+### B1 — Carrier targeting
+
+`utility_press` and `utility_mark_player` in `bt/off_ball.rs` now accept `carrier_pos:
+Option<(Q32, Q32)>`. When `Some`, the intent targets the actual carrier's world position.
+When `None` (loose ball), the old formation-slot fallback is used (preempt_check handles
+loose ball already). Carrier position is resolved in `dispatch.rs` from
+`state.possession` and passed through `BtContext::carrier_pos` → `SelectFn` parameter.
+
+### B2 — Tackle mechanic
+
+A deterministic tackle-check runs after `dispatch_tick` each tick (`resolve_tackles` in
+`lib.rs`). For each defender within `TACKLE_RADIUS_M = 2m` of the carrier (opposing team,
+non-GK, cooldown expired):
+
+1. Roll via `seed_fn(match_seed, tick, SeedLayer::ReactiveInterrupt, (def_slot << 16) | 0x7AC1)`.
+2. `tackle_prob = TACKLE_BASE_PROB × def_quality / (def_quality + carrier_quality + ε)`
+   - `def_quality = tackling × 0.50 + aggression × 0.30 + positioning × 0.20`
+   - `carrier_quality = dribbling × 0.50 + balance × 0.30 + composure × 0.20`
+3. Success: `state.possession = Some(defender_slot)`, ball snapped to defender's feet.
+4. Failure: `tackle_cooldown_until[def_idx] = tick + TACKLE_COOLDOWN_TICKS`.
+
+Only the first successful tackle per tick takes effect (slot-order tiebreak).
+
+### Provisional coefficients (2026-06-04)
+
+| Constant | Value | Notes |
+|---|---|---|
+| `TACKLE_RADIUS_M` | 2m (radius) / 4m² (squared gate) | Tight; real slide-tackle range ~1-2m |
+| `TACKLE_BASE_PROB` | 0.35 | At equal mid-range attrs: prob ≈ 17.5% |
+| `TACKLE_COOLDOWN_TICKS` | 18 (≈ 0.3s at 60 Hz) | Prevents per-tick tackle spam |
+| `TACKLE_ROLL_SITE` | 0x7AC1 | Non-colliding with SS3 save (0x5A7E) |
+
+### Combined A+B drama-sweep baseline (2026-06-04, 20 seeds, no content)
+
+| Metric | Slice A alone | Combined A+B |
+|---|---|---|
+| M1 goals/match mean | 0.90 | 0.80 |
+| Goalless matches | 10/20 | 10/20 |
+| Possession changes/match | ~0 (locked) | 128–390 |
+| Bimodal broken? | No | Yes — all matches are contested |
+
+Bimodal status confirmed broken: possession changes 128–390 times per match across 5 test
+seeds. M1 is still below the 2.3 guard — tuning the `TACKLE_BASE_PROB` (lower = fewer
+dispossessions = more scoring chances) and `XG_SHOOT_THRESHOLD` is the next step.
+
+### Tuning levers
+
+- `TACKLE_BASE_PROB`: lower → less dispossession → more sustained attacks → more goals.
+- `TACKLE_RADIUS_M`: higher → more tackles → fewer goals.
+- `TACKLE_COOLDOWN_TICKS`: lower → faster retry → more tackles → fewer goals.
+
+Foul/card system is deferred to T2-4.
+
+---
+
+## Phase-1 drama-sweep re-fit (2026-06-04, 13 rounds)
+
+**Status:** Systems-designer sweep completed. Best-achieved state documented below.
+**Summary of findings:** M1 mean guard and M8 shots guard are achievable together. M1 std/p95
+guards and the 600-tick pinned-seed test resist coefficient-only tuning — a mechanic gap limits
+further progress (see "What resisted" section below).
+
+### Root causes resolved by tuning
+
+1. **GK distribution freeze** — the original `DISTRIBUTION_THRESHOLD = 3m` was too tight: after
+   a save, the ball was snapped to the GK at x≈45m (7.5m from goal), which is > 3m, so the GK
+   never entered `DistributingFromHand` and the ball froze for 200+ ticks per save. Fixed by
+   raising to 20m. This was the primary cause of M1=0.80 and 10/20 goalless matches.
+
+2. **Shoot utility structurally below pass utility** — with original secondary weights (0.20/0.20/0.10),
+   shoot utility from any realistic formation position was ~0.025-0.034, while pass utility was
+   ~0.085. The softmax at temperature=0.15 strongly preferred passing. Fixed by raising secondary
+   weights (2.0/1.5/1.0) so forwards at 15m+ score shoot utility competitive with or above pass utility.
+
+3. **XG gate suppressing all shots from formation positions** — all 4-3-3 forwards start 42.5m
+   from the opponent goal, giving distance_q32=0, xG≈0.014 (below the 0.020 original gate).
+   Players never shot because xG was below gate at formation position. Gate calibrated to 0.095
+   (shoots from 17m+), which passes once players dribble/pass forward.
+
+### Phase-1 tuned coefficient values (2026-06-04)
+
+All values in `crates/fw-match-sim/src/`. These supersede the provisional values above.
+
+**Sub-system 1 — Shot-decision quality gate (on_ball.rs):**
+
+| Constant | Before | After | Q32 raw bits |
+|---|---|---|---|
+| `XG_SHOOT_THRESHOLD` | 0.020 | **0.095** | `408_021_893` |
+| `w_ls` (secondary long_shots weight) | 0.20 | **1.3** | `5_583_457_434` |
+| `w_vision` (secondary vision weight) | 0.20 | **1.0** | `4_294_967_296` |
+| `w_balance` (secondary balance weight) | 0.10 | **0.6** | `2_576_980_378` |
+
+Gate at 0.095 allows shots from ~17m from goal (xG≥0.095 for mid-quality shooter). Secondary
+weights 1.3/1.0/0.6 produce secondary≈3.2 at mid attrs. From ~15m shoot utility ≈ 0.21 >
+pass 0.085 → prefers shooting. From 20m: shoot utility ≈ 0.053 < pass 0.085 → prefers passing.
+This gives realistic "shoot inside the box, pass outside it" behavior.
+
+**Sub-system 2 — Shot accuracy dispersion (dispatch.rs):**
+
+| Constant | Before | After | Q32 raw bits |
+|---|---|---|---|
+| `SIGMA_BASE_M` | 3.5m | **5.5m** | `23_622_320_128` |
+
+All other sigma weights unchanged (SIGMA_DIST_WEIGHT=0.80, SIGMA_PRESSURE_WEIGHT=0.50,
+SIGMA_QUALITY_WEIGHT=0.40, SIGMA_MIN_M=1.5m, SIGMA_MAX_M=9.0m). At 5.5m base: typical
+sigma_y_m ≈ 6.5m, giving P(on-target) ≈ 43%. Observed: 55-62% on-target (wider effective
+sigma from the distribution — shots skew toward moderate angles due to early-game positioning).
+
+**Sub-system 3 — GK save model (lib.rs):**
+
+| Constant | Before | After | Q32 raw bits |
+|---|---|---|---|
+| `SAVE_BASE_MIN` | 0.55 | **0.73** | `3_135_326_126` |
+| `SAVE_BASE_MAX` | 0.90 | **0.92** | `3_951_369_912` |
+
+All other save constants unchanged (POSITION_PENALTY_RATE=0.15, POSITION_MIN=0.10,
+SAVE_PROB_MAX=0.92). At mid-range GK (all attrs=0.5): save_base≈0.815, typical save_prob≈0.55.
+Combined with ~62% on-target: shot-to-goal conversion ≈ 62% × 45% = 28%.
+
+**Dispossession (lib.rs):**
+
+| Constant | Before | After | Q32 raw bits |
+|---|---|---|---|
+| `TACKLE_BASE_PROB` | 0.35 | **0.35** | `1_503_238_553` |
+
+Tackle probability unchanged from provisional. Higher values reduced shots without improving
+the variance problem; lower values (0.12-0.25) counter-intuitively reduced shot count by
+fragmenting possession and causing more loose-ball scrambles.
+
+**GK distribution (goalkeeper_fsm.rs):**
+
+| Constant | Before | After | Q32 raw bits |
+|---|---|---|---|
+| `DISTRIBUTION_THRESHOLD` | 3m | **20m** | `85_899_345_920` |
+
+Raised to 20m so the GK always distributes after any save. With 3m, saves froze the ball
+indefinitely. With 20m, the GK distributes immediately from any position within their normal
+operating range (x>32.5m for away GK = dist=20m from +GOAL_LINE_X).
+
+### Best-achieved drama-sweep results (20 seeds × 5400 ticks, no content, 2026-06-04)
+
+| Metric | Target | Best achieved | Guard |
+|---|---|---|---|
+| M1 goals/match mean | 2.3–3.2 | **3.15** | PASS |
+| M1 goals/match std | 0.8–1.6 | **~4.5** (outlier seeds) | FAIL |
+| M1 p95 | ≤7 | **~17** (outlier seed) | FAIL |
+| M8 shots/match | 9–18 | **10.6** | PASS |
+| M8 on-target% | 35–45% (T2+ guard) | **~60%** | (informational) |
+| Goalless matches | ~0–3 | **1/20** | — |
+
+Per-seed distribution: [1, 2, 5, 1, 2, 2, 17, 2, 2, 12, 1, 1, 2, 1, 2, 0, 1, 4, 4, 1]
+
+### What resisted (mechanic gap diagnosis)
+
+Two guards resist coefficient-only tuning:
+
+**M1 std/p95 (variance too high):** Some seeds (e.g. base+15) produce 20+ goals while others
+produce 0. The outliers are not sensitive to gate, tackle, sigma, or save adjustments — they
+arise from decision-slot stagger patterns that happen to align attack sequences favorably across
+the 5400-tick match. The underlying cause is that the T1 attack chain is "free-cycling" once the
+GK distributes: CB receives the ball at x=30m → passes forward → FWD dribbles to 17-20m →
+shoots. With poor defensive formation and no zonal coverage, some seeds cycle through this chain
+dozens of times. Fix requires: better defensive positioning (zone defense at T2-1b), or
+archetype-driven blocking shapes that prevent easy progression — these are T2 mechanic additions.
+
+**Pinned-seed 600-tick goal test (`extended_seed_600_tick_goal_count`):** Seed
+`0xfeedbeefcafefade` with content produces only 1-3 shots in the first 600 ticks regardless of
+gate setting, because the possession pattern for this seed keeps home FWDs at x=22-28m where
+xG is below 0.095. Getting 2-5 goals from 1-3 shots requires near-zero save probability, which
+produces 50+ goals/match and violates M1. The test requires a 600-tick scoring rate ≈ 18x the
+full-match rate, which is mechanically impossible without a lucky burst. Fix requires either:
+(a) the GK distributes further forward (not to CB at x=30m but to mid at x=10m, giving longer
+build-up sequences that more reliably reach shooting range within 600 ticks), or
+(b) the test envelope is re-calibrated to [0, 3] goals (which is the realistic 600-tick rate
+at M1=2.65 full-match). This is a T2 decision — defer to `gameplay-programmer` review.
+
+### Canonical hashes after tuning
+
+NOT re-pinned (per task spec — do not re-pin canonical hashes). The main thread will rebaseline
+and commit after visual inspection.
+
+New canonical hashes (for main-thread reference when re-pinning):
+- 60-tick smoke hash (new): `[229, 101, 98, 248, 76, 91, 255, 141, 34, 145, 133, 170, 116, 118, 44, 93, 129, 120, 231, 168, 243, 61, 53, 118, 117, 232, 200, 201, 28, 143, 240, 125]`
+- 600-tick extended hash (new): `[104, 5, 193, 5, 147, 40, 116, 142, 89, 76, 166, 16, 163, 43, 204, 191, 81, 59, 27, 241, 25, 45, 251, 241, 239, 186, 173, 252, 111, 155, 193, 150]`

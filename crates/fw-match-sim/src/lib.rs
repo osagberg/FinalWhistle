@@ -465,6 +465,43 @@ pub struct MatchState {
     /// Per-dribble telemetry buffer for T2-1d personality K_i calibration (NON-canonical).
     #[serde(skip)]
     pub(crate) dribble_telemetry: Vec<DribbleTelemetryRecord>,
+
+    // ---- FUN-0b additions (shot quality model; Slice A) ----
+    //
+    // `last_shot_xg` caches the xG score of the most recent AttemptShot
+    // intent for each player slot, written by `dispatch::apply_intent` when
+    // `AttemptShot` fires. Read by the GK save model in `tick_match`'s
+    // goal-detection block (SS3 — saves based on shot quality).
+    //
+    // CANONICAL state (encoder VERSION bumped 9 → 10 at FUN-0b). The field is
+    // in canonical state because it affects goal probability deterministically.
+    // Encoded as 22 × i64 LE (raw Q32 bits) appended AFTER the archetype IDs.
+    //
+    // Initialized to Q32::ZERO (no shot yet) at match init. Reset to Q32::ZERO
+    // after a GK save is acknowledged (the save block in goal-detection clears
+    // the entry so a standing ball near the line can't be "re-saved").
+    /// Per-player last-shot xG score. `last_shot_xg[slot_idx]` is the Q32 xG
+    /// value (from `xg_utility`) computed when that player's most recent
+    /// `AttemptShot` intent was dispatched. `Q32::ZERO` means no shot yet or
+    /// the value has been cleared. Used by the GK save model (SS3).
+    pub(crate) last_shot_xg: [Q32; 22],
+
+    // ---- FUN-0b+c additions (dispossession; Slice B) ----
+    //
+    // `tackle_cooldown_until` prevents a defender from attempting a tackle on
+    // every consecutive tick. After a failed tackle attempt, the defender
+    // cannot attempt again until this tick has passed.
+    //
+    // CANONICAL state (encoder VERSION bumped 10 → 11 at FUN-0b+c). Encoded as
+    // 22 × i64 LE (Tick::to_raw()) appended AFTER `last_shot_xg`.
+    //
+    // Initialized to Tick::ZERO (no cooldown) at match init. Updated by
+    // `resolve_tackles` in `tick_match` on a failed tackle attempt.
+    /// Per-defender tackle cooldown end tick. `tackle_cooldown_until[slot_idx]`
+    /// is the first tick at which the defender may attempt another tackle.
+    /// `Tick::ZERO` means no active cooldown. Set on failed tackle attempts;
+    /// cleared implicitly as tick advances past the value.
+    pub(crate) tackle_cooldown_until: [Tick; 22],
 }
 
 // ---- T2-1d telemetry record types ----
@@ -621,6 +658,10 @@ impl MatchState {
             // by apply_intent. NON-canonical (#[serde(skip)]).
             shot_telemetry: Vec::new(),
             dribble_telemetry: Vec::new(),
+            // FUN-0b: last_shot_xg — all zero at match init (no shots fired yet).
+            last_shot_xg: [Q32::ZERO; 22],
+            // FUN-0b+c: tackle_cooldown_until — all Tick::ZERO at match init (no cooldowns).
+            tackle_cooldown_until: [Tick::ZERO; 22],
         }
     }
 
@@ -940,6 +981,39 @@ impl MatchState {
 // T2-1c helpers: BallOutOfPlay SetPieceKind assignment + BallInPlay auto-exit
 // -------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// SS3 — Goalkeeper save model constants (FUN-0b)
+// docs/design/shot-model.md §Sub-system 3 §Coefficients
+// ---------------------------------------------------------------------------
+
+// Minimum save probability for the worst GK (attrs = 0.0) in a perfect position.
+// Provisional: 0.55. Tuning lever: lower = more goals, higher = fewer.
+const SAVE_BASE_MIN: Q32 = Q32::from_raw(3_135_326_126_i64); // ≈ 0.73 (drama-sweep R11 final)
+
+// Maximum save probability for the best GK (attrs = 1.0) in a perfect position.
+// Provisional: 0.90.
+const SAVE_BASE_MAX: Q32 = Q32::from_raw(3_951_369_912_i64); // ≈ 0.92 (drama-sweep R11 final)
+
+// Position penalty per metre of GK-to-ball y-error.
+// At 1m error: factor drops by 0.15. At 3m error: factor ≈ 0.55.
+const POSITION_PENALTY_RATE: Q32 = Q32::from_raw(644_245_094_i64); // ≈ 0.15 per metre
+
+// Minimum positional factor (GK completely out of position — last-chance reach).
+const POSITION_MIN: Q32 = Q32::from_raw(429_496_729_i64); // ≈ 0.10
+
+// Maximum save probability cap — even the best GK misses 8% of all on-target shots.
+const SAVE_PROB_MAX: Q32 = Q32::from_raw(3_951_369_912_i64); // ≈ 0.92
+
+// Site discriminant for the GK save roll (0x5A7E = "SAVE" mnemonic).
+const SAVE_ROLL_SITE_DISCRIMINANT: u32 = 0x5A7E;
+
+// GK attribute weights for save_base composite.
+// gk_quality = reflexes × 0.45 + handling × 0.30 + one_on_ones × 0.15 + positioning × 0.10
+const W_GK_REFLEXES: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+const W_GK_HANDLING: Q32 = Q32::from_raw(1_288_490_188_i64); // ≈ 0.30
+const W_GK_ONE_ON_ONES: Q32 = Q32::from_raw(644_245_094_i64); // ≈ 0.15
+const W_GK_POSITIONING: Q32 = Q32::from_raw(429_496_729_i64); // ≈ 0.10
+
 /// Determine the per-team `SetPieceKind` to emit alongside a `BallOutOfPlay`
 /// TacticEvent on the tick the OOB-clamp triggers (T2-1c).
 ///
@@ -1258,6 +1332,456 @@ fn auto_exit_setpiece(state: &mut MatchState, team: usize) {
 }
 
 // -------------------------------------------------------------------------
+// B2 — Dispossession / tackle mechanic (FUN-0b+c Slice B)
+// -------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Tackle constants — PROVISIONAL; tuned via drama-sweep.
+// ---------------------------------------------------------------------------
+
+/// Tackle attempt radius in metres. A defender must be within this distance
+/// of the ball carrier to attempt a tackle. Q32: 2.0m = 2 << 32 raw bits.
+///
+/// Squared for radius-gate arithmetic (avoids sqrt): 2^2 = 4m².
+/// Q32: 4.0 = 4 << 32 raw bits.
+const TACKLE_RADIUS_SQ: Q32 = Q32::from_raw(4_i64 << 32); // 2m radius → 4m² gate
+
+/// Base tackle probability when both defender and carrier attributes are
+/// at mid-range (0.5 × 0.5). Tuning lever: higher = more turnovers.
+/// Q32: 0.35 ≈ 1_503_238_553 raw bits.
+const TACKLE_BASE_PROB: Q32 = Q32::from_raw(1_503_238_553_i64); // ≈ 0.35 (drama-sweep R11 final)
+
+/// How many ticks a defender must wait after a FAILED tackle attempt before
+/// trying again. Prevents tackle-spam. At 60 Hz: 18 ticks ≈ 0.3 seconds.
+const TACKLE_COOLDOWN_TICKS: u32 = 18;
+
+/// Site discriminant for tackle rolls. Chosen to not collide with SS3 save
+/// site (0x5A7E) or SS2 dispersion sites (0x0001..0x0003).
+/// Mnemonic: 0x7AC1 ≈ "TACL".
+const TACKLE_ROLL_SITE: u32 = 0x7AC1;
+
+/// Resolve tackle attempts for all defending players who are within
+/// `TACKLE_RADIUS_SQ` of the current ball carrier.
+///
+/// ## Algorithm
+///
+/// For each defender slot (opposing team to the carrier):
+///   1. Skip if the slot's `tackle_cooldown_until > state.tick` (cooldown active).
+///   2. Skip GKs (slot 0 / slot 11) — they handle the ball via `goalkeeper_fsm`.
+///   3. Compute squared Euclidean distance between the defender and the carrier.
+///   4. Skip if `dist_sq > TACKLE_RADIUS_SQ` (out of range).
+///   5. Roll `ChaCha8Rng` seeded via `seed_fn(match_seed, tick, ReactiveInterrupt,
+///      (defender_slot << 16) | TACKLE_ROLL_SITE)`.
+///   6. Compute tackle probability:
+///      `p = TACKLE_BASE_PROB × defender_quality / (defender_quality + carrier_quality)`
+///      where `defender_quality = tackling × 0.50 + aggression × 0.30 + positioning × 0.20`
+///      and `carrier_quality = dribbling × 0.50 + balance × 0.30 + composure × 0.20`.
+///   7. On SUCCESS (roll < p): set `state.possession = Some(defender_slot)`,
+///      set `state.last_touched_by = Some(defender_slot)`, snap ball to
+///      defender position (ball "at feet").
+///   8. On FAILURE: set `state.tackle_cooldown_until[def_idx] = state.tick + COOLDOWN`.
+///
+/// ## Determinism
+///
+/// - Defenders iterated in slot order (0..22, fixed).
+/// - RNG seeded per ADR-0009 with `SeedLayer::ReactiveInterrupt`.
+/// - No floats, no HashMap, no clocks.
+///
+/// ## Fouls / cards
+///
+/// NOT implemented in this slice. Follow-up in T2-4.
+fn resolve_tackles(mut state: MatchState) -> MatchState {
+    use crate::decision_cadence::{SeedLayer, seed_fn};
+    use rand_chacha::ChaCha8Rng;
+    use rand_chacha::rand_core::{RngCore, SeedableRng};
+
+    // Only resolve when there is an active ball carrier.
+    let carrier_slot = match state.possession {
+        Some(s) => s,
+        None => return state,
+    };
+
+    let carrier_idx = carrier_slot as usize;
+    let carrier_team: usize = if carrier_idx < PLAYERS_PER_TEAM { 0 } else { 1 };
+
+    let carrier_x = state.players[carrier_idx].pos_x;
+    let carrier_y = state.players[carrier_idx].pos_y;
+
+    // Carrier attributes for the "resist" side of the contest.
+    let ca = state.players[carrier_idx].attributes();
+    let w_dribble = Q32::from_raw(2_147_483_648_i64); // ≈ 0.50
+    let w_balance = Q32::from_raw(1_288_490_188_i64); // ≈ 0.30
+    let w_composure = Q32::from_raw(858_993_459_i64); // ≈ 0.20
+    let carrier_quality = ca.technical.dribbling * w_dribble
+        + ca.physical.balance * w_balance
+        + ca.mental.composure * w_composure;
+    let carrier_quality = if carrier_quality > Q32::ONE {
+        Q32::ONE
+    } else {
+        carrier_quality
+    };
+
+    let tick_u32 = state.tick.to_raw() as u32;
+    let match_seed = state.seed.to_u64();
+
+    // Iterate ALL 22 slots; skip own-team + GKs + cooldown-active.
+    // B2: at most one tackle resolves per tick (the first successful defender
+    // in slot order wins; subsequent defenders see possession already changed).
+    // This avoids double-possession-transfer races.
+    for def_idx in 0..TOTAL_PLAYERS {
+        // Skip the carrier itself (can't tackle yourself).
+        if def_idx == carrier_idx {
+            continue;
+        }
+
+        // Skip own-team players.
+        let def_team: usize = if def_idx < PLAYERS_PER_TEAM { 0 } else { 1 };
+        if def_team == carrier_team {
+            continue;
+        }
+
+        // Skip GKs (slot 0 = home GK, slot 11 = away GK).
+        let in_team_slot = def_idx % PLAYERS_PER_TEAM;
+        if in_team_slot == 0 {
+            continue;
+        }
+
+        // Skip if cooldown active.
+        if state.tackle_cooldown_until[def_idx] > state.tick {
+            continue;
+        }
+
+        // Radius gate via squared Euclidean distance.
+        let dx = state.players[def_idx].pos_x - carrier_x;
+        let dy = state.players[def_idx].pos_y - carrier_y;
+        let dist_sq = dx * dx + dy * dy;
+        if dist_sq > TACKLE_RADIUS_SQ {
+            continue;
+        }
+
+        // Defender attributes for the "win" side of the contest.
+        let da = state.players[def_idx].attributes();
+        let w_tackling = Q32::from_raw(2_147_483_648_i64); // ≈ 0.50
+        let w_aggression = Q32::from_raw(1_288_490_188_i64); // ≈ 0.30
+        let w_positioning = Q32::from_raw(858_993_459_i64); // ≈ 0.20
+        let defender_quality = da.technical.tackling * w_tackling
+            + da.personality.aggression * w_aggression
+            + da.mental.positioning * w_positioning;
+        let defender_quality = if defender_quality > Q32::ONE {
+            Q32::ONE
+        } else {
+            defender_quality
+        };
+
+        // Tackle probability: TACKLE_BASE_PROB × def / (def + carrier + epsilon).
+        // epsilon avoids division by zero when both are zero.
+        let epsilon = Q32::from_raw(1 << 26); // ≈ 0.015625 (small floor)
+        let sum = defender_quality + carrier_quality + epsilon;
+        let tackle_prob = TACKLE_BASE_PROB * defender_quality / sum;
+        let tackle_prob = if tackle_prob > Q32::ONE {
+            Q32::ONE
+        } else {
+            tackle_prob
+        };
+
+        // RNG roll — ADR-0009 ReactiveInterrupt layer.
+        let site = ((def_idx as u32) << 16) | TACKLE_ROLL_SITE;
+        let rng_seed = seed_fn(match_seed, tick_u32, SeedLayer::ReactiveInterrupt, site);
+        let mut rng = ChaCha8Rng::seed_from_u64(rng_seed);
+        let roll_u64 = rng.next_u64();
+        // Upper 32 bits → Q32 in [0, 1).
+        let roll = Q32::from_raw((roll_u64 >> 32) as i64);
+
+        if roll < tackle_prob {
+            // Tackle success — possession transfers to defender.
+            let def_slot = state.players[def_idx].slot;
+            state.possession = Some(def_slot);
+            state.last_touched_by = Some(def_slot);
+            // Snap ball to defender's feet (ball "at feet" on winning tackle).
+            state.ball.pos_x = state.players[def_idx].pos_x;
+            state.ball.pos_y = state.players[def_idx].pos_y;
+            state.ball.vel_x = Q32::ZERO;
+            state.ball.vel_y = Q32::ZERO;
+            state.ball.vel_z = Q32::ZERO;
+            // Stop processing — possession changed this tick.
+            break;
+        } else {
+            // Tackle failure — set cooldown to prevent spam.
+            let cooldown_end = state.tick.checked_add_ticks(TACKLE_COOLDOWN_TICKS);
+            state.tackle_cooldown_until[def_idx] = cooldown_end;
+        }
+    }
+
+    state
+}
+
+// -------------------------------------------------------------------------
+// B2 tackle tests (TDD)
+// -------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tackle_tests {
+    use super::*;
+    use fw_core::{Q32, Seed, Tick};
+
+    /// Move ALL away-team players far from the carrier to avoid interference.
+    /// Only the specifically placed defender will be within range.
+    fn clear_away_team_to_far_side(state: &mut MatchState) {
+        for slot_idx in PLAYERS_PER_TEAM..TOTAL_PLAYERS {
+            state.players[slot_idx].pos_x = Q32::from_int(40);
+            state.players[slot_idx].pos_y = Q32::from_int(20);
+        }
+    }
+
+    /// Place a player at a specific position.
+    fn place_player(state: &mut MatchState, slot: usize, x: Q32, y: Q32) {
+        state.players[slot].pos_x = x;
+        state.players[slot].pos_y = y;
+    }
+
+    /// B2 test: a defender within TACKLE_RADIUS of the carrier eventually
+    /// causes a possession change (given enough seeds).
+    ///
+    /// Tackle probability at mid-range attrs ≈ 17.5% per attempt.
+    /// P(0 successes in 60 trials) < 0.00003.
+    #[test]
+    fn tackle_within_radius_can_change_possession() {
+        // Home slot 9 has the ball; away slot 16 is the ONLY nearby defender.
+        let carrier_x = Q32::from_int(10);
+        let carrier_y = Q32::ZERO;
+        let def_x = carrier_x + Q32::from_raw(6_442_450_944_i64); // ≈ +1.5m
+        let def_y = Q32::ZERO;
+
+        let mut possession_changed = false;
+        for seed_offset in 0u64..60 {
+            let mut state = MatchState::initial(Seed::from_u64(0xBEEF + seed_offset));
+            state.tick = Tick::from_raw(1);
+            state.possession = Some(9);
+            state.last_touched_by = Some(9);
+            state.players[9].pos_x = carrier_x;
+            state.players[9].pos_y = carrier_y;
+            state.ball.pos_x = carrier_x;
+            state.ball.pos_y = carrier_y;
+            // Push ALL away players far away, then place ONLY slot 16 close.
+            clear_away_team_to_far_side(&mut state);
+            place_player(&mut state, 16, def_x, def_y);
+
+            state = resolve_tackles(state);
+
+            if state.possession != Some(9) {
+                possession_changed = true;
+                assert_eq!(
+                    state.possession,
+                    Some(16),
+                    "on success, possession must be Some(defender_slot=16)"
+                );
+                assert_eq!(state.ball.pos_x, state.players[16].pos_x);
+                assert_eq!(state.ball.pos_y, state.players[16].pos_y);
+                break;
+            }
+        }
+        assert!(
+            possession_changed,
+            "tackle within radius must eventually succeed across 60 seeds"
+        );
+    }
+
+    /// B2 test: a defender OUTSIDE the TACKLE_RADIUS cannot change possession.
+    #[test]
+    fn tackle_outside_radius_never_changes_possession() {
+        let carrier_x = Q32::from_int(10);
+        let carrier_y = Q32::ZERO;
+        // 5m away — well outside the 2m radius.
+        let def_x = carrier_x + Q32::from_int(5);
+        let def_y = Q32::ZERO;
+
+        for seed_offset in 0u64..30 {
+            let mut state = MatchState::initial(Seed::from_u64(0xC0DE + seed_offset));
+            state.tick = Tick::from_raw(1);
+            state.possession = Some(9);
+            state.last_touched_by = Some(9);
+            state.players[9].pos_x = carrier_x;
+            state.players[9].pos_y = carrier_y;
+            state.ball.pos_x = carrier_x;
+            state.ball.pos_y = carrier_y;
+            // Push ALL away players far away — none within range.
+            clear_away_team_to_far_side(&mut state);
+            // Place the "test defender" explicitly at 5m away.
+            place_player(&mut state, 16, def_x, def_y);
+
+            state = resolve_tackles(state);
+            assert_eq!(
+                state.possession,
+                Some(9),
+                "defender 5m away must not change possession (seed_offset={seed_offset})"
+            );
+        }
+    }
+
+    /// B2 test: failed tackle sets a cooldown.
+    #[test]
+    fn failed_tackle_sets_cooldown() {
+        let cx = Q32::from_int(10);
+        let cy = Q32::ZERO;
+        let def_x = cx + Q32::from_raw(4_294_967_296_i64); // ≈ 1.0m — within radius
+
+        let build_state = |seed_val: u64| {
+            let mut state = MatchState::initial(Seed::from_u64(seed_val));
+            state.tick = Tick::from_raw(1);
+            state.possession = Some(9);
+            state.last_touched_by = Some(9);
+            state.players[9].pos_x = cx;
+            state.players[9].pos_y = cy;
+            state.ball.pos_x = cx;
+            state.ball.pos_y = cy;
+            // Boost carrier quality to max → near-zero tackle probability.
+            state.players[9].attributes.technical.dribbling = Q32::ONE;
+            state.players[9].attributes.physical.balance = Q32::ONE;
+            state.players[9].attributes.mental.composure = Q32::ONE;
+            // Push all away players away, then place slot 16 within range.
+            clear_away_team_to_far_side(&mut state);
+            place_player(&mut state, 16, def_x, Q32::ZERO);
+            // Zero defender quality → near-zero tackle probability.
+            state.players[16].attributes.technical.tackling = Q32::ZERO;
+            state.players[16].attributes.personality.aggression = Q32::ZERO;
+            state.players[16].attributes.mental.positioning = Q32::ZERO;
+            state
+        };
+
+        let mut found_cooldown = false;
+        for seed_offset in 0u64..100 {
+            let s = resolve_tackles(build_state(0xF00D_1234 + seed_offset));
+            if s.possession == Some(9) {
+                // Tackle failed.
+                if s.tackle_cooldown_until[16] > Tick::from_raw(1) {
+                    found_cooldown = true;
+                    assert_eq!(
+                        s.tackle_cooldown_until[16],
+                        Tick::from_raw(1).checked_add_ticks(TACKLE_COOLDOWN_TICKS)
+                    );
+                    break;
+                }
+            }
+        }
+        assert!(
+            found_cooldown,
+            "at least one failed tackle attempt out of 100 seeds must set a cooldown"
+        );
+    }
+
+    /// B2 test: a defender under cooldown is skipped even when within range.
+    #[test]
+    fn defender_under_cooldown_is_skipped() {
+        let cx = Q32::from_int(10);
+        let cy = Q32::ZERO;
+        let def_x = cx + Q32::from_raw(4_294_967_296_i64); // ≈ 1.0m — within radius
+
+        for seed_offset in 0u64..30 {
+            let mut state = MatchState::initial(Seed::from_u64(0xCAFE + seed_offset));
+            state.tick = Tick::from_raw(5);
+            state.possession = Some(9);
+            state.last_touched_by = Some(9);
+            state.players[9].pos_x = cx;
+            state.players[9].pos_y = cy;
+            state.ball.pos_x = cx;
+            state.ball.pos_y = cy;
+            // Push all away players away, place slot 16 within range.
+            clear_away_team_to_far_side(&mut state);
+            place_player(&mut state, 16, def_x, Q32::ZERO);
+            // Set cooldown PAST current tick (5).
+            state.tackle_cooldown_until[16] = Tick::from_raw(10);
+
+            state = resolve_tackles(state);
+            assert_eq!(
+                state.possession,
+                Some(9),
+                "defender under cooldown must not attempt tackle (seed_offset={seed_offset})"
+            );
+        }
+    }
+
+    /// B2 test: own-team defenders never tackle their carrier.
+    #[test]
+    fn own_team_never_tackles_carrier() {
+        let cx = Q32::from_int(10);
+        let cy = Q32::ZERO;
+
+        for seed_offset in 0u64..20 {
+            let mut state = MatchState::initial(Seed::from_u64(0xA1B2 + seed_offset));
+            state.tick = Tick::from_raw(1);
+            state.possession = Some(9);
+            state.last_touched_by = Some(9);
+            state.players[9].pos_x = cx;
+            state.players[9].pos_y = cy;
+            state.ball.pos_x = cx;
+            state.ball.pos_y = cy;
+            // Move ALL away players far away (no opponent nearby).
+            clear_away_team_to_far_side(&mut state);
+            // Place home slot 8 (same team) at 0.5m — inside radius.
+            let teammate_x = cx + Q32::from_raw(2_147_483_648_i64);
+            place_player(&mut state, 8, teammate_x, Q32::ZERO);
+
+            state = resolve_tackles(state);
+            assert_eq!(
+                state.possession,
+                Some(9),
+                "own-team player must never tackle the carrier (seed_offset={seed_offset})"
+            );
+        }
+    }
+
+    /// B2 test: resolve_tackles is deterministic — same state + same tick
+    /// produces the same outcome.
+    #[test]
+    fn resolve_tackles_is_deterministic() {
+        let cx = Q32::from_int(10);
+        let cy = Q32::ZERO;
+        let def_x = cx + Q32::from_raw(4_294_967_296_i64); // 1m
+
+        let build_state = || {
+            let mut state = MatchState::initial(Seed::from_u64(0x1111_2222));
+            state.tick = Tick::from_raw(42);
+            state.possession = Some(9);
+            state.last_touched_by = Some(9);
+            state.players[9].pos_x = cx;
+            state.players[9].pos_y = cy;
+            state.ball.pos_x = cx;
+            state.ball.pos_y = cy;
+            clear_away_team_to_far_side(&mut state);
+            state.players[16].pos_x = def_x;
+            state.players[16].pos_y = Q32::ZERO;
+            state
+        };
+
+        let s1 = resolve_tackles(build_state());
+        let s2 = resolve_tackles(build_state());
+
+        assert_eq!(
+            s1.encode_canonical(),
+            s2.encode_canonical(),
+            "resolve_tackles must produce identical canonical output for identical input"
+        );
+    }
+
+    /// B2 test: no possession when ball is loose — resolve_tackles is a no-op.
+    #[test]
+    fn no_possession_resolve_tackles_noop() {
+        let mut state = MatchState::initial(Seed::from_u64(0x5555));
+        state.tick = Tick::from_raw(1);
+        state.possession = None; // loose ball
+        let before = state.encode_canonical();
+        state = resolve_tackles(state);
+        let after = state.encode_canonical();
+        // Canonical state EXCEPT tick: resolve_tackles itself doesn't advance tick,
+        // but both before and after are on the same tick so they should be identical.
+        assert_eq!(
+            before, after,
+            "resolve_tackles on loose ball must not mutate canonical state"
+        );
+    }
+}
+
+// -------------------------------------------------------------------------
 // tick_match — the canonical advance function
 // -------------------------------------------------------------------------
 
@@ -1375,75 +1899,200 @@ pub fn tick_match(
                  be Some at any tick where the ball has reached the goal-line; \
                  invariant violated (Codex 2026-05-16 audit silent-failure P0-1)",
                 );
-                // Codex 2026-05-16 audit silent-failure P1-1: saturating_add
-                // silently caps at 255. T1's 60-tick smoke seed never reaches
-                // 255 goals but the 90-minute integration scenarios at T1-5+
-                // could; checked_add + panic is the determinism-aligned choice
-                // (matches the Codex Q1 panic-on-overflow policy for Q32).
-                // The panic message names the scoreline at saturation.
                 let home_scored = bx_bits > 0;
-                if home_scored {
-                    state.home_score = state.home_score.checked_add(1).expect(
-                        "home_score overflowed u8 (255) — match has >255 goals; \
-                     this exceeds the realistic T1 budget and indicates a \
-                     bug (e.g. goal-line oscillation under broken OOB clamp).",
-                    );
+
+                // ---- SS3 — GK Save Model (FUN-0b) ----
+                //
+                // Before incrementing the score, compute a save probability for the
+                // conceding team's GK and roll against it. On a save: the ball is
+                // cleared to the GK's position (ball reset + possession → GK) and
+                // no goal is scored. On a goal: fall through to the score increment.
+                //
+                // GK slot convention: home GK = slot 0, away GK = slot 11.
+                //   home_scored == true → ball in AWAY goal → away GK = slot 11.
+                //   home_scored == false → ball in HOME goal → home GK = slot 0.
+                //
+                // `xg_score` is from `last_shot_xg[scorer_slot_idx]` — written by
+                // `dispatch::apply_intent` at the AttemptShot dispatch tick.
+                // Falls back to Q32::ZERO (best-xG denominator → highest save chance)
+                // if scorer_slot is out of range (structural guard).
+                let gk_slot_idx: usize = if home_scored {
+                    11 // away GK
                 } else {
-                    state.away_score = state.away_score.checked_add(1).expect(
-                        "away_score overflowed u8 (255) — match has >255 goals; \
-                     this exceeds the realistic T1 budget and indicates a \
-                     bug (e.g. goal-line oscillation under broken OOB clamp).",
-                    );
-                }
-                let score_home_after = state.home_score as u16;
-                let score_away_after = state.away_score as u16;
-                state.match_events.push(MatchEvent::Goal {
-                    scorer_slot,
-                    tick: state.tick,
-                    score_home_after,
-                    score_away_after,
-                });
-                state.ball = BallState::centre_spot();
-                // Codex 2026-05-16 audit code-reviewer Critical #1: the
-                // conceding team kicks off after a goal (football rule). Prior
-                // code unconditionally set possession = Some(9) (home centre
-                // forward), which would misroute kick-off possession when the
-                // away team scored. Derive the conceding team from the sign of
-                // bx_bits (set above): home_scored == bx_bits > 0; away conceded.
-                // Conceding team's centre forward kicks off:
-                //   home concedes (away_scored) → slot 9 (home CF)
-                //   away concedes (home_scored) → slot 20 (away CF; slot index 11+9)
-                let kick_off_taker: PlayerSlot = if home_scored {
-                    20 // away CF (slot 11 + 9 offset)
-                } else {
-                    9 // home CF
+                    0 // home GK
                 };
-                state.possession = Some(kick_off_taker);
-                state.last_touched_by = Some(kick_off_taker);
-                state.match_events.push(MatchEvent::KickOff {
-                    tick: state.tick,
-                    is_second_half: false,
-                });
-                // T2-1a: per-team archetype params. Pre-T2-1a this used a single
-                // hardcoded `direct_pressing()` for BOTH teams; now each team's
-                // tactic-FSM transitions consult ITS OWN archetype's parameters
-                // (resolved at MatchState construction via the bridge in
-                // tactic_fsm::archetype_params_for + cached in the sidecar fields).
-                state.team_tactic_states[0] = tactic_fsm::apply_event(
-                    state.team_tactic_states[0],
-                    &state.home_archetype_params,
-                    tactic_fsm::TacticEvent::Goal,
-                    state.tick,
+
+                let scorer_slot_idx = scorer_slot as usize;
+                let xg_score = if scorer_slot_idx < 22 {
+                    state.last_shot_xg[scorer_slot_idx]
+                } else {
+                    Q32::ZERO // structural guard — scorer_slot must be < 22
+                };
+
+                // GK quality composite:
+                // gk_quality = reflexes×0.45 + handling×0.30 + one_on_ones×0.15 + positioning×0.10
+                let gk_attrs = state.players[gk_slot_idx].attributes();
+                let gk_quality = gk_attrs.goalkeeper.reflexes * W_GK_REFLEXES
+                    + gk_attrs.goalkeeper.handling * W_GK_HANDLING
+                    + gk_attrs.goalkeeper.one_on_ones * W_GK_ONE_ON_ONES
+                    + gk_attrs.mental.positioning * W_GK_POSITIONING;
+                let gk_quality = if gk_quality > Q32::ONE {
+                    Q32::ONE
+                } else {
+                    gk_quality
+                };
+
+                // save_base = SAVE_BASE_MIN + (SAVE_BASE_MAX - SAVE_BASE_MIN) × gk_quality
+                let save_base = SAVE_BASE_MIN + (SAVE_BASE_MAX - SAVE_BASE_MIN) * gk_quality;
+
+                // positional_factor: penalise saves when GK is away from ball's y.
+                // gk_y_error = |ball.pos_y - gk.pos_y|  (at the line-crossing tick)
+                let gk_pos_y = state.players[gk_slot_idx].pos_y;
+                let gk_y_error = {
+                    let diff = state.ball.pos_y - gk_pos_y;
+                    let abs_bits = diff.to_bits().unsigned_abs();
+                    Q32::from_raw(abs_bits as i64)
+                };
+                let positional_factor_raw = Q32::ONE - gk_y_error * POSITION_PENALTY_RATE;
+                let positional_factor = if positional_factor_raw < POSITION_MIN {
+                    POSITION_MIN
+                } else {
+                    positional_factor_raw
+                };
+
+                // xg_clamp: ensure xg_score ≤ Q32::ONE for the (1 - xg) term.
+                let xg_clamped = if xg_score > Q32::ONE {
+                    Q32::ONE
+                } else {
+                    xg_score
+                };
+                let one_minus_xg = Q32::ONE - xg_clamped;
+
+                // save_prob = save_base × (1 - xg_score) × positional_factor
+                let save_prob_raw = save_base * one_minus_xg * positional_factor;
+                let save_prob = if save_prob_raw > SAVE_PROB_MAX {
+                    SAVE_PROB_MAX
+                } else {
+                    save_prob_raw
+                };
+
+                // RNG draw: SeedLayer::ReactiveInterrupt, site = (scorer_slot << 16) | 0x5A7E
+                let save_site = ((scorer_slot as u32) << 16) | SAVE_ROLL_SITE_DISCRIMINANT;
+                let save_rng_seed = crate::decision_cadence::seed_fn(
+                    state.seed.to_u64(),
+                    state.tick.to_raw() as u32,
+                    crate::decision_cadence::SeedLayer::ReactiveInterrupt,
+                    save_site,
                 );
-                state.team_tactic_states[1] = tactic_fsm::apply_event(
-                    state.team_tactic_states[1],
-                    &state.away_archetype_params,
-                    tactic_fsm::TacticEvent::Goal,
-                    state.tick,
-                );
-                goal_fired_this_tick = true;
-            }
-        }
+                {
+                    use rand_chacha::rand_core::{RngCore, SeedableRng};
+                    let mut save_rng = rand_chacha::ChaCha8Rng::seed_from_u64(save_rng_seed);
+                    let roll_u64 = save_rng.next_u64();
+                    // Upper 32 bits → Q32 in [0, 1)
+                    let roll = Q32::from_raw((roll_u64 >> 32) as i64);
+
+                    // SS3 gate (FUN-0b+c): the save model models a KEEPER FACING A
+                    // SHOT. It only applies when a real shot put the ball here —
+                    // i.e. `last_shot_xg[scorer] > 0` (the BT dispatches AttemptShot
+                    // only when xG > XG_SHOOT_THRESHOLD, so a real shot always has
+                    // xG > 0). A ball crossing the line with NO shot context
+                    // (`xg_score == 0`: own goal, deflection, goalmouth scramble,
+                    // dribbled-in ball) is NOT a save situation — the goal stands.
+                    // Without this gate, `save_base × (1 - 0) = save_base` (0.73-0.92)
+                    // would near-automatically "save" every non-shot crossing, which
+                    // both misates football (own goals can't be saved) AND made the
+                    // goal-detection geometry tests non-deterministic (they inject a
+                    // ball at the line with no shot, so xg_score == 0).
+                    let save_made = xg_score > Q32::ZERO && roll < save_prob;
+                    if save_made {
+                        // GK makes the save — no goal. Clear `last_shot_xg` for this
+                        // scorer slot and give possession to the GK.
+                        state.last_shot_xg[scorer_slot_idx] = Q32::ZERO;
+                        // Clear ball velocity and snap ball to GK position (ball cleared).
+                        state.ball.vel_x = Q32::ZERO;
+                        state.ball.vel_y = Q32::ZERO;
+                        state.ball.vel_z = Q32::ZERO;
+                        state.ball.pos_x = state.players[gk_slot_idx].pos_x;
+                        state.ball.pos_y = state.players[gk_slot_idx].pos_y;
+                        let gk_slot_id = state.players[gk_slot_idx].slot;
+                        state.possession = Some(gk_slot_id);
+                        state.last_touched_by = Some(gk_slot_id);
+                        // `goal_fired_this_tick` stays false — the ball is near the
+                        // goal line but the GK holds it. Step 3 (OOB clamp) will
+                        // see ball at GK position (just inside the line) and
+                        // clamp it to the goal line if needed; that's fine — the
+                        // GK will then distribute. No MatchEvent emitted for the
+                        // save in T1 (commentary placeholder deferred to T1-4b+).
+                        // Early-continue the goal-detection block.
+                        // We set goal_fired_this_tick = false here explicitly
+                        // so step 3 skips (we already moved the ball to a safe
+                        // position: the GK's body, which is ≤ GOAL_LINE_X).
+                        // Assign to goal_fired_this_tick to suppress step-3 OOB.
+                        // Actually: the ball is now at the GK pos which is inside
+                        // the field (GK is positioned ≤ 45m). Step 3 will see
+                        // bx_abs < goal_line_bits and skip. No further action needed.
+                        // Break from the goal-detection scope.
+                        // (We exit the `if bx_abs >= goal_line_bits` branch below
+                        //  by NOT setting goal_fired_this_tick = true, so the
+                        //  score increment and KickOff are skipped.)
+                    } else {
+                        // Roll missed save — goal stands. Fall through to score increment.
+                        // Codex 2026-05-16 audit silent-failure P1-1: saturating_add
+                        // silently caps at 255. T1's 60-tick smoke seed never reaches
+                        // 255 goals but the 90-minute integration scenarios at T1-5+
+                        // could; checked_add + panic is the determinism-aligned choice.
+                        if home_scored {
+                            state.home_score = state.home_score.checked_add(1).expect(
+                                "home_score overflowed u8 (255) — match has >255 goals; \
+                             this exceeds the realistic T1 budget and indicates a \
+                             bug (e.g. goal-line oscillation under broken OOB clamp).",
+                            );
+                        } else {
+                            state.away_score = state.away_score.checked_add(1).expect(
+                                "away_score overflowed u8 (255) — match has >255 goals; \
+                             this exceeds the realistic T1 budget and indicates a \
+                             bug (e.g. goal-line oscillation under broken OOB clamp).",
+                            );
+                        }
+                        let score_home_after = state.home_score as u16;
+                        let score_away_after = state.away_score as u16;
+                        state.match_events.push(MatchEvent::Goal {
+                            scorer_slot,
+                            tick: state.tick,
+                            score_home_after,
+                            score_away_after,
+                        });
+                        state.ball = BallState::centre_spot();
+                        // Codex 2026-05-16 audit code-reviewer Critical #1: the
+                        // conceding team kicks off after a goal (football rule).
+                        let kick_off_taker: PlayerSlot = if home_scored {
+                            20 // away CF (slot 11 + 9 offset)
+                        } else {
+                            9 // home CF
+                        };
+                        state.possession = Some(kick_off_taker);
+                        state.last_touched_by = Some(kick_off_taker);
+                        state.match_events.push(MatchEvent::KickOff {
+                            tick: state.tick,
+                            is_second_half: false,
+                        });
+                        state.team_tactic_states[0] = tactic_fsm::apply_event(
+                            state.team_tactic_states[0],
+                            &state.home_archetype_params,
+                            tactic_fsm::TacticEvent::Goal,
+                            state.tick,
+                        );
+                        state.team_tactic_states[1] = tactic_fsm::apply_event(
+                            state.team_tactic_states[1],
+                            &state.away_archetype_params,
+                            tactic_fsm::TacticEvent::Goal,
+                            state.tick,
+                        );
+                        goal_fired_this_tick = true;
+                    } // end roll < save_prob else (goal stands)
+                } // end save RNG scope
+            } // end if bx_abs >= goal_line_bits (goal mouth detection)
+        } // end inner scope
 
         // Step 3 (T1-3.5): OOB clamp — BEFORE ball physics.
         //
@@ -1603,6 +2252,19 @@ pub fn tick_match(
         // unconditionally — those are not possession-mutating.
         if !goal_fired_this_tick {
             state = dispatch::dispatch_tick(state, sig_definitions);
+        }
+
+        // Step 6b (FUN-0b+c Slice B): resolve tackle attempts.
+        //
+        // Runs AFTER dispatch_tick (so defenders have moved toward the carrier
+        // following their B1-corrected Press/Mark intents) and BEFORE velocity
+        // integration (so the tackler's position on this tick is the position they
+        // decided-from, not the post-integration position). Only fires when a
+        // carrier has possession; loose-ball scenarios are unchanged.
+        //
+        // Skipped on goal ticks (same rationale as dispatch + pickup guards).
+        if !goal_fired_this_tick {
+            state = resolve_tackles(state);
         }
 
         // Step 7: integrate player velocity into position.
@@ -2123,6 +2785,74 @@ mod smoke {
              after tick 1 is {:?}, not InPossession. evaluate_transitions \
              must route the possession holder into InPossession.",
             slot9_role_state
+        );
+    }
+}
+
+#[cfg(test)]
+mod setpiece_autoexit_tests {
+    use super::*;
+    use tactic_fsm::{ArchetypeParams, SetPieceKind, TacticState, TeamTacticState};
+
+    /// Controlled silent-failure guard for the SetPiece auto-exit pattern.
+    ///
+    /// Replaces the fragile smoke-seed-scan in
+    /// `tactic_event_emission_test.rs::setpiece_state_auto_exits_on_possession_loss_to_none`,
+    /// which asserted the smoke seed's FIRST emergent SetPiece-exit lands in a
+    /// non-MidBlock state. That premise broke at FUN-0b+c: the Slice-B tackle
+    /// step shifted the smoke seed's single 600-tick exit to a cross-team
+    /// transition where the losing team gets `PossessionLost{recovery_likely:true}`
+    /// under the HighPress re-entry cooldown — which legitimately RETURNS MidBlock
+    /// (tactic_fsm.rs:419-421). MidBlock is a valid post-exit state, so the
+    /// emergent-scan observable could not distinguish "subsequent event fired but
+    /// stayed MidBlock" from "subsequent event dropped."
+    ///
+    /// Codex Tier-2 audit 2026-05-17 P2 #3 protects against: a refactor that fires
+    /// `auto_exit_setpiece` (BallInPlay → archetype default) but silently DROPS the
+    /// subsequent PossessionLost / BallRecovered, leaving the team stuck in the
+    /// BallInPlay default. This controlled test drives the `Some(home) → None`
+    /// (release-without-pickup) branch of `emit_possession_transition_events` with
+    /// team 0 pre-set to SetPiece + direct-pressing params (MidBlock default). The
+    /// branch must:
+    ///   1. auto_exit_setpiece: SetPiece → BallInPlay → MidBlock (the default).
+    ///   2. PossessionLost{recovery_likely:false}: MidBlock → LowBlock.
+    ///
+    /// Landing in **LowBlock** proves BOTH fired. If the subsequent PossessionLost
+    /// were dropped, the team would remain in MidBlock → assertion fails. Unlike
+    /// the emergent smoke-seed exit, this observable is deterministic.
+    ///
+    /// Mutation discriminator: deleting the `state.team_tactic_states[team_lost] =
+    /// apply_event(... PossessionLost ...)` line in the `(Some(a), None)` arm of
+    /// `emit_possession_transition_events` leaves the team in MidBlock → fails.
+    #[test]
+    fn auto_exit_setpiece_then_possession_lost_lands_in_lowblock_not_midblock() {
+        let mut state = MatchState::initial(Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF));
+        // Explicit direct-pressing params (MidBlock default, High press) so the
+        // expected landing is deterministic regardless of init defaults.
+        state.home_archetype_params = ArchetypeParams::direct_pressing();
+        // Put the home team in SetPiece (a throw-in won) at the current tick.
+        state.team_tactic_states[0] = TeamTacticState::initial()
+            .transition(TacticState::SetPiece(SetPieceKind::ThrowInFor), state.tick);
+        assert!(matches!(
+            state.team_tactic_states[0].state(),
+            TacticState::SetPiece(_)
+        ));
+
+        // After-state: the home carrier (slot 8, team 0) released the ball and
+        // nobody picked it up this tick (possession None). `emit` compares against
+        // the possession_before snapshot Some(8) → the `(Some(a), None)` release arm.
+        state.possession = None;
+        emit_possession_transition_events(&mut state, Some(8));
+
+        assert_eq!(
+            state.team_tactic_states[0].state(),
+            TacticState::LowBlock,
+            "auto-exit SetPiece must fire BallInPlay (-> MidBlock default) AND the \
+             subsequent PossessionLost{{recovery_likely:false}} (-> LowBlock). \
+             Landing in MidBlock would mean the PossessionLost was silently dropped \
+             after the auto-exit -- the exact silent failure the Codex Tier-2 P2 #3 \
+             hardening guards. Got {:?}.",
+            state.team_tactic_states[0].state(),
         );
     }
 }

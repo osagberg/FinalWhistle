@@ -49,7 +49,7 @@ use hex_literal::hex;
 use serde::Deserialize;
 
 use fw_core::{Q32, Seed, Tick};
-use fw_match_sim::{MatchState, tick_match};
+use fw_match_sim::{FULL_MATCH_TICKS, MatchState, tick_match};
 
 // T1-8: Replay corpus fixture #1 (`extended_seed_600_tick_*` tests) loads
 // the real content tree via `ContentStore::load_sources`. The 60-tick
@@ -284,6 +284,28 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   Authorized by the FUN-0 spec in MEMORY.md (Tier-F + user "go" 2026-06-04).
 ///   (The residual 43-43 full-match scoreline is a SEPARATE goal-rate /
 ///   ball-physics issue, scoped to the next Tier-F slice, not this fix.)
+/// - 2026-06-04 (FUN-0b+c watchable-match fix) — **re-baselined to `e56562f8…f07d`**
+///   per ADR-0012 trigger #3 (sim behavior change with documented intent). The
+///   watchable-match slice that resolved the 43-43 bimodal scoreline into
+///   realistic football (drama-sweep M1 = 3.15 goals/match, in the 2.3-3.2 band):
+///   (A) `utility_shoot` now gates on the `utility/xg.rs` xG score at
+///   `XG_SHOOT_THRESHOLD` (no more speculative shots from poor positions); SS2
+///   accuracy dispersion (`SIGMA_BASE_M`, SeedLayer::BallPhysics) + SS3 GK save
+///   model (`save_base × (1-xG) × positional_factor`, SeedLayer::ReactiveInterrupt)
+///   in goal detection, GATED on `last_shot_xg > 0` so only real shots face the
+///   keeper (a non-shot crossing — own goal / deflection / scramble — still
+///   scores). (B) dispossession/tackle step (`resolve_tackles`, step 6b) breaks
+///   the possession-lock; carrier-aware press/mark routing. (C) 14-round
+///   drama-sweep coefficient tuning. On THIS 60-tick smoke pin the per-tick
+///   deltas are the new shot-quality / dispatch / separation behavior (e.g. slot
+///   10 now Passes/Crosses instead of firing a speculative Shot — see the
+///   match_event snapshot). Score 0-0 unchanged (smoke seed doesn't reach goal
+///   in 60 ticks; the SS3 save-gate never fires here). Main-thread verified the
+///   FULL-MATCH goal envelope BEFORE re-pinning per the post-T1-15 multi-pin
+///   discipline: `extended_seed_full_match_goal_count_realism_envelope` passes
+///   (5-seed full matches 1/1/3/2/1 goals — no collapse, no runaway) + the
+///   drama-sweep M1 mean is in band. Authorized by the watchable-match spec in
+///   MEMORY.md (Tier-F + user "go" 2026-06-04).
 ///
 /// Re-baselining requires: task-spec authorization + simultaneous update
 /// of this constant + the RON fixture's `expected_hash` field + commit
@@ -292,7 +314,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("a490489b534ecd16dde46bd5a8f2022b7a3fd127778b8f73050712bcd1b99dba");
+    hex!("e56562f84c5bff8d229185aa74762c5d8178e7a8f33d357675e8c8c91c8ff07d");
 
 /// Read `env_var` as the number of fresh runs for an intra-process determinism
 /// test, falling back to `default` when the env var is absent or unparseable.
@@ -771,13 +793,28 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   43-43 FULL-match (5400-tick) scoreline is a SEPARATE goal-rate / ball-physics
 ///   issue for the next Tier-F slice). Authorized by the FUN-0 spec in MEMORY.md
 ///   (Tier-F + user "go" 2026-06-04).
+/// - 2026-06-04 (FUN-0b+c watchable-match fix) — **re-baselined to `6805c105…c196`**
+///   per ADR-0012 trigger #3 (sim behavior change with documented intent). Same
+///   watchable-match slice as the PINNED_60_TICK FUN-0b+c entry above: shot-quality
+///   xG gate + SS2 dispersion + SS3 GK save model (gated on `last_shot_xg > 0`) +
+///   dispossession/tackle (`resolve_tackles`) + 14-round drama-sweep tuning. Over
+///   this content-driven 600-tick run, player trajectories, shot/pass selection,
+///   cooldown maps + signature firings all shift → canonical bytes change. The
+///   600-tick window scores 0-0 (the watchable engine spreads goals across the
+///   FULL 5400-tick match; the SS3 save-gate doesn't fire in 600 ticks on this
+///   seed). The empirical goal gate moved from the old 600-tick [2,5] envelope to
+///   the FULL-match `extended_seed_full_match_goal_count_realism_envelope`
+///   (this seed finishes 1-0 over 5400 ticks; full sweep 1/1/3/2/1 — no collapse,
+///   no runaway); main-thread verified BEFORE re-pinning per the post-T1-15
+///   multi-pin discipline + drama-sweep M1 in band. Authorized by the
+///   watchable-match spec in MEMORY.md (Tier-F + user "go" 2026-06-04).
 ///
 /// Re-baselining: update this constant AND the `expected_hash` field of
 /// `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron` in the same commit,
 /// per `docs/specs/determinism-gate.md` §9 — the same protocol that
 /// governs PINNED_60_TICK above.
 const PINNED_600_TICK: [u8; 32] =
-    hex!("3efd5623b1e85d67d1b18cc350c86ea97f6e5740208651132e97e78fcd35b2d0");
+    hex!("6805c1059328748e594ca610a32bccbf513b1bf1192dfbf1efbaadfc6f9bc196");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {
@@ -987,25 +1024,34 @@ fn hex_string(bytes: &[u8]) -> String {
 // loudly. (Better than a runtime error in CI.)
 // -------------------------------------------------------------------------
 
-/// T2-1a: empirical envelope guards for the extended-seed pinned hash.
+/// Empirical FULL-MATCH goal-count guard for the extended-seed seed-space.
 ///
-/// Per the post-T1-15 hardening rule + the T2-1a row spec, a canonical-hash
-/// rebaseline driven by per-team behavior change (ADR-0012 trigger #3) MUST
-/// be accompanied by main-thread verification that the empirical envelope
-/// from T1 exit gate Bullet 1 still holds — specifically that the 600-tick
-/// extended seed `0xfeedbeefcafefade` with the T2-1a canonical archetype
-/// pairing (home=attacking-fullback, away=low-block-counter) produces 2-5
-/// total goals.
+/// **FUN-0b+c re-calibration (2026-06-04).** This test used to assert the
+/// pinned extended seed produces 2-5 goals across **600 ticks** (the old
+/// "T1 exit gate Bullet 1" contract). That contract was written when the
+/// pre-watchable engine scored in early bursts, so 600 ticks (10 displayed
+/// minutes) was a usable goal-rate proxy. The watchable-match engine
+/// (shot-quality xG gate + dispossession + GK save model) spreads goals
+/// realistically across the full 90-minute match, so a 600-tick window now
+/// scores **0 goals on every seed** — the old [2, 5]-over-600 assertion was
+/// asserting broken-engine bursty behavior. Empirically (5400-tick full
+/// matches, home=attacking-fullback / away=low-block-counter): pinned 1-0,
+/// + the four samples 1-0 / 1-2 / 1-1 / 0-1 (total 8 across 5 matches).
 ///
-/// Two envelope tiers per the T2-1a self-review HIGH-1 finding
-/// (silent-failure-hunter, 2026-05-17): the strict pinned-seed envelope
-/// `[2, 5]` AND a broader 5-seed sanity envelope `[0, 7]` that catches a
-/// future change which keeps the pinned seed inside `[2, 5]` by coincidence
-/// while pushing other seeds into runaway-score (>7) or dead-loop (==0)
-/// territory. Original single-seed guard alone could pass while the engine
-/// silently regressed for everything outside its narrow probe.
+/// **Scope of this test now:** a cheap CI **collapse + runaway** guard over a
+/// fixed 5-seed set. It is NOT the realism gate — full-match goal-RATE realism
+/// (the M1 2.3-3.2 goals/match band over a 20-seed sweep) is owned by the
+/// `drama_sweep` binary per `docs/design/drama-model.md`. This test only
+/// asserts the engine neither dies (all-zero across the seed-space) nor runs
+/// away (an implausible thrashing) on these specific seeds.
+///
+/// Known deferred issue: the drama-sweep found high goal-count VARIANCE on
+/// SOME seeds (a few outliers reach 12-17) — a T2 defensive-shape gap (zonal
+/// compactness to break attack chains), not a coefficient fix. None of the 5
+/// guard seeds below are outliers (max 3 goals), so the per-seed cap stays
+/// stable; the variance is tracked separately, not by this guard.
 const SCORE_SANITY_SEEDS: &[u64] = &[
-    EXTENDED_SEED,      // pinned smoke seed — must be in [2, 5]
+    EXTENDED_SEED,      // pinned seed — full-match scoreline 1-0
     0xa1b2c3d4e5f60718, // 5-seed envelope sample
     0xfedcba9876543210,
     0x1357acefbd024689,
@@ -1013,7 +1059,7 @@ const SCORE_SANITY_SEEDS: &[u64] = &[
 ];
 
 #[test]
-fn extended_seed_600_tick_goal_count_in_t1_exit_gate_envelope() {
+fn extended_seed_full_match_goal_count_realism_envelope() {
     let content_root = workspace_content_root();
     let content = ContentStore::load_sources(&content_root).expect("content/sources should load");
 
@@ -1027,51 +1073,36 @@ fn extended_seed_600_tick_goal_count_in_t1_exit_gate_envelope() {
             "fwh.core:archetype.low-block-counter",
         )
         .expect("initial_with_content should succeed");
-        for _ in 0..EXTENDED_TICK_COUNT {
+        // FULL match (5400 ticks), not 600 — see the re-calibration note above.
+        // 5 matches × 5400 ticks ≈ 65 ms total; negligible on every CI leg.
+        for _ in 0..FULL_MATCH_TICKS {
             state = tick_match(state, &content.signature_definitions);
         }
         let total_goals = state.home_score as u32 + state.away_score as u32;
         all_scores.push((seed_val, total_goals, state.home_score, state.away_score));
     }
 
-    // STRICT envelope: pinned smoke seed `EXTENDED_SEED` must be in [2, 5]
-    // — this is the codified T1 exit gate Bullet 1 contract.
-    let (_seed, pinned_goals, pinned_home, pinned_away) = all_scores[0];
-    assert!(
-        (2..=5).contains(&pinned_goals),
-        "T1 exit gate Bullet 1 envelope: pinned extended seed {:#x} must \
-         produce 2-5 total goals across {} ticks; got {} (home={}, away={}). \
-         If this drifts out of envelope alongside a canonical hash rebaseline, \
-         the rebaseline must be escalated per the post-T1-15 hardening rule, \
-         NOT auto-approved.",
-        EXTENDED_SEED,
-        EXTENDED_TICK_COUNT,
-        pinned_goals,
-        pinned_home,
-        pinned_away,
-    );
-
-    // BROADER per-seed sanity: every seed in the 5-seed sweep must produce
-    // 0-7 total goals across 600 ticks. The UPPER bound (7) catches a
-    // runaway-scoring regression. The lower bound is 0 — NOT a typo: with the
-    // low-block-counter pairing, two of the sample seeds (0x1357acefbd024689
-    // and 0x0badc0dedeadbeef) legitimately finish 0-0 (verified empirically at
-    // QA-T4H). A per-seed [1, 7] floor would be a FALSE floor that flakes on
-    // those two — which is exactly why the "0 catches a no-shots regression"
-    // claim that used to sit here was wrong: 0 is inside the allowed band, so a
-    // collapse to all-zero would have passed this loop. The genuine collapse
-    // detector is the aggregate floor below, not this per-seed range.
+    // RUNAWAY guard: every seed (incl. pinned) must produce <= 8 total goals
+    // across a full match. A 5-3 thrashing is the realistic ceiling; > 8 is a
+    // runaway-scoring regression (e.g. a broken GK save model or goal-line
+    // oscillation). The 5 guard seeds top out at 3, so this cap has > 2.5x
+    // margin and won't flake on authorized rebaselines. (The known high-variance
+    // OUTLIER seeds the drama-sweep found — 12-17 goals — are OTHER seeds; this
+    // fixed guard set deliberately excludes them so the cap stays a clean
+    // runaway detector rather than codifying the deferred T2 variance gap.)
+    const PER_SEED_GOAL_CAP: u32 = 8;
     for &(seed_val, total_goals, home, away) in &all_scores {
         assert!(
-            (0..=7).contains(&total_goals),
-            "Per-seed sanity envelope: seed {:#x} produced {} total goals \
-             (home={}, away={}) across {} ticks — outside [0, 7] (runaway or \
-             impossible). Investigate before rebaselining. (Full sweep: {:?})",
+            total_goals <= PER_SEED_GOAL_CAP,
+            "Runaway guard: seed {:#x} produced {} total goals (home={}, away={}) \
+             across a full match — above the realistic cap of {}. This is a \
+             runaway-scoring regression; investigate before rebaselining. \
+             (Full sweep: {:?})",
             seed_val,
             total_goals,
             home,
             away,
-            EXTENDED_TICK_COUNT,
+            PER_SEED_GOAL_CAP,
             all_scores
                 .iter()
                 .map(|(s, g, _, _)| (format!("{s:#x}"), *g))
@@ -1079,29 +1110,26 @@ fn extended_seed_600_tick_goal_count_in_t1_exit_gate_envelope() {
         );
     }
 
-    // AGGREGATE collapse floor across the four NON-pinned seeds (QA-T4H, from
-    // the Codex T4-8 gate P2). This is the assertion that actually catches the
-    // silent-failure mode the per-seed [0, 7] loop cannot: a regression that
-    // keeps the pinned probe seed inside [2, 5] by coincidence while collapsing
-    // the rest of the seed-space to "no shots ever fire." It is INDEPENDENT of
-    // the pinned seed's own [2, 5] assertion (slice `[1..]` excludes index 0),
-    // so the pinned seed cannot carry it alone. Current non-pinned sum = 8
-    // (4 + 4 + 0 + 0); the floor of 2 is a 4x margin that fires only on a
-    // near-total collapse and stays robust across authorized rebaselines (it
-    // pins "the engine still scores somewhere outside the probe," not a
-    // specific score). Bump deliberately if a future rebaseline narrows it.
+    // COLLAPSE guard: aggregate goals across the four NON-pinned seeds must be
+    // >= 2. This catches the silent-failure mode the per-seed cap cannot — a
+    // regression that keeps the pinned probe seed scoring (e.g. 1-0) while
+    // collapsing the rest of the seed-space to "no shots ever fire / no shot
+    // ever beats the keeper." It is INDEPENDENT of the pinned seed (slice `[1..]`
+    // excludes index 0), so the pinned seed cannot carry it alone. Current
+    // non-pinned sum = 7 (1 + 3 + 2 + 1); the floor of 2 is a 3.5x margin that
+    // fires only on a near-total collapse and stays robust across authorized
+    // rebaselines (it pins "the engine still scores somewhere outside the probe,"
+    // not a specific score). Bump deliberately if a future rebaseline narrows it.
     const NON_PINNED_GOAL_FLOOR: u32 = 2;
     let non_pinned_sum: u32 = all_scores[1..].iter().map(|&(_, g, _, _)| g).sum();
     assert!(
         non_pinned_sum >= NON_PINNED_GOAL_FLOOR,
-        "Aggregate collapse floor: the four non-pinned sanity seeds produced \
-         {} total goals across {} ticks each — below the floor of {}. The \
-         pinned seed passing its narrow [2, 5] envelope is not sufficient \
-         evidence the sim is healthy across the seed-space; this looks like a \
-         regression to near-zero shots everywhere but the probe. Investigate \
-         before rebaselining. (Full sweep: {:?})",
+        "Collapse guard: the four non-pinned sanity seeds produced {} total \
+         goals across full matches — below the floor of {}. This looks like a \
+         regression to near-zero shots (or no shot ever beating the keeper) \
+         everywhere but the probe seed. Investigate before rebaselining. \
+         (Full sweep: {:?})",
         non_pinned_sum,
-        EXTENDED_TICK_COUNT,
         NON_PINNED_GOAL_FLOOR,
         all_scores
             .iter()

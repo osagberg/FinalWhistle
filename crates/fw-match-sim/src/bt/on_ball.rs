@@ -41,6 +41,39 @@ use crate::role_states::PlayerIntent;
 use crate::subtree_library::formation_position;
 
 // ---------------------------------------------------------------------------
+// SS1 — shot-decision quality gate constants (FUN-0b)
+// ---------------------------------------------------------------------------
+
+/// Minimum xG score required to attempt a shot (SS1 gate).
+///
+/// Shots with `xg_utility(ctx) < XG_SHOOT_THRESHOLD` are suppressed entirely
+/// (utility = `Q32::ZERO`) — removing them from the softmax candidate pool.
+///
+/// docs/design/shot-model.md §Sub-system 1 specifies a provisional value of
+/// 0.041. However, at T1 formation positions (FWDs start at 42.5m from goal),
+/// the xG logistic yields ~0.031 (because `distance_q32 = 0` for shots beyond
+/// 35m). Setting the gate at 0.041 gates out ALL formation-position shots,
+/// producing 0 goals — worse than the 38.85 pre-fix state (just in the other
+/// direction). Post-wire calibration (drama-sweep) uses the lower bound.
+///
+/// Provisional calibrated value: 0.020. This allows shots from formation
+/// positions through, while still suppressing the most hopeless attempts
+/// (xG < 0.020 = blind pokes from 50m+). Main-thread drama-sweep will refine.
+/// doc/design/shot-model.md §Calibration cadence tuning lever:
+///   - If shots/match > 14: raise this constant (+0.003 per sweep).
+///   - If shots/match < 10: lower this constant (-0.003 per sweep).
+///
+/// Q32 raw bits: 0.020 × 2^32 ≈ 85,899,346.
+pub(crate) const XG_SHOOT_THRESHOLD: Q32 = Q32::from_raw(408_021_893_i64); // ≈ 0.095 (drama-sweep R11 final)
+
+/// Shooter quality composite weights for `xg_utility` feature extraction.
+/// `shooter_quality = finishing × 0.55 + composure × 0.25 + technique × 0.20`
+/// Matches the `shot_quality_feature_q32` helper in `dispatch.rs`.
+const W_SQ_FINISHING: Q32 = Q32::from_raw(2_362_232_012_i64); // ≈ 0.55
+const W_SQ_COMPOSURE: Q32 = Q32::from_raw(1_073_741_824_i64); // ≈ 0.25
+const W_SQ_TECHNIQUE: Q32 = Q32::from_raw(858_993_459_i64); // ≈ 0.20
+
+// ---------------------------------------------------------------------------
 // Site attribute lists
 //
 // These constants list every attribute path the corresponding utility function
@@ -191,101 +224,142 @@ pub const LAY_OFF_ATTRS: &[&str] = &[
 pub fn utility_shoot(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
-    // Primary product: four core shooting attributes per spec §"Shoot".
-    let raw =
-        a.technical.finishing * a.technical.long_shots * a.mental.composure * a.mental.decisions;
-
-    // Secondary: vision (angle assessment) + balance (off-balance situations).
-    // Applied as mild additive multipliers; spec lists these as secondary.
-    let w_vision = Q32::from_raw(858_993_459_i64); // ≈ 0.20
-    let w_balance = Q32::from_raw(429_496_729_i64); // ≈ 0.10
-    let secondary =
-        (Q32::ONE + w_vision * a.mental.vision) * (Q32::ONE + w_balance * a.physical.balance);
-    let raw = raw * secondary;
-
-    // T1-15 baseline boost: shoot has 4 primary factors vs 3 for cross/long_pass,
-    // so its product is ~2× lower at mid-range attributes. Without a boost, shoot
-    // never reaches the top-3 softmax pool (ADR-0003 §6 N=3) and no goals fire.
-    // 2× flat boost + spatial proximity bonus: within 30m of goal (x > 22.5m
-    // home / x < -22.5m away under GOAL_LINE_X=52.5), shoot utility is multiplied
-    // by an additional 4× so it clearly dominates the softmax pool and forwards
-    // in the attack third actually shoot.
+    // ---------------------------------------------------------------------------
+    // SS1 — Shot-decision quality gate (FUN-0b, docs/design/shot-model.md §SS1)
     //
-    // T1-16 (Codex Tier-2 pre-/done audit fix): two changes to this block:
-    //   (a) `goal_x = ±45` literal → `±fw_core::GOAL_LINE_X` (= ±52.5) for
-    //       single-source-of-truth alignment with the actual pitch geometry.
-    //       Shifts the proximity zones 7.5m further forward; the 4× zone is
-    //       now `pos_x > 22.5` (home) / `pos_x < -22.5` (away) rather than
-    //       `pos_x > 15` / `pos_x < -15`. Forwards at initial formation
-    //       (pos_x=±10) drop from 3× into 2× — they have to advance into the
-    //       attack third before the proximity boost engages. This is a more
-    //       football-shaped trigger than "shoot from midfield".
-    //   (b) Clamp `raw * proximity_mul` to `Q32::ONE` post-multiplier (literal
-    //       Codex fix: "Clamp or normalize after proximity"). Restores the
-    //       [0, 1] contract that `apply_shoot_bias::assert!` enforces (T2-R3
-    //       promotion: debug_assert → assert per Sim/RULES.md §11; release
-    //       builds now panic on out-of-range raw rather than silently
-    //       corrupting canonical-state-bearing utilities),
-    //       then clamp the personality-biased return value before it enters
-    //       the softmax candidate set. Without this, peak-attribute shots
-    //       inside the 4× zone produce raw=2.0+ and personality-biased values
-    //       well above 1.0, collapsing near-goal decisions toward argmax.
-    //       At mid-range attrs the clamp doesn't bite (typical raw × 4 ≈
-    //       0.3-0.6); only peak-attribute super-shooters hit the cap. The
-    //       2×/3×/4× zone differentiation IS preserved at mid-range; clamp
-    //       only collapses zones for peak-attribute players.
+    // Replace the prior 4×/3×/2× proximity stub with the real xG logistic from
+    // `crate::utility::xg::xg_utility`. Gate shots below `XG_SHOOT_THRESHOLD`
+    // to Q32::ZERO (removes them from the softmax candidate set entirely).
     //
-    // Real spatial xG replaces this stub at T1-4/T2-1. Authorized by T1-15
-    // task-spec + T1-16 Codex Tier-2 pre-/done audit response.
-    let goal_x = if (roster_slot as usize) < 11 {
+    // Feature extraction uses available info (player pos + proxy pressure).
+    // Defender pressure proxy = complement of composure (same proxy as before;
+    // real spatial pressure arrives at T2-1 when opponent positions thread in).
+    // ---------------------------------------------------------------------------
+
+    // Distance feature (inverted: 0=far, 1=close) via GOAL_LINE_X.
+    let goal_x: Q32 = if (roster_slot as usize) < 11 {
         fw_core::GOAL_LINE_X
     } else {
         -fw_core::GOAL_LINE_X
     };
-    // Distance from goal: |goal_x - player.pos_x|. When near the goal (dist < 30m),
-    // apply proximity multiplier.
-    let dist_to_goal = if goal_x > Q32::ZERO {
-        goal_x - player.pos_x
+    let dx = goal_x - player.pos_x;
+    let dx_abs_bits = dx.to_bits().unsigned_abs();
+    // Threshold 35m
+    const DIST_THRESHOLD_BITS: u64 = 35_u64 << 32;
+    let distance_q32: Q32 = if dx_abs_bits >= DIST_THRESHOLD_BITS {
+        Q32::ZERO
     } else {
-        player.pos_x - goal_x
+        let normalized = Q32::from_raw(dx_abs_bits as i64) / Q32::from_int(35);
+        Q32::ONE - normalized
     };
-    // Proximity multiplier: 4× when within 30m, 3× when within 40m, else 2×.
-    let proximity_mul = if dist_to_goal < Q32::from_int(30) {
-        Q32::from_int(4)
-    } else if dist_to_goal < Q32::from_int(40) {
-        Q32::from_int(3)
-    } else {
-        Q32::from_int(2)
-    };
-    let raw = raw * proximity_mul;
-    // T1-16 clamp (Codex Tier-2 fix — "Clamp or normalize after proximity"):
-    // restore [0, 1] contract for downstream apply_shoot_bias debug_assert +
-    // softmax exp(u/T) numerical stability.
-    let raw = if raw > Q32::ONE { Q32::ONE } else { raw };
 
-    // Effective defender pressure = PT-attenuated proxy (complement of composure).
+    // Angle feature: 1 - clamp(|pos_y| / 25, 0, 1).
+    let py_abs_bits = player.pos_y.to_bits().unsigned_abs();
+    const ANGLE_THRESHOLD_BITS: u64 = 25_u64 << 32;
+    let angle_q32: Q32 = if py_abs_bits >= ANGLE_THRESHOLD_BITS {
+        Q32::ZERO
+    } else {
+        let normalized = Q32::from_raw(py_abs_bits as i64) / Q32::from_int(25);
+        Q32::ONE - normalized
+    };
+
+    // Defender pressure proxy = PT-attenuated complement of composure.
     let raw_pressure = Q32::ONE - a.mental.composure;
     let eff_pressure = read_defender_pressure(a, raw_pressure);
+    // Extract the inner Q32 from the DefenderPressure newtype for ShotContext.
+    let pressure_q32 = eff_pressure.0;
+
+    // Shooter quality: finishing × 0.55 + composure × 0.25 + technique × 0.20.
+    let shooter_quality: Q32 = a.technical.finishing * W_SQ_FINISHING
+        + a.mental.composure * W_SQ_COMPOSURE
+        + a.technical.technique * W_SQ_TECHNIQUE;
+    let shooter_quality = if shooter_quality > Q32::ONE {
+        Q32::ONE
+    } else {
+        shooter_quality
+    };
+
+    // Build ShotContext. All fields are derived above and are in [0, 1].
+    // Use footed shot (1.0) and solo assist (1.0) for T1 proxy values.
+    let ctx = crate::utility::xg::ShotContext::try_new(
+        distance_q32,
+        angle_q32,
+        pressure_q32,
+        Q32::ONE, // footed shot
+        Q32::ONE, // solo assist
+        shooter_quality,
+    )
+    .expect("ShotContext features must be in [0, 1] — check proxy derivation");
+
+    let xg_score = crate::utility::xg::xg_utility(&ctx);
+
+    // Gate: suppress low-xG shots entirely.
+    if xg_score < XG_SHOOT_THRESHOLD {
+        // Zero utility removes this from the softmax candidate pool.
+        // Target still set for structural completeness (won't be used).
+        let target_x = if (roster_slot as usize) < 11 {
+            Q32::from_int(52)
+        } else {
+            Q32::from_int(-52)
+        };
+        return (
+            PlayerIntent::AttemptShot {
+                target_x,
+                target_y: Q32::ZERO,
+            },
+            Q32::ZERO,
+        );
+    }
+
+    // Gate passed: raw utility = xg_score × shooter_quality × secondary modifiers.
+    // Secondary: long_shots (power), vision (angle assessment), balance (off-balance).
+    // drama-sweep R3: weights boosted from 0.20/0.20/0.10 to 3.0/2.5/1.5 to make
+    // shoot utility competitive with pass utility in the softmax.
+    // Justification: pass utility (0.5^4 × secondary ≈ 0.07) dominated shoot
+    // (xG×quality×old_secondary ≈ 0.026) at default attributes. At T1 formation
+    // positions, players rarely reach penalty-area xG values, so the xG component
+    // alone is insufficient to outbid passing. The higher secondary weights
+    // amplify the position signal so forwards at 17-25m score utility ≈ 0.07-0.12,
+    // competitive with passes. Long-distance attempts (xG < 0.010) remain gated.
+    // Secondary: long_shots (power), vision (angle assessment), balance (off-balance).
+    // drama-sweep R7: secondary=4 (w_ls=2.0, w_vis=1.5, w_bal=1.0) to bridge the
+    // structural utility gap between pass (attribute-product, ~0.085) and shoot
+    // (xG-driven, ~0.011-0.154 depending on distance). At secondary=4:
+    //   from 20m: shoot biased ≈ 0.067 < pass 0.085 → prefers passing (correct)
+    //   from 15m: shoot biased ≈ 0.297 > pass 0.085 → prefers shooting (correct)
+    //   from 12m: shoot biased ≈ 0.469 → strong shoot preference (correct for box)
+    // This gives ~40% shoot probability from 15-20m; near-certain from <12m.
+    let w_ls = Q32::from_raw(5_583_457_434_i64); // ≈ 1.3 (drama-sweep R14)
+    let w_vision = Q32::from_raw(4_294_967_296_i64); // ≈ 1.0 (drama-sweep R14)
+    let w_balance = Q32::from_raw(2_576_980_378_i64); // ≈ 0.6 (drama-sweep R14)
+    let secondary = (Q32::ONE + w_ls * a.technical.long_shots)
+        * (Q32::ONE + w_vision * a.mental.vision)
+        * (Q32::ONE + w_balance * a.physical.balance);
+    // raw_shoot = xg_score × shooter_quality × secondary modifiers.
+    let raw = xg_score * shooter_quality * secondary;
+    let raw = if raw > Q32::ONE { Q32::ONE } else { raw };
 
     let biased = apply_shoot_bias(raw, a, eff_pressure);
     let biased = if biased > Q32::ONE { Q32::ONE } else { biased };
 
-    // Target: the attacking goal centre. Use 52m (behind the goal line) so that
-    // even when the shooter has drifted to the goal line (pos_x ≈ 45m), the
-    // ball_unit_vel direction vector is non-zero and the ball travels forward.
-    // At T1 there is no keeper model; `is_shot_on_target` checks target_y ±3.66m
-    // so this is fine — the actual ball position is what determines a goal, not
-    // the target. Using 45 as target caused zero-velocity shots when pos_x == 45
-    // (the zero-distance fallback in ball_unit_vel returns (0,0) to prevent
-    // phantom goals from co-located passers, but that fallback is wrong for shots
-    // from the goal line). Authorized by T1-15 task-spec.
-    let (target_x, target_y) = if (roster_slot as usize) < 11 {
-        (Q32::from_int(52), Q32::ZERO)
+    // Target: the attacking goal centre. `target_y = Q32::ZERO` is the dead-centre
+    // placeholder; the REAL dispersed target_y is computed in `dispatch::apply_intent`
+    // (SS2) where match_seed + tick + player positions are all available.
+    // Using ±52m ensures ball_unit_vel never returns (0, 0) for a shooter still
+    // behind the goal line (same rationale as the T1-15 fix above).
+    let target_x = if (roster_slot as usize) < 11 {
+        Q32::from_int(52)
     } else {
-        (Q32::from_int(-52), Q32::ZERO)
+        Q32::from_int(-52)
     };
 
-    (PlayerIntent::AttemptShot { target_x, target_y }, biased)
+    (
+        PlayerIntent::AttemptShot {
+            target_x,
+            target_y: Q32::ZERO, // Placeholder; overwritten by SS2 in dispatch::apply_intent
+        },
+        biased,
+    )
 }
 
 /// Utility for a short pass.
@@ -513,55 +587,53 @@ mod tests {
         assert!(u <= Q32::ONE, "shoot utility must be <= 1; got {:?}", u);
     }
 
-    /// T1-16 (Codex Tier-2 pre-/done audit): "add a near-goal test that
-    /// actually hits the 4× branch."
+    /// FUN-0b SS1: a player close to goal (high xG) must have non-zero shoot utility.
     ///
-    /// `shoot_utility_in_unit_range` above uses slot 6 (home MID at
-    /// formation_x = -10); under `GOAL_LINE_X = 52.5`, that's dist =
-    /// 52.5 - (-10) = 62.5m → falls into the `else` 2× zone (not the 4×
-    /// branch). Without a test at a near-goal position, the 4× branch
-    /// is exercised by the proximity-multiplier code path but never
-    /// asserted to stay within `[0, 1]` post-clamp.
-    ///
-    /// This test constructs a home forward (slot 9) at pos_x = +30m
-    /// (well inside the 4× zone: dist = 52.5 - 30 = 22.5 < 30). Asserts
-    /// the post-clamp shoot utility is in `[0, 1]` even with all peak
-    /// shooting attributes. Without the T1-16 clamp, raw_post_secondary
-    /// ≈ 0.722 × 4 = 2.88, then × apply_shoot_bias factors → utility
-    /// could exceed 1.0 and break the softmax `exp(u/T)` numerical
-    /// stability. With the clamp, raw_post_proximity is capped at 1.0
-    /// pre-bias, then the returned post-personality value is capped at 1.0
-    /// before softmax.
+    /// At pos_x=40m for home FWD (dist_to_goal ≈ 12.5m), xG is well above the
+    /// XG_SHOOT_THRESHOLD (0.041) — the gate must pass and utility must be > 0.
     #[test]
-    fn shoot_utility_in_unit_range_at_attack_third_4x_branch() {
-        // Construct home FWD slot 9 at advanced position pos_x = 30
-        // (inside 4× zone: dist_to_goal = 52.5 - 30 = 22.5 < 30).
+    fn shoot_utility_nonzero_for_close_shot_above_gate() {
         let mut p = mid_player(9);
-        p.pos_x = Q32::from_int(30);
+        p.pos_x = Q32::from_int(40); // close to home goal +x (dist ≈ 12.5m)
         p.attributes = fw_core::PlayerAttributes::max_baseline();
-        // Sanity: confirm this position hits the 4× branch under the
-        // current GOAL_LINE_X = 52.5 + proximity-zone thresholds (`dist <
-        // 30` → 4×). If the proximity-zone logic shifts, this test must
-        // shift accordingly OR the test fails honestly (signal that
-        // the near-goal branch coverage is gone).
-        let dist = fw_core::GOAL_LINE_X - p.pos_x;
-        assert!(
-            dist < Q32::from_int(30),
-            "test fixture must hit 4× proximity branch (dist < 30); got dist = {dist:?}"
-        );
-
         let (_, u) = utility_shoot(&p, 9);
-        // Post-T1-16 clamp: utility must remain in [0, 1] even in the
-        // 4× branch with peak shooting attributes and personality-bias
-        // expansion on top.
         assert!(
-            u >= Q32::ZERO,
-            "shoot utility must be >= 0 in 4× branch; got {u:?}"
+            u > Q32::ZERO,
+            "close shot above XG_SHOOT_THRESHOLD must have non-zero utility; got {u:?}"
         );
+        assert!(u <= Q32::ONE, "shoot utility must be <= 1; got {u:?}");
+    }
+
+    /// FUN-0b SS1: a player far from goal (low xG) must be gated to ZERO utility.
+    ///
+    /// At pos_x = -30m for home FWD (dist_to_goal ≈ 82.5m), xG < 0.001 — well
+    /// below XG_SHOOT_THRESHOLD. The gate must suppress the candidate.
+    #[test]
+    fn shoot_utility_zero_for_far_shot_below_gate() {
+        let mut p = mid_player(9);
+        p.pos_x = Q32::from_int(-30); // far from opponent goal (home player far out)
+        let (_, u) = utility_shoot(&p, 9);
+        assert_eq!(
+            u,
+            Q32::ZERO,
+            "long-range shot well below XG_SHOOT_THRESHOLD must be gated to zero utility; \
+             got {u:?} (this ensures the SS1 quality gate removes hopeless long shots from \
+             the softmax candidate set)"
+        );
+    }
+
+    /// FUN-0b SS1: shoot utility is in [0, 1] for a near-goal player with peak attrs.
+    /// Replaces the prior 4×-branch test (proximity multiplier removed in FUN-0b).
+    #[test]
+    fn shoot_utility_in_unit_range_at_near_goal() {
+        let mut p = mid_player(9);
+        p.pos_x = Q32::from_int(40); // 12.5m from goal → high xG → gate passes
+        p.attributes = fw_core::PlayerAttributes::max_baseline();
+        let (_, u) = utility_shoot(&p, 9);
+        assert!(u >= Q32::ZERO, "shoot utility must be >= 0; got {u:?}");
         assert!(
             u <= Q32::ONE,
-            "shoot utility must be <= 1 in 4× branch (T1-16 clamp \
-             restores softmax [0, 1] domain contract); got {u:?}"
+            "shoot utility must be <= 1 (SS1 gate + bias clamp); got {u:?}"
         );
     }
 
@@ -636,49 +708,73 @@ mod tests {
         );
     }
 
+    /// FUN-0b: attribute binding tests for utility_shoot now require players to be
+    /// close enough to goal for the SS1 xG gate to pass (xG > XG_SHOOT_THRESHOLD).
+    /// `near_goal_player` creates a home forward at pos_x = 35m (≈ 17.5m from goal),
+    /// which gives xG ≈ 0.06+ for mid-range attrs — safely above the 0.041 gate.
+    fn near_goal_player(roster_slot: u8) -> PlayerState {
+        let mut p = mid_player(roster_slot);
+        // Home slots 0..11: goal at +52.5m. 35m position → dist = 17.5m → xG ≈ 0.06+.
+        // Away slots 11..22: goal at -52.5m. Negate.
+        if (roster_slot as usize) < 11 {
+            p.pos_x = Q32::from_int(35);
+        } else {
+            p.pos_x = Q32::from_int(-35);
+        }
+        p
+    }
+
     #[test]
     fn shoot_spec_primary_attr_changes_utility() {
-        let mut p_hi = mid_player(6);
-        let mut p_lo = mid_player(6);
+        // SS1 note: test players must be near goal so xG > XG_SHOOT_THRESHOLD.
+        // At pos_x = 35m (home FWD slot 9): dist ≈ 17.5m, xG ≈ 0.06+ for hi-quality.
+        let mut p_hi = near_goal_player(9);
+        let mut p_lo = near_goal_player(9);
         p_hi.attributes.technical.finishing = Q32::ONE;
-        p_lo.attributes.technical.finishing = Q32::ZERO;
-        let (_, hi) = utility_shoot(&p_hi, 6);
-        let (_, lo) = utility_shoot(&p_lo, 6);
+        p_lo.attributes.technical.finishing = Q32::from_raw(429_496_729_i64); // 0.10 — still passes gate
+        let (_, hi) = utility_shoot(&p_hi, 9);
+        let (_, lo) = utility_shoot(&p_lo, 9);
         assert!(
             hi > lo,
-            "technical.finishing (spec primary) must affect shoot utility"
+            "technical.finishing (spec primary) must affect shoot utility when both players \
+             are near goal (SS1 gate passes for both)"
         );
     }
 
     #[test]
     fn shoot_long_shots_is_spec_secondary() {
-        // technical.long_shots is a spec-listed attribute applied as a secondary
-        // modifier (P1-5 fix) — it must affect shoot utility even though it is
-        // not in the 3-factor primary product.
-        let mut p_hi = mid_player(6);
-        let mut p_lo = mid_player(6);
+        // FUN-0b update: `technical.long_shots` is NO LONGER in the SS1 xG-gate
+        // formula (the gate uses the 6-feature logistic from xg.rs, which uses
+        // shooter_quality = finishing×0.55 + composure×0.25 + technique×0.20).
+        // `long_shots` still appears in the secondary modifier AFTER the gate passes.
+        // The attribute must affect shoot utility when the player is near goal.
+        let mut p_hi = near_goal_player(9);
+        let mut p_lo = near_goal_player(9);
         p_hi.attributes.technical.long_shots = Q32::ONE;
         p_lo.attributes.technical.long_shots = Q32::ZERO;
-        let (_, hi) = utility_shoot(&p_hi, 6);
-        let (_, lo) = utility_shoot(&p_lo, 6);
+        let (_, hi) = utility_shoot(&p_hi, 9);
+        let (_, lo) = utility_shoot(&p_lo, 9);
         assert!(
             hi > lo,
-            "technical.long_shots (spec attribute — secondary modifier) must affect shoot utility (P1-5)"
+            "technical.long_shots (secondary modifier after SS1 gate) must affect shoot utility \
+             when player is near goal"
         );
     }
 
     #[test]
     fn shoot_risk_appetite_via_bias_changes_utility() {
         // personality.risk_appetite is now in the shoot bias (P1-5 fix).
-        let mut p_hi = mid_player(6);
-        let mut p_lo = mid_player(6);
+        // SS1 note: player must be near goal for gate to pass.
+        let mut p_hi = near_goal_player(9);
+        let mut p_lo = near_goal_player(9);
         p_hi.attributes.personality.risk_appetite = Q32::ONE;
         p_lo.attributes.personality.risk_appetite = Q32::ZERO;
-        let (_, hi) = utility_shoot(&p_hi, 6);
-        let (_, lo) = utility_shoot(&p_lo, 6);
+        let (_, hi) = utility_shoot(&p_hi, 9);
+        let (_, lo) = utility_shoot(&p_lo, 9);
         assert!(
             hi > lo,
-            "personality.risk_appetite (spec bias) must affect shoot utility (P1-5)"
+            "personality.risk_appetite (spec bias) must affect shoot utility when near goal \
+             (P1-5 — gate passes at this distance)"
         );
     }
 
@@ -904,15 +1000,16 @@ mod tests {
 
     #[test]
     fn shoot_utility_increases_with_finishing() {
-        let mut p_hi = mid_player(6);
+        // SS1 note: use near-goal position so the xG gate passes for both players.
+        let mut p_hi = near_goal_player(9);
         p_hi.attributes.technical.finishing = Q32::ONE;
-        let mut p_lo = mid_player(6);
-        p_lo.attributes.technical.finishing = Q32::ZERO;
-        let (_, hi) = utility_shoot(&p_hi, 6);
-        let (_, lo) = utility_shoot(&p_lo, 6);
+        let mut p_lo = near_goal_player(9);
+        p_lo.attributes.technical.finishing = Q32::from_raw(429_496_729_i64); // 0.10
+        let (_, hi) = utility_shoot(&p_hi, 9);
+        let (_, lo) = utility_shoot(&p_lo, 9);
         assert!(
             hi > lo,
-            "high finishing should produce higher shoot utility"
+            "high finishing should produce higher shoot utility (SS1 gate passes at near-goal pos)"
         );
     }
 

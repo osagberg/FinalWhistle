@@ -3509,12 +3509,16 @@ mod tests {
     ///
     /// Seeds and tick counts mirror `crates/fw-replay/tests/canonical_hash.rs`:
     /// - 60-tick: seed `0xDEAD_BEEF_DEAD_BEEF`, plain `MatchState::initial`
-    ///   → `a490489b…`
+    ///   → `e56562f8…`
     /// - 600-tick: seed `0xfeed_beef_cafe_fade`, `initial_with_content`
-    ///   → `3efd5623…` (rebaselined at FUN-0 — the player-velocity-cap-bypass
-    ///   fix changed per-tick movement across all 22 players; see the
-    ///   re-baseline history in `crates/fw-replay/tests/canonical_hash.rs`).
-    ///   This hand-synced pin must move in lockstep with fw-replay's pins.
+    ///   → `6805c105…`
+    ///
+    /// Both rebaselined at the FUN-0b+c watchable-match fix (shot-quality xG
+    /// gate + dispossession/tackle + GK save model + drama-sweep tuning), which
+    /// changed per-tick player trajectories + shot/pass selection across the
+    /// run; see the re-baseline history in
+    /// `crates/fw-replay/tests/canonical_hash.rs`. This hand-synced pin must
+    /// move in lockstep with fw-replay's pins.
     ///
     /// The harvest path only writes to `career.ledger` and `career.roster`
     /// (career_apps increments) — it does NOT touch `MatchState` canonical
@@ -3544,8 +3548,8 @@ mod tests {
             )
         };
         assert!(
-            hash_60.starts_with("blake3:a490489b"),
-            "60-tick canonical hash must start with a490489b (FUN-0 baseline; keep in lockstep with fw-replay's PINNED_60_TICK); got {hash_60}"
+            hash_60.starts_with("blake3:e56562f8"),
+            "60-tick canonical hash must start with e56562f8 (FUN-0b+c watchable-match baseline; keep in lockstep with fw-replay's PINNED_60_TICK); got {hash_60}"
         );
 
         // 600-tick pin — seed `0xfeed_beef_cafe_fade`, 600 ticks.
@@ -3572,9 +3576,9 @@ mod tests {
             )
         };
         assert!(
-            hash_600.starts_with("blake3:3efd5623"),
-            "600-tick canonical hash must start with 3efd5623 (rebaselined at FUN-0; \
-             keep in lockstep with fw-replay's PINNED_600_TICK); got {hash_600}"
+            hash_600.starts_with("blake3:6805c105"),
+            "600-tick canonical hash must start with 6805c105 (rebaselined at FUN-0b+c \
+             watchable-match fix; keep in lockstep with fw-replay's PINNED_600_TICK); got {hash_600}"
         );
     }
 

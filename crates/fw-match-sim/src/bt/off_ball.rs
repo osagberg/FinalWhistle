@@ -155,7 +155,15 @@ pub fn utility_track_back(player: &PlayerState, roster_slot: u8) -> (PlayerInten
 /// Attribute binding (spec): anticipation × acceleration × stamina (primary);
 /// positioning + pace as secondary; aggression + work_rate via bias ONLY
 /// (work_rate is NOT a direct read in this function body).
-pub fn utility_press(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
+///
+/// B1 (FUN-0b+c): target is the ACTUAL ball carrier's position when provided,
+/// falling back to the opponent-GK formation slot when the carrier is unknown
+/// (loose ball — preempt_check handles that case, not press).
+pub fn utility_press(
+    player: &PlayerState,
+    roster_slot: u8,
+    carrier_pos: Option<(Q32, Q32)>,
+) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
     // Primary product.
@@ -170,9 +178,15 @@ pub fn utility_press(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q3
 
     let biased = apply_press_bias(raw, a);
 
-    // Target: ball carrier proxy = opponent GK slot.
-    let press_target_slot: u8 = if (roster_slot as usize) < 11 { 11 } else { 0 };
-    let (target_x, target_y) = formation_position(press_target_slot);
+    // B1: target the actual carrier if known, otherwise fall back to the
+    // opponent-GK formation slot (pre-B1 behaviour; only fires on loose ball,
+    // which is handled by preempt_check before this utility runs).
+    let (target_x, target_y) = if let Some((cx, cy)) = carrier_pos {
+        (cx, cy)
+    } else {
+        let press_target_slot: u8 = if (roster_slot as usize) < 11 { 11 } else { 0 };
+        formation_position(press_target_slot)
+    };
     (PlayerIntent::Press { target_x, target_y }, biased)
 }
 
@@ -180,7 +194,16 @@ pub fn utility_press(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q3
 ///
 /// Attribute binding (spec): marking × anticipation × pace × concentration (primary);
 /// strength + balance as secondary; determination ONLY via bias.
-pub fn utility_mark_player(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
+///
+/// B1 (FUN-0b+c): when the carrier position is known, mark toward the carrier
+/// instead of the fixed formation-slot proxy (slot 12 / slot 1). This keeps
+/// tight markers on the actual threat. When no carrier is active the old
+/// formation-slot target is used as a fallback.
+pub fn utility_mark_player(
+    player: &PlayerState,
+    roster_slot: u8,
+    carrier_pos: Option<(Q32, Q32)>,
+) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
     // Primary product.
@@ -197,8 +220,14 @@ pub fn utility_mark_player(player: &PlayerState, roster_slot: u8) -> (PlayerInte
     // Mark bias: Determination ONLY per spec (P1-5 fix — was cover_bias which also read work_rate).
     let biased = apply_mark_bias(raw, a);
 
-    let mark_slot: u8 = if (roster_slot as usize) < 11 { 12 } else { 1 };
-    let (target_x, target_y) = formation_position(mark_slot);
+    // B1: target the actual carrier if known, otherwise fall back to the
+    // opponent-GK+1 formation slot (pre-B1 proxy).
+    let (target_x, target_y) = if let Some((cx, cy)) = carrier_pos {
+        (cx, cy)
+    } else {
+        let mark_slot: u8 = if (roster_slot as usize) < 11 { 12 } else { 1 };
+        formation_position(mark_slot)
+    };
     (PlayerIntent::MarkPlayer { target_x, target_y }, biased)
 }
 
@@ -295,7 +324,7 @@ mod tests {
     #[test]
     fn press_utility_in_unit_range() {
         let p = mid_player(6);
-        let (_, u) = utility_press(&p, 6);
+        let (_, u) = utility_press(&p, 6, None);
         assert!(u >= Q32::ZERO);
         assert!(u <= Q32::ONE);
     }
@@ -303,7 +332,7 @@ mod tests {
     #[test]
     fn mark_player_utility_in_unit_range() {
         let p = mid_player(6);
-        let (_, u) = utility_mark_player(&p, 6);
+        let (_, u) = utility_mark_player(&p, 6, None);
         assert!(u >= Q32::ZERO);
         assert!(u <= Q32::ONE);
     }
@@ -364,8 +393,8 @@ mod tests {
         let mut p_b = mid_player(6);
         p_a.attributes.mental.decisions = Q32::ZERO;
         p_b.attributes.mental.decisions = Q32::ONE;
-        let (_, u_a) = utility_press(&p_a, 6);
-        let (_, u_b) = utility_press(&p_b, 6);
+        let (_, u_a) = utility_press(&p_a, 6, None);
+        let (_, u_b) = utility_press(&p_b, 6, None);
         assert_eq!(u_a, u_b, "mental.decisions must not affect press utility");
     }
 
@@ -377,8 +406,8 @@ mod tests {
         p_hi.attributes.physical.stamina = Q32::ONE;
         p_lo.attributes.mental.anticipation = Q32::ZERO;
         p_lo.attributes.physical.stamina = Q32::ZERO;
-        let (_, hi) = utility_press(&p_hi, 6);
-        let (_, lo) = utility_press(&p_lo, 6);
+        let (_, hi) = utility_press(&p_hi, 6, None);
+        let (_, lo) = utility_press(&p_lo, 6, None);
         assert!(
             hi > lo,
             "anticipation + stamina (spec primary) must affect press utility"
@@ -394,8 +423,8 @@ mod tests {
         let mut p_lo = mid_player(6);
         p_hi.attributes.personality.work_rate = Q32::ONE;
         p_lo.attributes.personality.work_rate = Q32::ZERO;
-        let (_, hi) = utility_press(&p_hi, 6);
-        let (_, lo) = utility_press(&p_lo, 6);
+        let (_, hi) = utility_press(&p_hi, 6, None);
+        let (_, lo) = utility_press(&p_lo, 6, None);
         assert!(
             hi >= lo,
             "work_rate via bias path should not decrease press utility"
@@ -409,8 +438,8 @@ mod tests {
         let mut p_b = mid_player(6);
         p_a.attributes.mental.decisions = Q32::ZERO;
         p_b.attributes.mental.decisions = Q32::ONE;
-        let (_, u_a) = utility_mark_player(&p_a, 6);
-        let (_, u_b) = utility_mark_player(&p_b, 6);
+        let (_, u_a) = utility_mark_player(&p_a, 6, None);
+        let (_, u_b) = utility_mark_player(&p_b, 6, None);
         assert_eq!(
             u_a, u_b,
             "mental.decisions must not affect mark_player utility"
@@ -424,8 +453,8 @@ mod tests {
         let mut p_b = mid_player(6);
         p_a.attributes.personality.work_rate = Q32::ZERO;
         p_b.attributes.personality.work_rate = Q32::ONE;
-        let (_, u_a) = utility_mark_player(&p_a, 6);
-        let (_, u_b) = utility_mark_player(&p_b, 6);
+        let (_, u_a) = utility_mark_player(&p_a, 6, None);
+        let (_, u_b) = utility_mark_player(&p_b, 6, None);
         assert_eq!(
             u_a, u_b,
             "work_rate must not affect mark_player utility (P1-5 spec fix — determination only)"
@@ -440,8 +469,8 @@ mod tests {
         p_hi.attributes.physical.pace = Q32::ONE;
         p_lo.attributes.technical.marking = Q32::ZERO;
         p_lo.attributes.physical.pace = Q32::ZERO;
-        let (_, hi) = utility_mark_player(&p_hi, 6);
-        let (_, lo) = utility_mark_player(&p_lo, 6);
+        let (_, hi) = utility_mark_player(&p_hi, 6, None);
+        let (_, lo) = utility_mark_player(&p_lo, 6, None);
         assert!(
             hi > lo,
             "marking + pace (spec primary) must affect mark_player utility"
@@ -580,8 +609,8 @@ mod tests {
         let mut p_lo = mid_player(6);
         p_lo.attributes.personality.aggression = Q32::ZERO;
         p_lo.attributes.personality.work_rate = Q32::ZERO;
-        let (_, hi) = utility_press(&p_hi, 6);
-        let (_, lo) = utility_press(&p_lo, 6);
+        let (_, hi) = utility_press(&p_hi, 6, None);
+        let (_, lo) = utility_press(&p_lo, 6, None);
         assert!(
             hi >= lo,
             "higher aggression/work_rate should not decrease press utility"
@@ -593,10 +622,60 @@ mod tests {
     #[test]
     fn off_ball_utilities_deterministic() {
         let p = mid_player(6);
-        let (i1, u1) = utility_press(&p, 6);
-        let (i2, u2) = utility_press(&p, 6);
+        let (i1, u1) = utility_press(&p, 6, None);
+        let (i2, u2) = utility_press(&p, 6, None);
         assert_eq!(i1, i2);
         assert_eq!(u1, u2);
+    }
+
+    // --- B1 carrier-targeting tests ---
+
+    #[test]
+    fn press_targets_carrier_when_provided() {
+        let p = mid_player(6);
+        let carrier_x = Q32::from_int(20);
+        let carrier_y = Q32::from_int(5);
+        let (intent, _) = utility_press(&p, 6, Some((carrier_x, carrier_y)));
+        assert_eq!(
+            intent,
+            PlayerIntent::Press {
+                target_x: carrier_x,
+                target_y: carrier_y
+            },
+            "press must target the actual carrier position when carrier_pos is Some"
+        );
+    }
+
+    #[test]
+    fn mark_player_targets_carrier_when_provided() {
+        let p = mid_player(6);
+        let carrier_x = Q32::from_int(15);
+        let carrier_y = Q32::from_int(-3);
+        let (intent, _) = utility_mark_player(&p, 6, Some((carrier_x, carrier_y)));
+        assert_eq!(
+            intent,
+            PlayerIntent::MarkPlayer {
+                target_x: carrier_x,
+                target_y: carrier_y
+            },
+            "mark must target the actual carrier position when carrier_pos is Some"
+        );
+    }
+
+    #[test]
+    fn press_falls_back_to_formation_slot_when_no_carrier() {
+        let p = mid_player(6);
+        // Home slot 6 → opponent GK slot = 11.
+        let (expected_x, expected_y) = formation_position(11);
+        let (intent, _) = utility_press(&p, 6, None);
+        assert_eq!(
+            intent,
+            PlayerIntent::Press {
+                target_x: expected_x,
+                target_y: expected_y
+            },
+            "press must fall back to opponent-GK formation slot when carrier_pos is None"
+        );
     }
 
     // --- Target correctness ---

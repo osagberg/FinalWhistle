@@ -159,6 +159,12 @@ pub fn formation_position(slot: u8) -> (Q32, Q32) {
 /// per-consideration multiplier to each candidate utility AFTER the personality
 /// bias layer. Order: `raw × personality_bias × signature_bias`. The `active_bias`
 /// is the `SimBiasSnapshot` from the player's currently-active `SignatureFiring`.
+///
+/// ## B1 carrier targeting (FUN-0b+c)
+///
+/// `carrier_pos` is `Some((x, y))` when a player currently has possession.
+/// When provided, `utility_press` and `utility_mark_player` target the actual
+/// carrier position instead of the hardcoded formation-slot proxy.
 #[must_use]
 pub fn select_outfield_intent(
     role_state: PlayerRoleState,
@@ -166,6 +172,7 @@ pub fn select_outfield_intent(
     roster_slot: u8,
     rng: &mut ChaCha8Rng,
     active_bias: Option<&SimBiasSnapshot>,
+    carrier_pos: Option<(Q32, Q32)>,
 ) -> PlayerIntent {
     let candidates: Vec<(PlayerIntent, Q32)> = match role_state {
         PlayerRoleState::Goalkeeper(_) => {
@@ -192,7 +199,7 @@ pub fn select_outfield_intent(
         | PlayerRoleState::Midfielder(MidfielderState::Pressing)
         | PlayerRoleState::Forward(ForwardState::Pressing) => {
             vec![
-                utility_press(player, roster_slot),
+                utility_press(player, roster_slot, carrier_pos),
                 utility_track_back(player, roster_slot),
             ]
         }
@@ -203,7 +210,7 @@ pub fn select_outfield_intent(
         | PlayerRoleState::Forward(ForwardState::MakingRun) => {
             vec![
                 utility_run_off_ball(player, roster_slot),
-                utility_press(player, roster_slot),
+                utility_press(player, roster_slot, carrier_pos),
                 utility_hold_formation(player, roster_slot),
             ]
         }
@@ -221,7 +228,7 @@ pub fn select_outfield_intent(
             vec![
                 utility_track_back(player, roster_slot),
                 utility_hold_formation(player, roster_slot),
-                utility_mark_player(player, roster_slot),
+                utility_mark_player(player, roster_slot, carrier_pos),
             ]
         }
 
@@ -232,7 +239,7 @@ pub fn select_outfield_intent(
             vec![
                 utility_hold_formation(player, roster_slot),
                 utility_run_off_ball(player, roster_slot),
-                utility_mark_player(player, roster_slot),
+                utility_mark_player(player, roster_slot, carrier_pos),
             ]
         }
     };
@@ -527,6 +534,7 @@ mod tests {
                     player: None,
                     active_bias: None,
                     select_fn: None,
+                    carrier_pos: None,
                 };
                 let (status, _intent) = tick_tree(tree, &ctx, &mut mk_rng());
                 assert_eq!(

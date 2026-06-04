@@ -46,8 +46,12 @@ const HOME_GOAL_X: Q32 = Q32::from_raw(-GOAL_LINE_X.to_bits());
 /// Away goal line x-coordinate (`+GOAL_LINE_X`).
 const AWAY_GOAL_X: Q32 = GOAL_LINE_X;
 
-/// Distribution trigger: ball within 3 m of GK goal line (proxy for catch).
-const DISTRIBUTION_THRESHOLD: Q32 = Q32::from_raw(3_i64 << 32); // 3.0
+/// Distribution trigger: ball within N m of GK goal line.
+/// drama-sweep R4: raised from 3m to 20m so GK distributes immediately after any
+/// save — at 3m, the save-snapped ball at x≈45m (7.5m from goal) never triggered
+/// distribution, leaving the ball frozen for 200+ ticks. At 20m, the GK
+/// distributes from x=32.5m+, covering all save-snap positions.
+const DISTRIBUTION_THRESHOLD: Q32 = Q32::from_raw(85_899_345_920_i64); // 20.0m (drama-sweep R4, kept)
 
 // ---------------------------------------------------------------------------
 // GK tick entry point
@@ -438,7 +442,8 @@ mod tests {
 
     #[test]
     fn home_gk_ball_near_goal_line_gives_distributing() {
-        // Ball at x=-50 (within 3m of goal line at -52.5), not approaching.
+        // Ball at x=-50 (2.5m from goal line at -52.5, within the 20m
+        // DISTRIBUTION_THRESHOLD — raised from 3m at FUN-0b+c), not approaching.
         let ball = ball_at(-50, 2);
         let state = evaluate_transitions(GoalkeeperState::InBoxPositioning, 0, &ball);
         assert_eq!(

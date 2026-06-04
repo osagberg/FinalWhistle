@@ -143,6 +143,39 @@ const PASS_BASE_SPEED_MPS: Q32 = Q32::from_raw(15_i64 << 32);
 const PASS_PEAK_BONUS_MPS: Q32 = Q32::from_raw(10_i64 << 32);
 
 // ---------------------------------------------------------------------------
+// SS2 — Shot accuracy dispersion constants (FUN-0b)
+// docs/design/shot-model.md §Sub-system 2 §Revised coefficients
+// ---------------------------------------------------------------------------
+
+/// Base scatter in metres. At close range, low pressure, best quality:
+/// sigma_y ≈ 3.5 × 1.0 × 0.60 = 2.1m → P(on-target) ≈ 77%.
+/// Provisional; tuned via drama-sweep.
+const SIGMA_BASE_M: Q32 = Q32::from_raw(23_622_320_128_i64); // ≈ 5.5m (drama-sweep R11 final)
+
+/// Distance contribution to sigma. dist_factor = clamp(d_m / 35, 0, 1) (the
+/// NON-inverted distance — 0=close, 1=far, opposite of the xG feature).
+const SIGMA_DIST_WEIGHT: Q32 = Q32::from_raw(3_435_973_836_i64); // ≈ 0.80
+
+/// Pressure contribution to sigma (additive inside the parens).
+const SIGMA_PRESSURE_WEIGHT: Q32 = Q32::from_raw(2_147_483_648_i64); // ≈ 0.50
+
+/// Shooter quality REDUCES sigma (multiplicative quality-suppression factor).
+const SIGMA_QUALITY_WEIGHT: Q32 = Q32::from_raw(1_717_986_918_i64); // ≈ 0.40
+
+/// Minimum scatter floor in metres (best-case: world-class, penalty area, no pressure).
+const SIGMA_MIN_M: Q32 = Q32::from_raw(6_442_450_944_i64); // ≈ 1.5m
+
+/// Maximum scatter ceiling in metres (worst-case: weak player, 35m, full pressure).
+const SIGMA_MAX_M: Q32 = Q32::from_raw(38_654_705_664_i64); // ≈ 9.0m
+
+/// 1/√3 normaliser for the sum-of-3-uniforms normal approximation.
+/// Scales the [-3, +3] sum to unit-normal scale.
+const SIGMA_NORMAL_SCALE: Q32 = Q32::from_raw(2_479_700_525_i64); // ≈ 0.577
+
+/// Clamp for the final dispersed target_y (metres). Ball must stay on the pitch.
+const TARGET_Y_CLAMP_M: Q32 = Q32::from_raw(12_i64 << 32); // 12.0m (half pitch width ≈ 34m; clamp is conservative)
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -255,6 +288,146 @@ fn shot_quality_feature_q32(attrs: &fw_core::PlayerAttributes) -> Q32 {
     attrs.technical.finishing * w_finishing
         + attrs.mental.composure * w_composure
         + attrs.technical.technique * w_technique
+}
+
+/// SS2 — Compute the dispersed target_y for a shot attempt (FUN-0b).
+///
+/// Uses a sum-of-3-uniforms normal approximation to scatter the shot target
+/// around the goal centre. Sigma is determined by distance/pressure/quality
+/// per `docs/design/shot-model.md §Sub-system 2 §Revised dispersion model`.
+///
+/// # Determinism
+///
+/// Three separate `ChaCha8Rng` instances are seeded via `seed_fn` per ADR-0009:
+///   `SeedLayer::BallPhysics`, sites `(slot << 16) | 0x0001..0x0003`.
+/// This ensures the three draws are independent and reproducible.
+///
+/// # Returns
+///
+/// `(target_y_m, xg_score)` — the dispersed target_y in metres and the shot's
+/// xG score (to be written into `state.last_shot_xg[slot_idx]`).
+pub(crate) fn compute_shot_dispersion_and_xg(
+    shooter: &crate::player::PlayerState,
+    shooter_slot: u8,
+    players: &[crate::player::PlayerState],
+    shooter_idx: usize,
+    match_seed: u64,
+    tick_u32: u32,
+) -> (Q32, Q32) {
+    // --- Distance factor (NON-inverted: 0=close, 1=far for sigma calculation) ---
+    let goal_x: Q32 = if (shooter_slot as usize) < crate::PLAYERS_PER_TEAM {
+        fw_core::GOAL_LINE_X
+    } else {
+        -fw_core::GOAL_LINE_X
+    };
+    let dx = goal_x - shooter.pos_x;
+    let dx_abs_bits = dx.to_bits().unsigned_abs();
+    const DIST_THRESHOLD_BITS: u64 = 35_u64 << 32;
+    let dist_factor: Q32 = if dx_abs_bits >= DIST_THRESHOLD_BITS {
+        Q32::ONE // far shot → max distance factor
+    } else {
+        // dist_factor = clamp(d_m / 35, 0, 1) = 1 - distance_q32 (inverted from xG feature)
+        Q32::from_raw(dx_abs_bits as i64) / Q32::from_int(35)
+    };
+
+    // --- Pressure proxy ---
+    let pressure_q32 = shot_pressure_feature_q32(players, shooter_idx);
+
+    // --- Shooter quality ---
+    let quality = shot_quality_feature_q32(shooter.attributes());
+    let quality = if quality > Q32::ONE {
+        Q32::ONE
+    } else {
+        quality
+    };
+
+    // --- Sigma in metres ---
+    // sigma_y_m = SIGMA_BASE_M × (1 + SIGMA_DIST_WEIGHT×dist + SIGMA_PRESSURE_WEIGHT×press)
+    //           × (1 - SIGMA_QUALITY_WEIGHT×quality)
+    // clamped to [SIGMA_MIN_M, SIGMA_MAX_M]
+    let dist_press_factor =
+        Q32::ONE + SIGMA_DIST_WEIGHT * dist_factor + SIGMA_PRESSURE_WEIGHT * pressure_q32;
+    let quality_factor = Q32::ONE - SIGMA_QUALITY_WEIGHT * quality;
+    let quality_factor = if quality_factor < Q32::ZERO {
+        Q32::ZERO
+    } else {
+        quality_factor
+    };
+    let sigma_raw = SIGMA_BASE_M * dist_press_factor * quality_factor;
+    let sigma_y_m = if sigma_raw < SIGMA_MIN_M {
+        SIGMA_MIN_M
+    } else if sigma_raw > SIGMA_MAX_M {
+        SIGMA_MAX_M
+    } else {
+        sigma_raw
+    };
+
+    // --- Sum-of-3-uniforms normal approximation ---
+    // Each draw: seed via seed_fn(BallPhysics, (slot<<16)|site), draw next_u64,
+    // upper 32 bits → Q32 in [0, 1), map to [-1, +1] via 2u - 1.
+    let slot_u32 = shooter_slot as u32;
+    let draw_u = |site: u32| -> Q32 {
+        use rand_chacha::rand_core::{RngCore, SeedableRng};
+        let rng_seed = crate::decision_cadence::seed_fn(
+            match_seed,
+            tick_u32,
+            crate::decision_cadence::SeedLayer::BallPhysics,
+            (slot_u32 << 16) | site,
+        );
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(rng_seed);
+        let raw_u64 = rng.next_u64();
+        // Upper 32 bits as Q32 in [0, 1).
+        let u = Q32::from_raw((raw_u64 >> 32) as i64);
+        // Map [0, 1) → [-1, +1): 2u - 1.
+        Q32::from_int(2) * u - Q32::ONE
+    };
+
+    let u1 = draw_u(0x0001);
+    let u2 = draw_u(0x0002);
+    let u3 = draw_u(0x0003);
+    // Sum-of-3-uniforms ≈ N(0,1) scaled; multiply by 1/√3 to normalize.
+    let sum = u1 + u2 + u3;
+    let rng_z = sum * SIGMA_NORMAL_SCALE;
+
+    // Final target_y in metres.
+    let target_y_raw = rng_z * sigma_y_m;
+    // Clamp to ±TARGET_Y_CLAMP_M (ball stays on the pitch).
+    let target_y_m = if target_y_raw < -TARGET_Y_CLAMP_M {
+        -TARGET_Y_CLAMP_M
+    } else if target_y_raw > TARGET_Y_CLAMP_M {
+        TARGET_Y_CLAMP_M
+    } else {
+        target_y_raw
+    };
+
+    // --- Recompute xG for last_shot_xg cache ---
+    // Use the same features as the utility_shoot gate (pressure is proxy).
+    let distance_q32 = if dx_abs_bits >= DIST_THRESHOLD_BITS {
+        Q32::ZERO
+    } else {
+        let normalized = Q32::from_raw(dx_abs_bits as i64) / Q32::from_int(35);
+        Q32::ONE - normalized
+    };
+    let py_abs_bits = shooter.pos_y.to_bits().unsigned_abs();
+    const ANGLE_THRESHOLD_BITS: u64 = 25_u64 << 32;
+    let angle_q32 = if py_abs_bits >= ANGLE_THRESHOLD_BITS {
+        Q32::ZERO
+    } else {
+        let normalized = Q32::from_raw(py_abs_bits as i64) / Q32::from_int(25);
+        Q32::ONE - normalized
+    };
+    let xg_ctx = crate::utility::xg::ShotContext::try_new(
+        distance_q32,
+        angle_q32,
+        pressure_q32,
+        Q32::ONE, // footed
+        Q32::ONE, // solo
+        quality,
+    )
+    .expect("SS2 xG recompute: features must be in [0, 1]");
+    let xg_score = crate::utility::xg::xg_utility(&xg_ctx);
+
+    (target_y_m, xg_score)
 }
 
 /// Both `strength` and `finishing` are Q32 values in `[0, 1]`. Their product
@@ -571,6 +744,32 @@ pub fn dispatch_tick(
                         sig_definitions,
                     );
                 let active_bias: Option<&SimBiasSnapshot> = active_bias_owned.as_ref();
+                // B1 (FUN-0b+c): compute carrier_pos — the actual ball carrier's
+                // world position. Passed through BtContext so utility_press and
+                // utility_mark_player target the real carrier instead of the
+                // formation-slot proxy. When possession is None (loose ball),
+                // carrier_pos is None and the fallback formation-slot target is used
+                // (that case is handled by preempt_check, not the BT runner).
+                let carrier_pos: Option<(Q32, Q32)> = state.possession.and_then(|carrier_slot| {
+                    // Only provide carrier pos if this player is on the OPPOSING team.
+                    // (The carrier themselves and teammates don't press toward the carrier.)
+                    let carrier_team = if (carrier_slot as usize) < crate::PLAYERS_PER_TEAM {
+                        0usize
+                    } else {
+                        1usize
+                    };
+                    let player_team = if slot_idx < crate::PLAYERS_PER_TEAM {
+                        0usize
+                    } else {
+                        1usize
+                    };
+                    if player_team != carrier_team {
+                        let cs = carrier_slot as usize;
+                        Some((state.players[cs].pos_x, state.players[cs].pos_y))
+                    } else {
+                        None
+                    }
+                });
                 // Build a minimal tree: single OutfieldSelect leaf. The leaf resolves
                 // role state → candidate list → softmax pick inside tick_tree.
                 // Content-pack RON trees replace this stub at T2-3.
@@ -581,6 +780,7 @@ pub fn dispatch_tick(
                     player: Some(player),
                     active_bias,
                     select_fn: Some(select_outfield_intent),
+                    carrier_pos,
                 };
                 let (_, outfield_intent) = tick_tree(&outfield_tree, &ctx, &mut rng);
                 outfield_intent
@@ -665,14 +865,35 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
     // so downstream code in tick_match (goal detection, step 7) sees the
     // updated state immediately after apply_intent returns.
     match &intent {
-        PlayerIntent::AttemptShot { target_x, target_y } => {
+        PlayerIntent::AttemptShot {
+            target_x,
+            target_y: _target_y_placeholder,
+        } => {
             let shooter_slot = state.players[slot_idx].slot;
-            let on_target = is_shot_on_target(*target_y);
+            let tick_u32 = state.tick.to_raw() as u32;
+
+            // SS2 — Compute dispersed target_y + xG for this shot.
+            // `target_y_m` is the dispersed target in metres; `xg_score` is
+            // written to `state.last_shot_xg[slot_idx]` for SS3's save model.
+            let (target_y_dispersed, xg_score) = compute_shot_dispersion_and_xg(
+                &state.players[slot_idx],
+                shooter_slot,
+                &state.players,
+                slot_idx,
+                state.seed.to_u64(),
+                tick_u32,
+            );
+
+            // Cache xG in canonical state for SS3 GK save model.
+            state.last_shot_xg[slot_idx] = xg_score;
+
+            // Determine on-target from the DISPERSED target_y (not dead-centre).
+            let on_target = is_shot_on_target(target_y_dispersed);
             state.match_events.push(MatchEvent::Shot {
                 shooter_slot,
                 tick: state.tick,
                 target_x: *target_x,
-                target_y: *target_y,
+                target_y: target_y_dispersed,
                 on_target,
             });
             // T2-1d telemetry capture (NON-canonical; #[serde(skip)] field on
@@ -706,9 +927,11 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
             let from_y = state.players[slot_idx].pos_y;
             state.ball.pos_x = from_x;
             state.ball.pos_y = from_y;
-            // T1-3.5: ball mutation — kick toward target.
+            // T1-3.5: ball mutation — kick toward the DISPERSED target.
+            // `target_y_dispersed` is the SS2 scatter value; `target_x` is
+            // still ±52m (goal depth sentinel — ensures ball travels forward).
             let speed = compute_ball_speed_for_shot(&state.players[slot_idx]);
-            let (bvx, bvy) = ball_unit_vel(from_x, from_y, *target_x, *target_y, speed);
+            let (bvx, bvy) = ball_unit_vel(from_x, from_y, *target_x, target_y_dispersed, speed);
             state.ball.vel_x = bvx;
             state.ball.vel_y = bvy;
             state.ball.vel_z = Q32::ZERO; // ground-level shot in T1
@@ -905,6 +1128,30 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
             // T2+ may add events for press-trigger / interception / save —
             // wire them at this site, not via a wildcard.
         }
+    }
+
+    // SS3 staleness fix (reviewers P1, 2026-06-04): `last_shot_xg[slot_idx]` is
+    // the SS3 GK-save gate — it must be non-zero ONLY while this player's MOST
+    // RECENT ball action was a shot. A non-shot BALL-TOUCH (pass / cross /
+    // lay-off / dribble / GK distribution) supersedes any prior shot context, so
+    // clear it here. Without this, a shooter who later regains the ball and
+    // dribbles it over the line would wrongly face the save model (the gate is
+    // meant to let non-shot crossings — own goals, deflections, scrambles —
+    // score). AttemptShot SETS the value above; NO-TOUCH intents (Idle / Move /
+    // Press / Mark / RunOffBall / GkShotStop / ...) deliberately PRESERVE it so
+    // an in-flight shot still faces the keeper when the ball reaches goal several
+    // ticks later (the shooter is off-ball by then and may dispatch a Move).
+    match &intent {
+        PlayerIntent::AttemptPassShort { .. }
+        | PlayerIntent::AttemptPassLong { .. }
+        | PlayerIntent::Cross { .. }
+        | PlayerIntent::LayOff { .. }
+        | PlayerIntent::Dribble { .. }
+        | PlayerIntent::GkDistributeShort { .. }
+        | PlayerIntent::GkDistributeLong { .. } => {
+            state.last_shot_xg[slot_idx] = Q32::ZERO;
+        }
+        _ => {}
     }
 
     // Velocity update (same for all target-bearing intents; Idle zeroes vel).
@@ -1919,6 +2166,242 @@ mod tests {
             MAX_PLAYER_SPEED * MAX_PLAYER_SPEED,
             "MAX_PLAYER_SPEED_SQ must equal MAX_PLAYER_SPEED * MAX_PLAYER_SPEED; \
              if MAX_PLAYER_SPEED is retuned, update MAX_PLAYER_SPEED_SQ to match"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // FUN-0b SS2 — shot accuracy dispersion tests
+    // ---------------------------------------------------------------------------
+
+    /// SS2: on-target rate is NOT 100%.
+    ///
+    /// Before FUN-0b, every shot had target_y = 0 so every shot was on-target.
+    /// After SS2 wiring, a distribution of shots should produce some off-target
+    /// outcomes. Run 10 shots from the same slot across different ticks and assert
+    /// that not all land on-target (probability that all 10 land on-target with
+    /// sigma ≈ 3-5m is negligible).
+    #[test]
+    fn ss2_shot_target_y_is_not_always_on_target() {
+        let state = MatchState::initial(Seed::from_u64(42));
+        let shooter_idx = 9; // home FWD
+        let shooter_slot = 9u8;
+        let players = &state.players;
+        let match_seed = state.seed.to_u64();
+
+        let mut any_off_target = false;
+        for tick in 0u32..10 {
+            let (target_y, _xg) = compute_shot_dispersion_and_xg(
+                &players[shooter_idx],
+                shooter_slot,
+                players,
+                shooter_idx,
+                match_seed,
+                tick,
+            );
+            // The existing fw_content::is_shot_on_target checks |target_y| <= 3.66m
+            if !fw_content::is_shot_on_target(target_y) {
+                any_off_target = true;
+                break;
+            }
+        }
+        assert!(
+            any_off_target,
+            "SS2 dispersion must produce some off-target shots across 10 ticks; \
+             all 10 were on-target which is statistically impossible at realistic sigma values"
+        );
+    }
+
+    /// SS2: different ticks produce different target_y values (determinism + variance).
+    #[test]
+    fn ss2_dispersion_varies_across_ticks() {
+        let state = MatchState::initial(Seed::from_u64(42));
+        let shooter_idx = 9;
+        let shooter_slot = 9u8;
+        let players = &state.players;
+        let match_seed = state.seed.to_u64();
+
+        let (y0, _) = compute_shot_dispersion_and_xg(
+            &players[shooter_idx],
+            shooter_slot,
+            players,
+            shooter_idx,
+            match_seed,
+            0,
+        );
+        let (y1, _) = compute_shot_dispersion_and_xg(
+            &players[shooter_idx],
+            shooter_slot,
+            players,
+            shooter_idx,
+            match_seed,
+            1,
+        );
+        // Different ticks must produce different draws (by probabilistic argument;
+        // the chance of identical Q32 output from two different seeds is negligible).
+        assert_ne!(
+            y0, y1,
+            "SS2 dispersion across different ticks must differ (different RNG seeds)"
+        );
+    }
+
+    /// SS2: same tick + same state produces same target_y (determinism).
+    #[test]
+    fn ss2_dispersion_is_deterministic() {
+        let state = MatchState::initial(Seed::from_u64(42));
+        let shooter_idx = 9;
+        let shooter_slot = 9u8;
+        let players = &state.players;
+        let match_seed = state.seed.to_u64();
+
+        let (y0, xg0) = compute_shot_dispersion_and_xg(
+            &players[shooter_idx],
+            shooter_slot,
+            players,
+            shooter_idx,
+            match_seed,
+            100,
+        );
+        let (y1, xg1) = compute_shot_dispersion_and_xg(
+            &players[shooter_idx],
+            shooter_slot,
+            players,
+            shooter_idx,
+            match_seed,
+            100,
+        );
+        assert_eq!(
+            y0, y1,
+            "SS2 dispersion must be deterministic for same inputs"
+        );
+        assert_eq!(
+            xg0, xg1,
+            "SS2 xg_score must be deterministic for same inputs"
+        );
+    }
+
+    /// SS2: last_shot_xg is written when AttemptShot fires.
+    ///
+    /// Before FUN-0b, last_shot_xg didn't exist. After wiring, dispatching
+    /// AttemptShot for a player must update state.last_shot_xg[slot_idx].
+    #[test]
+    fn ss2_apply_intent_attempt_shot_writes_last_shot_xg() {
+        let mut state = MatchState::initial(Seed::from_u64(42));
+        let slot_idx = 9;
+        // Give possession to slot 9 and move them to a near-goal position.
+        state.players[slot_idx].pos_x = Q32::from_int(40); // 12.5m from goal
+        state.possession = Some(9);
+        state.last_touched_by = Some(9);
+
+        // Before shot, last_shot_xg should be zero.
+        assert_eq!(
+            state.last_shot_xg[slot_idx],
+            Q32::ZERO,
+            "last_shot_xg must be Q32::ZERO before any shot"
+        );
+
+        // Fire an AttemptShot via apply_intent.
+        apply_intent(
+            &mut state,
+            slot_idx,
+            PlayerIntent::AttemptShot {
+                target_x: Q32::from_int(52),
+                target_y: Q32::ZERO, // placeholder; SS2 computes real target_y
+            },
+        );
+
+        // After shot, last_shot_xg must be non-zero (the shot was at 12.5m — high xG).
+        assert!(
+            state.last_shot_xg[slot_idx] > Q32::ZERO,
+            "last_shot_xg must be non-zero after AttemptShot fires from near-goal (12.5m); \
+             got {:?}",
+            state.last_shot_xg[slot_idx]
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // FUN-0b SS3 — GK save model integration test
+    // ---------------------------------------------------------------------------
+
+    /// SS3: a GK save prevents a goal.
+    ///
+    /// Construct a scenario where the ball is in the goal mouth and the save
+    /// probability is very high (manually set last_shot_xg to near-zero so
+    /// (1-xg) ≈ 1.0). Run tick_match and assert no goal was scored + the ball
+    /// is no longer in the goal mouth.
+    ///
+    /// This is a probabilistic test — we fix the seed to a known value where
+    /// the save roll wins. We verify at minimum that the save machinery is
+    /// functional (the score doesn't always increment) across multiple seeds.
+    #[test]
+    fn ss3_save_can_prevent_goal() {
+        // We run 20 seeds and assert that at least one produces a save
+        // (score stays 0-0 after the ball enters the goal mouth at low xG).
+        let mut any_saved = false;
+
+        for seed_val in 0u64..20 {
+            let mut state = MatchState::initial(Seed::from_u64(seed_val));
+            // Place ball in the home goal mouth (negative x → away scores in home goal).
+            // Home GK = slot 0. Away scores when ball is at negative x.
+            state.ball.pos_x = -fw_core::GOAL_LINE_X;
+            state.ball.pos_y = Q32::ZERO; // centre of goal mouth
+            state.ball.vel_x = Q32::from_int(-5); // moving into goal
+            state.ball.vel_y = Q32::ZERO;
+            // Set last_touched_by to an away player (slot 19).
+            state.last_touched_by = Some(19);
+            // Set last_shot_xg for slot 19 very low (xG ≈ 0.02 — near-zero → save_prob ≈ high).
+            state.last_shot_xg[19] = Q32::from_raw(85_899_346_i64); // ≈ 0.02
+            state.possession = None;
+
+            let state_after = tick_match(state, &std::collections::BTreeMap::new());
+            // If saved: away_score stays 0 and ball is no longer at the goal line.
+            if state_after.away_score == 0 {
+                let bx_abs = state_after.ball.pos_x.to_bits().unsigned_abs();
+                let goal_bits = fw_core::GOAL_LINE_X.to_bits().unsigned_abs();
+                // Ball should have been cleared away from the goal line.
+                if bx_abs < goal_bits {
+                    any_saved = true;
+                    break;
+                }
+            }
+        }
+
+        assert!(
+            any_saved,
+            "SS3: across 20 seeds with very low xG (≈0.02) entering the goal mouth, \
+             at least one save must occur — the GK save model must be functional"
+        );
+    }
+
+    /// SS3: xg_score near 1.0 makes saves very unlikely.
+    ///
+    /// With xG ≈ 0.80 (penalty-like), (1-xg) ≈ 0.20 → save_prob ≈ 0.145.
+    /// Across 20 seeds, most should result in goals.
+    #[test]
+    fn ss3_high_xg_shot_mostly_results_in_goal() {
+        let mut goals_scored = 0u32;
+        let goal_mouth_x = -fw_core::GOAL_LINE_X; // home goal
+
+        for seed_val in 0u64..20 {
+            let mut state = MatchState::initial(Seed::from_u64(seed_val));
+            state.ball.pos_x = goal_mouth_x;
+            state.ball.pos_y = Q32::ZERO;
+            state.ball.vel_x = Q32::from_int(-5);
+            state.ball.vel_y = Q32::ZERO;
+            state.last_touched_by = Some(19); // away player
+            // High xG: ≈ 0.80 → save_prob ≈ save_base × 0.20 × 1.0 ≈ 0.145
+            state.last_shot_xg[19] = Q32::from_raw(3_435_973_836_i64); // ≈ 0.80
+            state.possession = None;
+
+            let state_after = tick_match(state, &std::collections::BTreeMap::new());
+            if state_after.away_score == 1 {
+                goals_scored += 1;
+            }
+        }
+        // With save_prob ≈ 0.145, expect ~85% goals → ≥ 14 of 20.
+        assert!(
+            goals_scored >= 12,
+            "SS3: high-xG shots (≈0.80) should mostly score; got {goals_scored}/20 goals \
+             (expected ≥ 12; if this fails the save probability may be miscalibrated)"
         );
     }
 }

@@ -141,12 +141,17 @@ pub enum ConditionKind {
 /// Stored in `BtContext::select_fn` as a function pointer to avoid circular
 /// imports between `bt` and `subtree_library`. Mirrors
 /// `subtree_library::select_outfield_intent`'s signature.
+///
+/// B1 (FUN-0b+c): `carrier_pos` is the actual ball carrier's position. Passed
+/// through the BtContext so `utility_press` and `utility_mark_player` can
+/// target the real carrier instead of the formation-slot proxy.
 pub type SelectFn = fn(
     PlayerRoleState,
     &PlayerState,
     u8,
     &mut ChaCha8Rng,
     Option<&SimBiasSnapshot>,
+    Option<(fw_core::Q32, fw_core::Q32)>,
 ) -> PlayerIntent;
 
 /// Read-only context the BT runner uses to evaluate nodes.
@@ -174,6 +179,11 @@ pub struct BtContext<'a> {
     /// Stored as a function pointer to avoid circular imports between `bt` and `subtree_library`.
     /// Signature mirrors `subtree_library::select_outfield_intent`.
     pub select_fn: Option<SelectFn>,
+
+    /// For `OutfieldSelect` leaf (B1 FUN-0b+c): the current ball carrier's position.
+    /// `Some((x, y))` when a player has possession; `None` on loose ball.
+    /// Threaded into `select_outfield_intent` so press/mark targets the real carrier.
+    pub carrier_pos: Option<(fw_core::Q32, fw_core::Q32)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -303,7 +313,14 @@ fn tick_leaf<'a>(
                 "OutfieldSelect leaf requires BtContext::select_fn — \
                  set it when building the BtContext for outfield dispatch",
             );
-            let intent = select_fn(role_state, player, ctx.roster_slot, rng, ctx.active_bias);
+            let intent = select_fn(
+                role_state,
+                player,
+                ctx.roster_slot,
+                rng,
+                ctx.active_bias,
+                ctx.carrier_pos,
+            );
             *current_intent = intent;
             NodeStatus::Success
         }
@@ -349,6 +366,7 @@ mod tests {
             player: None,
             active_bias: None,
             select_fn: None,
+            carrier_pos: None,
         }
     }
 

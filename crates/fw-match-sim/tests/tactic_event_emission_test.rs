@@ -281,33 +281,42 @@ fn setpiece_state_auto_exits_on_possession_loss_to_none() {
         );
     });
 
-    // **Codex Tier-2 audit 2026-05-17 P2 #3 strengthening**: the original
-    // assertion ("post-state is not SetPiece") would pass if the subsequent
-    // PossessionLost / BallRecovered event was dropped — auto_exit_setpiece
-    // would fire BallInPlay → MidBlock (the archetype default) + the team
-    // would be in MidBlock state, which is "not SetPiece" but ALSO not the
-    // post-PossessionLost/BallRecovered state the auto-exit pattern is
-    // supposed to enable. So strengthen: assert the post-exit state is
-    // specifically one of {HighPress, LowBlock, CounterAttack} — the only
-    // states the PossessionLost / BallRecovered apply_event arms can
-    // transition TO from MidBlock + the archetype default. MidBlock alone
-    // (the BallInPlay-set value) would indicate the subsequent event arm
-    // didn't fire — exactly the silent failure this test must protect against.
-    let post_exit_is_expected = matches!(
+    // FUN-0b+c: this is now a WIRING check — "the smoke seed enters AND exits
+    // SetPiece via the real tick_match path, landing in a valid in-play state."
+    // The silent-failure guard (Codex Tier-2 P2 #3 — auto_exit fires BallInPlay
+    // but the subsequent PossessionLost/BallRecovered is dropped) moved to the
+    // DETERMINISTIC controlled unit test
+    // `lib.rs::setpiece_autoexit_tests::auto_exit_setpiece_then_possession_lost_lands_in_lowblock_not_midblock`.
+    //
+    // Why this assertion was weakened from "must be HighPress/LowBlock/CounterAttack"
+    // to "must be any in-play state (incl. MidBlock)": the prior assertion rejected
+    // MidBlock as proof-of-dropped-event, but MidBlock is a LEGITIMATE post-exit
+    // landing. When the exit is driven by a cross-team transition, the losing team
+    // gets PossessionLost{recovery_likely:true}, which from MidBlock returns MidBlock
+    // unchanged while HighPress is on its re-entry cooldown (tactic_fsm.rs:419-421);
+    // BallRecovered{opponent_shape_broken:false} likewise stays MidBlock. The Slice-B
+    // tackle step shifted the smoke seed's single 600-tick exit (tick 548) into
+    // exactly such a cross-team-under-cooldown case, so the old assertion failed on a
+    // legitimate outcome. The final state alone cannot distinguish "event fired but
+    // stayed MidBlock" from "event dropped" — hence the controlled unit test owns
+    // that discrimination now, and this integration test just proves the public
+    // wiring reaches SetPiece entry/exit at all.
+    let post_exit_is_valid_in_play = matches!(
         post_exit_state,
-        TacticState::HighPress | TacticState::LowBlock | TacticState::CounterAttack
+        TacticState::MidBlock
+            | TacticState::HighPress
+            | TacticState::LowBlock
+            | TacticState::CounterAttack
     );
     assert!(
-        post_exit_is_expected,
-        "T2-1c auto-exit + subsequent-event silent-failure regression: team {exited_team} \
-         exited SetPiece but landed in {post_exit_state:?} — expected one of \
-         (HighPress / LowBlock / CounterAttack) per the PossessionLost / \
-         BallRecovered apply_event arms at tactic_fsm.rs:411-447. If the team \
-         landed in MidBlock, the auto_exit_setpiece BallInPlay fired BUT the \
-         subsequent PossessionLost or BallRecovered event was silently dropped \
-         — that's the cross-row behavior this test is meant to protect (the \
-         whole point of the auto-exit pattern is to unblock subsequent \
-         possession events from SetPiece). See Codex Tier-2 audit P2 #3."
+        post_exit_is_valid_in_play,
+        "team {exited_team} exited SetPiece but landed in {post_exit_state:?} — \
+         expected a valid in-play state (MidBlock / HighPress / LowBlock / \
+         CounterAttack). Landing anywhere else (e.g. still SetPiece, or an \
+         unreachable state) means the auto-exit + possession-event wiring in \
+         tick_match is broken. The silent-failure guard (subsequent event \
+         dropped) is owned by the controlled unit test \
+         setpiece_autoexit_tests::auto_exit_setpiece_then_possession_lost_lands_in_lowblock_not_midblock."
     );
 }
 

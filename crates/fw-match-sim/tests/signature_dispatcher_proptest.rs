@@ -16,8 +16,8 @@
 //! AC-6:      MEMORY criterion 6 — canonical hash regression (determinism).
 
 use fw_content::{
-    BiasCategory, CooldownPolicy, RoleFamily, SignatureCandidate, SignatureDefinition, SignatureId,
-    SignaturePresentationRecipe, SignatureTrigger, SimBiasSnapshot, StackingPolicy,
+    BiasCategory, CooldownPolicy, MatchEvent, RoleFamily, SignatureCandidate, SignatureDefinition,
+    SignatureId, SignaturePresentationRecipe, SignatureTrigger, SimBiasSnapshot, StackingPolicy,
 };
 use fw_core::{Q32, Seed, Tick};
 use fw_match_sim::{MatchState, dispatch, signature};
@@ -591,6 +591,7 @@ fn ac4_active_signature_bias_changes_selected_intent() {
         9, // roster_slot is 1-indexed (slot_idx 8 = roster 9)
         &mut rng_shoot,
         composite_shoot.as_ref(),
+        None, // carrier_pos: no carrier for this test
     );
     let intent_pass = select_outfield_intent(
         state.players[8].role_state,
@@ -598,6 +599,7 @@ fn ac4_active_signature_bias_changes_selected_intent() {
         9,
         &mut rng_pass,
         composite_pass.as_ref(),
+        None, // carrier_pos: no carrier for this test
     );
 
     // **Behavioral assertion**: compare the PlayerIntent enum DISCRIMINANT.
@@ -791,6 +793,18 @@ fn ac4_via_dispatch_tick_path_opposite_bias_diverges_vel() {
             .with_last_touched_by(8)
             .with_possession(8);
         state.players[8].role_state = PlayerRoleState::Forward(ForwardState::InPossession);
+        // FUN-0b+c: position slot 8 (home, attacking +x; goal at GOAL_LINE_X=52.5)
+        // in the opponent box with the ball at his feet. Slice A gated the shoot
+        // utility on xG (XG_SHOOT_THRESHOLD), so a MIDFIELD carrier can never
+        // shoot regardless of bias — strong-shoot bias × ~0 xG-gated utility = 0,
+        // and the carrier falls back to a Pass for BOTH bias snapshots (the old
+        // observable was vacuous for this reason). A central position ~4.5m from
+        // goal makes xG high enough that the 50× shoot bias resolves to a Shot,
+        // so the shoot-vs-pass divergence is observable through dispatch_tick.
+        state.players[8].pos_x = Q32::from_int(48);
+        state.players[8].pos_y = Q32::ZERO;
+        state.ball.pos_x = Q32::from_int(48);
+        state.ball.pos_y = Q32::ZERO;
         // All relevant attrs above threshold for trigger predicates.
         set_attrs_above_threshold(&mut state, 8);
         // Give slot 8 the LRS candidate so the firing resolves to a real def.
@@ -824,35 +838,59 @@ fn ac4_via_dispatch_tick_path_opposite_bias_diverges_vel() {
     let state_shoot_after = dispatch::dispatch_tick(state_shoot_before, &defs_shoot);
     let state_pass_after = dispatch::dispatch_tick(state_pass_before, &defs_pass);
 
-    // Behavioral assertion: vel_x AND vel_y for slot 8 must differ.
+    // Behavioral assertion: the EMITTED MatchEvent kind must diverge — a Shot
+    // for the shoot-bias run, a Pass for the pass-bias run.
     //
-    // With 50× shoot bias, the player fires AttemptShot (ball launched toward
-    // goal, player vel set toward shot target). With 50× pass bias, the player
-    // fires AttemptPassShort/Long (ball sent to a teammate, vel set toward
-    // pass target — a different direction). The 50× tilt is extreme enough
-    // that the softmax is deterministic on a single tick; divergent vel is
-    // the genuine behavior signal that bias→intent selection is wired.
+    // With 50× shoot bias, the carrier fires AttemptShot → `MatchEvent::Shot`.
+    // With 50× pass bias, the carrier fires AttemptPass* / Cross / LayOff →
+    // `MatchEvent::Pass`. The 50× tilt is extreme enough that the softmax is
+    // deterministic on a single tick; the divergent event kind is the genuine
+    // behavior signal that bias→intent selection is wired all the way through
+    // dispatch_tick → apply_intent.
     //
-    // The pre-condition assert above confirms input state is byte-identical,
-    // so any vel divergence is caused ONLY by the differing bias snapshots.
-    // We assert vel directly (not encode_canonical) because encode_canonical
-    // would also diverge for encoding-incidental reasons (cooldown timestamps,
-    // firing state) that are NOT evidence of bias→intent flow.
-    let vel_shoot = (
-        state_shoot_after.players[8].vel_x,
-        state_shoot_after.players[8].vel_y,
+    // FUN-0b+c: this assertion was REWRITTEN from comparing post-cap PLAYER
+    // velocity to comparing the emitted event. The 2D-magnitude velocity cap
+    // (apply_vel_toward_target) normalises both shoot- and pass-driven movement
+    // to MAX_PLAYER_SPEED toward the same +x target, so post-cap player vel is
+    // (8, 0) for BOTH biases — a now-vacuous observable. The shoot-vs-pass
+    // divergence lives in the BALL (and in the emitted event), not in the
+    // carrier's own movement vector. The emitted MatchEvent is the strongest,
+    // mutation-discriminating observable: if the bias snapshot stopped flowing,
+    // both runs would pick the same intent → the same event kind → this fails.
+    // (The sibling test `ac4_active_signature_bias_changes_selected_intent`
+    // covers the intent discriminant via select_outfield_intent in isolation;
+    // this one proves the SAME divergence survives the full dispatch_tick path.)
+    let shoot_fired_shot = state_shoot_after
+        .match_events()
+        .iter()
+        .any(|e| matches!(e, MatchEvent::Shot { .. }));
+    let pass_fired_pass = state_pass_after
+        .match_events()
+        .iter()
+        .any(|e| matches!(e, MatchEvent::Pass { .. }));
+    let shoot_fired_pass = state_shoot_after
+        .match_events()
+        .iter()
+        .any(|e| matches!(e, MatchEvent::Pass { .. }));
+    assert!(
+        shoot_fired_shot,
+        "T1-26: strong-shoot bias must fire a MatchEvent::Shot through dispatch_tick \
+         for slot 8. Events: {:?}",
+        state_shoot_after.match_events(),
     );
-    let vel_pass = (
-        state_pass_after.players[8].vel_x,
-        state_pass_after.players[8].vel_y,
+    assert!(
+        pass_fired_pass,
+        "T1-26: strong-pass bias must fire a MatchEvent::Pass through dispatch_tick \
+         for slot 8. Events: {:?}",
+        state_pass_after.match_events(),
     );
-    assert_ne!(
-        vel_shoot, vel_pass,
-        "T1-26: dispatch_tick with strong-shoot vs strong-pass bias must produce \
-         divergent vel for slot 8. vel_shoot={vel_shoot:?}, vel_pass={vel_pass:?}. \
-         Same vel = the bias snapshot is NOT flowing through the production \
-         composite-bias path (combine_active_biases → apply_signature_bias → \
-         select_outfield_intent → apply_intent)."
+    assert!(
+        !shoot_fired_pass,
+        "T1-26: strong-shoot bias must NOT fire a Pass (50× shoot tilt is \
+         deterministic). Same event kinds across both runs = the bias snapshot \
+         is NOT flowing through combine_active_biases → apply_signature_bias → \
+         select_outfield_intent → apply_intent. Events: {:?}",
+        state_shoot_after.match_events(),
     );
 }
 

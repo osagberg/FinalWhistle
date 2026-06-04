@@ -218,7 +218,22 @@ const MAGIC: &[u8; 4] = b"FWMS";
 //        only) → T2-1b (trigger #3 BEHAVIORAL on 600-tick; 60-tick
 //        UNCHANGED through T2-1b) → T2-1c (UNCHANGED both pins) →
 //        T2-1d-infra (UNCHANGED both pins).
-const VERSION: u16 = 9;
+// VERSION history continued:
+//  10 — FUN-0b: MatchState gained last_shot_xg: [Q32; 22] (per-player most-recent
+//       xG score, written at AttemptShot dispatch, used by GK save model). Wire:
+//       22 × i64 LE appended AFTER archetype IDs. Canonical hash REBASELINED
+//       per ADR-0012 trigger #1 (schema + behavior change). The REBASELINE is
+//       authorized and expected — the main thread will tune coefficients and
+//       re-pin after drama-sweep confirms M1 drops toward [2.3, 3.2].
+//  11 — FUN-0b+c (Slice B — dispossession): MatchState gained
+//       tackle_cooldown_until: [Tick; 22] (per-defender cooldown preventing
+//       tackle-spam after a failed attempt). Wire: 22 × i64 LE
+//       (Tick::to_raw()) appended AFTER last_shot_xg. Canonical hash
+//       REBASELINED per ADR-0012 trigger #1 (schema + behavior change).
+//       Rebaseline authorized: dispossession mechanic + carrier-targeting (B1)
+//       change canonical possession-flow. Main thread re-pins after drama-sweep
+//       confirms bimodal 0-0/infinite lock is broken.
+const VERSION: u16 = 11;
 
 /// Streaming canonical encoder. Append bytes as values are emitted; call
 /// `finish()` to get the buffer for hashing.
@@ -387,6 +402,22 @@ impl CanonicalEncoder {
         );
         self.write_u16(away_id_bytes.len() as u16);
         self.buf.extend_from_slice(away_id_bytes);
+
+        // FUN-0b: last_shot_xg — 22 × i64 LE (raw Q32 bits). Appended AFTER
+        // archetype IDs per the append discipline (VERSION 9 → 10). Canonical
+        // so GK save probability is deterministic and the hash pins it.
+        // Wire: 22 consecutive i64 LE values, slot 0 first, slot 21 last.
+        for xg in &state.last_shot_xg {
+            self.write_i64(xg.to_bits());
+        }
+
+        // FUN-0b+c (Slice B): tackle_cooldown_until — 22 × i64 LE (Tick::to_raw()).
+        // Appended AFTER last_shot_xg per the append discipline (VERSION 10 → 11).
+        // Canonical because cooldown state affects which tackles fire deterministically.
+        // Wire: 22 consecutive i64 LE values, slot 0 first, slot 21 last.
+        for cooldown in &state.tackle_cooldown_until {
+            self.write_i64(cooldown.to_raw());
+        }
     }
 
     /// Encode a `Vec<MatchEvent>` into the canonical byte stream.
@@ -802,15 +833,15 @@ mod tests {
         let s = MatchState::initial(Seed::from_u64(1));
         let bytes = s.encode_canonical();
         assert_eq!(&bytes[0..4], MAGIC);
-        assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), VERSION);
+        assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 11);
     }
 
     #[test]
-    fn version_is_9_after_t2_1a_per_team_archetypes_schema_bump() {
+    fn version_is_11_after_fun0bc_dispossession_schema_bump() {
         assert_eq!(
-            VERSION, 9,
-            "VERSION should be 9 after T2-1a per-team-archetypes canonical schema bump \
-             (MatchState gained home_archetype_id: String + away_archetype_id: String)"
+            VERSION, 11,
+            "VERSION should be 11 after FUN-0b+c dispossession schema bump \
+             (MatchState gained tackle_cooldown_until: [Tick; 22])"
         );
     }
 
