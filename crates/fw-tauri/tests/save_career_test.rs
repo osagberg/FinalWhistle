@@ -236,16 +236,16 @@ fn scout_report_survives_save_load_round_trip() {
         let mut found = None;
         'outer: for (&club_id, instances) in career.roster.iter() {
             for inst in instances {
-                if inst.observation_count > 0 {
-                    if let Some(report) = &inst.last_scout_report {
-                        found = Some((
-                            club_id,
-                            inst.player_id,
-                            inst.observation_count,
-                            report.clone(),
-                        ));
-                        break 'outer;
-                    }
+                if inst.observation_count > 0
+                    && let Some(report) = &inst.last_scout_report
+                {
+                    found = Some((
+                        club_id,
+                        inst.player_id,
+                        inst.observation_count,
+                        report.clone(),
+                    ));
+                    break 'outer;
                 }
             }
         }
