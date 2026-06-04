@@ -115,3 +115,44 @@ wonderkid, rebuilding a youth side, an underdog cup run, hours in the tactics sc
 — is feature BREADTH, tracked separately via the feature-backlog research
 (`docs/design/feature-backlog.md`, forthcoming). Both axes matter; this doc owns only
 the first.
+
+## Harness-evolution directions (considered 2026-06-04; sequence-gated)
+
+A brainstorm explored pushing the DX/eval harness further. Verdict + when each lands.
+GUARDRAIL (and the test for ALL of these): build the next harness piece ONLY when it
+unblocks actual fun-progress, not because the infra is seductive. The #1 priority
+stays a WATCHABLE match; everything below is gated on that + the FUN-H1 drama-sweep
+existing.
+
+- **Archetype-distinctness probe (ADOPT → FUN-1).** Run all manager archetypes through
+  the sweep and assert each produces a statistically distinguishable match signature
+  (press distance, transition speed, pass-network shape). Falsifiable proof that
+  tactical depth reaches the pitch — currently unproven. Add as a drama-model metric;
+  meaningful only once the match is watchable (on broken football it just reports
+  "tactics don't express yet").
+- **Glitch-coherence CI gate (ADOPT, light, soon).** Run the DX-2 detectors in CI to
+  fail a commit that reintroduces teleport/phasing/velocity glitches — cheap, protects
+  the FUN-0 fix immediately. (Pairs with the existing canonical-hash + determinism gates.)
+- **Drama CI gate (ADOPT, full, later).** Extend the gate to fail when drama drops
+  below band or an archetype loses its fingerprint — a "you cannot merge football that
+  got worse" gate. Only once there's TUNED fun worth protecting (post FUN-1).
+- **Product spin-offs (CAPTURE → feature-backlog).** The DX-2 drama-detector + GIF
+  renderer, pointed at a finished match/season, are an auto-highlight-reel + "season in
+  N GIFs"; a deterministic match is shareable as a seed. Near-free EA delight; the
+  primitives already exist. Product feature, not dev-tool — schedule against the EA roadmap.
+- **Agent-as-manager (FUTURE BET → director mode).** An agent plays hundreds of
+  deterministic careers; mine for skill-expression (does a good manager outperform a
+  bad one?) and "where did the agent have no meaningful choice / get bored" = automated
+  feature-gap discovery feeding the breadth backlog. Blocked on the management surface
+  existing; the seed (agent drives the existing season loop via the DX-1 bridge) is
+  feasible once there's a season worth playing.
+- **Auto-tuner (DEFER, maybe never).** A deterministic optimizer (CMA-ES / Bayesian)
+  searching tuning coefficients toward target bands. The cleanest possible optimization
+  problem BUT carries Goodhart risk (optimizes into football that scores great and feels
+  wrong) and is redundant while manual A/B-on-identical-seeds tuning is fast. Revisit
+  only if manual tuning proves too slow across many coefficients; never run unsupervised
+  on measurable metrics alone (the LLM-judge must anchor it).
+- **Season/economy balance sweeps (ALREADY PLANNED).** Covered by the drama-model
+  season metrics (S1-S4) + FUN-4; economy sweeps wait on the economy features existing.
+- **Reusable-blueprint extraction (SKIP).** Portfolio/methodology meta; not
+  shipping-relevant.
