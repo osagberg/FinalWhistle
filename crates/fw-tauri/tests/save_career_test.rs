@@ -238,14 +238,19 @@ fn scout_report_survives_save_load_round_trip() {
             for inst in instances {
                 if inst.observation_count > 0 {
                     if let Some(report) = &inst.last_scout_report {
-                        found =
-                            Some((club_id, inst.player_id, inst.observation_count, report.clone()));
+                        found = Some((
+                            club_id,
+                            inst.player_id,
+                            inst.observation_count,
+                            report.clone(),
+                        ));
                         break 'outer;
                     }
                 }
             }
         }
-        found.expect("at least one player must be observed (observation_count>0) after advance_week")
+        found
+            .expect("at least one player must be observed (observation_count>0) after advance_week")
     };
 
     save_career_inner(&state).expect("save_career_inner must succeed");

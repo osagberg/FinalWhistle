@@ -448,12 +448,8 @@ pub fn apply_quality_jitter(state: &mut MatchState, match_seed: u64) {
     for idx in 0..n {
         let factor = if idx < 11 { home_factor } else { away_factor };
         // Draw a per-player jitter on top of the team factor (site = slot index).
-        let per_player = quality_factor_from_seed(seed_fn(
-            match_seed,
-            0,
-            SeedLayer::Decision,
-            idx as u32 + 2,
-        ));
+        let per_player =
+            quality_factor_from_seed(seed_fn(match_seed, 0, SeedLayer::Decision, idx as u32 + 2));
         let combined = (factor + per_player) / 2.0;
         apply_factor_to_player(state.players[idx].attributes_mut(), combined);
     }
@@ -562,7 +558,6 @@ fn trailing_team_at_85pct(events: &[MatchEvent], match_end_tick: i64) -> Option<
     }
 }
 
-
 #[allow(clippy::float_arithmetic)]
 fn run(cli: &Cli) -> Result<std::process::ExitCode, String> {
     // Fix 4: --seeds 0 guard. A 0-seed sweep produces NaN rates and poisons
@@ -634,17 +629,15 @@ fn run(cli: &Cli) -> Result<std::process::ExitCode, String> {
             let (hi, ai) = pick_archetype_pair(&archetype_ids, i);
             (archetype_ids[hi].clone(), archetype_ids[ai].clone())
         } else {
-            (fw_match_sim::DEFAULT_ARCHETYPE_ID.to_string(), fw_match_sim::DEFAULT_ARCHETYPE_ID.to_string())
+            (
+                fw_match_sim::DEFAULT_ARCHETYPE_ID.to_string(),
+                fw_match_sim::DEFAULT_ARCHETYPE_ID.to_string(),
+            )
         };
 
         let initial_state = match &content_opt {
-            Some(store) => MatchState::initial_with_content(
-                seed,
-                store,
-                &home_arch,
-                &away_arch,
-            )
-            .map_err(|e| format!("initial_with_content seed {seed_raw:#x}: {e}"))?,
+            Some(store) => MatchState::initial_with_content(seed, store, &home_arch, &away_arch)
+                .map_err(|e| format!("initial_with_content seed {seed_raw:#x}: {e}"))?,
             None => MatchState::initial(seed),
         };
 
@@ -736,7 +729,13 @@ Use --ticks {} (FULL_MATCH_TICKS) to get complete matches.\n\
         return Ok(std::process::ExitCode::from(2));
     }
 
-    let report = aggregate(&match_metrics, base_seed_raw, cli, content_loaded, differentiated);
+    let report = aggregate(
+        &match_metrics,
+        base_seed_raw,
+        cli,
+        content_loaded,
+        differentiated,
+    );
     let had_guard_failures = !report.all_guards_pass;
 
     // Print human summary to stderr (always; --summary-only prints to stdout too).
@@ -819,8 +818,11 @@ fn aggregate(
         m1_shape_from_goals(&goals_u32);
 
     // Fold shape guard into m1_guard_pass (bimodal protection).
-    let m1_guard_pass =
-        m1_guard_mean_ok && m1_guard_std_ok && m1_guard_p95_ok && m1_hard_ceiling_ok && m1_in_band_ok;
+    let m1_guard_pass = m1_guard_mean_ok
+        && m1_guard_std_ok
+        && m1_guard_p95_ok
+        && m1_hard_ceiling_ok
+        && m1_in_band_ok;
 
     // Fix 2: M2 — POOLED first-third fraction.
     // Correct computation per drama-model.md §M2:
@@ -847,10 +849,26 @@ fn aggregate(
     let m3_blowout_rate = matches.iter().filter(|m| m.margin >= 3).count() as f64 / n;
 
     // M3 target verdicts (task 1c, warn-only).
-    let m3_draw_verdict = Some(classify(m3_draw_rate, targets::M3_DRAW_MIN, targets::M3_DRAW_MAX));
-    let m3_one_goal_verdict = Some(classify(m3_one_goal_rate, targets::M3_ONE_GOAL_MIN, targets::M3_ONE_GOAL_MAX));
-    let m3_two_goal_verdict = Some(classify(m3_two_goal_rate, targets::M3_TWO_GOAL_MIN, targets::M3_TWO_GOAL_MAX));
-    let m3_blowout_verdict = Some(classify(m3_blowout_rate, targets::M3_BLOWOUT_MIN, targets::M3_BLOWOUT_MAX));
+    let m3_draw_verdict = Some(classify(
+        m3_draw_rate,
+        targets::M3_DRAW_MIN,
+        targets::M3_DRAW_MAX,
+    ));
+    let m3_one_goal_verdict = Some(classify(
+        m3_one_goal_rate,
+        targets::M3_ONE_GOAL_MIN,
+        targets::M3_ONE_GOAL_MAX,
+    ));
+    let m3_two_goal_verdict = Some(classify(
+        m3_two_goal_rate,
+        targets::M3_TWO_GOAL_MIN,
+        targets::M3_TWO_GOAL_MAX,
+    ));
+    let m3_blowout_verdict = Some(classify(
+        m3_blowout_rate,
+        targets::M3_BLOWOUT_MIN,
+        targets::M3_BLOWOUT_MAX,
+    ));
 
     // M4 — lead changes.
     let lead_change_vals: Vec<f64> = matches.iter().map(|m| m.lead_changes as f64).collect();
@@ -930,7 +948,11 @@ fn aggregate(
     let m7_nervy_rate = matches.iter().filter(|m| m.nervy_finish).count() as f64 / n;
 
     // M7 target verdict (task 1c, warn-only).
-    let m7_nervy_verdict = Some(classify(m7_nervy_rate, targets::M7_NERVY_MIN, targets::M7_NERVY_MAX));
+    let m7_nervy_verdict = Some(classify(
+        m7_nervy_rate,
+        targets::M7_NERVY_MIN,
+        targets::M7_NERVY_MAX,
+    ));
 
     // M8 — key-moment density.
     let shots_vals: Vec<f64> = matches.iter().map(|m| m.shots as f64).collect();
@@ -969,10 +991,7 @@ fn aggregate(
             // Comeback: trailing team scored the late decider.
             let comeback_count = trailing_by_one
                 .iter()
-                .filter(|m| {
-                    m.had_late_decider
-                        && m.late_winner_team == m.trailing_team_at_late
-                })
+                .filter(|m| m.had_late_decider && m.late_winner_team == m.trailing_team_at_late)
                 .count();
             let p_comeback = comeback_count as f64 / nt;
 
@@ -1267,34 +1286,56 @@ PER-SEED GOALS (M1 distribution):\n\
         // all guards
         guard_status(r.all_guards_pass),
         // M3 with verdicts
-        r.m3_draw_rate * 100.0, fmt_verdict(r.m3_draw_verdict),
-        r.m3_one_goal_rate * 100.0, fmt_verdict(r.m3_one_goal_verdict),
-        r.m3_two_goal_rate * 100.0, fmt_verdict(r.m3_two_goal_verdict),
-        r.m3_blowout_rate * 100.0, fmt_verdict(r.m3_blowout_verdict),
-        targets::M3_DRAW_MIN * 100.0, targets::M3_DRAW_MAX * 100.0,
-        targets::M3_ONE_GOAL_MIN * 100.0, targets::M3_ONE_GOAL_MAX * 100.0,
-        targets::M3_TWO_GOAL_MIN * 100.0, targets::M3_TWO_GOAL_MAX * 100.0,
-        targets::M3_BLOWOUT_MIN * 100.0, targets::M3_BLOWOUT_MAX * 100.0,
+        r.m3_draw_rate * 100.0,
+        fmt_verdict(r.m3_draw_verdict),
+        r.m3_one_goal_rate * 100.0,
+        fmt_verdict(r.m3_one_goal_verdict),
+        r.m3_two_goal_rate * 100.0,
+        fmt_verdict(r.m3_two_goal_verdict),
+        r.m3_blowout_rate * 100.0,
+        fmt_verdict(r.m3_blowout_verdict),
+        targets::M3_DRAW_MIN * 100.0,
+        targets::M3_DRAW_MAX * 100.0,
+        targets::M3_ONE_GOAL_MIN * 100.0,
+        targets::M3_ONE_GOAL_MAX * 100.0,
+        targets::M3_TWO_GOAL_MIN * 100.0,
+        targets::M3_TWO_GOAL_MAX * 100.0,
+        targets::M3_BLOWOUT_MIN * 100.0,
+        targets::M3_BLOWOUT_MAX * 100.0,
         // M4 with verdicts
-        r.m4_lead_changes_mean, fmt_verdict(r.m4_lead_changes_verdict),
-        r.m4_matches_with_drama_rate * 100.0, fmt_verdict(r.m4_drama_rate_verdict),
-        targets::M4_LEAD_CHANGES_MEAN_MIN, targets::M4_LEAD_CHANGES_MEAN_MAX,
-        targets::M4_MATCHES_WITH_DRAMA_MIN * 100.0, targets::M4_MATCHES_WITH_DRAMA_MAX * 100.0,
+        r.m4_lead_changes_mean,
+        fmt_verdict(r.m4_lead_changes_verdict),
+        r.m4_matches_with_drama_rate * 100.0,
+        fmt_verdict(r.m4_drama_rate_verdict),
+        targets::M4_LEAD_CHANGES_MEAN_MIN,
+        targets::M4_LEAD_CHANGES_MEAN_MAX,
+        targets::M4_MATCHES_WITH_DRAMA_MIN * 100.0,
+        targets::M4_MATCHES_WITH_DRAMA_MAX * 100.0,
         // M5 with verdicts
-        r.m5_late_goal_rate * 100.0, fmt_verdict(r.m5_late_goal_verdict),
-        r.m5_late_winner_rate * 100.0, fmt_verdict(r.m5_late_winner_verdict),
-        targets::M5_LATE_GOAL_MIN * 100.0, targets::M5_LATE_GOAL_MAX * 100.0,
-        targets::M5_LATE_WINNER_MIN * 100.0, targets::M5_LATE_WINNER_MAX * 100.0,
+        r.m5_late_goal_rate * 100.0,
+        fmt_verdict(r.m5_late_goal_verdict),
+        r.m5_late_winner_rate * 100.0,
+        fmt_verdict(r.m5_late_winner_verdict),
+        targets::M5_LATE_GOAL_MIN * 100.0,
+        targets::M5_LATE_GOAL_MAX * 100.0,
+        targets::M5_LATE_WINNER_MIN * 100.0,
+        targets::M5_LATE_WINNER_MAX * 100.0,
         // M6 with verdicts
-        r.m6_any_comeback_rate * 100.0, fmt_verdict(r.m6_any_comeback_verdict),
-        r.m6_two_goal_comeback_rate * 100.0, fmt_verdict(r.m6_two_goal_verdict),
+        r.m6_any_comeback_rate * 100.0,
+        fmt_verdict(r.m6_any_comeback_verdict),
+        r.m6_two_goal_comeback_rate * 100.0,
+        fmt_verdict(r.m6_two_goal_verdict),
         r.m6_magnitude_mean,
         r.m6_decided_matches,
-        targets::M6_ANY_COMEBACK_MIN * 100.0, targets::M6_ANY_COMEBACK_MAX * 100.0,
-        targets::M6_TWO_GOAL_MIN * 100.0, targets::M6_TWO_GOAL_MAX * 100.0,
+        targets::M6_ANY_COMEBACK_MIN * 100.0,
+        targets::M6_ANY_COMEBACK_MAX * 100.0,
+        targets::M6_TWO_GOAL_MIN * 100.0,
+        targets::M6_TWO_GOAL_MAX * 100.0,
         // M7 with verdict
-        r.m7_nervy_rate * 100.0, fmt_verdict(r.m7_nervy_verdict),
-        targets::M7_NERVY_MIN * 100.0, targets::M7_NERVY_MAX * 100.0,
+        r.m7_nervy_rate * 100.0,
+        fmt_verdict(r.m7_nervy_verdict),
+        targets::M7_NERVY_MIN * 100.0,
+        targets::M7_NERVY_MAX * 100.0,
         // Anti-scripting
         r.anti_script_p_comeback_given_trailing,
         r.anti_script_home_away_asymmetry,
@@ -1487,7 +1528,10 @@ mod tests {
             archetype_pair: true, // requested archetype-pair without content
         };
         let result = run(&cli);
-        assert!(result.is_err(), "--archetype-pair without --content must return Err");
+        assert!(
+            result.is_err(),
+            "--archetype-pair without --content must return Err"
+        );
         let msg = result.unwrap_err();
         assert!(
             msg.contains("--archetype-pair requires --content"),
@@ -1709,10 +1753,7 @@ mod tests {
         let after = make_sweep_report("0xAAAA", 20, true);
         let before = make_sweep_report("0xAAAA", 20, false);
         let warn = build_baseline_mismatch_warning(&after, &before);
-        assert!(
-            warn.is_some(),
-            "differentiated mismatch should warn"
-        );
+        assert!(warn.is_some(), "differentiated mismatch should warn");
     }
 
     // --- Fix 3: --ticks incomplete run ---
@@ -1727,9 +1768,15 @@ mod tests {
             .map(|_| make_metrics_with_anti(2, Some(Side::Home), Some(Side::Home), true))
             .collect();
         // Compute p_comeback directly as the aggregate fn would.
-        let trailing: Vec<&MatchMetrics> = ms.iter().filter(|m| m.trailing_team_at_late.is_some()).collect();
+        let trailing: Vec<&MatchMetrics> = ms
+            .iter()
+            .filter(|m| m.trailing_team_at_late.is_some())
+            .collect();
         let nt = trailing.len() as f64;
-        let comebacks = trailing.iter().filter(|m| m.had_late_decider && m.late_winner_team == m.trailing_team_at_late).count();
+        let comebacks = trailing
+            .iter()
+            .filter(|m| m.had_late_decider && m.late_winner_team == m.trailing_team_at_late)
+            .count();
         let p_comeback = comebacks as f64 / nt;
         assert!((p_comeback - 1.0).abs() < 1e-9, "p_comeback should be 1.0");
         assert!(p_comeback > 0.75, "should flag suspicious");
@@ -1746,16 +1793,30 @@ mod tests {
         ];
         let deciders: Vec<&MatchMetrics> = ms.iter().filter(|m| m.had_late_decider).collect();
         let nd = deciders.len() as f64;
-        let home = deciders.iter().filter(|m| m.late_winner_team == Some(Side::Home)).count() as f64 / nd;
-        let away = deciders.iter().filter(|m| m.late_winner_team == Some(Side::Away)).count() as f64 / nd;
+        let home = deciders
+            .iter()
+            .filter(|m| m.late_winner_team == Some(Side::Home))
+            .count() as f64
+            / nd;
+        let away = deciders
+            .iter()
+            .filter(|m| m.late_winner_team == Some(Side::Away))
+            .count() as f64
+            / nd;
         let asymmetry = (home - away).abs();
-        assert!(asymmetry < 0.01, "balanced set should have near-zero asymmetry; got {asymmetry}");
+        assert!(
+            asymmetry < 0.01,
+            "balanced set should have near-zero asymmetry; got {asymmetry}"
+        );
     }
 
     #[test]
     fn anti_script_empty_is_zero() {
         let ms: Vec<MatchMetrics> = vec![];
-        let trailing: Vec<&MatchMetrics> = ms.iter().filter(|m| m.trailing_team_at_late.is_some()).collect();
+        let trailing: Vec<&MatchMetrics> = ms
+            .iter()
+            .filter(|m| m.trailing_team_at_late.is_some())
+            .collect();
         assert_eq!(trailing.len(), 0);
         // With no data: p_comeback=0, asymmetry=0, not suspicious.
         let p_comeback = 0.0f64;
@@ -1831,7 +1892,10 @@ mod tests {
         let matches: Vec<MatchMetrics> = goal_counts
             .iter()
             .map(|&g| {
-                let mut m = make_metrics(g, /*margin=*/6, /*completed=*/true, /*shots=*/12, /*in_band=*/false);
+                let mut m = make_metrics(
+                    g, /*margin=*/ 6, /*completed=*/ true, /*shots=*/ 12,
+                    /*in_band=*/ false,
+                );
                 m.nervy_finish = false; // explicitly not nervy → M7 Under
                 m
             })
@@ -1849,7 +1913,13 @@ mod tests {
             archetype_pair: false,
         };
         let base_seed_raw = 0x1000u64;
-        let report = aggregate(&matches, base_seed_raw, &cli, /*content_loaded=*/false, /*differentiated=*/false);
+        let report = aggregate(
+            &matches,
+            base_seed_raw,
+            &cli,
+            /*content_loaded=*/ false,
+            /*differentiated=*/ false,
+        );
 
         // Realism guards must pass.
         assert!(
@@ -1857,8 +1927,14 @@ mod tests {
             "M1 guard should pass for a valid goal distribution; m1_mean={} m1_std={} m1_p95={}",
             report.m1_goals_mean, report.m1_goals_std, report.m1_goals_p95,
         );
-        assert!(report.m2_guard_pass, "M2 guard should pass (no first-third goals)");
-        assert!(report.m8_guard_pass, "M8 guard should pass (12 shots/match, no-content)");
+        assert!(
+            report.m2_guard_pass,
+            "M2 guard should pass (no first-third goals)"
+        );
+        assert!(
+            report.m8_guard_pass,
+            "M8 guard should pass (12 shots/match, no-content)"
+        );
         assert!(
             report.all_guards_pass,
             "all_guards_pass must be true when M1/M2/M8 guards pass, regardless of drama verdicts"
@@ -1886,10 +1962,17 @@ mod tests {
 
     #[test]
     fn archetype_pair_picks_distinct_archetypes() {
-        let arches = vec!["arch_a".to_string(), "arch_b".to_string(), "arch_c".to_string()];
+        let arches = vec![
+            "arch_a".to_string(),
+            "arch_b".to_string(),
+            "arch_c".to_string(),
+        ];
         for i in 0..10u32 {
             let (hi, ai) = pick_archetype_pair(&arches, i);
-            assert_ne!(hi, ai, "home and away archetypes must be distinct for i={i}");
+            assert_ne!(
+                hi, ai,
+                "home and away archetypes must be distinct for i={i}"
+            );
             assert!(hi < arches.len(), "home index in range");
             assert!(ai < arches.len(), "away index in range");
         }
