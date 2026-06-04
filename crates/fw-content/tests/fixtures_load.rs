@@ -281,10 +281,17 @@ fn signature_load_does_not_drift_canonical_hash() {
     // multi-pin discipline). ADR-0012 trigger #3 authorized this rebaseline.
     // Prior hash (T2-1b / per-team archetype behavioral divergence):
     //   eaf842ac3d19651d38dc7ce45d0763cc62b4d571ce2c2a5d56f1ee3c6ddead46
+    // FUN-TS1 (2026-06-04) rebaseline: team_shape::compute wired into dispatch_tick;
+    // off-ball utilities now target zonal_slot instead of formation_position.
+    // Line heights recalibrated: LowBlock=-35m, MidBlock=-26m, HighPress=+2m;
+    // FUN-TS1 revision: enforce_hold_zonal (possession-aware block enforcement) +
+    // research-based line heights (LowBlock=-28m, MidBlock=-13m, HighPress=+2m) +
+    // compactness (LowBlock=25m, MidBlock=30m, HighPress=35m, correct direction).
+    // Prior hash (FUN-TS1 first pass): 3c5a6f37d8fc193b89bfd97d9501b2782823f50a588e15e0b1c8205278c1dcf4
     const EXPECTED: [u8; 32] = [
-        0xe5, 0x65, 0x62, 0xf8, 0x4c, 0x5b, 0xff, 0x8d, 0x22, 0x91, 0x85, 0xaa, 0x74, 0x76, 0x2c,
-        0x5d, 0x81, 0x78, 0xe7, 0xa8, 0xf3, 0x3d, 0x35, 0x76, 0x75, 0xe8, 0xc8, 0xc9, 0x1c, 0x8f,
-        0xf0, 0x7d,
+        0xd1, 0x17, 0x0b, 0xfc, 0x60, 0x75, 0xce, 0x82, 0x51, 0x30, 0xf8, 0x15, 0xb1, 0xdd, 0x75,
+        0x40, 0xbf, 0xb2, 0x9e, 0x8c, 0xad, 0x71, 0x94, 0x01, 0x03, 0x99, 0x68, 0x18, 0x83, 0x17,
+        0x08, 0x80,
     ];
 
     // Load the content store (exercises the new signature loader).

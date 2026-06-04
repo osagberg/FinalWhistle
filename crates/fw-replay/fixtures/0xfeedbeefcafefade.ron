@@ -143,7 +143,7 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:6805c1059328748e594ca610a32bccbf513b1bf1192dfbf1efbaadfc6f9bc196",
+    expected_hash: "blake3:6833aa332edbe83a1421b66236046c8cd51566074d8b3ae368b670d707b74cbf",
     metadata: (
         description: "T4-2.5j: signature catalogue toward 8 live. 5 new trigger predicates landed (commanding-claim/GK, overlapping-surge/FullBack, screening-interception/DefMid, touchline-beat/Winger, poachers-dart/Striker — one per previously-uncovered role family, bringing all 8 families to >=1 implemented predicate), wired via 3 new role player-templates (GK/DEF/FWD) + a 4th candidate on the AM template. ALL 22 slots now carry >=1 signature candidate (was MID-only after T4-2.5c) -> more signature_candidates in canonical state + new cross-family firings over the 600-tick run alter player trajectories + cooldown maps. New-signature biases sit in Defensive/BuildUp lanes (not Attacking), so the pinned-seed final score is UNCHANGED at 2-2 (4 goals). The 60-tick smoke pin uses bare initial (no content/signatures) -> UNCHANGED.",
         generated_at: "2026-06-03",

@@ -593,6 +593,13 @@ pub fn dispatch_tick(
         state.players[slot_idx].role_state = next;
     }
 
+    // FUN-TS1: compute per-team shape anchors AFTER the carrier pre-pass
+    // (so role states are up-to-date) and BEFORE the per-slot decision loop
+    // (so off-ball utilities can read the computed shape via zonal_slot).
+    // This is the "FSM finally drives positions" seam from ADR-0013.
+    state.team_shape[0] = crate::team_shape::compute(0, &state);
+    state.team_shape[1] = crate::team_shape::compute(1, &state);
+
     for slot_idx in 0..22usize {
         // roster_slot is 1-indexed per decision_cadence::should_decide contract.
         // (should_decide subtracts 1 internally to derive the slot array index.)
@@ -773,6 +780,15 @@ pub fn dispatch_tick(
                 // Build a minimal tree: single OutfieldSelect leaf. The leaf resolves
                 // role state → candidate list → softmax pick inside tick_tree.
                 // Content-pack RON trees replace this stub at T2-3.
+                //
+                // FUN-TS1: determine team_idx for the zonal_slot transform.
+                // Slots 0..11 = home (team_idx 0); slots 11..22 = away (team_idx 1).
+                let team_idx_for_slot = if slot_idx < crate::PLAYERS_PER_TEAM {
+                    0
+                } else {
+                    1
+                };
+                let shape_for_slot = &state.team_shape[team_idx_for_slot];
                 let outfield_tree = Tree::new(Node::Leaf(LeafKind::OutfieldSelect));
                 let ctx = BtContext {
                     roster_slot: formation_slot,
@@ -781,6 +797,8 @@ pub fn dispatch_tick(
                     active_bias,
                     select_fn: Some(select_outfield_intent),
                     carrier_pos,
+                    team_shape: shape_for_slot,
+                    team_idx: team_idx_for_slot,
                 };
                 let (_, outfield_intent) = tick_tree(&outfield_tree, &ctx, &mut rng);
                 outfield_intent

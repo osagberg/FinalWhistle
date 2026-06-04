@@ -213,16 +213,16 @@ MatchState {
         PlayerState {
             slot: 1,
             pos_x: Q32(
-                -27.466666676,
+                -23.5093667447,
             ),
             pos_y: Q32(
-                -20,
+                -19.444330106,
             ),
             vel_x: Q32(
-                8,
+                7.9995686803,
             ),
             vel_y: Q32(
-                0,
+                -0.0830718,
             ),
             scalars: {},
             role_state: Defender(
@@ -413,16 +413,16 @@ MatchState {
         PlayerState {
             slot: 2,
             pos_x: Q32(
-                -27.36122753,
+                -23.314623152,
             ),
             pos_y: Q32(
-                -7.5717340403,
+                -7.4818341655,
             ),
             vel_x: Q32(
-                -2.9319694103,
+                7.9316694755,
             ),
             vel_y: Q32(
-                0.6352600444,
+                1.0433692187,
             ),
             scalars: {},
             role_state: Defender(
@@ -613,16 +613,16 @@ MatchState {
         PlayerState {
             slot: 3,
             pos_x: Q32(
-                -29.2305662355,
+                -22.1761953877,
             ),
             pos_y: Q32(
-                6.6537547978,
+                6.157814494,
             ),
             vel_x: Q32(
-                -1.025911686,
+                7.999948848,
             ),
             vel_y: Q32(
-                0.461660265,
+                -0.028608201,
             ),
             scalars: {},
             role_state: Defender(
@@ -813,16 +813,16 @@ MatchState {
         PlayerState {
             slot: 4,
             pos_x: Q32(
-                -30,
+                -22.744699713,
             ),
             pos_y: Q32(
-                20,
+                18.9330440457,
             ),
             vel_x: Q32(
-                0,
+                7.9148730785,
             ),
             vel_y: Q32(
-                0,
+                -1.163951952,
             ),
             scalars: {},
             role_state: Defender(
@@ -1013,16 +1013,16 @@ MatchState {
         PlayerState {
             slot: 5,
             pos_x: Q32(
-                -7.805318536,
+                -3.3179303128,
             ),
             pos_y: Q32(
-                -15.2872952018,
+                -14.6951869023,
             ),
             vel_x: Q32(
-                7.9385575037,
+                7.9004866332,
             ),
             vel_y: Q32(
-                -0.989598276,
+                -1.257899413,
             ),
             scalars: {},
             role_state: Midfielder(
@@ -1213,16 +1213,16 @@ MatchState {
         PlayerState {
             slot: 6,
             pos_x: Q32(
-                -9.1495336676,
+                -7.6985163495,
             ),
             pos_y: Q32(
-                -0.7770991588,
+                -0.913180289,
             ),
             vel_x: Q32(
-                -0.962792074,
+                7.9647721238,
             ),
             vel_y: Q32(
-                0.8797348954,
+                0.749936657,
             ),
             scalars: {},
             role_state: Midfielder(
@@ -1413,16 +1413,16 @@ MatchState {
         PlayerState {
             slot: 7,
             pos_x: Q32(
-                -9.7830694735,
+                -4.193619601,
             ),
             pos_y: Q32(
-                14.736912609,
+                13.8757935998,
             ),
             vel_x: Q32(
-                6.026110664,
+                5.683204975,
             ),
             vel_y: Q32(
-                -5.2617478315,
+                -5.6303801984,
             ),
             scalars: {},
             role_state: Midfielder(
@@ -1613,16 +1613,16 @@ MatchState {
         PlayerState {
             slot: 8,
             pos_x: Q32(
-                13.1956021483,
+                16.23563004,
             ),
             pos_y: Q32(
-                -13.585817109,
+                -13.5355524851,
             ),
             vel_x: Q32(
-                7.356893709,
+                7.238609884,
             ),
             vel_y: Q32(
-                3.142628666,
+                3.4062482193,
             ),
             scalars: {},
             role_state: Forward(
@@ -1813,13 +1813,13 @@ MatchState {
         PlayerState {
             slot: 9,
             pos_x: Q32(
-                12.0956944353,
+                10.332222211,
             ),
             pos_y: Q32(
                 0,
             ),
             vel_x: Q32(
-                -2.5847222095,
+                6.5333332226,
             ),
             vel_y: Q32(
                 0,
@@ -2013,16 +2013,16 @@ MatchState {
         PlayerState {
             slot: 10,
             pos_x: Q32(
-                13.5028576,
+                13.4816435326,
             ),
             pos_y: Q32(
-                14.5381487627,
+                13.8205140163,
             ),
             vel_x: Q32(
-                7.9935529772,
+                7.9583835173,
             ),
             vel_y: Q32(
-                0.3211086895,
+                0.8149428107,
             ),
             scalars: {},
             role_state: Forward(
@@ -2213,16 +2213,16 @@ MatchState {
         PlayerState {
             slot: 11,
             pos_x: Q32(
-                42.0458298658,
+                40.3659028579,
             ),
             pos_y: Q32(
-                1.0894281927,
+                0.7601158384,
             ),
             vel_x: Q32(
-                -7.5597780792,
+                -5.3685689415,
             ),
             vel_y: Q32(
-                0.756583776,
+                1.1571027907,
             ),
             scalars: {},
             role_state: Goalkeeper(
@@ -2413,16 +2413,16 @@ MatchState {
         PlayerState {
             slot: 12,
             pos_x: Q32(
-                26.7459288845,
+                22.3489560476,
             ),
             pos_y: Q32(
-                -16.6102081188,
+                -18.8748464552,
             ),
             vel_x: Q32(
-                4.1541333322,
+                -7.9148730766,
             ),
             vel_y: Q32(
-                -4.327393889,
+                1.1639519576,
             ),
             scalars: {},
             role_state: Defender(
@@ -2613,16 +2613,16 @@ MatchState {
         PlayerState {
             slot: 13,
             pos_x: Q32(
-                28.9758556685,
+                23.7416177853,
             ),
             pos_y: Q32(
-                -6.6342341749,
+                -6.6778773842,
             ),
             vel_x: Q32(
-                1.0594596528,
+                -7.9894241206,
             ),
             vel_y: Q32(
-                -0.37837844,
+                0.4112203736,
             ),
             scalars: {},
             role_state: Defender(
@@ -2813,16 +2813,16 @@ MatchState {
         PlayerState {
             slot: 14,
             pos_x: Q32(
-                28.7926248724,
+                22.942675375,
             ),
             pos_y: Q32(
-                7.4819183506,
+                6.6367553358,
             ),
             vel_x: Q32(
-                1.3931251445,
+                -7.9894241225,
             ),
             vel_y: Q32(
-                -0.5560596369,
+                -0.4112203661,
             ),
             scalars: {},
             role_state: Defender(
@@ -3013,16 +3013,16 @@ MatchState {
         PlayerState {
             slot: 15,
             pos_x: Q32(
-                28.9959892964,
+                23.9319306584,
             ),
             pos_y: Q32(
-                18.9194503662,
+                19.1076368382,
             ),
             vel_x: Q32(
-                1.021027834,
+                -7.9148730785,
             ),
             vel_y: Q32(
-                1.0988640343,
+                -1.163951952,
             ),
             scalars: {},
             role_state: Defender(
@@ -3213,16 +3213,16 @@ MatchState {
         PlayerState {
             slot: 16,
             pos_x: Q32(
-                10.0889865905,
+                3.4043439873,
             ),
             pos_y: Q32(
-                -14.0625213482,
+                -14.0186756314,
             ),
             vel_x: Q32(
-                -0.1067839088,
+                -6.4852127135,
             ),
             vel_y: Q32(
-                -1.124974382,
+                1.0724108154,
             ),
             scalars: {},
             role_state: Midfielder(
@@ -3413,13 +3413,13 @@ MatchState {
         PlayerState {
             slot: 17,
             pos_x: Q32(
-                12.4964602527,
+                10.7322222092,
             ),
             pos_y: Q32(
                 0,
             ),
             vel_x: Q32(
-                -2.5387731383,
+                -8,
             ),
             vel_y: Q32(
                 0,
@@ -3613,16 +3613,16 @@ MatchState {
         PlayerState {
             slot: 18,
             pos_x: Q32(
-                10.1646703004,
+                2.4551446761,
             ),
             pos_y: Q32(
-                12.3090661713,
+                13.821116316,
             ),
             vel_x: Q32(
-                -0.2195604017,
+                -5.9401928221,
             ),
             vel_y: Q32(
-                3.5879117658,
+                -0.9281551538,
             ),
             scalars: {},
             role_state: Midfielder(
@@ -3813,16 +3813,16 @@ MatchState {
         PlayerState {
             slot: 19,
             pos_x: Q32(
-                -6.3241354343,
+                -14.584524268,
             ),
             pos_y: Q32(
-                -11.711917472,
+                -13.6897711914,
             ),
             vel_x: Q32(
-                4.8209344111,
+                -3.1506203737,
             ),
             vel_y: Q32(
-                6.3842455596,
+                0.7366581375,
             ),
             scalars: {},
             role_state: Forward(
@@ -4013,16 +4013,16 @@ MatchState {
         PlayerState {
             slot: 20,
             pos_x: Q32(
-                -5.4574456362,
+                -12.1173328853,
             ),
             pos_y: Q32(
-                0.9353665458,
+                0.0887925841,
             ),
             vel_x: Q32(
-                6.490549693,
+                -6.1033337514,
             ),
             vel_y: Q32(
-                4.676832758,
+                -0.1109907331,
             ),
             scalars: {},
             role_state: Forward(
@@ -4213,16 +4213,16 @@ MatchState {
         PlayerState {
             slot: 21,
             pos_x: Q32(
-                -6.0461353261,
+                -14.5311727028,
             ),
             pos_y: Q32(
-                12.2317989923,
+                13.6998745305,
             ),
             vel_x: Q32(
-                -5.0474868142,
+                -3.1516942785,
             ),
             vel_y: Q32(
-                3.533873622,
+                -0.7338824435,
             ),
             scalars: {},
             role_state: Forward(
@@ -4413,19 +4413,19 @@ MatchState {
     ],
     ball: BallState {
         pos_x: Q32(
-            12.7956250426,
+            12.618959508,
         ),
         pos_y: Q32(
-            13.3634067003,
+            12.6213373267,
         ),
         pos_z: Q32(
             0,
         ),
         vel_x: Q32(
-            -0.6088550766,
+            -2.9549490502,
         ),
         vel_y: Q32(
-            -17.004910028,
+            -16.7572654593,
         ),
         vel_z: Q32(
             0,
@@ -4720,7 +4720,7 @@ MatchState {
         },
         Pass {
             from_slot: 9,
-            to_slot: 10,
+            to_slot: 8,
             tick: Tick(
                 20,
             ),
@@ -4728,10 +4728,10 @@ MatchState {
             completed: true,
         },
         Pass {
-            from_slot: 10,
+            from_slot: 8,
             to_slot: 9,
             tick: Tick(
-                26,
+                34,
             ),
             kind: Long,
             completed: true,
@@ -4893,7 +4893,7 @@ MatchState {
             74,
         ),
         Tick(
-            41,
+            23,
         ),
         Tick(
             0,
@@ -4904,5 +4904,43 @@ MatchState {
         Tick(
             0,
         ),
+    ],
+    team_shape: [
+        TeamShape {
+            line_x: Q32(
+                -13,
+            ),
+            block_centroid_x: Q32(
+                -6.8036425267,
+            ),
+            block_centroid_y: Q32(
+                -0.3247094217,
+            ),
+            compactness_v: Q32(
+                30,
+            ),
+            compactness_h: Q32(
+                35,
+            ),
+            is_defending: false,
+        },
+        TeamShape {
+            line_x: Q32(
+                13,
+            ),
+            block_centroid_x: Q32(
+                6.9280077307,
+            ),
+            block_centroid_y: Q32(
+                0.0092404266,
+            ),
+            compactness_v: Q32(
+                30,
+            ),
+            compactness_h: Q32(
+                35,
+            ),
+            is_defending: true,
+        },
     ],
 }

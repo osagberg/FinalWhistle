@@ -314,7 +314,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("e56562f84c5bff8d229185aa74762c5d8178e7a8f33d357675e8c8c91c8ff07d");
+    hex!("d1170bfc6075ce825130f815b1dd7540bfb29e8cad7194010399681883170880");
 
 /// Read `env_var` as the number of fresh runs for an intra-process determinism
 /// test, falling back to `default` when the env var is absent or unparseable.
@@ -814,7 +814,7 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 /// per `docs/specs/determinism-gate.md` §9 — the same protocol that
 /// governs PINNED_60_TICK above.
 const PINNED_600_TICK: [u8; 32] =
-    hex!("6805c1059328748e594ca610a32bccbf513b1bf1192dfbf1efbaadfc6f9bc196");
+    hex!("6833aa332edbe83a1421b66236046c8cd51566074d8b3ae368b670d707b74cbf");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

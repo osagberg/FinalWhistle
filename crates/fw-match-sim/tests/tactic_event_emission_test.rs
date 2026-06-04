@@ -242,8 +242,11 @@ fn setpiece_state_auto_exits_on_possession_loss_to_none() {
     // auto_exit_setpiece helper fires BallInPlay FIRST, transitioning the
     // shooter's team out of SetPiece BEFORE the PossessionLost.
 
+    // FUN-TS1 (2026-06-04): extended from 600 → 1200 ticks. With zonal
+    // compactness active, players converge to their block more slowly (they're
+    // moving toward new targets) before generating a shot that exits SetPiece.
     let mut exit_observed: Option<(usize, TacticState)> = None;
-    for _ in 0..600 {
+    for _ in 0..1200 {
         let prev_home_state = state.team_tactic_states[0].state();
         let prev_away_state = state.team_tactic_states[1].state();
         state = tick_match(state, &BTreeMap::new());

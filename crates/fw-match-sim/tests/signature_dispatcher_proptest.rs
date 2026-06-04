@@ -585,6 +585,8 @@ fn ac4_active_signature_bias_changes_selected_intent() {
     // must differ.
     let mut rng_shoot = ChaCha8Rng::seed_from_u64(0);
     let mut rng_pass = ChaCha8Rng::seed_from_u64(0);
+    // FUN-TS1: compute shape for team 0 (home) — slot 8 is a home forward.
+    let shape = fw_match_sim::team_shape::compute(0, &state);
     let intent_shoot = select_outfield_intent(
         state.players[8].role_state,
         &state.players[8],
@@ -592,6 +594,8 @@ fn ac4_active_signature_bias_changes_selected_intent() {
         &mut rng_shoot,
         composite_shoot.as_ref(),
         None, // carrier_pos: no carrier for this test
+        &shape,
+        0, // team_idx: home
     );
     let intent_pass = select_outfield_intent(
         state.players[8].role_state,
@@ -600,6 +604,8 @@ fn ac4_active_signature_bias_changes_selected_intent() {
         &mut rng_pass,
         composite_pass.as_ref(),
         None, // carrier_pos: no carrier for this test
+        &shape,
+        0,
     );
 
     // **Behavioral assertion**: compare the PlayerIntent enum DISCRIMINANT.

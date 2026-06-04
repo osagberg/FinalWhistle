@@ -3619,8 +3619,8 @@ mod tests {
             )
         };
         assert!(
-            hash_60.starts_with("blake3:e56562f8"),
-            "60-tick canonical hash must start with e56562f8 (FUN-0b+c watchable-match baseline; keep in lockstep with fw-replay's PINNED_60_TICK); got {hash_60}"
+            hash_60.starts_with("blake3:d1170bfc"),
+            "60-tick canonical hash must start with d1170bfc (FUN-TS1 team defensive shape baseline; keep in lockstep with fw-replay's PINNED_60_TICK); got {hash_60}"
         );
 
         // 600-tick pin — seed `0xfeed_beef_cafe_fade`, 600 ticks.
@@ -3647,9 +3647,9 @@ mod tests {
             )
         };
         assert!(
-            hash_600.starts_with("blake3:6805c105"),
-            "600-tick canonical hash must start with 6805c105 (rebaselined at FUN-0b+c \
-             watchable-match fix; keep in lockstep with fw-replay's PINNED_600_TICK); got {hash_600}"
+            hash_600.starts_with("blake3:6833aa33"),
+            "600-tick canonical hash must start with 6833aa33 (FUN-TS1 team defensive shape \
+             baseline; keep in lockstep with fw-replay's PINNED_600_TICK); got {hash_600}"
         );
     }
 

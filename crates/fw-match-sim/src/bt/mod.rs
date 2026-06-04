@@ -145,6 +145,10 @@ pub enum ConditionKind {
 /// B1 (FUN-0b+c): `carrier_pos` is the actual ball carrier's position. Passed
 /// through the BtContext so `utility_press` and `utility_mark_player` can
 /// target the real carrier instead of the formation-slot proxy.
+///
+/// FUN-TS1: `shape` is the pre-computed `TeamShape` for the player's team.
+/// `team_idx` is 0 (home) or 1 (away). Passed through so off-ball utilities
+/// call `zonal_slot` instead of the constant `formation_position`.
 pub type SelectFn = fn(
     PlayerRoleState,
     &PlayerState,
@@ -152,6 +156,8 @@ pub type SelectFn = fn(
     &mut ChaCha8Rng,
     Option<&SimBiasSnapshot>,
     Option<(fw_core::Q32, fw_core::Q32)>,
+    &crate::team_shape::TeamShape,
+    usize,
 ) -> PlayerIntent;
 
 /// Read-only context the BT runner uses to evaluate nodes.
@@ -184,6 +190,15 @@ pub struct BtContext<'a> {
     /// `Some((x, y))` when a player has possession; `None` on loose ball.
     /// Threaded into `select_outfield_intent` so press/mark targets the real carrier.
     pub carrier_pos: Option<(fw_core::Q32, fw_core::Q32)>,
+
+    /// FUN-TS1: per-team shape anchors for this player's team.
+    /// Threaded into `select_outfield_intent` so off-ball utilities call
+    /// `zonal_slot` instead of the static `formation_position`.
+    pub team_shape: &'a crate::team_shape::TeamShape,
+
+    /// FUN-TS1: team index (0 = home, 1 = away). Determines attack direction
+    /// for `zonal_slot`'s affine transform.
+    pub team_idx: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -320,6 +335,8 @@ fn tick_leaf<'a>(
                 rng,
                 ctx.active_bias,
                 ctx.carrier_pos,
+                ctx.team_shape,
+                ctx.team_idx,
             );
             *current_intent = intent;
             NodeStatus::Success
@@ -359,6 +376,8 @@ mod tests {
         ChaCha8Rng::seed_from_u64(0)
     }
 
+    static TEST_SHAPE: crate::team_shape::TeamShape = crate::team_shape::TeamShape::CONST_ZERO;
+
     fn ctx(roster_slot: u8) -> BtContext<'static> {
         BtContext {
             roster_slot,
@@ -367,6 +386,8 @@ mod tests {
             active_bias: None,
             select_fn: None,
             carrier_pos: None,
+            team_shape: &TEST_SHAPE,
+            team_idx: 0,
         }
     }
 

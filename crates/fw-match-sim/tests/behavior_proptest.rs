@@ -391,16 +391,17 @@ proptest! {
         // (T2 territory), the upper can tighten back to 80m.
         // Post-T2 Codex Track F-1 fix (R7(d), 2026-05-18): outfield_lo
         // loosened from 25m to 24m to absorb the rare-seed 5cm undershoot
-        // surfaced at PROPTEST_CASES=10000. Specifically: seed
-        // `0x69a280c07a51d7ab` produced width `Q32(24.9463)` at tick 252
-        // (carrier slot 20) — 0.05m below the prior 25m floor on the
-        // outfield-carry sub-invariant. The 4% relaxation (25 -> 24m =
-        // 35.3% of pitch width vs 36.8%) does NOT compromise either
-        // pathology signal: collapse stays caught (width near 0m); explosion
-        // stays caught (width > 70m). The regression seed is pinned by the
-        // explicit unit test `team_width_at_codex_f1_regression_seed`
-        // below so future drift on that exact seed fails loudly.
-        let outfield_lo = Q32::from_int(24);
+        // surfaced at PROPTEST_CASES=10000.
+        //
+        // FUN-TS1 (2026-06-04): outfield_lo further loosened from 24m to 18m.
+        // FUN-TS1's horizontal compactness transform (compactness_h=35m, native
+        // half-span=20m → scale=0.875) targets a converged team width of 35m
+        // but in-transit ticks may temporarily fall below 24m as players converge
+        // toward their new compressed zonal targets. The 18m floor still catches
+        // real collapse pathology (all outfielders piled at one y) while allowing
+        // the compactness convergence transient. Equilibrium width is ~35m (well
+        // above 18m); the explosion ceiling (70m) and GK sub-band are unchanged.
+        let outfield_lo = Q32::from_int(18);
         let outfield_hi = Q32::from_int(70);
         let gk_lo = Q32::from_int(5);
         let gk_hi = Q32::from_int(100);

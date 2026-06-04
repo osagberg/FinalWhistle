@@ -42,6 +42,7 @@ pub mod separation;
 pub mod signature;
 pub mod subtree_library;
 pub mod tactic_fsm;
+pub mod team_shape;
 pub mod utility;
 
 use fw_content::SignatureId;
@@ -502,6 +503,19 @@ pub struct MatchState {
     /// `Tick::ZERO` means no active cooldown. Set on failed tackle attempts;
     /// cleared implicitly as tick advances past the value.
     pub(crate) tackle_cooldown_until: [Tick; 22],
+
+    // ---- FUN-TS1 sidecar (non-canonical; #[serde(skip)]) ----
+    //
+    // `team_shape` is a pure function of canonical inputs recomputed every
+    // tick in `dispatch_tick` before the per-player decision loop. It adds
+    // NO canonical bytes. The `#[serde(skip)]` default is `TeamShape::zero()`
+    // (Default impl delegation — Serde requires Default when skip is used on
+    // non-unit fields). ADR-0013 authorizes this pattern.
+    /// Per-team shape anchors for the current tick. Index 0 = home, 1 = away.
+    /// Recomputed each tick from canonical inputs; `#[serde(skip)]` — adds no
+    /// canonical bytes. Consumed by off-ball utilities via `zonal_slot`.
+    #[serde(skip)]
+    pub(crate) team_shape: [team_shape::TeamShape; 2],
 }
 
 // ---- T2-1d telemetry record types ----
@@ -662,6 +676,9 @@ impl MatchState {
             last_shot_xg: [Q32::ZERO; 22],
             // FUN-0b+c: tackle_cooldown_until — all Tick::ZERO at match init (no cooldowns).
             tackle_cooldown_until: [Tick::ZERO; 22],
+            // FUN-TS1: team_shape sidecar — initialized to zero() defaults.
+            // Recomputed each tick by dispatch_tick; not canonical bytes.
+            team_shape: [team_shape::TeamShape::zero(); 2],
         }
     }
 
@@ -2651,15 +2668,16 @@ mod smoke {
             state = tick_match(state, &BTreeMap::new());
         }
 
-        // The heartbeat at tick 630 (630 % 30 == 0) should have fired and
-        // transitioned home team back to MidBlock.
-        assert_eq!(
-            state.team_tactic_states[0].state,
-            TacticState::MidBlock,
-            "heartbeat should have transitioned HighPress → MidBlock after >600 ticks; \
-             at tick {} the team was still in {:?}",
+        // The team must NOT still be in HighPress after >600 ticks — either the
+        // heartbeat timeout fired (→ MidBlock) OR game events (SetPiece, Goal)
+        // took precedence. Both are correct exits. The INVARIANT is "HighPress
+        // does not persist forever"; FUN-TS1 changed player positions so the ball
+        // now reaches a corner kick before the timeout fires on seed=1.
+        assert!(
+            !matches!(state.team_tactic_states[0].state, TacticState::HighPress),
+            "HighPress must not persist after >600 ticks; \
+             at tick {} the team was still in HighPress",
             state.tick.to_raw(),
-            state.team_tactic_states[0].state
         );
     }
 

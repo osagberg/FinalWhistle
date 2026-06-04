@@ -60,8 +60,8 @@ use fw_core::Q32;
 use rand_chacha::ChaCha8Rng;
 
 use crate::bt::off_ball::{
-    utility_hold_formation, utility_mark_player, utility_press, utility_run_off_ball,
-    utility_track_back,
+    enforce_hold_zonal, utility_hold_formation, utility_mark_player, utility_press,
+    utility_run_off_ball, utility_track_back,
 };
 use crate::bt::on_ball::{
     utility_cross, utility_dribble, utility_hold_ball, utility_lay_off, utility_pass_long,
@@ -73,6 +73,7 @@ use crate::role_states::{
     DefenderState, ForwardState, MidfielderState, PlayerIntent, PlayerRoleState, Role,
 };
 use crate::signature::bias_apply::{BiasConsideration, apply_signature_bias};
+use crate::team_shape::TeamShape;
 use crate::utility::softmax::{DEFAULT_TEMPERATURE, pick_top_n_softmax};
 
 // ---------------------------------------------------------------------------
@@ -139,19 +140,21 @@ pub fn formation_position(slot: u8) -> (Q32, Q32) {
 /// the on-ball and off-ball utility functions appropriate to the player's
 /// current role state, then calls `pick_top_n_softmax` with `rng` to sample.
 ///
-/// Returns the picked `PlayerIntent`. Falls back to `MoveToPosition` toward
-/// the formation slot if the candidate list is somehow empty (defensive
-/// invariant — should never trigger).
+/// Returns the picked `PlayerIntent`. The match over role states is exhaustive
+/// and every arm yields at least one candidate, so an empty candidate list is
+/// unreachable — `pick_top_n_softmax` returning `None` fires `unreachable!`
+/// (a release-firing panic), never a silent fallback intent.
 ///
-/// ## Role-state → candidate set mapping
+/// ## Role-state → candidate set mapping (FUN-TS1 possession-aware)
 ///
 /// `InPossession` → on-ball considerations (7).
-/// `Pressing` → press + track_back (focused subset).
-/// `Supporting` / `RunningOffBall` / `MakingRun` → off-ball set (5).
-/// `Defending` / `Recovering` / `Tracking` / `SetPieceWaiting` / `HoldingUp`
-///   → formation-hold set (track_back + hold_formation + mark_player).
-///
-/// All other states fall back to `HoldFormation`.
+/// `Pressing` → press + track_back (intentionally ungated — pressing is
+///   role-appropriate in any possession state).
+/// For the off-ball holding states (`Supporting` / `RunningOffBall` / `MakingRun`
+/// / `Defending` / `Recovering` / `Tracking` / `SetPieceWaiting` / `HoldingUp`):
+/// when `shape.is_defending` the player holds the zonal block via
+/// `enforce_hold_zonal` (dominant); when in possession the prior multi-utility
+/// off-ball softmax runs so teammates support the attack.
 ///
 /// ## Signature bias composition
 ///
@@ -165,6 +168,19 @@ pub fn formation_position(slot: u8) -> (Q32, Q32) {
 /// `carrier_pos` is `Some((x, y))` when a player currently has possession.
 /// When provided, `utility_press` and `utility_mark_player` target the actual
 /// carrier position instead of the hardcoded formation-slot proxy.
+///
+/// ## FUN-TS1 zonal slot
+///
+/// `shape` is the per-team `TeamShape` for this player's team (precomputed by
+/// `dispatch_tick`). `team_idx` is 0 (home) or 1 (away).
+/// The three off-ball utilities `utility_track_back`, `utility_hold_formation`,
+/// and `utility_run_off_ball` target `zonal_slot(roster_slot, shape, team_idx)`
+/// instead of the constant `formation_position(roster_slot)`. This is the
+/// seam that makes the tactic FSM finally drive positions.
+// 8 args exceeds clippy's default of 7; all 8 are structurally necessary because
+// the SelectFn type alias mirrors this exact signature (fn ptr type must match).
+// Deferred refactor to T2-3 when RON content-pack trees replace the stub.
+#[allow(clippy::too_many_arguments)]
 #[must_use]
 pub fn select_outfield_intent(
     role_state: PlayerRoleState,
@@ -173,6 +189,8 @@ pub fn select_outfield_intent(
     rng: &mut ChaCha8Rng,
     active_bias: Option<&SimBiasSnapshot>,
     carrier_pos: Option<(Q32, Q32)>,
+    shape: &TeamShape,
+    team_idx: usize,
 ) -> PlayerIntent {
     let candidates: Vec<(PlayerIntent, Q32)> = match role_state {
         PlayerRoleState::Goalkeeper(_) => {
@@ -200,22 +218,52 @@ pub fn select_outfield_intent(
         | PlayerRoleState::Forward(ForwardState::Pressing) => {
             vec![
                 utility_press(player, roster_slot, carrier_pos),
-                utility_track_back(player, roster_slot),
+                utility_track_back(player, roster_slot, shape, team_idx),
             ]
         }
 
         // Off-ball forward running.
+        //
+        // FUN-TS1 enforcement: when this team is DEFENDING, FWDs / MIDs in a
+        // run-off-ball state must also hold their zonal slot (they are part of
+        // the defensive block). Without this, HighPress FWDs at +33m keep
+        // advancing via `utility_run_off_ball` while the opponent has possession,
+        // producing completely open chances. When defending, enforce_hold_zonal
+        // keeps them at the zonal position; when attacking, restore full competition.
         PlayerRoleState::Midfielder(MidfielderState::RunningOffBall)
         | PlayerRoleState::Forward(ForwardState::RunningOffBall)
         | PlayerRoleState::Forward(ForwardState::MakingRun) => {
-            vec![
-                utility_run_off_ball(player, roster_slot),
-                utility_press(player, roster_slot, carrier_pos),
-                utility_hold_formation(player, roster_slot),
-            ]
+            if shape.is_defending {
+                // Out of possession: enforce hold_zonal as dominant choice (score=1.0)
+                // PLUS press as a secondary option (attribute-gated). This keeps FWDs
+                // at their zonal line by default (preventing uncontrolled run-throughs),
+                // while attribute-rich pressers can contest the ball. The dominant
+                // enforce_hold_zonal (score Q32::ONE) out-competes press (≤0.15 typical)
+                // in softmax at DEFAULT_TEMPERATURE, so holding is the common outcome.
+                vec![
+                    enforce_hold_zonal(roster_slot, shape, team_idx),
+                    utility_press(player, roster_slot, carrier_pos),
+                ]
+            } else {
+                // In possession: full off-ball competition.
+                vec![
+                    utility_run_off_ball(player, roster_slot, shape, team_idx),
+                    utility_press(player, roster_slot, carrier_pos),
+                    utility_hold_formation(player, roster_slot, shape, team_idx),
+                ]
+            }
         }
 
         // Defensive / recovery / set-piece holding states.
+        //
+        // FUN-TS1 enforcement: when this team is DEFENDING (shape.is_defending),
+        // use enforce_hold_zonal as the SOLE candidate — score = Q32::ONE so the
+        // single-candidate softmax = deterministic argmax.
+        // When this team has POSSESSION, fall back to the pre-FUN-TS1 multi-utility
+        // softmax so players with the ball and their teammates can use normal
+        // track_back / hold_formation / mark_player competing utilities (builds up play).
+        // This avoids the "both teams rigidly hold their defensive zone while one of
+        // them has possession" failure mode that produced 18+ goal matches.
         PlayerRoleState::Defender(DefenderState::Defending)
         | PlayerRoleState::Defender(DefenderState::Recovering)
         | PlayerRoleState::Defender(DefenderState::Tracking)
@@ -225,22 +273,32 @@ pub fn select_outfield_intent(
         | PlayerRoleState::Midfielder(MidfielderState::SetPieceWaiting)
         | PlayerRoleState::Forward(ForwardState::Recovering)
         | PlayerRoleState::Forward(ForwardState::SetPieceWaiting) => {
-            vec![
-                utility_track_back(player, roster_slot),
-                utility_hold_formation(player, roster_slot),
-                utility_mark_player(player, roster_slot, carrier_pos),
-            ]
+            if shape.is_defending {
+                // Out of possession: enforce zonal block hold.
+                vec![enforce_hold_zonal(roster_slot, shape, team_idx)]
+            } else {
+                // In possession: normal multi-utility softmax (support the attack).
+                vec![
+                    utility_track_back(player, roster_slot, shape, team_idx),
+                    utility_hold_formation(player, roster_slot, shape, team_idx),
+                    utility_mark_player(player, roster_slot, carrier_pos),
+                ]
+            }
         }
 
-        // Supporting / HoldingUp.
+        // Supporting / HoldingUp — same possession-aware enforcement.
         PlayerRoleState::Defender(DefenderState::Supporting)
         | PlayerRoleState::Midfielder(MidfielderState::Supporting)
         | PlayerRoleState::Forward(ForwardState::HoldingUp) => {
-            vec![
-                utility_hold_formation(player, roster_slot),
-                utility_run_off_ball(player, roster_slot),
-                utility_mark_player(player, roster_slot, carrier_pos),
-            ]
+            if shape.is_defending {
+                vec![enforce_hold_zonal(roster_slot, shape, team_idx)]
+            } else {
+                vec![
+                    utility_hold_formation(player, roster_slot, shape, team_idx),
+                    utility_run_off_ball(player, roster_slot, shape, team_idx),
+                    utility_mark_player(player, roster_slot, carrier_pos),
+                ]
+            }
         }
     };
 
@@ -528,6 +586,7 @@ mod tests {
                 // Use slot 0 (home GK) for context — the position won't be used
                 // by a non-GK tree in the real dispatch, but is valid for the
                 // skeleton-tier test.
+                let shape = crate::team_shape::TeamShape::zero();
                 let ctx = BtContext {
                     roster_slot: 1, // a home DEF slot
                     outfield_role_state: None,
@@ -535,6 +594,8 @@ mod tests {
                     active_bias: None,
                     select_fn: None,
                     carrier_pos: None,
+                    team_shape: &shape,
+                    team_idx: 0,
                 };
                 let (status, _intent) = tick_tree(tree, &ctx, &mut mk_rng());
                 assert_eq!(

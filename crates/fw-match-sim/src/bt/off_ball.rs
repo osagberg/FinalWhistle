@@ -36,6 +36,7 @@ use crate::bt::personality_bias::{
 use crate::player::PlayerState;
 use crate::role_states::PlayerIntent;
 use crate::subtree_library::formation_position;
+use crate::team_shape::{TeamShape, zonal_slot};
 
 // ---------------------------------------------------------------------------
 // Site attribute lists
@@ -131,7 +132,15 @@ pub const HOLD_FORMATION_ATTRS: &[&str] = &[
 ///
 /// Attribute binding (spec): positioning × anticipation × pace × stamina (primary);
 /// concentration + teamwork as secondary; determination + work_rate via bias.
-pub fn utility_track_back(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
+///
+/// FUN-TS1: targets `zonal_slot(roster_slot, shape, team_idx)` instead of the
+/// constant `formation_position(roster_slot)`.
+pub fn utility_track_back(
+    player: &PlayerState,
+    roster_slot: u8,
+    shape: &TeamShape,
+    team_idx: usize,
+) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
     // Primary product.
@@ -146,7 +155,7 @@ pub fn utility_track_back(player: &PlayerState, roster_slot: u8) -> (PlayerInten
 
     let biased = apply_cover_bias(raw, a);
 
-    let (target_x, target_y) = formation_position(roster_slot);
+    let (target_x, target_y) = zonal_slot(roster_slot, shape, team_idx);
     (PlayerIntent::TrackBack { target_x, target_y }, biased)
 }
 
@@ -235,7 +244,15 @@ pub fn utility_mark_player(
 ///
 /// Attribute binding (spec): off_the_ball × pace × acceleration × anticipation (primary);
 /// flair + stamina as secondary; work_rate + risk_appetite via bias.
-pub fn utility_run_off_ball(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
+///
+/// FUN-TS1: starts from `zonal_slot(roster_slot, shape, team_idx)` then
+/// adds the 10m advance in the attack direction (home = +x, away = -x).
+pub fn utility_run_off_ball(
+    player: &PlayerState,
+    roster_slot: u8,
+    shape: &TeamShape,
+    team_idx: usize,
+) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
     // Primary product.
@@ -252,27 +269,50 @@ pub fn utility_run_off_ball(player: &PlayerState, roster_slot: u8) -> (PlayerInt
     // RunOffBall bias: WorkRate + RiskAppetite per spec (P1-5 fix — was press_bias which used aggression).
     let biased = apply_run_off_ball_bias(raw, a);
 
-    let (fx, fy) = formation_position(roster_slot);
-    let advance = Q32::from_int(10);
-    let target_x = if (roster_slot as usize) < 11 {
-        fx + advance
-    } else {
-        fx - advance
-    };
-    (
-        PlayerIntent::RunOffBall {
-            target_x,
-            target_y: fy,
-        },
-        biased,
-    )
+    // FUN-TS1: target is the zonal_slot directly — no extra advance.
+    // The prior +10m advance (from static formation era) is removed because
+    // zonal_slot already places FWDs at the correct attacking position for the
+    // tactic state (e.g. HighPress FWDs at +33m). Adding another +10m placed
+    // them at +43m = near the opponent's penalty area, causing runaway scoring.
+    let (target_x, target_y) = zonal_slot(roster_slot, shape, team_idx);
+    (PlayerIntent::RunOffBall { target_x, target_y }, biased)
+}
+
+/// **Enforcement intent for defensive block holding (FUN-TS1).**
+///
+/// Returns a `HoldFormation` intent targeting the player's `zonal_slot` with
+/// score = `Q32::ONE` (1.0). Used in the defensive match arm of
+/// `select_outfield_intent` as the SOLE candidate — single-candidate softmax
+/// = deterministic argmax, bypassing attribute-product competition that dilutes
+/// the defensive block.
+///
+/// This is NOT attribute-gated by design: holding a zonal slot when the team
+/// is out of possession is a structural duty, not a preference. The press utility
+/// (`utility_press`) handles attribute-gated pressing; this handles block-holding.
+///
+/// No `formation_position` fallback; always `zonal_slot`.
+pub fn enforce_hold_zonal(
+    roster_slot: u8,
+    shape: &TeamShape,
+    team_idx: usize,
+) -> (PlayerIntent, Q32) {
+    let (target_x, target_y) = zonal_slot(roster_slot, shape, team_idx);
+    (PlayerIntent::HoldFormation { target_x, target_y }, Q32::ONE)
 }
 
 /// Utility for holding formation position.
 ///
 /// Attribute binding (spec): positioning × teamwork × concentration (primary);
 /// decisions as secondary gate; professionalism + determination via bias.
-pub fn utility_hold_formation(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
+///
+/// FUN-TS1: targets `zonal_slot(roster_slot, shape, team_idx)` instead of the
+/// constant `formation_position(roster_slot)`.
+pub fn utility_hold_formation(
+    player: &PlayerState,
+    roster_slot: u8,
+    shape: &TeamShape,
+    team_idx: usize,
+) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
     // Primary product: positioning + teamwork + concentration (spec §"Hold formation slot").
@@ -286,7 +326,7 @@ pub fn utility_hold_formation(player: &PlayerState, roster_slot: u8) -> (PlayerI
     // HoldFormation bias: Professionalism + Determination per spec (P1-5 fix — was cover_bias with work_rate).
     let biased = apply_hold_formation_bias(raw, a);
 
-    let (target_x, target_y) = formation_position(roster_slot);
+    let (target_x, target_y) = zonal_slot(roster_slot, shape, team_idx);
     (PlayerIntent::HoldFormation { target_x, target_y }, biased)
 }
 
@@ -299,6 +339,7 @@ mod tests {
     use super::*;
     use crate::player::PlayerState;
     use crate::subtree_library::FORMATION_4_3_3_POSITIONS;
+    use crate::team_shape::TeamShape;
     use fw_core::Q32;
 
     fn mid_player(roster_slot: u8) -> PlayerState {
@@ -311,12 +352,25 @@ mod tests {
         )
     }
 
+    /// Test shape using MidBlock defaults so targets are non-zero and representative.
+    fn test_shape() -> TeamShape {
+        TeamShape {
+            line_x: Q32::from_int(-18),
+            block_centroid_x: Q32::from_int(-20),
+            block_centroid_y: Q32::ZERO,
+            compactness_v: Q32::from_int(32),
+            compactness_h: Q32::from_int(35),
+            is_defending: true,
+        }
+    }
+
     // --- Range tests ---
 
     #[test]
     fn track_back_utility_in_unit_range() {
         let p = mid_player(6);
-        let (_, u) = utility_track_back(&p, 6);
+        let s = test_shape();
+        let (_, u) = utility_track_back(&p, 6, &s, 0);
         assert!(u >= Q32::ZERO);
         assert!(u <= Q32::ONE);
     }
@@ -340,7 +394,8 @@ mod tests {
     #[test]
     fn run_off_ball_utility_in_unit_range() {
         let p = mid_player(6);
-        let (_, u) = utility_run_off_ball(&p, 6);
+        let s = test_shape();
+        let (_, u) = utility_run_off_ball(&p, 6, &s, 0);
         assert!(u >= Q32::ZERO);
         assert!(u <= Q32::ONE);
     }
@@ -348,7 +403,8 @@ mod tests {
     #[test]
     fn hold_formation_utility_in_unit_range() {
         let p = mid_player(6);
-        let (_, u) = utility_hold_formation(&p, 6);
+        let s = test_shape();
+        let (_, u) = utility_hold_formation(&p, 6, &s, 0);
         assert!(u >= Q32::ZERO);
         assert!(u <= Q32::ONE);
     }
@@ -362,8 +418,9 @@ mod tests {
         let mut p_b = mid_player(6);
         p_a.attributes.technical.finishing = Q32::ZERO;
         p_b.attributes.technical.finishing = Q32::ONE;
-        let (_, u_a) = utility_track_back(&p_a, 6);
-        let (_, u_b) = utility_track_back(&p_b, 6);
+        let s = test_shape();
+        let (_, u_a) = utility_track_back(&p_a, 6, &s, 0);
+        let (_, u_b) = utility_track_back(&p_b, 6, &s, 0);
         assert_eq!(
             u_a, u_b,
             "technical.finishing must not affect track_back utility"
@@ -378,8 +435,9 @@ mod tests {
         p_hi.attributes.physical.stamina = Q32::ONE;
         p_lo.attributes.mental.anticipation = Q32::ZERO;
         p_lo.attributes.physical.stamina = Q32::ZERO;
-        let (_, hi) = utility_track_back(&p_hi, 6);
-        let (_, lo) = utility_track_back(&p_lo, 6);
+        let s = test_shape();
+        let (_, hi) = utility_track_back(&p_hi, 6, &s, 0);
+        let (_, lo) = utility_track_back(&p_lo, 6, &s, 0);
         assert!(
             hi > lo,
             "anticipation + stamina (spec primary) must affect track_back utility"
@@ -484,8 +542,9 @@ mod tests {
         let mut p_b = mid_player(6);
         p_a.attributes.mental.decisions = Q32::ZERO;
         p_b.attributes.mental.decisions = Q32::ONE;
-        let (_, u_a) = utility_run_off_ball(&p_a, 6);
-        let (_, u_b) = utility_run_off_ball(&p_b, 6);
+        let s = test_shape();
+        let (_, u_a) = utility_run_off_ball(&p_a, 6, &s, 0);
+        let (_, u_b) = utility_run_off_ball(&p_b, 6, &s, 0);
         assert_eq!(
             u_a, u_b,
             "mental.decisions must not affect run_off_ball utility"
@@ -499,8 +558,9 @@ mod tests {
         let mut p_b = mid_player(6);
         p_a.attributes.personality.aggression = Q32::ZERO;
         p_b.attributes.personality.aggression = Q32::ONE;
-        let (_, u_a) = utility_run_off_ball(&p_a, 6);
-        let (_, u_b) = utility_run_off_ball(&p_b, 6);
+        let s = test_shape();
+        let (_, u_a) = utility_run_off_ball(&p_a, 6, &s, 0);
+        let (_, u_b) = utility_run_off_ball(&p_b, 6, &s, 0);
         assert_eq!(
             u_a, u_b,
             "aggression must not affect run_off_ball utility (P1-5 spec fix — work_rate+risk_appetite)"
@@ -514,8 +574,9 @@ mod tests {
         let mut p_lo = mid_player(6);
         p_hi.attributes.personality.risk_appetite = Q32::ONE;
         p_lo.attributes.personality.risk_appetite = Q32::ZERO;
-        let (_, hi) = utility_run_off_ball(&p_hi, 6);
-        let (_, lo) = utility_run_off_ball(&p_lo, 6);
+        let s = test_shape();
+        let (_, hi) = utility_run_off_ball(&p_hi, 6, &s, 0);
+        let (_, lo) = utility_run_off_ball(&p_lo, 6, &s, 0);
         assert!(
             hi > lo,
             "personality.risk_appetite (spec bias) must affect run_off_ball utility (P1-5)"
@@ -530,8 +591,9 @@ mod tests {
         p_hi.attributes.physical.acceleration = Q32::ONE;
         p_lo.attributes.mental.off_the_ball = Q32::ZERO;
         p_lo.attributes.physical.acceleration = Q32::ZERO;
-        let (_, hi) = utility_run_off_ball(&p_hi, 6);
-        let (_, lo) = utility_run_off_ball(&p_lo, 6);
+        let s = test_shape();
+        let (_, hi) = utility_run_off_ball(&p_hi, 6, &s, 0);
+        let (_, lo) = utility_run_off_ball(&p_lo, 6, &s, 0);
         assert!(
             hi > lo,
             "off_the_ball + acceleration (spec primary) must affect run_off_ball utility"
@@ -545,8 +607,9 @@ mod tests {
         let mut p_b = mid_player(6);
         p_a.attributes.technical.finishing = Q32::ZERO;
         p_b.attributes.technical.finishing = Q32::ONE;
-        let (_, u_a) = utility_hold_formation(&p_a, 6);
-        let (_, u_b) = utility_hold_formation(&p_b, 6);
+        let s = test_shape();
+        let (_, u_a) = utility_hold_formation(&p_a, 6, &s, 0);
+        let (_, u_b) = utility_hold_formation(&p_b, 6, &s, 0);
         assert_eq!(
             u_a, u_b,
             "technical.finishing must not affect hold_formation utility"
@@ -560,8 +623,9 @@ mod tests {
         let mut p_b = mid_player(6);
         p_a.attributes.personality.work_rate = Q32::ZERO;
         p_b.attributes.personality.work_rate = Q32::ONE;
-        let (_, u_a) = utility_hold_formation(&p_a, 6);
-        let (_, u_b) = utility_hold_formation(&p_b, 6);
+        let s = test_shape();
+        let (_, u_a) = utility_hold_formation(&p_a, 6, &s, 0);
+        let (_, u_b) = utility_hold_formation(&p_b, 6, &s, 0);
         assert_eq!(
             u_a, u_b,
             "work_rate must not affect hold_formation utility (P1-5 spec fix — professionalism+determination)"
@@ -575,8 +639,9 @@ mod tests {
         let mut p_lo = mid_player(6);
         p_hi.attributes.personality.professionalism = Q32::ONE;
         p_lo.attributes.personality.professionalism = Q32::ZERO;
-        let (_, hi) = utility_hold_formation(&p_hi, 6);
-        let (_, lo) = utility_hold_formation(&p_lo, 6);
+        let s = test_shape();
+        let (_, hi) = utility_hold_formation(&p_hi, 6, &s, 0);
+        let (_, lo) = utility_hold_formation(&p_lo, 6, &s, 0);
         assert!(
             hi > lo,
             "personality.professionalism (spec bias) must affect hold_formation utility (P1-5)"
@@ -591,8 +656,9 @@ mod tests {
         p_hi.attributes.mental.positioning = Q32::ONE;
         p_lo.attributes.mental.teamwork = Q32::ZERO;
         p_lo.attributes.mental.positioning = Q32::ZERO;
-        let (_, hi) = utility_hold_formation(&p_hi, 6);
-        let (_, lo) = utility_hold_formation(&p_lo, 6);
+        let s = test_shape();
+        let (_, hi) = utility_hold_formation(&p_hi, 6, &s, 0);
+        let (_, lo) = utility_hold_formation(&p_lo, 6, &s, 0);
         assert!(
             hi > lo,
             "teamwork + positioning (spec primary) must affect hold_formation utility"
@@ -681,30 +747,34 @@ mod tests {
     // --- Target correctness ---
 
     #[test]
-    fn track_back_targets_own_slot() {
+    fn track_back_targets_zonal_slot() {
         let p = mid_player(6);
-        let (intent, _) = utility_track_back(&p, 6);
-        let (expected_x, expected_y) = formation_position(6);
+        let s = test_shape();
+        let (intent, _) = utility_track_back(&p, 6, &s, 0);
+        let (expected_x, expected_y) = zonal_slot(6, &s, 0);
         assert_eq!(
             intent,
             PlayerIntent::TrackBack {
                 target_x: expected_x,
                 target_y: expected_y
-            }
+            },
+            "track_back must target zonal_slot (FUN-TS1)"
         );
     }
 
     #[test]
-    fn hold_formation_targets_own_slot() {
+    fn hold_formation_targets_zonal_slot() {
         let p = mid_player(6);
-        let (intent, _) = utility_hold_formation(&p, 6);
-        let (expected_x, expected_y) = formation_position(6);
+        let s = test_shape();
+        let (intent, _) = utility_hold_formation(&p, 6, &s, 0);
+        let (expected_x, expected_y) = zonal_slot(6, &s, 0);
         assert_eq!(
             intent,
             PlayerIntent::HoldFormation {
                 target_x: expected_x,
                 target_y: expected_y
-            }
+            },
+            "hold_formation must target zonal_slot (FUN-TS1)"
         );
     }
 }
