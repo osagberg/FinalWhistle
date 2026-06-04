@@ -1,8 +1,40 @@
-# DX-2 — Match-quality inspection: frame glitch-detectors + GIF filmstrip
+# DX-2 — Match-quality inspection: frame glitch-detectors + contact-sheet renderer
 
-Status: SPEC (TODO). Owner split: `gameplay-programmer` (detectors) + `ui-programmer`
-(renderer) + `systems-designer` (thresholds). Depends on DX-1 (the dev play-harness)
-only conceptually; the tooling reads `dump_frames` output directly and needs no server.
+Status: DONE (2026-06-04). Owner: `gameplay-programmer`.
+
+## Match length + tick→minute mapping (determined at DX-2)
+
+A full match is **5400 ticks**. Constant: `fw_match_sim::FULL_MATCH_TICKS = 5400`.
+
+- **dt = 1/60 s per tick** (60 ticks per simulated second).
+- **90 minutes × 60 ticks/minute = 5400 ticks.**
+- **tick → minute: `minute = tick / 60` (integer division).**
+- `FullTime` fires when `state.tick >= state.match_end_tick` (default `Tick::from_raw(5400)`).
+- The 900-tick runs in DX-1 were slices: 900/60 = 15 simulated minutes, not a full match.
+
+## Thresholds (v1, updated 2026-06-04 REVISE pass)
+
+**IMPORTED** = value pulled from a canonical sim constant at compile time (drift-safe).
+**PHYSICAL CAP** = derived from engine physical caps (max speed × dt = 1/60 s); no sim constant.
+
+| Threshold | Value | Source | Derivation / rationale |
+|---|---|---|---|
+| `GOAL_LINE_X` | 52.5 m | IMPORTED: `fw_core::GOAL_LINE_X` | Pitch half-length |
+| `SIDELINE_Y` | 34.0 m | IMPORTED: `fw_core::SIDELINE_Y` | Pitch half-width |
+| `GOAL_HALF_WIDTH` | ≈3.66 m | IMPORTED: `fw_content::event::GOAL_HALF_WIDTH_M` | Half of 7.32 m standard goal |
+| `MIN_PLAYER_DISTANCE` | 0.4 m | IMPORTED: `fw_match_sim::separation::MIN_PLAYER_DISTANCE` | Separation invariant |
+| `FULL_MATCH_TICKS` | 5400 | IMPORTED: `fw_match_sim::FULL_MATCH_TICKS` | 90 min × 60 ticks/min |
+| `MAX_BALL_TRAVEL_PER_TICK` | 1.0 m | PHYSICAL CAP | Peak shot 35 m/s × 1/60 s = 0.583 m; 1.0 m = 1.7× cap |
+| `PLAYER_RADIUS` | 0.5 m | PHYSICAL CAP | Approximate player body radius for phasing contact proxy |
+| `MAX_PLAYER_TRAVEL_PER_TICK` | 0.15 m | PHYSICAL CAP | Max player 8 m/s × 1/60 s = 0.133 m; 0.15 m = 1.1× cap |
+| `OVERLAP_K_TICKS` | 5 ticks | PHYSICAL CAP | Transient (1 tick) OK; 5 consecutive = persistent bug |
+| `OFF_PITCH_K_TICKS` | 5 ticks | PHYSICAL CAP | Brief off-pitch during restart OK; 5 consecutive = bug |
+| `STALL_WINDOW` | 60 ticks | PHYSICAL CAP | 1 simulated second of total freeze |
+| `STALL_MOTION_THRESHOLD` | 0.01 m/tick | PHYSICAL CAP | Per-entity threshold for "effectively frozen" |
+| `PHANTOM_GOAL_WINDOW` | ±10 ticks | PHYSICAL CAP | ±0.167 s around score change |
+
+`systems-designer` owns final tuning of the PHYSICAL CAP values; the IMPORTED values
+track their source constants automatically and must not be duplicated as literals.
 
 ## Problem
 
@@ -86,6 +118,74 @@ sufficient.
 - The GIF/contact-sheet renders a full match legibly from a frames JSON.
 - Both tools are pure functions of `dump_frames` output; `scripts/fw verify` green;
   both canonical pins UNCHANGED; no sim/canonical change.
+
+## DX-2 findings — broken match (seed 0xfeedbeefcafefade, 5400 ticks)
+
+Run date: 2026-06-04 (v1 detectors). Updated after REVISE pass (v1.1 detectors — same
+match, corrected BallPhasingPlayer logic, added evaluable_frame_pairs + warnings fields).
+
+v1 (initial) run:
+
+| Detector | Flags | First flag |
+|---|---|---|
+| BallTeleport | 249 | tick 8: ball jumped 9.797m |
+| BallPhasingPlayer | 747 | tick 9: segment within 0.130m of slot 9, no possession change |
+| PhantomGoal | 0 | — |
+| PersistentPlayerOverlap | 40 | tick 4: slots 6+20 overlap 5+ ticks |
+| ImpossiblePlayerVelocity | **32,737** | tick 1: slot 5 moved 0.279m/tick |
+| BallOffPitch | 0 | — |
+| Stall | 0 | — |
+| **Total** | **33,773** | |
+
+v1.1 numbers: see "Re-run after REVISE" section below.
+
+Key findings:
+
+1. **ImpossiblePlayerVelocity dominates (32,737 flags out of 33,773 total).** The velocity cap in `dispatch.rs` is 8 m/s, which is 0.133 m/tick at dt=1/60 s. Players are exceeding this constantly. The dispatcher applies a `clamp_velocity_component` but something is setting positions directly (not via velocity) — likely the `MoveToPosition` / `HoldFormation` intents that overwrite `vel_x`/`vel_y` directly and the integration step adds the full velocity in one tick regardless of distance. This means the position-delta threshold of 0.15m needs revisiting relative to the actual position-update code path, OR the position updates are bypassing the velocity cap entirely. **This is the primary fix target for FUN-0.**
+
+2. **BallTeleport (249 flags): ball jumps ~10m on tick 8.** The kick-off ball placement sets ball at (9.8, 0) directly — this is a teleport from center at (0,0). Not a physics bug; it's an initialization step. Still, it flags as a teleport. The detector is working correctly; FUN-0 may want to skip tick 1 for ball-teleport or distinguish initialization teleports.
+
+3. **BallPhasingPlayer (747 flags): ball sweeps through players without possession change.** Given the high ImpossiblePlayerVelocity rate (players moving ~2x the physical cap), ball-player proximity events are frequent. This is a downstream symptom of the velocity/position bug.
+
+4. **PersistentPlayerOverlap (40 flags): separation module not holding.** Players collide and the separation resolver is not keeping them apart for 5+ ticks. A secondary symptom of the velocity issue.
+
+5. **PhantomGoal = 0, BallOffPitch = 0, Stall = 0:** goals ARE correlating with ball crossing the line; the ball stays on pitch; and the match isn't stalling. These are positives.
+
+Contact-sheet PNG: `target/contact-sheet-feedbeefcafefade.png` (generated 2026-06-04).
+Inspect with `scripts/fw inspect-frames <frames.json>`.
+
+### Re-run after REVISE (v1.1 — corrected phasing logic, canonical constant imports)
+
+Run date: 2026-06-04. Seed 0xfeedbeefcafefade, 5400 ticks, 5401 frames, 5400 evaluable pairs.
+Status: OK. Warnings: BallPhasingPlayer lower-bound caveat only.
+
+| Detector | v1 flags | v1.1 flags | Delta | Notes |
+|---|---|---|---|---|
+| BallTeleport | 249 | 249 | — | Unchanged |
+| BallPhasingPlayer | 747 | **970** | +223 | Higher: v1 suppressed entire frames on possession change; v1.1 checks uninvolved players. The fix surfaces 30% more phasing events. Count is still a lower bound. |
+| PhantomGoal | 0 | 0 | — | Goals correlate with goal-line crossing |
+| PersistentPlayerOverlap | 40 | **34** | −6 | Slightly lower: v1.1 keys `reported` set on slot pairs not array indices; re-reporting semantics changed slightly |
+| ImpossiblePlayerVelocity | 32,737 | 32,737 | — | Unchanged — dominant bug |
+| BallOffPitch | 0 | 0 | — | Ball stays in bounds |
+| Stall | 0 | 0 | — | No freezes |
+| **Total** | **33,773** | **33,990** | +217 | |
+
+Key delta: BallPhasingPlayer increased 747→970 (+30%) because the P1 fix no longer
+goes blind when possession changes — uninvolved players are now correctly checked.
+The first flag shifted from tick 9 (slot 9, no possession change) to tick 8 (slot 17,
+during a 9→8 possession change, correctly flagging an uninvolved third party).
+
+### Known limitations / deferred follow-ups (do NOT implement now)
+
+- **Detector-name String→enum refactor.** Today detector names are `String` values;
+  a typo in a filter would silently match nothing. Defer until there are 3+ callers
+  that pattern-match on names.
+- **Stall "in-play" gate is score-only.** A score change in the window suppresses the
+  stall flag, but a match that stalls at 0-0 indefinitely still fires correctly. The
+  edge case (stall during a dead-ball restart where score doesn't change) is deferred.
+- **contact-sheet/overlap 11-vs-n_players seam.** The renderer hardcodes `slot < 11`
+  for home/away colour, which is correct for the canonical 22-player layout but would
+  mislabel a shorter test fixture. Defer until a fixture with non-22 players exists.
 
 ## Why this is the fun-evaluation substrate
 

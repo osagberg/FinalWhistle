@@ -59,6 +59,8 @@ COMMANDS
     clean            Purge target/ + frontend/node_modules
     bake             Regenerate content corpus (T2+ stub until baker lands)
     cross-check      Smoke-compile Win/Linux targets from Mac via cargo-zigbuild
+    inspect-frames   DX-2: run 7 glitch-detectors over a dump_frames JSON file
+    contact-sheet    DX-2: render a contact-sheet PNG from a dump_frames JSON file
     help             Print this message
 
 NOTES
@@ -156,6 +158,22 @@ EOF
         require_just
         cd "$ROOT"
         just determinism-audit
+        ;;
+
+    inspect-frames)
+        # DX-2: run the 7 glitch-detectors over a dump_frames JSON file.
+        # Usage: scripts/fw inspect-frames <frames.json> [--json-only] [--compact]
+        # Produces a structured report (JSON + human-readable summary) to stdout/stderr.
+        cd "$ROOT"
+        cargo run -p fw-match-sim --bin inspect_frames -- "$@"
+        ;;
+
+    contact-sheet)
+        # DX-2: render a contact-sheet PNG (grid of mini-pitches) from a dump_frames JSON.
+        # Usage: scripts/fw contact-sheet <frames.json> [--step N] [--cols N] [--output path]
+        # Default output: target/contact-sheet-<seed>.png
+        cd "$ROOT"
+        cargo run -p fw-match-sim --bin render_contact_sheet -- "$@"
         ;;
 
     hash-pins)

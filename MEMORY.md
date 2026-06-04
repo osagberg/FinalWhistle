@@ -31,11 +31,7 @@ Pivoted from Unity + C# v1 (preserved at git tag `v0-pre-pivot-2026-05-13` and s
 
 ## Current task
 
-<!-- none active. DX-1 (dev play-harness — HTTP backend bridge `fw-dev-server`) DONE 2026-06-04 — spec pruned; detail in CHANGELOG + DECISIONS. The harness lets an agent drive the REAL backend in a browser via `?backend=http` (Vite `/__cmd` proxy → fw-dev-server on 127.0.0.1:1422 → `*_inner(&AppState)`). Run it: `cargo run -p fw-dev-server` + `pnpm --filter ./frontend dev` + browser at `localhost:1420/<route>?backend=http`. Self-review triple ACCEPT; live-validated (real squad/match/board rendered); both canonical pins UNCHANGED. FOLLOW-UP (filed, non-blocking): a registry-parity test so the dev-server's 24-command dispatch can't silently drift from the Tauri `generate_handler!` list (today: a forgotten command → loud 404, not silent). NEXT in the user's sequence: DX-2 (frame glitch-detectors + GIF filmstrip) → fun-roadmap pivot → feature-backlog research. -->
-
-<!-- T4-7 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
-
-<!-- T4-7 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
+<!-- none active. Tier-F foundation in progress (user-directed: DX-2 → FUN-H1 → FUN-0). DONE 2026-06-04: DX-1 (HTTP play-harness `fw-dev-server` @127.0.0.1:1422, `?backend=http`); DX-2 (match-quality inspection — `inspect_frames` 7 glitch-detectors + `render_contact_sheet` PNG; full match = 5400 ticks; the broken match flags 32,737 ImpossiblePlayerVelocity = the FUN-0 target). NEXT: FUN-H1 (`drama-sweep` tool over docs/design/drama-model.md), then FUN-0 (fix match-feel — start with the velocity-cap bypass; sim change + authorized rebaseline). Detail in CHANGELOG + DECISIONS + docs/design/match-quality-inspection.md. Filed follow-ups: dev-server↔Tauri registry-parity test; inspect_frames detector-name enum + stall-gate + contact-sheet 11-vs-n_players seam. -->
 
 <!-- T4-7 spec pruned on close per /next Step 7.2 — entry lives in `## Recently completed` below. -->
 

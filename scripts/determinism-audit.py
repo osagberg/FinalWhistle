@@ -158,6 +158,13 @@ PER_RULE_EXEMPT: dict[Path, set[str]] = {
     # thread_rng() to the corpus-collection path without tripping the
     # audit. Only the offline Newton-Raphson f64 fit is rule-exempted.
     Path("crates/fw-match-sim/src/bin/calibrate.rs"): {FLOAT_RULE_NAME},
+    # DX-2: inspect_frames and render_contact_sheet are viewer-side analysis
+    # tools (pure functions of dump_frames JSON — never canonical state). Both
+    # carry #![allow(clippy::float_arithmetic)] at the module head and are
+    # exempt from the float rule for the same reason as dto.rs. HashMap / time /
+    # RNG bans stay active on these files.
+    Path("crates/fw-match-sim/src/bin/inspect_frames.rs"): {FLOAT_RULE_NAME},
+    Path("crates/fw-match-sim/src/bin/render_contact_sheet.rs"): {FLOAT_RULE_NAME},
     # T1-10: integration test that re-bakes the math LUTs via f64 + asserts
     # equality with the committed const tables in src/math_luts.rs. f64 is
     # intentional + bake-time-only; the test is `#[ignore]`-gated so it

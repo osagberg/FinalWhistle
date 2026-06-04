@@ -54,6 +54,8 @@ log         = "0.4"
 env_logger  = "0.11"
 # Tauri (only fw-tauri consumes this)
 tauri       = { version = "2", features = [] }
+# Image rendering (contact-sheet + GIF for match-quality inspection tools)
+image       = { version = "0.25", default-features = false, features = ["png", "gif"] }
 # Test
 insta       = { version = "1", features = ["yaml", "ron"] }
 proptest    = "1"
