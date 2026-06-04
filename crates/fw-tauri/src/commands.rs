@@ -1400,10 +1400,14 @@ pub fn advance_season_inner(state: &AppState) -> Result<AdvanceSeasonSummaryDto,
     for event in breakthrough_events {
         career.ledger.append(event);
     }
-    // Advance the watermark to the current ledger length. The breakthrough events
-    // we just appended are PAST the watermark, so they are included in the next
-    // season's new-event window — correctly feeding the BreakthroughMoment as a
-    // historical event for cooldown checks in subsequent evaluate() calls.
+    // Advance the watermark to the current ledger length. This places the
+    // BreakthroughMoment events we just appended BEHIND the new watermark, so the
+    // next season's `evaluate()` does NOT re-process them as "new" events — which is
+    // exactly the fire-exactly-once contract that stops the breakthrough meter
+    // re-accumulating / the moment re-firing across season advances (pinned by the
+    // QA-T4H watermark-advancement test). NOTE: an earlier comment here claimed the
+    // opposite (that the appended events stay PAST the watermark) — that was wrong
+    // and would invite a "fix" re-introducing the re-fire bug (ultra-review P2).
     career.breakthrough_eval_watermark = career.ledger.len();
     // ---- End pillar-3 breakthrough evaluation ----
 
@@ -2300,6 +2304,73 @@ pub fn load_career_inner(state: &AppState) -> Result<(), IpcError> {
              players were reset to base progression.",
             save.career_seed,
         );
+    }
+
+    // Step 2b: Re-derive last_scout_report for any reloaded player observed in a
+    // prior session. SaveV4 persists observation_count but NOT the report itself
+    // (it is a deterministic projection of the career seed — see SavedPlayerInstance).
+    // The overlay above restored observation_count but left last_scout_report = None
+    // (build_roster_from_league's default), so without this pass get_scout_report
+    // returns NotYetObserved for every reloaded scouted player (ultra-review P1-5).
+    // observe_player is deterministic, so replaying the LAST observation
+    // (id = observation_count - 1 — live play uses the pre-increment id then bumps,
+    // season.rs:757-764) reproduces the exact report cached live. The bio pool +
+    // scout must match the live observe_match_participants derivation byte-for-byte.
+    {
+        use crate::roster::ROSTER_PLAYER_ID_BASE;
+        let bios: Vec<&fw_content::PlayerBio> = state.content().player_bios.values().collect();
+        if !bios.is_empty() {
+            let scout = fw_scouting::Scout::basic_uncertainty();
+            let career_seed_u64 = save.career_seed.to_u64();
+            for instances in base_roster.values_mut() {
+                for inst in instances.iter_mut() {
+                    if inst.observation_count == 0 {
+                        continue;
+                    }
+                    let global_idx = (inst.player_id.raw() - ROSTER_PLAYER_ID_BASE) as usize;
+                    let bio = bios[global_idx % bios.len()];
+                    // Same fail-loud gene-snapshot invariant the live derivation
+                    // enforces (season.rs) — fires if the round-robin formula drifts.
+                    assert!(
+                        bio.internal_gene_snapshot == inst.genes,
+                        "load_career re-derive: gene snapshot mismatch for player {:?} \
+                         (global_idx={global_idx}) — the round-robin bio formula drifted \
+                         from build_roster_from_league; this is a programming error.",
+                        inst.player_id,
+                    );
+                    // Pre-increment id of the last live observation.
+                    let last_obs_id = inst.observation_count - 1;
+                    inst.last_scout_report = Some(fw_scouting::observe_player(
+                        &scout,
+                        bio,
+                        career_seed_u64,
+                        last_obs_id,
+                        inst.player_id,
+                    ));
+                }
+            }
+        } else {
+            // Empty bio pool: a consistent empty-pool career never increments
+            // observation_count (observe_match_participants early-returns before the
+            // bump), so nothing is lost here normally. But a save authored against a
+            // pack WITH bios, reloaded against one WITHOUT them (mod removal / pack
+            // downgrade), would keep observation_count>0 with no bio to re-derive from
+            // — convert that silent inconsistency into a diagnosable warning rather
+            // than leaving a reloaded player reading NotYetObserved with no clue why.
+            let observed = base_roster
+                .values()
+                .flatten()
+                .filter(|i| i.observation_count > 0)
+                .count();
+            if observed > 0 {
+                log::warn!(
+                    "load_career: {observed} reloaded player(s) have observation_count>0 but the \
+                     active content pack ships no player bios — last_scout_report could not be \
+                     re-derived (content-pack/mod downgrade since save?). These players read \
+                     NotYetObserved until the next match-day re-observes them."
+                );
+            }
+        }
     }
 
     // Step 3: Reconstruct the season. If None (migrated from V2/V3), regenerate.

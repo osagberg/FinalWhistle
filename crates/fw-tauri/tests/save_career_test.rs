@@ -31,7 +31,7 @@ use std::path::PathBuf;
 use fw_core::{AbilityCeiling, Q32, Seed};
 use fw_memory::SeasonNumber;
 use fw_save::{SaveEnvelope, SaveV4, encode};
-use fw_tauri::commands::{load_career_inner, save_career_inner};
+use fw_tauri::commands::{advance_week_inner, load_career_inner, save_career_inner};
 use fw_tauri::state::AppState;
 
 fn workspace_content_path() -> PathBuf {
@@ -209,4 +209,90 @@ fn migrated_empty_roster_regenerates_full_roster() {
         !any_nonzero_apps,
         "all career_apps must be 0 after loading an empty-roster save (no overlay to apply)"
     );
+}
+
+// ---------------------------------------------------------------------------
+// AC3: last_scout_report survives save → load (ultra-review P1-5 regression)
+// ---------------------------------------------------------------------------
+
+/// A player observed in a live session (observation_count > 0 with a populated
+/// last_scout_report) must still surface that exact report after a save → reload.
+/// SaveV4 persists observation_count but not the report itself; load_career_inner
+/// re-derives it deterministically from the career seed. Before the fix every
+/// reloaded scouted player reported NotYetObserved — an internally-inconsistent
+/// observation_count>0 + last_scout_report==None state that cannot arise live.
+#[test]
+fn scout_report_survives_save_load_round_trip() {
+    let seed = Seed::from_u64(0xDEAD_BEEF_5C00_0003);
+    let (state, dir) = test_state_with_temp_paths(seed);
+
+    // Advance one match-day so the starting XIs of the playing clubs get
+    // observation_count == 1 + a populated last_scout_report (observe_match_participants).
+    advance_week_inner(&state).expect("advance_week_inner must succeed on match-day 0");
+
+    // Capture an observed player's club, id, count, and its live report.
+    let (target_club_id, target_player_id, expected_count, expected_report) = {
+        let career = state.career().read().expect("career lock");
+        let mut found = None;
+        'outer: for (&club_id, instances) in career.roster.iter() {
+            for inst in instances {
+                if inst.observation_count > 0 {
+                    if let Some(report) = &inst.last_scout_report {
+                        found =
+                            Some((club_id, inst.player_id, inst.observation_count, report.clone()));
+                        break 'outer;
+                    }
+                }
+            }
+        }
+        found.expect("at least one player must be observed (observation_count>0) after advance_week")
+    };
+
+    save_career_inner(&state).expect("save_career_inner must succeed");
+
+    // Fresh AppState at the same seed + temp dir → load.
+    let settings_path = dir.path().join("settings.fwcfg");
+    let career_save_path = dir.path().join("career.fwsave");
+    let mut state2 =
+        AppState::new_with_settings_path(&workspace_content_path(), seed, settings_path)
+            .expect("AppState::new_with_settings_path (state2)");
+    state2.set_career_save_path(career_save_path);
+    load_career_inner(&state2).expect("load_career_inner must succeed");
+
+    let career2 = state2.career().read().expect("career2 lock");
+
+    // AC3a: the observed player's report survived byte-for-byte (deterministic re-derive).
+    let loaded = career2
+        .roster
+        .get(&target_club_id)
+        .expect("target club in loaded roster")
+        .iter()
+        .find(|p| p.player_id == target_player_id)
+        .expect("target player in loaded roster");
+    assert_eq!(
+        loaded.observation_count, expected_count,
+        "observation_count must round-trip"
+    );
+    assert_eq!(
+        loaded.last_scout_report.as_ref(),
+        Some(&expected_report),
+        "last_scout_report must be re-derived identically after load \
+         (was dropped → NotYetObserved before the P1-5 fix)"
+    );
+
+    // AC3b: the global invariant — observation_count>0 ⇒ last_scout_report.is_some()
+    // — holds across the entire reloaded roster (no inconsistent persisted state).
+    for instances in career2.roster.values() {
+        for inst in instances {
+            if inst.observation_count > 0 {
+                assert!(
+                    inst.last_scout_report.is_some(),
+                    "player {:?} has observation_count={} but no last_scout_report after load \
+                     — the re-derive pass missed it (P1-5)",
+                    inst.player_id,
+                    inst.observation_count,
+                );
+            }
+        }
+    }
 }
