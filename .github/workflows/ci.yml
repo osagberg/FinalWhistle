@@ -54,7 +54,11 @@ jobs:
       matrix:
         os: [macos-14, windows-latest, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # 30 (was 20): the dev-tooling added in DX-1/DX-2/FUN-H1 (fw-dev-server's
+    # axum+tokio, the image-crate dev bins) grew the workspace build enough that
+    # the slowest leg (windows-latest) crept past 20m. fw-dev-server is excluded
+    # from the build/test steps below (it's dev-only, not shipped); 30m is headroom.
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -112,7 +116,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        # fw-dev-server (dev-only HTTP play-harness; axum+tokio) is excluded from
+        # the cross-OS matrix — it is not shipped and local `scripts/fw verify`
+        # still builds+lints it. Keeps the Windows build under the timeout.
+        run: cargo clippy --workspace --exclude fw-dev-server --all-targets -- -D warnings
 
       # Parity with local `just ci-local` per Codex pre-merge audit Imp #6.
       # The matrix gates should mean what the dev's local pre-commit means.
@@ -162,7 +169,9 @@ jobs:
       # instead of producing a different hash; release lets the hash
       # itself be the contract.
       - name: cargo test --workspace
-        run: cargo test --workspace --release
+        # fw-dev-server excluded (dev-only; see the clippy step). The determinism
+        # gate still fires here on the shipped crates.
+        run: cargo test --workspace --exclude fw-dev-server --release
 
       # Frontend pipeline. Runs on every OS so Win/Mac path-handling bugs
       # surface immediately. pnpm install is cached at the Node setup layer.
