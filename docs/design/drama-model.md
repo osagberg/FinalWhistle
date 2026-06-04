@@ -408,6 +408,10 @@ manually every time a coefficient changes.
 
 - `docs/design/match-quality-inspection.md` — DX-2 glitch-detectors; the same `dump_frames`
   output feeds both glitch-detection and drama scoring.
+- `docs/design/match-realism-reference.md` — the **research-grounded aggregate anchors** (sourced,
+  firmness-tagged) these metrics' bands should be tuned against: goals/match 2.7 + unimodal-Poisson
+  distribution (M1 shape), on-target ~33%, 1-goal-margin ~50% of decisive (M3), 2+ goal comeback ~0.7%
+  (M6 ceiling), late goals ~25% (M5), upset ~1-in-4 (S2), title gap ~7pts bimodal (S1).
 - `docs/design/xg-coefficients.md` — xG calibration; M1 and M2 depend on shot + goal rates.
 - `docs/MASTER_PLAN.md` — DX-2 row (frame-stream substrate); T2-1d2 row (`utility_shoot`
   rewiring, expected to move M1 + M2 + M8 materially).

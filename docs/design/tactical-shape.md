@@ -264,6 +264,7 @@ slice's rebaseline. (Being delivered alongside the drama-sweep believability har
 - `docs/adr/0013-team-tactical-shape.md` — the architecture lock (retires ADR-0001's 32×24 influence map).
 - `docs/adr/0001-match-engine-architecture.md` §layer-5 — the influence-map plan this supersedes.
 - `docs/design/drama-model.md` — M1 (goal-variance), M8 (on-target), S2 (upset) — the metrics that certify each slice.
+- `docs/design/match-realism-reference.md` §3 — the **research-grounded** line-height / compactness / PPDA / offside anchors. NB: it refines the provisional `line_x` seeds in this doc UPWARD (real low/mid blocks sit ~25m / ~40m, not 18m / 35m) and says high-line vs high-press should vary independently.
 - `docs/design/shot-model.md` §"what resisted" — the deferred zonal-compactness gap this closes.
 - `verification/ultra-review-2026-06-04.md` P0-1 / P1-4 — the believability + mirror-calibration findings.
 - `crates/fw-match-sim/src/{tactic_fsm.rs, bt/off_ball.rs, bt/on_ball.rs, dispatch.rs, subtree_library.rs, lib.rs, utility/pitch_control.rs}` — the seams.
