@@ -562,17 +562,20 @@ mod tests {
     fn body_shield_fit_score_is_product_of_attributes() {
         let mut state = baseline_state();
         // Set exact values so product is predictable.
-        state.players[1].attributes.technical.marking = Q32::from_raw(1i64 << 31); // 0.5
-        state.players[1].attributes.physical.strength = Q32::from_raw(1i64 << 31); // 0.5
-        state.players[1].attributes.personality.aggression = Q32::from_raw(1i64 << 31); // 0.5
+        // All three at 0.5; 0.5 >= 0.45 threshold → eligible.
+        // Product = 0.5 × 0.5 × 0.5 = 0.125 = raw (1 << 29).
+        let half = Q32::from_raw(1i64 << 31); // 0.5
+        state.players[1].attributes.technical.marking = half;
+        state.players[1].attributes.physical.strength = half;
+        state.players[1].attributes.personality.aggression = half;
         let fit = body_shield_pressure_trigger(&state, 1);
-        // 0.5 × 0.5 × 0.5 = 0.125 (above the 0.45 threshold on all three).
-        // Wait — 0.5 >= 0.45 threshold → eligible. Product = 0.5³ = 0.125.
-        assert!(fit > Q32::ZERO, "fit_score must be > 0 for eligible player");
-        // Vacuousness check: fit_score must be < 1.0 (not just boolean).
-        assert!(
-            fit < Q32::ONE,
-            "fit_score should be < 1 (product of three 0.5 attrs)"
+        // Mirror the long_range_strike_fit_score_is_product_of_attributes pattern:
+        // compute expected as the same three-way product to pin the exact value.
+        let expected = half * half * half; // 0.125 = raw (1 << 29)
+        assert_eq!(
+            fit, expected,
+            "fit_score must be the exact product marking × strength × aggression = 0.125; \
+             got {fit:?}, expected {expected:?}"
         );
     }
 

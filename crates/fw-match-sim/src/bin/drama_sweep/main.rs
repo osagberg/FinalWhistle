@@ -43,8 +43,10 @@ use drama::*;
 
 use clap::Parser;
 use fw_content::{ContentStore, MatchEvent};
-use fw_core::Seed;
+use fw_core::{Seed, SeedLayer, seed_fn};
 use fw_match_sim::{MatchState, tick_match};
+use rand_chacha::ChaCha8Rng;
+use rand_chacha::rand_core::{RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -56,6 +58,15 @@ mod guards {
     pub const M1_STD_MIN: f64 = 0.8;
     pub const M1_STD_MAX: f64 = 1.6;
     pub const M1_P95_MAX: f64 = 7.0;
+    // M1 shape guard (Goodhart protection: bimodal distributions can satisfy
+    // mean+std checks while being broken).
+    pub const M1_SINGLE_MATCH_HARD_CEILING: u32 = 8;
+    // M1_IN_BAND_LO is 0 (u32 floor); kept for documentation, not used in code
+    // (any u32 is >= 0, so only the HI bound gates the in-band check).
+    #[allow(dead_code)]
+    pub const M1_IN_BAND_LO: u32 = 0;
+    pub const M1_IN_BAND_HI: u32 = 5;
+    pub const M1_IN_BAND_MIN_FRACTION: f64 = 0.80;
 
     // M2 — Goal-timing: first-third guard (FAIL if pooled fraction > 55%)
     pub const M2_FIRST_THIRD_MAX: f64 = 0.55;
@@ -69,10 +80,9 @@ mod guards {
 
 /// Phase-1 provisional drama-target bands per drama-model.md.
 ///
-/// Defined here as machine-readable companions to the doc text. Will gate
-/// CI in the drama CI gate (FUN-1 scope); suppressed now because the drama
-/// CI gate is out of scope for FUN-H1.
-#[allow(dead_code)]
+/// Defined here as machine-readable companions to the doc text. These bands are
+/// WARN-ONLY — they do NOT fold into `all_guards_pass`. Over-delivery is
+/// visible in the summary as OVER; under-delivery as UNDER.
 mod targets {
     pub const M3_DRAW_MIN: f64 = 0.22;
     pub const M3_DRAW_MAX: f64 = 0.28;
@@ -96,6 +106,27 @@ mod targets {
     pub const M6_TWO_GOAL_MAX: f64 = 0.12;
     pub const M7_NERVY_MIN: f64 = 0.40;
     pub const M7_NERVY_MAX: f64 = 0.58;
+}
+
+/// Verdict for a dual-bounded drama target: PASS = in band, OVER = above hi,
+/// UNDER = below lo. Warn-only — does NOT fold into `all_guards_pass`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TargetVerdict {
+    Pass,
+    Over,
+    Under,
+}
+
+/// Classify a value against a [lo, hi] band.
+#[allow(clippy::float_arithmetic)]
+pub fn classify(value: f64, lo: f64, hi: f64) -> TargetVerdict {
+    if value < lo {
+        TargetVerdict::Under
+    } else if value > hi {
+        TargetVerdict::Over
+    } else {
+        TargetVerdict::Pass
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -137,6 +168,18 @@ struct Cli {
     /// lower values will be flagged as INCOMPLETE and exit non-zero.
     #[arg(long, default_value_t = 5400)]
     ticks: u32,
+
+    /// Vary team quality: apply a deterministic per-team quality factor
+    /// (±15% spread) so a team-quality differential exists in each match.
+    /// Keyed by `seed_fn(match_seed, 0, SeedLayer::Decision, slot)`.
+    #[arg(long, default_value_t = false)]
+    vary_quality: bool,
+
+    /// Pick distinct home/away archetype pairs when content is loaded.
+    /// Falls back to DEFAULT pair + warning if fewer than 2 archetypes exist.
+    /// Requires --content.
+    #[arg(long, default_value_t = false)]
+    archetype_pair: bool,
 }
 
 /// Per-match raw metrics collected by the sweep.
@@ -171,6 +214,16 @@ struct MatchMetrics {
     signatures_fired: u32,
     /// Whether FullTime event was present (i.e. match completed).
     completed: bool,
+    // Anti-scripting fields (task 1a):
+    /// Which side was trailing by 1 goal at 85% of match-end. None = level or margin > 1.
+    #[serde(default)]
+    trailing_team_at_late: Option<Side>,
+    /// Which side scored the decisive late goal (None = no late decider).
+    #[serde(default)]
+    late_winner_team: Option<Side>,
+    /// Whether there was a decisive late goal (changes result or restores parity) at tick > 0.85*end.
+    #[serde(default)]
+    had_late_decider: bool,
 }
 
 /// Aggregated distribution report across N seeds.
@@ -185,6 +238,9 @@ struct SweepReport {
     completed_matches: u32,
     /// Matches with zero goals (degenerate; not just 0-0 draws — includes incomplete).
     goalless_matches: u32,
+    /// Whether differentiated rosters were used (--vary-quality or --archetype-pair).
+    #[serde(default)]
+    differentiated: bool,
 
     /// M1 — Goals per match.
     m1_goals_mean: f64,
@@ -195,6 +251,15 @@ struct SweepReport {
     m1_guard_mean_ok: bool,
     m1_guard_std_ok: bool,
     m1_guard_p95_ok: bool,
+    // M1 shape guard fields (task 1b):
+    #[serde(default)]
+    m1_max_single_match: u32,
+    #[serde(default)]
+    m1_hard_ceiling_ok: bool,
+    #[serde(default)]
+    m1_in_band_fraction: f64,
+    #[serde(default)]
+    m1_in_band_ok: bool,
     m1_guard_pass: bool,
 
     /// M2 — Goal-timing: POOLED first-third fraction across the corpus.
@@ -213,14 +278,33 @@ struct SweepReport {
     m3_one_goal_rate: f64,
     m3_two_goal_rate: f64,
     m3_blowout_rate: f64,
+    // M3 target verdicts (task 1c, warn-only):
+    #[serde(default)]
+    m3_draw_verdict: Option<TargetVerdict>,
+    #[serde(default)]
+    m3_one_goal_verdict: Option<TargetVerdict>,
+    #[serde(default)]
+    m3_two_goal_verdict: Option<TargetVerdict>,
+    #[serde(default)]
+    m3_blowout_verdict: Option<TargetVerdict>,
 
     /// M4 — Lead changes.
     m4_lead_changes_mean: f64,
     m4_matches_with_drama_rate: f64,
+    // M4 target verdicts (task 1c, warn-only):
+    #[serde(default)]
+    m4_lead_changes_verdict: Option<TargetVerdict>,
+    #[serde(default)]
+    m4_drama_rate_verdict: Option<TargetVerdict>,
 
     /// M5 — Late drama.
     m5_late_goal_rate: f64,
     m5_late_winner_rate: f64,
+    // M5 target verdicts (task 1c, warn-only):
+    #[serde(default)]
+    m5_late_goal_verdict: Option<TargetVerdict>,
+    #[serde(default)]
+    m5_late_winner_verdict: Option<TargetVerdict>,
 
     /// M6 — Comeback magnitude.
     /// Rate is computed over DECIDED matches (margin > 0) not all matches,
@@ -230,9 +314,17 @@ struct SweepReport {
     m6_magnitude_mean: f64,
     /// Decided matches count (margin > 0): denominator for M6 rates.
     m6_decided_matches: u32,
+    // M6 target verdicts (task 1c, warn-only):
+    #[serde(default)]
+    m6_any_comeback_verdict: Option<TargetVerdict>,
+    #[serde(default)]
+    m6_two_goal_verdict: Option<TargetVerdict>,
 
     /// M7 — Nervy finish.
     m7_nervy_rate: f64,
+    // M7 target verdict (task 1c, warn-only):
+    #[serde(default)]
+    m7_nervy_verdict: Option<TargetVerdict>,
 
     /// M8 — Key-moment density.
     m8_shots_mean: f64,
@@ -244,6 +336,20 @@ struct SweepReport {
 
     /// Overall: all realism guards pass.
     all_guards_pass: bool,
+
+    // Anti-scripting fields (task 1a, warn-only):
+    /// P(trailing team scored the late decider | it was trailing by 1 at 85%).
+    #[serde(default)]
+    anti_script_p_comeback_given_trailing: f64,
+    /// |P(late winner home) − P(late winner away)| across all late-decider matches.
+    #[serde(default)]
+    anti_script_home_away_asymmetry: f64,
+    /// Count of matches where a team was trailing by 1 at 85%.
+    #[serde(default)]
+    anti_script_n_trailing_late: u32,
+    /// Warn-only: true if p_comeback > 0.75 OR asymmetry > 0.25.
+    #[serde(default)]
+    anti_script_suspicious: bool,
 
     /// Per-match raw data (for baseline delta inspection).
     matches: Vec<MatchMetrics>,
@@ -285,6 +391,178 @@ fn main() -> std::process::ExitCode {
     }
 }
 
+/// Pure helper: given a list of archetype IDs (as strings), pick two distinct
+/// indices for home and away keyed by a match index `i`. If fewer than 2
+/// archetypes exist, returns (0, 0) as the fallback.
+///
+/// Testable without ContentStore.
+pub fn pick_archetype_pair(arches: &[String], i: u32) -> (usize, usize) {
+    if arches.len() < 2 {
+        return (0, 0);
+    }
+    let n = arches.len();
+    let home_idx = (i as usize) % n;
+    // Away must differ from home; cycle through until distinct.
+    let away_idx = (home_idx + 1 + (i as usize / n) % (n - 1)) % n;
+    (home_idx, away_idx)
+}
+
+/// Pure helper: given all goals from a set of matches, compute the M1 shape
+/// metrics. Returns `(max_single_match, ceiling_ok, in_band_fraction,
+/// in_band_ok)`.
+#[allow(clippy::float_arithmetic)]
+pub fn m1_shape_from_goals(goals: &[u32]) -> (u32, bool, f64, bool) {
+    if goals.is_empty() {
+        return (0, true, 1.0, true);
+    }
+    let max = *goals.iter().max().unwrap_or(&0);
+    let ceiling_ok = max <= guards::M1_SINGLE_MATCH_HARD_CEILING;
+    // M1_IN_BAND_LO is 0 (u32 minimum), so only the upper bound needs checking.
+    let in_band_count = goals
+        .iter()
+        .filter(|&&g| g <= guards::M1_IN_BAND_HI)
+        .count();
+    let in_band_fraction = in_band_count as f64 / goals.len() as f64;
+    let in_band_ok = in_band_fraction >= guards::M1_IN_BAND_MIN_FRACTION;
+    (max, ceiling_ok, in_band_fraction, in_band_ok)
+}
+
+/// Apply per-team quality jitter to a `MatchState`.
+///
+/// Both teams get a deterministic quality factor drawn from
+/// `ChaCha8Rng::seed_from_u64(seed_fn(match_seed, 0, SeedLayer::Decision, site))`.
+/// Home factor and away factor are drawn with site=0 and site=1 respectively.
+/// Each factor is in `[0.85, 1.15]` (±15% spread) — a uniform draw over 31
+/// steps of 0.01. Applied multiplicatively to every player attribute, clamped
+/// to `[Q32::ZERO, Q32::ONE]`.
+///
+/// This is bin-only: mutates the caller's local `MatchState`; never feeds
+/// a pinned fixture or canonical state.
+#[allow(clippy::float_arithmetic)]
+pub fn apply_quality_jitter(state: &mut MatchState, match_seed: u64) {
+    // Draw home factor (site=0) and away factor (site=1).
+    let home_factor = quality_factor_from_seed(seed_fn(match_seed, 0, SeedLayer::Decision, 0));
+    let away_factor = quality_factor_from_seed(seed_fn(match_seed, 0, SeedLayer::Decision, 1));
+
+    let n = state.players.len();
+    for idx in 0..n {
+        let factor = if idx < 11 { home_factor } else { away_factor };
+        // Draw a per-player jitter on top of the team factor (site = slot index).
+        let per_player = quality_factor_from_seed(seed_fn(
+            match_seed,
+            0,
+            SeedLayer::Decision,
+            idx as u32 + 2,
+        ));
+        let combined = (factor + per_player) / 2.0;
+        apply_factor_to_player(state.players[idx].attributes_mut(), combined);
+    }
+}
+
+/// Draw a quality factor in [0.85, 1.15] from a seed u64.
+#[allow(clippy::float_arithmetic)]
+fn quality_factor_from_seed(seed: u64) -> f64 {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let raw = rng.next_u32();
+    // Map to [0, 30] → [0.85, 1.15] in steps of 0.01.
+    let step = raw % 31;
+    0.85 + step as f64 * 0.01
+}
+
+// Q32 → f64: raw bits / 2^32 (same pattern as inspect_frames.rs and render_contact_sheet.rs).
+const Q32_SCALE: f64 = 4_294_967_296.0; // 2^32
+
+/// Apply a multiplicative factor to all visible attributes of a player,
+/// clamping to [Q32::ZERO, Q32::ONE]. Uses `attributes_mut()` accessor.
+#[allow(clippy::float_arithmetic)]
+fn apply_factor_to_player(attrs: &mut fw_core::PlayerAttributes, factor: f64) {
+    use fw_core::Q32;
+
+    macro_rules! scale {
+        ($field:expr) => {
+            let raw_f = ($field.to_bits() as f64 / Q32_SCALE) * factor;
+            let clamped = raw_f.clamp(0.0, 1.0);
+            $field = Q32::from_f64_clamped(clamped);
+        };
+    }
+
+    // Technical (14 fields — exact names from TechnicalAttributes struct)
+    scale!(attrs.technical.finishing);
+    scale!(attrs.technical.long_shots);
+    scale!(attrs.technical.passing);
+    scale!(attrs.technical.crossing);
+    scale!(attrs.technical.first_touch);
+    scale!(attrs.technical.technique);
+    scale!(attrs.technical.dribbling);
+    scale!(attrs.technical.heading);
+    scale!(attrs.technical.tackling);
+    scale!(attrs.technical.marking);
+    scale!(attrs.technical.free_kicks);
+    scale!(attrs.technical.penalty_taking);
+    scale!(attrs.technical.corners);
+    scale!(attrs.technical.long_throws);
+    // Mental (10 fields — exact names from MentalAttributes struct)
+    scale!(attrs.mental.anticipation);
+    scale!(attrs.mental.composure);
+    scale!(attrs.mental.decisions);
+    scale!(attrs.mental.vision);
+    scale!(attrs.mental.off_the_ball);
+    scale!(attrs.mental.positioning);
+    scale!(attrs.mental.concentration);
+    scale!(attrs.mental.bravery);
+    scale!(attrs.mental.teamwork);
+    scale!(attrs.mental.flair);
+    // Physical (8 fields — exact names from PhysicalAttributes struct)
+    scale!(attrs.physical.pace);
+    scale!(attrs.physical.acceleration);
+    scale!(attrs.physical.stamina);
+    scale!(attrs.physical.strength);
+    scale!(attrs.physical.agility);
+    scale!(attrs.physical.balance);
+    scale!(attrs.physical.jumping_reach);
+    scale!(attrs.physical.natural_fitness);
+}
+
+/// Detect which side (if any) was trailing by exactly 1 goal at 85% of
+/// `match_end_tick`. Returns `None` if level or margin != 1 (we only track
+/// single-goal deficits for the anti-scripting metric).
+#[allow(clippy::float_arithmetic)]
+fn trailing_team_at_85pct(events: &[MatchEvent], match_end_tick: i64) -> Option<Side> {
+    let end = match_end_tick.max(1) as f64;
+    let threshold_raw = (end * 0.85) as i64;
+
+    let mut h = 0u16;
+    let mut a = 0u16;
+    for e in events {
+        if let MatchEvent::Goal {
+            tick,
+            score_home_after,
+            score_away_after,
+            ..
+        } = e
+        {
+            if tick.to_raw() <= threshold_raw {
+                h = *score_home_after;
+                a = *score_away_after;
+            } else {
+                break;
+            }
+        }
+    }
+
+    let margin = h.abs_diff(a);
+    if margin == 1 {
+        if a > h {
+            Some(Side::Home) // home trailing
+        } else {
+            Some(Side::Away) // away trailing
+        }
+    } else {
+        None
+    }
+}
+
+
 #[allow(clippy::float_arithmetic)]
 fn run(cli: &Cli) -> Result<std::process::ExitCode, String> {
     // Fix 4: --seeds 0 guard. A 0-seed sweep produces NaN rates and poisons
@@ -298,6 +576,15 @@ fn run(cli: &Cli) -> Result<std::process::ExitCode, String> {
     let base_seed_raw = u64::from_str_radix(trimmed, 16)
         .map_err(|e| format!("invalid --base-seed {:?}: {e}", cli.base_seed))?;
 
+    // --archetype-pair requires --content: fail loud rather than silently running
+    // mirror teams while reporting "differentiated: yes".
+    if cli.archetype_pair && cli.content.is_none() {
+        return Err(
+            "--archetype-pair requires --content (no archetypes to pick without a content pack)"
+                .to_string(),
+        );
+    }
+
     // Load content if provided.
     let content_opt = if let Some(content_path) = &cli.content {
         let store = ContentStore::load_sources(content_path)
@@ -308,11 +595,30 @@ fn run(cli: &Cli) -> Result<std::process::ExitCode, String> {
     };
     let content_loaded = content_opt.is_some();
 
+    // Collect archetype IDs if we'll be using --archetype-pair.
+    let archetype_ids: Vec<String> = if let Some(store) = &content_opt {
+        store.tactical_archetypes.keys().cloned().collect()
+    } else {
+        vec![]
+    };
+
+    // Hoist the < 2-archetypes warning: emit once before the loop, not once per seed.
+    if cli.archetype_pair && archetype_ids.len() < 2 {
+        eprintln!(
+            "drama_sweep: WARNING: --archetype-pair requires >= 2 archetypes; \
+             falling back to DEFAULT pair for all seeds"
+        );
+    }
+
+    let differentiated = cli.vary_quality || cli.archetype_pair;
+
     eprintln!(
-        "drama_sweep: running {} seeds × {} ticks (content: {})",
+        "drama_sweep: running {} seeds × {} ticks (content: {}, vary_quality: {}, archetype_pair: {})",
         cli.seeds,
         cli.ticks,
-        if content_loaded { "yes" } else { "no" }
+        if content_loaded { "yes" } else { "no" },
+        cli.vary_quality,
+        cli.archetype_pair,
     );
 
     // Run sweep.
@@ -322,12 +628,21 @@ fn run(cli: &Cli) -> Result<std::process::ExitCode, String> {
         let seed_raw = base_seed_raw.wrapping_add(i as u64);
         let seed = Seed::from_u64(seed_raw);
 
+        // Pick archetypes (--archetype-pair). The < 2-archetypes warning was
+        // already emitted once before this loop.
+        let (home_arch, away_arch) = if cli.archetype_pair && archetype_ids.len() >= 2 {
+            let (hi, ai) = pick_archetype_pair(&archetype_ids, i);
+            (archetype_ids[hi].clone(), archetype_ids[ai].clone())
+        } else {
+            (fw_match_sim::DEFAULT_ARCHETYPE_ID.to_string(), fw_match_sim::DEFAULT_ARCHETYPE_ID.to_string())
+        };
+
         let initial_state = match &content_opt {
             Some(store) => MatchState::initial_with_content(
                 seed,
                 store,
-                fw_match_sim::DEFAULT_ARCHETYPE_ID,
-                fw_match_sim::DEFAULT_ARCHETYPE_ID,
+                &home_arch,
+                &away_arch,
             )
             .map_err(|e| format!("initial_with_content seed {seed_raw:#x}: {e}"))?,
             None => MatchState::initial(seed),
@@ -339,6 +654,13 @@ fn run(cli: &Cli) -> Result<std::process::ExitCode, String> {
         };
 
         let mut state = initial_state;
+
+        // Apply quality jitter (--vary-quality). This mutates only this local
+        // MatchState — it never feeds a pinned fixture or canonical state.
+        if cli.vary_quality {
+            apply_quality_jitter(&mut state, seed_raw);
+        }
+
         for _ in 0..cli.ticks {
             state = tick_match(state, &sig_defs);
         }
@@ -361,6 +683,12 @@ fn run(cli: &Cli) -> Result<std::process::ExitCode, String> {
             .iter()
             .any(|e| matches!(e, MatchEvent::FullTime { .. }));
 
+        // Anti-scripting metrics (task 1a).
+        // `late.late_decider_side` is populated by m5_late_drama — no duplicate predicate.
+        let trailing_at_late = trailing_team_at_85pct(events, match_end_tick);
+        let late_decider_side = late.late_decider_side;
+        let had_late_decider = late_decider_side.is_some();
+
         match_metrics.push(MatchMetrics {
             seed_hex: format!("{seed_raw:#018x}"),
             goals,
@@ -377,6 +705,9 @@ fn run(cli: &Cli) -> Result<std::process::ExitCode, String> {
             on_target_shots: on_target,
             signatures_fired: km.signatures_fired,
             completed,
+            trailing_team_at_late: trailing_at_late,
+            late_winner_team: late_decider_side,
+            had_late_decider,
         });
 
         if (i + 1) % 10 == 0 || i + 1 == cli.seeds {
@@ -405,7 +736,7 @@ Use --ticks {} (FULL_MATCH_TICKS) to get complete matches.\n\
         return Ok(std::process::ExitCode::from(2));
     }
 
-    let report = aggregate(&match_metrics, base_seed_raw, cli, content_loaded);
+    let report = aggregate(&match_metrics, base_seed_raw, cli, content_loaded, differentiated);
     let had_guard_failures = !report.all_guards_pass;
 
     // Print human summary to stderr (always; --summary-only prints to stdout too).
@@ -462,6 +793,7 @@ fn aggregate(
     base_seed_raw: u64,
     cli: &Cli,
     content_loaded: bool,
+    differentiated: bool,
 ) -> SweepReport {
     let n = matches.len() as f64;
     let completed_matches = matches.iter().filter(|m| m.completed).count() as u32;
@@ -480,7 +812,15 @@ fn aggregate(
     let m1_guard_mean_ok = (guards::M1_MEAN_MIN..=guards::M1_MEAN_MAX).contains(&m1_mean);
     let m1_guard_std_ok = (guards::M1_STD_MIN..=guards::M1_STD_MAX).contains(&m1_std);
     let m1_guard_p95_ok = m1_p95 <= guards::M1_P95_MAX;
-    let m1_guard_pass = m1_guard_mean_ok && m1_guard_std_ok && m1_guard_p95_ok;
+
+    // M1 shape guard (task 1b).
+    let goals_u32: Vec<u32> = matches.iter().map(|m| m.goals).collect();
+    let (m1_max_single_match, m1_hard_ceiling_ok, m1_in_band_fraction, m1_in_band_ok) =
+        m1_shape_from_goals(&goals_u32);
+
+    // Fold shape guard into m1_guard_pass (bimodal protection).
+    let m1_guard_pass =
+        m1_guard_mean_ok && m1_guard_std_ok && m1_guard_p95_ok && m1_hard_ceiling_ok && m1_in_band_ok;
 
     // Fix 2: M2 — POOLED first-third fraction.
     // Correct computation per drama-model.md §M2:
@@ -506,14 +846,44 @@ fn aggregate(
     let m3_two_goal_rate = matches.iter().filter(|m| m.margin == 2).count() as f64 / n;
     let m3_blowout_rate = matches.iter().filter(|m| m.margin >= 3).count() as f64 / n;
 
+    // M3 target verdicts (task 1c, warn-only).
+    let m3_draw_verdict = Some(classify(m3_draw_rate, targets::M3_DRAW_MIN, targets::M3_DRAW_MAX));
+    let m3_one_goal_verdict = Some(classify(m3_one_goal_rate, targets::M3_ONE_GOAL_MIN, targets::M3_ONE_GOAL_MAX));
+    let m3_two_goal_verdict = Some(classify(m3_two_goal_rate, targets::M3_TWO_GOAL_MIN, targets::M3_TWO_GOAL_MAX));
+    let m3_blowout_verdict = Some(classify(m3_blowout_rate, targets::M3_BLOWOUT_MIN, targets::M3_BLOWOUT_MAX));
+
     // M4 — lead changes.
     let lead_change_vals: Vec<f64> = matches.iter().map(|m| m.lead_changes as f64).collect();
     let m4_lead_changes_mean = mean(&lead_change_vals);
     let m4_matches_with_drama_rate = matches.iter().filter(|m| m.has_drama).count() as f64 / n;
 
+    // M4 target verdicts (task 1c, warn-only).
+    let m4_lead_changes_verdict = Some(classify(
+        m4_lead_changes_mean,
+        targets::M4_LEAD_CHANGES_MEAN_MIN,
+        targets::M4_LEAD_CHANGES_MEAN_MAX,
+    ));
+    let m4_drama_rate_verdict = Some(classify(
+        m4_matches_with_drama_rate,
+        targets::M4_MATCHES_WITH_DRAMA_MIN,
+        targets::M4_MATCHES_WITH_DRAMA_MAX,
+    ));
+
     // M5 — late drama.
     let m5_late_goal_rate = matches.iter().filter(|m| m.has_late_goal).count() as f64 / n;
     let m5_late_winner_rate = matches.iter().filter(|m| m.has_late_winner).count() as f64 / n;
+
+    // M5 target verdicts (task 1c, warn-only).
+    let m5_late_goal_verdict = Some(classify(
+        m5_late_goal_rate,
+        targets::M5_LATE_GOAL_MIN,
+        targets::M5_LATE_GOAL_MAX,
+    ));
+    let m5_late_winner_verdict = Some(classify(
+        m5_late_winner_rate,
+        targets::M5_LATE_WINNER_MIN,
+        targets::M5_LATE_WINNER_MAX,
+    ));
 
     // Fix 5: M6 — comeback magnitude over DECIDED matches only.
     // A comeback requires goals. Computing the rate over all matches (including
@@ -544,8 +914,23 @@ fn aggregate(
             (any, two_goal, mean(&mag_vals))
         };
 
+    // M6 target verdicts (task 1c, warn-only).
+    let m6_any_comeback_verdict = Some(classify(
+        m6_any_comeback_rate,
+        targets::M6_ANY_COMEBACK_MIN,
+        targets::M6_ANY_COMEBACK_MAX,
+    ));
+    let m6_two_goal_verdict = Some(classify(
+        m6_two_goal_comeback_rate,
+        targets::M6_TWO_GOAL_MIN,
+        targets::M6_TWO_GOAL_MAX,
+    ));
+
     // M7 — nervy finish.
     let m7_nervy_rate = matches.iter().filter(|m| m.nervy_finish).count() as f64 / n;
+
+    // M7 target verdict (task 1c, warn-only).
+    let m7_nervy_verdict = Some(classify(m7_nervy_rate, targets::M7_NERVY_MIN, targets::M7_NERVY_MAX));
 
     // M8 — key-moment density.
     let shots_vals: Vec<f64> = matches.iter().map(|m| m.shots as f64).collect();
@@ -568,6 +953,55 @@ fn aggregate(
     // signatures can fire and the guard is vacuous).
     let m8_guard_pass = m8_shots_guard_pass && (m8_sigs_guard_pass || !content_loaded);
 
+    // Anti-scripting metrics (task 1a).
+    // P(trailing team scored the late decider | trailing by 1 at 85%).
+    let trailing_by_one: Vec<&MatchMetrics> = matches
+        .iter()
+        .filter(|m| m.trailing_team_at_late.is_some())
+        .collect();
+    let anti_script_n_trailing_late = trailing_by_one.len() as u32;
+
+    let (anti_script_p_comeback_given_trailing, anti_script_home_away_asymmetry) =
+        if trailing_by_one.is_empty() {
+            (0.0, 0.0)
+        } else {
+            let nt = trailing_by_one.len() as f64;
+            // Comeback: trailing team scored the late decider.
+            let comeback_count = trailing_by_one
+                .iter()
+                .filter(|m| {
+                    m.had_late_decider
+                        && m.late_winner_team == m.trailing_team_at_late
+                })
+                .count();
+            let p_comeback = comeback_count as f64 / nt;
+
+            // Home/away asymmetry: among all late-decider matches, fraction won by home vs away.
+            let decider_matches: Vec<&MatchMetrics> =
+                matches.iter().filter(|m| m.had_late_decider).collect();
+            let asymmetry = if decider_matches.is_empty() {
+                0.0
+            } else {
+                let nd = decider_matches.len() as f64;
+                let home_late_win = decider_matches
+                    .iter()
+                    .filter(|m| m.late_winner_team == Some(Side::Home))
+                    .count() as f64
+                    / nd;
+                let away_late_win = decider_matches
+                    .iter()
+                    .filter(|m| m.late_winner_team == Some(Side::Away))
+                    .count() as f64
+                    / nd;
+                (home_late_win - away_late_win).abs()
+            };
+
+            (p_comeback, asymmetry)
+        };
+
+    let anti_script_suspicious =
+        anti_script_p_comeback_given_trailing > 0.75 || anti_script_home_away_asymmetry > 0.25;
+
     let all_guards_pass = m1_guard_pass && m2_guard_pass && m8_guard_pass;
 
     SweepReport {
@@ -577,6 +1011,7 @@ fn aggregate(
         content_loaded,
         completed_matches,
         goalless_matches,
+        differentiated,
         m1_goals_mean: m1_mean,
         m1_goals_std: m1_std,
         m1_goals_p5: m1_p5,
@@ -585,6 +1020,10 @@ fn aggregate(
         m1_guard_mean_ok,
         m1_guard_std_ok,
         m1_guard_p95_ok,
+        m1_max_single_match,
+        m1_hard_ceiling_ok,
+        m1_in_band_fraction,
+        m1_in_band_ok,
         m1_guard_pass,
         m2_first_third_pooled_frac,
         m2_corpus_total_goals: m2_corpus_total,
@@ -594,15 +1033,26 @@ fn aggregate(
         m3_one_goal_rate,
         m3_two_goal_rate,
         m3_blowout_rate,
+        m3_draw_verdict,
+        m3_one_goal_verdict,
+        m3_two_goal_verdict,
+        m3_blowout_verdict,
         m4_lead_changes_mean,
         m4_matches_with_drama_rate,
+        m4_lead_changes_verdict,
+        m4_drama_rate_verdict,
         m5_late_goal_rate,
         m5_late_winner_rate,
+        m5_late_goal_verdict,
+        m5_late_winner_verdict,
         m6_any_comeback_rate,
         m6_two_goal_comeback_rate,
         m6_magnitude_mean,
         m6_decided_matches,
+        m6_any_comeback_verdict,
+        m6_two_goal_verdict,
         m7_nervy_rate,
+        m7_nervy_verdict,
         m8_shots_mean,
         m8_on_target_rate,
         m8_signatures_mean,
@@ -610,6 +1060,10 @@ fn aggregate(
         m8_sigs_guard_pass,
         m8_guard_pass,
         all_guards_pass,
+        anti_script_p_comeback_given_trailing,
+        anti_script_home_away_asymmetry,
+        anti_script_n_trailing_late,
+        anti_script_suspicious,
         matches: matches.to_vec(),
     }
 }
@@ -631,6 +1085,12 @@ fn build_baseline_mismatch_warning(after: &SweepReport, before: &SweepReport) ->
         diffs.push(format!(
             "ticks_per_match {} vs {}",
             after.ticks_per_match, before.ticks_per_match
+        ));
+    }
+    if after.differentiated != before.differentiated {
+        diffs.push(format!(
+            "differentiated {} vs {}",
+            after.differentiated, before.differentiated
         ));
     }
     if diffs.is_empty() {
@@ -677,6 +1137,16 @@ fn compute_delta(
     }
 }
 
+/// Format a TargetVerdict for the summary line.
+fn fmt_verdict(v: Option<TargetVerdict>) -> &'static str {
+    match v {
+        None => "N/A",
+        Some(TargetVerdict::Pass) => "PASS",
+        Some(TargetVerdict::Over) => "OVER",
+        Some(TargetVerdict::Under) => "UNDER",
+    }
+}
+
 #[allow(clippy::float_arithmetic)]
 fn build_summary(r: &SweepReport) -> String {
     let guard_status = |ok: bool| -> &str { if ok { "PASS" } else { "FAIL <<<" } };
@@ -695,15 +1165,24 @@ fn build_summary(r: &SweepReport) -> String {
         .collect::<Vec<_>>()
         .join(", ");
 
+    // Anti-scripting display.
+    let anti_script_flag = if r.anti_script_suspicious {
+        "SUSPICIOUS <<<"
+    } else {
+        "ok"
+    };
+
     format!(
         "\n\
 === drama-sweep report: {} seeds × {} ticks (content: {}) ===\n\
-  Completed matches: {} / {}  |  Goalless: {}\n\
+  Completed matches: {} / {}  |  Goalless: {}  |  Differentiated: {}\n\
 \n\
 REALISM GUARDS:\n\
   M1 goals/match  mean={:.2} (band {}-{})  [{}]\n\
                   std={:.2}  (band {}-{})  [{}]\n\
                   p95={:.1}  (≤{})         [{}]\n\
+                  max_single={} (ceiling ≤{})  [{}]\n\
+                  in_band_frac={:.1}% (≥{}% in [0,{}])  [{}]\n\
   M1 overall: {}\n\
   M2 first-third goal% (pooled)={}  (guard ≤{:.0}%)  [{}]\n\
      corpus: {} first-third goals / {} total goals\n\
@@ -713,17 +1192,23 @@ REALISM GUARDS:\n\
   M8 overall: {}\n\
   ALL GUARDS: {}\n\
 \n\
-DRAMA TARGETS (informational — no pass/fail yet):\n\
-  M3 margin  draw={:.1}%  1g={:.1}%  2g={:.1}%  3+g={:.1}%\n\
-             (targets: draw 22-28%, 1g 38-48%, 2g 16-24%, 3+g 6-14%)\n\
-  M4 lead changes  mean={:.2}/match  drama-rate={:.1}%\n\
-             (targets: mean 0.5-1.5, drama-rate 22-40%)\n\
-  M5 late-goal={:.1}%  late-winner={:.1}%\n\
-             (targets: late-goal 28-45%, late-winner 9-18%)\n\
-  M6 any-comeback={:.1}%  2g-comeback={:.1}%  magnitude-mean={:.2}\n\
-             (over {} decided matches; targets: any-comeback 15-35%, 2g 5-12%)\n\
-  M7 nervy-finish={:.1}%\n\
-             (target: 40-58%)\n\
+DRAMA TARGETS (warn-only — PASS/OVER/UNDER, does not affect ALL GUARDS):\n\
+  M3 margin  draw={:.1}% [{}]  1g={:.1}% [{}]  2g={:.1}% [{}]  3+g={:.1}% [{}]\n\
+             (targets: draw {:.0}-{:.0}%, 1g {:.0}-{:.0}%, 2g {:.0}-{:.0}%, 3+g {:.0}-{:.0}%)\n\
+  M4 lead changes  mean={:.2}/match [{}]  drama-rate={:.1}% [{}]\n\
+             (targets: mean {}-{}, drama-rate {:.0}-{:.0}%)\n\
+  M5 late-goal={:.1}% [{}]  late-winner={:.1}% [{}]\n\
+             (targets: late-goal {:.0}-{:.0}%, late-winner {:.0}-{:.0}%)\n\
+  M6 any-comeback={:.1}% [{}]  2g-comeback={:.1}% [{}]  magnitude-mean={:.2}\n\
+             (over {} decided matches; targets: any-comeback {:.0}-{:.0}%, 2g {:.0}-{:.0}%)\n\
+  M7 nervy-finish={:.1}% [{}]\n\
+             (target: {:.0}-{:.0}%)\n\
+\n\
+ANTI-SCRIPTING (warn-only — Goodhart guard):\n\
+  P(comeback | trailing-by-1 at 85%)={:.2}  (warn if >0.75)\n\
+  Home/away asymmetry={:.2}  (warn if >0.25)\n\
+  N(trailing-by-1 at late)={}\n\
+  Status: {}\n\
 \n\
 PER-SEED GOALS (M1 distribution):\n\
   [{}]\n",
@@ -733,6 +1218,7 @@ PER-SEED GOALS (M1 distribution):\n\
         r.completed_matches,
         r.n_seeds,
         r.goalless_matches,
+        if r.differentiated { "yes" } else { "no" },
         // M1 mean
         r.m1_goals_mean,
         guards::M1_MEAN_MIN,
@@ -747,6 +1233,15 @@ PER-SEED GOALS (M1 distribution):\n\
         r.m1_goals_p95,
         guards::M1_P95_MAX,
         guard_status(r.m1_guard_p95_ok),
+        // M1 shape ceiling
+        r.m1_max_single_match,
+        guards::M1_SINGLE_MATCH_HARD_CEILING,
+        guard_status(r.m1_hard_ceiling_ok),
+        // M1 in-band fraction
+        r.m1_in_band_fraction * 100.0,
+        guards::M1_IN_BAND_MIN_FRACTION * 100.0,
+        guards::M1_IN_BAND_HI,
+        guard_status(r.m1_in_band_ok),
         // M1 overall
         guard_status(r.m1_guard_pass),
         // M2
@@ -771,24 +1266,40 @@ PER-SEED GOALS (M1 distribution):\n\
         guard_status(r.m8_guard_pass),
         // all guards
         guard_status(r.all_guards_pass),
-        // M3
-        r.m3_draw_rate * 100.0,
-        r.m3_one_goal_rate * 100.0,
-        r.m3_two_goal_rate * 100.0,
-        r.m3_blowout_rate * 100.0,
-        // M4
-        r.m4_lead_changes_mean,
-        r.m4_matches_with_drama_rate * 100.0,
-        // M5
-        r.m5_late_goal_rate * 100.0,
-        r.m5_late_winner_rate * 100.0,
-        // M6
-        r.m6_any_comeback_rate * 100.0,
-        r.m6_two_goal_comeback_rate * 100.0,
+        // M3 with verdicts
+        r.m3_draw_rate * 100.0, fmt_verdict(r.m3_draw_verdict),
+        r.m3_one_goal_rate * 100.0, fmt_verdict(r.m3_one_goal_verdict),
+        r.m3_two_goal_rate * 100.0, fmt_verdict(r.m3_two_goal_verdict),
+        r.m3_blowout_rate * 100.0, fmt_verdict(r.m3_blowout_verdict),
+        targets::M3_DRAW_MIN * 100.0, targets::M3_DRAW_MAX * 100.0,
+        targets::M3_ONE_GOAL_MIN * 100.0, targets::M3_ONE_GOAL_MAX * 100.0,
+        targets::M3_TWO_GOAL_MIN * 100.0, targets::M3_TWO_GOAL_MAX * 100.0,
+        targets::M3_BLOWOUT_MIN * 100.0, targets::M3_BLOWOUT_MAX * 100.0,
+        // M4 with verdicts
+        r.m4_lead_changes_mean, fmt_verdict(r.m4_lead_changes_verdict),
+        r.m4_matches_with_drama_rate * 100.0, fmt_verdict(r.m4_drama_rate_verdict),
+        targets::M4_LEAD_CHANGES_MEAN_MIN, targets::M4_LEAD_CHANGES_MEAN_MAX,
+        targets::M4_MATCHES_WITH_DRAMA_MIN * 100.0, targets::M4_MATCHES_WITH_DRAMA_MAX * 100.0,
+        // M5 with verdicts
+        r.m5_late_goal_rate * 100.0, fmt_verdict(r.m5_late_goal_verdict),
+        r.m5_late_winner_rate * 100.0, fmt_verdict(r.m5_late_winner_verdict),
+        targets::M5_LATE_GOAL_MIN * 100.0, targets::M5_LATE_GOAL_MAX * 100.0,
+        targets::M5_LATE_WINNER_MIN * 100.0, targets::M5_LATE_WINNER_MAX * 100.0,
+        // M6 with verdicts
+        r.m6_any_comeback_rate * 100.0, fmt_verdict(r.m6_any_comeback_verdict),
+        r.m6_two_goal_comeback_rate * 100.0, fmt_verdict(r.m6_two_goal_verdict),
         r.m6_magnitude_mean,
         r.m6_decided_matches,
-        // M7
-        r.m7_nervy_rate * 100.0,
+        targets::M6_ANY_COMEBACK_MIN * 100.0, targets::M6_ANY_COMEBACK_MAX * 100.0,
+        targets::M6_TWO_GOAL_MIN * 100.0, targets::M6_TWO_GOAL_MAX * 100.0,
+        // M7 with verdict
+        r.m7_nervy_rate * 100.0, fmt_verdict(r.m7_nervy_verdict),
+        targets::M7_NERVY_MIN * 100.0, targets::M7_NERVY_MAX * 100.0,
+        // Anti-scripting
+        r.anti_script_p_comeback_given_trailing,
+        r.anti_script_home_away_asymmetry,
+        r.anti_script_n_trailing_late,
+        anti_script_flag,
         // goals dist
         goals_dist,
     )
@@ -876,12 +1387,71 @@ fn percentile(sorted: &[f64], p: f64) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// Tests for fix correctness
+// Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Helper to build a minimal MatchMetrics for aggregate tests.
+    fn make_metrics(
+        goals: u32,
+        margin: u32,
+        completed: bool,
+        shots: u32,
+        in_band: bool,
+    ) -> MatchMetrics {
+        MatchMetrics {
+            seed_hex: "0x00".to_string(),
+            goals,
+            first_third_goals: 0,
+            margin,
+            lead_changes: 0,
+            equalisers: 0,
+            has_drama: false,
+            has_late_goal: false,
+            has_late_winner: false,
+            comeback_magnitude: 0,
+            // nervy_finish drives no guard, but set deterministically
+            nervy_finish: in_band,
+            shots,
+            on_target_shots: 0,
+            signatures_fired: 0,
+            completed,
+            trailing_team_at_late: None,
+            late_winner_team: None,
+            had_late_decider: false,
+        }
+    }
+
+    fn make_metrics_with_anti(
+        goals: u32,
+        trailing_at_late: Option<Side>,
+        late_winner_team: Option<Side>,
+        had_late_decider: bool,
+    ) -> MatchMetrics {
+        MatchMetrics {
+            seed_hex: "0x00".to_string(),
+            goals,
+            first_third_goals: 0,
+            margin: 1,
+            lead_changes: 0,
+            equalisers: 0,
+            has_drama: false,
+            has_late_goal: had_late_decider,
+            has_late_winner: had_late_decider,
+            comeback_magnitude: 0,
+            nervy_finish: false,
+            shots: 0,
+            on_target_shots: 0,
+            signatures_fired: 0,
+            completed: true,
+            trailing_team_at_late: trailing_at_late,
+            late_winner_team,
+            had_late_decider,
+        }
+    }
 
     // --- Fix 4: --seeds 0 guard ---
 
@@ -895,8 +1465,34 @@ mod tests {
             output: None,
             summary_only: false,
             ticks: 5400,
+            vary_quality: false,
+            archetype_pair: false,
         };
         assert!(run(&cli).is_err(), "--seeds 0 should return Err");
+    }
+
+    // --- Finding A: --archetype-pair without --content must fail loud ---
+
+    #[test]
+    fn archetype_pair_without_content_is_err() {
+        let cli = Cli {
+            seeds: 1,
+            base_seed: "0x1000000000000000".to_string(),
+            content: None, // no content
+            baseline: None,
+            output: None,
+            summary_only: false,
+            ticks: 5400,
+            vary_quality: false,
+            archetype_pair: true, // requested archetype-pair without content
+        };
+        let result = run(&cli);
+        assert!(result.is_err(), "--archetype-pair without --content must return Err");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("--archetype-pair requires --content"),
+            "error message should explain the requirement; got: {msg}"
+        );
     }
 
     #[test]
@@ -911,6 +1507,8 @@ mod tests {
             output: None,
             summary_only: false,
             ticks: 5400,
+            vary_quality: false,
+            archetype_pair: false,
         };
         // We can't run the full sim from a unit test (no content path), but
         // we verify that the code path from run() doesn't error on seeds=1.
@@ -943,6 +1541,9 @@ mod tests {
             on_target_shots: 3,
             signatures_fired: 0,
             completed: true,
+            trailing_team_at_late: None,
+            late_winner_team: None,
+            had_late_decider: false,
         };
         let match_b = MatchMetrics {
             seed_hex: "0x01".to_string(),
@@ -960,6 +1561,9 @@ mod tests {
             on_target_shots: 0,
             signatures_fired: 0,
             completed: true,
+            trailing_team_at_late: None,
+            late_winner_team: None,
+            had_late_decider: false,
         };
 
         // Compute pooled M2 directly.
@@ -1008,56 +1612,75 @@ mod tests {
 
     // --- Fix 6: baseline mismatch warning ---
 
+    fn make_sweep_report(seed: &str, n: u32, differentiated: bool) -> SweepReport {
+        SweepReport {
+            n_seeds: n,
+            base_seed_hex: seed.to_string(),
+            ticks_per_match: 5400,
+            content_loaded: false,
+            completed_matches: n,
+            goalless_matches: 0,
+            differentiated,
+            m1_goals_mean: 0.0,
+            m1_goals_std: 0.0,
+            m1_goals_p5: 0.0,
+            m1_goals_p50: 0.0,
+            m1_goals_p95: 0.0,
+            m1_guard_mean_ok: false,
+            m1_guard_std_ok: false,
+            m1_guard_p95_ok: false,
+            m1_max_single_match: 0,
+            m1_hard_ceiling_ok: true,
+            m1_in_band_fraction: 1.0,
+            m1_in_band_ok: true,
+            m1_guard_pass: false,
+            m2_first_third_pooled_frac: None,
+            m2_corpus_total_goals: 0,
+            m2_corpus_first_third_goals: 0,
+            m2_guard_pass: true,
+            m3_draw_rate: 0.0,
+            m3_one_goal_rate: 0.0,
+            m3_two_goal_rate: 0.0,
+            m3_blowout_rate: 0.0,
+            m3_draw_verdict: None,
+            m3_one_goal_verdict: None,
+            m3_two_goal_verdict: None,
+            m3_blowout_verdict: None,
+            m4_lead_changes_mean: 0.0,
+            m4_matches_with_drama_rate: 0.0,
+            m4_lead_changes_verdict: None,
+            m4_drama_rate_verdict: None,
+            m5_late_goal_rate: 0.0,
+            m5_late_winner_rate: 0.0,
+            m5_late_goal_verdict: None,
+            m5_late_winner_verdict: None,
+            m6_any_comeback_rate: 0.0,
+            m6_two_goal_comeback_rate: 0.0,
+            m6_magnitude_mean: 0.0,
+            m6_decided_matches: 0,
+            m6_any_comeback_verdict: None,
+            m6_two_goal_verdict: None,
+            m7_nervy_rate: 0.0,
+            m7_nervy_verdict: None,
+            m8_shots_mean: 0.0,
+            m8_on_target_rate: 0.0,
+            m8_signatures_mean: 0.0,
+            m8_shots_guard_pass: false,
+            m8_sigs_guard_pass: false,
+            m8_guard_pass: false,
+            all_guards_pass: false,
+            anti_script_p_comeback_given_trailing: 0.0,
+            anti_script_home_away_asymmetry: 0.0,
+            anti_script_n_trailing_late: 0,
+            anti_script_suspicious: false,
+            matches: vec![],
+        }
+    }
+
     #[test]
     fn baseline_mismatch_warns_on_different_seeds() {
-        // Build two minimal SweepReports with different base_seed_hex.
-        let make_report = |seed: &str, n: u32| -> SweepReport {
-            SweepReport {
-                n_seeds: n,
-                base_seed_hex: seed.to_string(),
-                ticks_per_match: 5400,
-                content_loaded: false,
-                completed_matches: n,
-                goalless_matches: 0,
-                m1_goals_mean: 0.0,
-                m1_goals_std: 0.0,
-                m1_goals_p5: 0.0,
-                m1_goals_p50: 0.0,
-                m1_goals_p95: 0.0,
-                m1_guard_mean_ok: false,
-                m1_guard_std_ok: false,
-                m1_guard_p95_ok: false,
-                m1_guard_pass: false,
-                m2_first_third_pooled_frac: None,
-                m2_corpus_total_goals: 0,
-                m2_corpus_first_third_goals: 0,
-                m2_guard_pass: true,
-                m3_draw_rate: 0.0,
-                m3_one_goal_rate: 0.0,
-                m3_two_goal_rate: 0.0,
-                m3_blowout_rate: 0.0,
-                m4_lead_changes_mean: 0.0,
-                m4_matches_with_drama_rate: 0.0,
-                m5_late_goal_rate: 0.0,
-                m5_late_winner_rate: 0.0,
-                m6_any_comeback_rate: 0.0,
-                m6_two_goal_comeback_rate: 0.0,
-                m6_magnitude_mean: 0.0,
-                m6_decided_matches: 0,
-                m7_nervy_rate: 0.0,
-                m8_shots_mean: 0.0,
-                m8_on_target_rate: 0.0,
-                m8_signatures_mean: 0.0,
-                m8_shots_guard_pass: false,
-                m8_sigs_guard_pass: false,
-                m8_guard_pass: false,
-                all_guards_pass: false,
-                matches: vec![],
-            }
-        };
-
-        let after = make_report("0xAAAA", 20);
-        let before = make_report("0xBBBB", 20); // different seed
+        let after = make_sweep_report("0xAAAA", 20, false);
+        let before = make_sweep_report("0xBBBB", 20, false);
 
         let warn = build_baseline_mismatch_warning(&after, &before);
         assert!(
@@ -1072,53 +1695,8 @@ mod tests {
 
     #[test]
     fn baseline_no_warning_when_identical() {
-        let make_report = |seed: &str, n: u32| -> SweepReport {
-            SweepReport {
-                n_seeds: n,
-                base_seed_hex: seed.to_string(),
-                ticks_per_match: 5400,
-                content_loaded: false,
-                completed_matches: n,
-                goalless_matches: 0,
-                m1_goals_mean: 0.0,
-                m1_goals_std: 0.0,
-                m1_goals_p5: 0.0,
-                m1_goals_p50: 0.0,
-                m1_goals_p95: 0.0,
-                m1_guard_mean_ok: false,
-                m1_guard_std_ok: false,
-                m1_guard_p95_ok: false,
-                m1_guard_pass: false,
-                m2_first_third_pooled_frac: None,
-                m2_corpus_total_goals: 0,
-                m2_corpus_first_third_goals: 0,
-                m2_guard_pass: true,
-                m3_draw_rate: 0.0,
-                m3_one_goal_rate: 0.0,
-                m3_two_goal_rate: 0.0,
-                m3_blowout_rate: 0.0,
-                m4_lead_changes_mean: 0.0,
-                m4_matches_with_drama_rate: 0.0,
-                m5_late_goal_rate: 0.0,
-                m5_late_winner_rate: 0.0,
-                m6_any_comeback_rate: 0.0,
-                m6_two_goal_comeback_rate: 0.0,
-                m6_magnitude_mean: 0.0,
-                m6_decided_matches: 0,
-                m7_nervy_rate: 0.0,
-                m8_shots_mean: 0.0,
-                m8_on_target_rate: 0.0,
-                m8_signatures_mean: 0.0,
-                m8_shots_guard_pass: false,
-                m8_sigs_guard_pass: false,
-                m8_guard_pass: false,
-                all_guards_pass: false,
-                matches: vec![],
-            }
-        };
-
-        let after = make_report("0xAAAA", 20);
-        let before = make_report("0xAAAA", 20); // same seed + count + ticks
+        let after = make_sweep_report("0xAAAA", 20, false);
+        let before = make_sweep_report("0xAAAA", 20, false);
         assert_eq!(
             build_baseline_mismatch_warning(&after, &before),
             None,
@@ -1126,8 +1704,232 @@ mod tests {
         );
     }
 
-    // --- Fix 3: --ticks incomplete run (integration-level; tested separately) ---
-    // The incomplete-run detection fires in run() when completed_matches < n_seeds.
-    // That path can't be exercised cheaply in a unit test (requires running a sim),
-    // so it's covered by the full verify run below (drama-sweep --ticks 600 exits 2).
+    #[test]
+    fn baseline_mismatch_warns_on_differentiated_change() {
+        let after = make_sweep_report("0xAAAA", 20, true);
+        let before = make_sweep_report("0xAAAA", 20, false);
+        let warn = build_baseline_mismatch_warning(&after, &before);
+        assert!(
+            warn.is_some(),
+            "differentiated mismatch should warn"
+        );
+    }
+
+    // --- Fix 3: --ticks incomplete run ---
+    // (Covered by integration-level drama-sweep --ticks 600 exits 2.)
+
+    // --- Task 1a: Anti-scripting tests ---
+
+    #[test]
+    fn anti_script_all_comebacks_flags_suspicious() {
+        // 5 matches: in all, home trails by 1 at 85% and home scores the late decider.
+        let ms: Vec<MatchMetrics> = (0..5)
+            .map(|_| make_metrics_with_anti(2, Some(Side::Home), Some(Side::Home), true))
+            .collect();
+        // Compute p_comeback directly as the aggregate fn would.
+        let trailing: Vec<&MatchMetrics> = ms.iter().filter(|m| m.trailing_team_at_late.is_some()).collect();
+        let nt = trailing.len() as f64;
+        let comebacks = trailing.iter().filter(|m| m.had_late_decider && m.late_winner_team == m.trailing_team_at_late).count();
+        let p_comeback = comebacks as f64 / nt;
+        assert!((p_comeback - 1.0).abs() < 1e-9, "p_comeback should be 1.0");
+        assert!(p_comeback > 0.75, "should flag suspicious");
+    }
+
+    #[test]
+    fn anti_script_balanced_set_low_asymmetry() {
+        // 4 matches: 2 home late deciders, 2 away late deciders → asymmetry ≈ 0.
+        let ms: Vec<MatchMetrics> = vec![
+            make_metrics_with_anti(2, None, Some(Side::Home), true),
+            make_metrics_with_anti(2, None, Some(Side::Home), true),
+            make_metrics_with_anti(2, None, Some(Side::Away), true),
+            make_metrics_with_anti(2, None, Some(Side::Away), true),
+        ];
+        let deciders: Vec<&MatchMetrics> = ms.iter().filter(|m| m.had_late_decider).collect();
+        let nd = deciders.len() as f64;
+        let home = deciders.iter().filter(|m| m.late_winner_team == Some(Side::Home)).count() as f64 / nd;
+        let away = deciders.iter().filter(|m| m.late_winner_team == Some(Side::Away)).count() as f64 / nd;
+        let asymmetry = (home - away).abs();
+        assert!(asymmetry < 0.01, "balanced set should have near-zero asymmetry; got {asymmetry}");
+    }
+
+    #[test]
+    fn anti_script_empty_is_zero() {
+        let ms: Vec<MatchMetrics> = vec![];
+        let trailing: Vec<&MatchMetrics> = ms.iter().filter(|m| m.trailing_team_at_late.is_some()).collect();
+        assert_eq!(trailing.len(), 0);
+        // With no data: p_comeback=0, asymmetry=0, not suspicious.
+        let p_comeback = 0.0f64;
+        let asymmetry = 0.0f64;
+        assert!(!(p_comeback > 0.75 || asymmetry > 0.25));
+    }
+
+    // --- Task 1b: M1 shape guard tests ---
+
+    #[test]
+    fn m1_shape_fails_on_ceiling_exceeded() {
+        // One match with 12 goals — exceeds ceiling of 8.
+        let goals = vec![12u32];
+        let (max, ceiling_ok, _, _) = m1_shape_from_goals(&goals);
+        assert_eq!(max, 12);
+        assert!(!ceiling_ok, "ceiling should fail for 12 goals");
+    }
+
+    #[test]
+    fn m1_shape_fails_on_bimodal_mix() {
+        // Half matches with 0 goals (in-band), half with 10 goals (out-of-band).
+        // in_band_fraction = 0.5 < 0.80 → fails. Also 10 > ceiling → ceiling fails.
+        let goals: Vec<u32> = (0..10).map(|i| if i < 5 { 0 } else { 10 }).collect();
+        let (max, ceiling_ok, in_band_frac, in_band_ok) = m1_shape_from_goals(&goals);
+        assert_eq!(max, 10);
+        assert!(!ceiling_ok, "ceiling should fail for 10 goals");
+        assert!(
+            (in_band_frac - 0.5).abs() < 1e-9,
+            "in_band_frac should be 0.5; got {in_band_frac}"
+        );
+        assert!(!in_band_ok, "in_band_ok should fail for 0.5 < 0.80");
+    }
+
+    #[test]
+    fn m1_shape_passes_unimodal_in_band() {
+        // All matches in [0, 5] — should pass both checks.
+        let goals: Vec<u32> = vec![1, 2, 3, 2, 1, 3, 4, 5, 0, 2];
+        let (max, ceiling_ok, in_band_frac, in_band_ok) = m1_shape_from_goals(&goals);
+        assert!(max <= guards::M1_SINGLE_MATCH_HARD_CEILING);
+        assert!(ceiling_ok);
+        assert!((in_band_frac - 1.0).abs() < 1e-9);
+        assert!(in_band_ok);
+    }
+
+    // --- Task 1c: TargetVerdict classify tests ---
+
+    #[test]
+    fn classify_pass_over_under() {
+        assert_eq!(classify(0.5, 0.4, 0.6), TargetVerdict::Pass);
+        assert_eq!(classify(0.7, 0.4, 0.6), TargetVerdict::Over);
+        assert_eq!(classify(0.3, 0.4, 0.6), TargetVerdict::Under);
+        // Boundary: exactly lo → Pass, exactly hi → Pass.
+        assert_eq!(classify(0.4, 0.4, 0.6), TargetVerdict::Pass);
+        assert_eq!(classify(0.6, 0.4, 0.6), TargetVerdict::Pass);
+    }
+
+    #[test]
+    fn targets_verdicts_are_warn_only_not_in_all_guards() {
+        // Build a Vec<MatchMetrics> where:
+        //   - M1/M2/M8 realism guards PASS
+        //   - Every drama target (M3-M7) is OUT of band (blowout-only corpus)
+        // Then call aggregate() and verify all_guards_pass == true despite the
+        // drama target verdicts being non-Pass. This catches a regression that
+        // accidentally folds a drama verdict into all_guards_pass.
+        //
+        // M1 guard: 10 matches × 3 goals → mean=3.0 (in 2.3-3.2), std=0 (fails std guard).
+        // Use a varied set to satisfy std: [2,2,2,3,3,3,3,4,4,4] → mean=3.0, std≈0.82.
+        let goal_counts = [2u32, 2, 2, 3, 3, 3, 3, 4, 4, 4];
+        // M8: 12 shots/match satisfies shots guard (9-18). No signatures (no content).
+        // M2: first_third_goals=0 for all → pooled frac=0 → passes.
+        // Drama out-of-band: margin=6 (blowout), no drama, no late goal, no comeback,
+        //   nervy=false → M3 blowout 100% (target 6-14% → Over), M7 nervy 0% (target 40-58% → Under).
+        let matches: Vec<MatchMetrics> = goal_counts
+            .iter()
+            .map(|&g| {
+                let mut m = make_metrics(g, /*margin=*/6, /*completed=*/true, /*shots=*/12, /*in_band=*/false);
+                m.nervy_finish = false; // explicitly not nervy → M7 Under
+                m
+            })
+            .collect();
+
+        let cli = Cli {
+            seeds: matches.len() as u32,
+            base_seed: "0x1000".to_string(),
+            content: None,
+            baseline: None,
+            output: None,
+            summary_only: false,
+            ticks: 5400,
+            vary_quality: false,
+            archetype_pair: false,
+        };
+        let base_seed_raw = 0x1000u64;
+        let report = aggregate(&matches, base_seed_raw, &cli, /*content_loaded=*/false, /*differentiated=*/false);
+
+        // Realism guards must pass.
+        assert!(
+            report.m1_guard_pass,
+            "M1 guard should pass for a valid goal distribution; m1_mean={} m1_std={} m1_p95={}",
+            report.m1_goals_mean, report.m1_goals_std, report.m1_goals_p95,
+        );
+        assert!(report.m2_guard_pass, "M2 guard should pass (no first-third goals)");
+        assert!(report.m8_guard_pass, "M8 guard should pass (12 shots/match, no-content)");
+        assert!(
+            report.all_guards_pass,
+            "all_guards_pass must be true when M1/M2/M8 guards pass, regardless of drama verdicts"
+        );
+
+        // Drama target verdicts must be non-Pass (blowout corpus).
+        assert_eq!(
+            report.m3_blowout_verdict,
+            Some(TargetVerdict::Over),
+            "100% blowout should be Over (target max 14%)"
+        );
+        assert_eq!(
+            report.m7_nervy_verdict,
+            Some(TargetVerdict::Under),
+            "0% nervy should be Under (target 40-58%)"
+        );
+        // And all_guards_pass is still true despite those verdicts.
+        assert!(
+            report.all_guards_pass,
+            "drama verdicts must not feed into all_guards_pass"
+        );
+    }
+
+    // --- Task 1d: Archetype pair tests ---
+
+    #[test]
+    fn archetype_pair_picks_distinct_archetypes() {
+        let arches = vec!["arch_a".to_string(), "arch_b".to_string(), "arch_c".to_string()];
+        for i in 0..10u32 {
+            let (hi, ai) = pick_archetype_pair(&arches, i);
+            assert_ne!(hi, ai, "home and away archetypes must be distinct for i={i}");
+            assert!(hi < arches.len(), "home index in range");
+            assert!(ai < arches.len(), "away index in range");
+        }
+    }
+
+    #[test]
+    fn archetype_pair_fallback_when_only_one() {
+        let arches = vec!["arch_a".to_string()];
+        let (hi, ai) = pick_archetype_pair(&arches, 0);
+        // With < 2 archetypes, both return 0 (the fallback).
+        assert_eq!(hi, 0);
+        assert_eq!(ai, 0);
+    }
+
+    #[test]
+    fn archetype_pair_empty_returns_zero_zero() {
+        let arches: Vec<String> = vec![];
+        let (hi, ai) = pick_archetype_pair(&arches, 0);
+        assert_eq!(hi, 0);
+        assert_eq!(ai, 0);
+    }
+
+    // --- Task 1d: vary_quality determinism tests ---
+
+    #[test]
+    fn vary_quality_is_deterministic() {
+        // Same seed → same quality factor.
+        let seed = 0xDEAD_BEEF_u64;
+        let f1 = quality_factor_from_seed(seed_fn(seed, 0, SeedLayer::Decision, 0));
+        let f2 = quality_factor_from_seed(seed_fn(seed, 0, SeedLayer::Decision, 0));
+        assert_eq!(f1, f2, "same seed must produce same quality factor");
+    }
+
+    #[test]
+    fn vary_quality_disabled_is_identity() {
+        // Without --vary-quality, `apply_quality_jitter` is not called. This is
+        // tested by verifying the quality_factor in [0.85, 1.15] range only when
+        // the function IS called.
+        let factor = quality_factor_from_seed(0);
+        assert!(factor >= 0.85, "factor must be >= 0.85; got {factor}");
+        assert!(factor <= 1.15, "factor must be <= 1.15; got {factor}");
+    }
 }

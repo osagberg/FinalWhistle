@@ -49,6 +49,22 @@
 //! M8: mean shots/match 9–18 (guard); mean signatures fired 0.5–4.0 (guard).
 
 use fw_content::MatchEvent;
+use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// Side — identifies home or away team in anti-scripting metrics
+// ---------------------------------------------------------------------------
+
+/// Which side of the pitch a team occupies: Home or Away.
+///
+/// Replaces the raw `u8` convention (0=home, 1=away) used in the anti-scripting
+/// fields. Defined here (drama.rs) so it travels with the metric types; re-exported
+/// to main.rs via `use drama::*`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Side {
+    Home,
+    Away,
+}
 
 // ---------------------------------------------------------------------------
 // M1 — Goals per match
@@ -272,6 +288,14 @@ pub struct LateDrama {
     /// Whether any goal in the final 15% was a late winner or late
     /// equaliser (changed the result or restored parity).
     pub has_late_winner: bool,
+    /// Which side scored the decisive late goal (the last one that changed
+    /// the result or restored parity). `None` if no late decider occurred.
+    ///
+    /// This deduplicates the `late_decider_team` predicate that was previously
+    /// in main.rs — both use the same five-branch `changed` expression.
+    /// Keep in sync: any change to the `changed` expression here must be
+    /// mirrored to the anti-scripting comeback check in main.rs `aggregate()`.
+    pub late_decider_side: Option<Side>,
 }
 
 /// Detect late drama in a match.
@@ -280,10 +304,17 @@ pub struct LateDrama {
 /// "Winner / equaliser" = the goal either broke a tie or swapped the lead.
 ///
 /// `match_end_tick` is the raw i64 from `FullTime::tick`.
+///
+/// `late_decider_side` identifies which side scored the last decisive late
+/// goal (changed result or restored parity). Used by the anti-scripting
+/// metric in main.rs `aggregate()`; factored here to avoid a duplicate
+/// `changed` predicate. The five-branch expression below is the single
+/// source of truth — keep in sync with the anti-scripting comeback check.
 #[allow(clippy::float_arithmetic)]
 pub fn m5_late_drama(events: &[MatchEvent], match_end_tick: i64) -> LateDrama {
     let mut has_late_goal = false;
     let mut has_late_winner = false;
+    let mut late_decider_side: Option<Side> = None;
 
     let end = match_end_tick.max(1) as f64;
     let late_threshold = end * 0.85;
@@ -329,6 +360,13 @@ pub fn m5_late_drama(events: &[MatchEvent], match_end_tick: i64) -> LateDrama {
 
                 if changed {
                     has_late_winner = true;
+                    // Record which side scored the decisive goal.
+                    late_decider_side = if h > prev_h {
+                        Some(Side::Home)
+                    } else {
+                        Some(Side::Away)
+                    };
+                    // Keep scanning: a later goal may supersede this one.
                 }
             }
 
@@ -340,6 +378,7 @@ pub fn m5_late_drama(events: &[MatchEvent], match_end_tick: i64) -> LateDrama {
     LateDrama {
         has_late_goal,
         has_late_winner,
+        late_decider_side,
     }
 }
 
@@ -827,6 +866,38 @@ mod tests {
         assert!(
             ld.has_late_winner,
             "2-1 after 1-1 is a result change (winner)"
+        );
+        // Pin: late_decider_side agrees with the scorer identity check.
+        // Home scored (h went from 1 to 2) → Side::Home.
+        assert_eq!(
+            ld.late_decider_side,
+            Some(Side::Home),
+            "home scored the late winner at 5200"
+        );
+    }
+
+    #[test]
+    fn m5_late_drama_decider_side_away_equaliser() {
+        // Home leads 1-0; away equalises at tick 4800 (late).
+        // Away scored (a went from 0 to 1) → Side::Away.
+        let events = vec![goal(1000, 1, 0), goal(4800, 1, 1)];
+        let ld = m5_late_drama(&events, 5400);
+        assert_eq!(ld.late_decider_side, Some(Side::Away));
+    }
+
+    #[test]
+    fn m5_late_drama_no_late_decider_is_none() {
+        // Goal at tick 4700 is late but NOT decisive (3-0 → 4-0).
+        let events = vec![
+            goal(1000, 1, 0),
+            goal(2000, 2, 0),
+            goal(3000, 3, 0),
+            goal(4700, 4, 0),
+        ];
+        let ld = m5_late_drama(&events, 5400);
+        assert_eq!(
+            ld.late_decider_side, None,
+            "non-decisive late goal must leave late_decider_side = None"
         );
     }
 

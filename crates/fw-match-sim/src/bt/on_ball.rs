@@ -49,21 +49,17 @@ use crate::subtree_library::formation_position;
 /// Shots with `xg_utility(ctx) < XG_SHOOT_THRESHOLD` are suppressed entirely
 /// (utility = `Q32::ZERO`) — removing them from the softmax candidate pool.
 ///
-/// docs/design/shot-model.md §Sub-system 1 specifies a provisional value of
-/// 0.041. However, at T1 formation positions (FWDs start at 42.5m from goal),
-/// the xG logistic yields ~0.031 (because `distance_q32 = 0` for shots beyond
-/// 35m). Setting the gate at 0.041 gates out ALL formation-position shots,
-/// producing 0 goals — worse than the 38.85 pre-fix state (just in the other
-/// direction). Post-wire calibration (drama-sweep) uses the lower bound.
+/// docs/design/shot-model.md §Sub-system 1 started with a provisional value of
+/// 0.041. At T1 formation positions (FWDs start at 42.5m from goal) the xG
+/// logistic yields ~0.031 (because `distance_q32 = 0` for shots beyond 35m),
+/// so 0.041 gated out ALL formation-position shots. Drama-sweep calibration
+/// (R11 final) settled on ≈0.095 — high enough to suppress blind 50m+ pokes
+/// while letting plausible efforts through.
 ///
-/// Provisional calibrated value: 0.020. This allows shots from formation
-/// positions through, while still suppressing the most hopeless attempts
-/// (xG < 0.020 = blind pokes from 50m+). Main-thread drama-sweep will refine.
+/// Calibrated value: ≈0.095 (raw 408,021,893; 0.095 × 2^32 ≈ 408,021,893).
 /// doc/design/shot-model.md §Calibration cadence tuning lever:
 ///   - If shots/match > 14: raise this constant (+0.003 per sweep).
 ///   - If shots/match < 10: lower this constant (-0.003 per sweep).
-///
-/// Q32 raw bits: 0.020 × 2^32 ≈ 85,899,346.
 pub(crate) const XG_SHOOT_THRESHOLD: Q32 = Q32::from_raw(408_021_893_i64); // ≈ 0.095 (drama-sweep R11 final)
 
 /// Shooter quality composite weights for `xg_utility` feature extraction.
@@ -590,7 +586,7 @@ mod tests {
     /// FUN-0b SS1: a player close to goal (high xG) must have non-zero shoot utility.
     ///
     /// At pos_x=40m for home FWD (dist_to_goal ≈ 12.5m), xG is well above the
-    /// XG_SHOOT_THRESHOLD (0.041) — the gate must pass and utility must be > 0.
+    /// XG_SHOOT_THRESHOLD (≈0.095) — the gate must pass and utility must be > 0.
     #[test]
     fn shoot_utility_nonzero_for_close_shot_above_gate() {
         let mut p = mid_player(9);
