@@ -5,6 +5,7 @@ import Layout from "./components/Layout";
 // Routes lazy-load to keep first-paint small. PixiJS + ECharts are heavy; the
 // Match page paying their cost only when reached is a meaningful win.
 const Home = lazy(() => import("./routes/Home"));
+const ClubSelection = lazy(() => import("./routes/ClubSelection"));
 const Squad = lazy(() => import("./routes/Squad"));
 const Player = lazy(() => import("./routes/Player"));
 const Tactics = lazy(() => import("./routes/Tactics"));
@@ -32,6 +33,7 @@ export default function App(): JSX.Element {
   return (
     <Route path="/" component={Root}>
       <Route path="/" component={Home} />
+      <Route path="/new-career" component={ClubSelection} />
       <Route path="/squad" component={Squad} />
       <Route path="/player/:id" component={Player} />
       <Route path="/tactics" component={Tactics} />

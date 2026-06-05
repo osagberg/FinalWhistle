@@ -124,16 +124,25 @@ function SquadInner(): JSX.Element {
         <h1 class="font-display text-3xl text-pitch-600 dark:text-pitch-300">
           Squad
         </h1>
-        {/* Sub-header: placeholder honesty — no club is selected yet.
+        {/* Sub-header: show managed club name when selected; honest placeholder
+            when showing the default lowest-ClubId stand-in.
             `!= null` (loose) so the undefined-while-loading resource value is
             also gated, not just an explicit null. */}
         <Show when={roster() != null && !roster.loading}>
-          <p class="mt-1 text-sm text-ink-subtle dark:text-paper-subtle">
-            No club selected yet — showing{" "}
-            <span class="font-medium text-ink dark:text-paper">
-              {roster()?.clubName ?? ""}
-            </span>
-          </p>
+          {roster()?.isManaged ? (
+            <p class="mt-1 text-sm text-ink-subtle dark:text-paper-subtle">
+              <span class="font-medium text-ink dark:text-paper">
+                {roster()?.clubName ?? ""}
+              </span>
+            </p>
+          ) : (
+            <p class="mt-1 text-sm text-ink-subtle dark:text-paper-subtle">
+              No club selected yet — showing{" "}
+              <span class="font-medium text-ink dark:text-paper">
+                {roster()?.clubName ?? ""}
+              </span>
+            </p>
+          )}
         </Show>
       </header>
 

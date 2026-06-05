@@ -205,6 +205,7 @@ import type {
   CareerOverview,
   CategoryEstimateDto,
   ChampionHistoryEntry,
+  ClubChoiceDto,
   FinalMatchResult,
   FixtureWithResult,
   LabelEstimateDto,
@@ -560,6 +561,8 @@ export function isSquadRosterDto(v: unknown): v is SquadRosterDto {
   if (typeof v.clubName !== "string") return false;
   if (!Array.isArray(v.players)) return false;
   if (!v.players.every(isPlayerRosterDto)) return false;
+  // isManaged: boolean added at B3 — club-selection anchor.
+  if (typeof v.isManaged !== "boolean") return false;
   return true;
 }
 
@@ -914,4 +917,19 @@ export function isPressInboxDto(v: unknown): v is PressInboxDto {
   if (!Array.isArray(v.items)) return false;
   if (!v.items.every(isPressItemDto)) return false;
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// B2 club-selection guards — mirrors fw-tauri::commands::ClubChoiceDto
+// ---------------------------------------------------------------------------
+
+export function isClubChoiceDto(v: unknown): v is ClubChoiceDto {
+  if (!isObject(v)) return false;
+  if (!isU32(v.clubId)) return false;
+  if (typeof v.clubName !== "string") return false;
+  return true;
+}
+
+export function isClubChoiceDtoArray(v: unknown): v is ClubChoiceDto[] {
+  return Array.isArray(v) && v.every(isClubChoiceDto);
 }

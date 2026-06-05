@@ -1,6 +1,13 @@
 import { A } from "@solidjs/router";
 import { For, type JSX, type ParentProps, Show } from "solid-js";
-import { theme, setTheme, reduceMotion, selectedClubId } from "~/lib/state";
+import {
+  theme,
+  setTheme,
+  reduceMotion,
+  selectedClubId,
+  managedClubName,
+  seasonNumber,
+} from "~/lib/state";
 import { setSettings } from "~/lib/api/settings";
 
 interface NavItem {
@@ -105,14 +112,25 @@ function Sidebar(): JSX.Element {
             </p>
           }
         >
-          <p class="mt-1 text-sm font-mono">{selectedClubId()}</p>
+          <p class="mt-1 text-sm text-ink dark:text-paper font-medium">
+            {managedClubName() ?? selectedClubId()}
+          </p>
         </Show>
       </div>
       <div>
         <h2 class="text-xs uppercase tracking-wider text-ink-mute dark:text-paper-subtle">
           Season
         </h2>
-        <p class="mt-1 text-sm text-ink-subtle dark:text-paper-subtle">—</p>
+        <Show
+          when={seasonNumber() !== null}
+          fallback={
+            <p class="mt-1 text-sm text-ink-subtle dark:text-paper-subtle">—</p>
+          }
+        >
+          <p class="mt-1 text-sm font-mono text-ink dark:text-paper">
+            {seasonNumber()}
+          </p>
+        </Show>
       </div>
       <div>
         <h2 class="text-xs uppercase tracking-wider text-ink-mute dark:text-paper-subtle">

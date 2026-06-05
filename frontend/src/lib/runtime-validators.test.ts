@@ -556,6 +556,8 @@ function makeRosterPayload() {
   return {
     clubId: 1,
     clubName: "Ashvale United",
+    // isManaged: boolean — added at B3, required by isSquadRosterDto guard.
+    isManaged: false,
     players: Array.from({ length: 22 }, (_, slot) => ({
       playerId: 1_000_000 + slot,
       name: `Player ${slot}`,

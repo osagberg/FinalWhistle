@@ -15,6 +15,12 @@ const [careerIdSignal, setCareerIdSignal] = createSignal<string | null>(null);
 // The club the user is managing within the active career.
 const [selectedClubIdSignal, setSelectedClubIdSignal] = createSignal<string | null>(null);
 
+// Display name of the managed club. Populated when a club is selected.
+const [managedClubNameSignal, setManagedClubNameSignal] = createSignal<string | null>(null);
+
+// Current season number. Populated from CareerOverview.
+const [seasonNumberSignal, setSeasonNumberSignal] = createSignal<number | null>(null);
+
 // Theme. Tailwind reads `.dark` on <html>. Persisted via T4-6a settings.
 const [themeSignal, setThemeSignal] = createSignal<"light" | "dark">("light");
 
@@ -27,6 +33,12 @@ export const setCareerId = setCareerIdSignal;
 
 export const selectedClubId = selectedClubIdSignal;
 export const setSelectedClubId = setSelectedClubIdSignal;
+
+export const managedClubName = managedClubNameSignal;
+export const setManagedClubName = setManagedClubNameSignal;
+
+export const seasonNumber = seasonNumberSignal;
+export const setSeasonNumber = setSeasonNumberSignal;
 
 export const theme = themeSignal;
 export function setTheme(next: "light" | "dark"): void {
