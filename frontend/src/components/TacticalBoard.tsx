@@ -104,6 +104,18 @@ export default function TacticalBoard(props: TacticalBoardProps): JSX.Element {
   // framesLengthRef is updated reactively via createEffect below.
   let framesLengthRef = 0;
 
+  // One-shot flag: tracks whether the first non-empty frames batch has been
+  // applied. Guards the auto-apply/auto-start effect so that a late-arriving
+  // frame batch does NOT yank playback back to frame 0 while the user is
+  // mid-scrub. Once true it never resets for the lifetime of this board mount.
+  const [firstFramesApplied, setFirstFramesApplied] = createSignal(false);
+
+  // Reactive signal that flips to true once the async Pixi Application.init()
+  // has resolved and sprites are allocated. This lets createEffect below track
+  // Pixi readiness as a reactive dependency — plain `let` refs are invisible to
+  // Solid's reactive graph and cannot be used as trigger conditions in effects.
+  const [pixiReady, setPixiReady] = createSignal(false);
+
   /** Update both the reactive signal (for UI) and the imperative ref (for ticker). */
   function setPlayingBoth(value: boolean): void {
     playingRef = value;
@@ -114,6 +126,26 @@ export default function TacticalBoard(props: TacticalBoardProps): JSX.Element {
   // (createEffect) so the reactive read is legitimate.
   createEffect(() => {
     framesLengthRef = props.frames.length;
+  });
+
+  // Auto-apply frame 0 and start playback the FIRST time BOTH conditions are
+  // true: (a) frames have arrived and (b) the Pixi app has initialised.
+  // This handles two races:
+  //   1. Board mounts before the async IPC frame load — pixiReady fires first,
+  //      frames arrive later; the effect re-runs when frames length changes.
+  //   2. Frames arrive before Pixi init completes — the effect re-runs when
+  //      pixiReady flips to true.
+  // The firstFramesApplied guard ensures this runs at most ONCE per mount so
+  // a subsequent frames update never resets the cursor while the user scrubs.
+  createEffect(() => {
+    const len = props.frames.length;
+    const ready = pixiReady();
+    if (len === 0 || !ready || firstFramesApplied()) return;
+    setFirstFramesApplied(true);
+    cursor = 0;
+    setDisplayTick(0);
+    applyPositions(0);
+    setPlayingBoth(true);
   });
 
   // Pixi imperative refs — not reactive state.
@@ -269,8 +301,14 @@ export default function TacticalBoard(props: TacticalBoardProps): JSX.Element {
 
       created.ticker.add(tickerCb);
 
-      // Apply frame 0 immediately so the board is not blank on load.
-      applyPositions(0);
+      // Signal that Pixi is ready — all sprites are allocated and the ticker
+      // is running. The createEffect above tracks pixiReady() as a reactive
+      // dependency; flipping it here triggers that effect to re-evaluate so
+      // it can call applyPositions(0) and start playback even if frames had
+      // already arrived before this async init completed.
+      // The legacy applyPositions(0) call that was here raced against the async
+      // frame load and always saw [] — it is superseded by the createEffect.
+      setPixiReady(true);
     })();
   });
 

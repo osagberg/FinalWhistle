@@ -58,6 +58,32 @@ const ProductionTacticalBoard = lazy(() => import("~/components/TacticalBoard"))
 // union import is still needed for the type annotation in Match.tsx's imports.
 
 // ---------------------------------------------------------------------------
+// Event-type filter — S2: key-moments view
+//
+// This is an event-TYPE filter, not a salience filter. compute_salience() is
+// an identity function today (all stakes hardcoded to Q32::ONE) and
+// MatchEvent carries no salience field at all — routing this through
+// salience would be dishonest. The filter simply hides high-frequency
+// ball-movement events (Pass / PassIncomplete) so the feed focuses on
+// match-defining moments.
+//
+// Kinds suppressed when keyMomentsOnly === true:
+//   "Pass" | "PassIncomplete"
+//
+// Kinds always shown:
+//   "Goal" | "Shot" | "KickOff" | "HalfTime" | "FullTime"
+//   | "Offside" | "Card" | "Substitution" | "SignatureFirstFired"
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true for kinds that are suppressed by the key-moments type filter.
+ * When keyMomentsOnly is false this function is never called.
+ */
+function isHighFrequencyKind(kind: MatchEventKind): boolean {
+  return kind === "Pass" || kind === "PassIncomplete";
+}
+
+// ---------------------------------------------------------------------------
 // Event-list helpers
 // ---------------------------------------------------------------------------
 
@@ -289,6 +315,12 @@ export default function Match(): JSX.Element {
   const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
   const [showDevBoard, setShowDevBoard] = createSignal(false);
 
+  // S2: key-moments event-type filter (default ON).
+  // Suppresses Pass + PassIncomplete so the feed shows match-defining moments
+  // only. Named as a type filter — NOT a salience filter (salience is
+  // degenerate today; MatchEvent has no salience field).
+  const [keyMomentsOnly, setKeyMomentsOnly] = createSignal(true);
+
   // Parsed values — derived memos so the form stays reactive.
   const seedBigInt = createMemo<bigint | null>(() =>
     parseSeedBigInt(seedInput()),
@@ -395,6 +427,40 @@ export default function Match(): JSX.Element {
   const goalEvents = createMemo(
     () => result()?.matchEvents.filter((ev) => isGoal(ev.kind)) ?? [],
   );
+
+  // S2: filtered views for the event list and commentary aside.
+  // Both memos use the same index-based predicate so the two lists stay in
+  // sync — commentaryPreview[i] corresponds to matchEvents[i] (1:1 parallel
+  // arrays from the backend). Filtering by index keeps them aligned after
+  // Pass / PassIncomplete rows are dropped.
+  const filteredEventIndices = createMemo<number[]>(() => {
+    const r = result();
+    if (!r) return [];
+    const filter = keyMomentsOnly();
+    return r.matchEvents.reduce<number[]>((acc, ev, i) => {
+      if (!filter || !isHighFrequencyKind(ev.kind)) acc.push(i);
+      return acc;
+    }, []);
+  });
+
+  // Filter the events array directly (clean MatchEvent[] type); the commentary
+  // aside is kept in lockstep by reusing the SAME index set against the
+  // parallel commentaryPreview array. Both narrow away the `| undefined` that
+  // strict indexed access introduces — the indices are always in range.
+  const filteredEvents = createMemo<MatchEvent[]>(() => {
+    const r = result();
+    if (!r) return [];
+    const filter = keyMomentsOnly();
+    return r.matchEvents.filter((ev) => !filter || !isHighFrequencyKind(ev.kind));
+  });
+
+  const filteredCommentary = createMemo<string[]>(() => {
+    const r = result();
+    if (!r) return [];
+    return filteredEventIndices()
+      .map((i) => r.commentaryPreview[i])
+      .filter((line): line is string => line !== undefined);
+  });
 
   return (
     // ErrorBoundary catches only synchronous throws from the reactive graph
@@ -511,9 +577,30 @@ export default function Match(): JSX.Element {
             <div class="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4">
               {/* Event list */}
               <section aria-label="Match events">
-                <h2 class="font-display text-lg text-pitch-600 dark:text-pitch-300 mb-2">
-                  Events
-                </h2>
+                <div class="flex items-center gap-3 mb-2">
+                  <h2 class="font-display text-lg text-pitch-600 dark:text-pitch-300">
+                    Events
+                  </h2>
+                  {/* S2: event-type filter toggle — hides Pass / PassIncomplete.
+                      This is NOT a salience filter (salience is degenerate today). */}
+                  <button
+                    type="button"
+                    class={`px-2 py-0.5 text-xs font-mono rounded border focus:outline-none focus:ring-2 focus:ring-pitch-400 ${
+                      keyMomentsOnly()
+                        ? "bg-pitch-500 text-white border-pitch-600"
+                        : "bg-paper dark:bg-midnight-panel text-ink-subtle dark:text-paper-subtle border-paper-bold dark:border-midnight-line hover:border-pitch-400"
+                    }`}
+                    onClick={() => setKeyMomentsOnly((v) => !v)}
+                    aria-pressed={keyMomentsOnly()}
+                    aria-label={
+                      keyMomentsOnly()
+                        ? "Showing key moments — click to show all events"
+                        : "Showing all events — click to show key moments only"
+                    }
+                  >
+                    {keyMomentsOnly() ? "Key moments" : "All events"}
+                  </button>
+                </div>
                 <Show when={goalEvents().length > 0}>
                   <p class="text-xs text-ink-mute dark:text-paper-subtle mb-2 font-mono">
                     Goals:{" "}
@@ -527,7 +614,7 @@ export default function Match(): JSX.Element {
                   aria-label="Match event list"
                 >
                   <For
-                    each={r().matchEvents}
+                    each={filteredEvents()}
                     fallback={
                       <li class="text-xs text-ink-mute italic p-2">
                         No events recorded.
@@ -539,14 +626,15 @@ export default function Match(): JSX.Element {
                 </ul>
               </section>
 
-              {/* Commentary aside */}
+              {/* Commentary aside — filtered in sync with the event list via
+                  the same index predicate (S2 key-moments type filter). */}
               <aside aria-label="Commentary">
                 <h2 class="font-display text-lg text-pitch-600 dark:text-pitch-300 mb-2">
                   Commentary
                 </h2>
                 <div class="fw-panel p-3 space-y-1">
                   <For
-                    each={r().commentaryPreview}
+                    each={filteredCommentary()}
                     fallback={
                       <p class="text-xs text-ink-mute italic">
                         No commentary available.

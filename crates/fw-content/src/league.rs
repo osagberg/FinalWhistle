@@ -32,7 +32,7 @@
 //! [MatchResult; 10]` boundary maps to `League.fixtures.iter().filter(|f|
 //! f.match_day == target_day)`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use fw_core::{ClubId, Seed};
 use serde::{Deserialize, Serialize};
@@ -217,6 +217,11 @@ pub fn generate_league_with_teams(
         .collect();
     let manager_ids: Vec<&str> = content.managers.keys().map(String::as_str).collect();
 
+    // S9 dedup: track used team names per culture so clubs sharing a culture
+    // don't collide.  BTreeMap<culture_id, BTreeSet<team_name>>.
+    // BTreeMap for deterministic ordering (Sim/RULES.md §2).
+    let mut used_names_by_culture: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+
     let mut clubs: Vec<TeamTemplate> = Vec::with_capacity(CLUBS_PER_LEAGUE);
     let mut procgen_teams: Vec<ProcGenTeam> = Vec::with_capacity(CLUBS_PER_LEAGUE);
     for club_idx in 0..CLUBS_PER_LEAGUE {
@@ -232,14 +237,34 @@ pub fn generate_league_with_teams(
             0,
         ));
 
+        let culture_id = culture_ids[club_idx % culture_ids.len()];
+
+        // Snapshot the used-names set for this culture as a local value so
+        // the borrow on `used_names_by_culture` ends before we need to
+        // mutably insert the result below.  Cloning is O(used_count) per
+        // club, and `used_count` is at most `CLUBS_PER_LEAGUE / culture_count`
+        // ≈ 10 for 2 cultures — negligible at career-init frequency.
+        let used_snapshot: BTreeSet<String> = used_names_by_culture
+            .get(culture_id)
+            .cloned()
+            .unwrap_or_default();
+
         let inputs = ProcGenInputs {
-            culture_id: culture_ids[club_idx % culture_ids.len()],
+            culture_id,
             tactical_archetype_id: archetype_ids[club_idx % archetype_ids.len()],
             manager_archetype_id: manager_ids[club_idx % manager_ids.len()],
             seed: club_seed,
+            used_team_names: Some(&used_snapshot),
         };
 
         let procgen_team = generate_team(content, inputs)?;
+
+        // Record the chosen team name as used for this culture so the next
+        // club assigned to the same culture won't collide.
+        used_names_by_culture
+            .entry(culture_id)
+            .or_default()
+            .insert(procgen_team.team_name.clone());
 
         // ClubId allocation: deterministic 1-indexed sequence per league.
         // Future career-mode multi-league worlds need a global ClubId

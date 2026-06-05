@@ -16,6 +16,7 @@ use fw_content::{
     generate_league_with_teams,
 };
 use fw_core::{ClubId, Seed};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 fn load_content() -> ContentStore {
@@ -307,5 +308,84 @@ fn generate_league_with_teams_returns_matching_procgen_teams() {
                 "ProcGenTeam[{i}].players[{slot}] has empty name: {player:?}"
             );
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S9: within-league team name uniqueness (non-vacuous, asserts the actual fix)
+// ---------------------------------------------------------------------------
+
+/// All 20 clubs in a generated league must have distinct display names.
+///
+/// This is the non-vacuous guard for the S9 dedup fix.  Before S9, clubs
+/// sharing a culture drew independently from a 10-name bank — birthday
+/// paradox near-guaranteed at least one collision for 10 clubs per culture.
+/// The fix threads a `BTreeSet<String>` of used names per culture through
+/// `generate_league_with_teams` so each re-draw avoids taken names.
+///
+/// Tests two seeds to catch potential degenerate single-seed luck.
+#[test]
+fn within_league_club_names_are_all_distinct() {
+    let content = load_content();
+
+    for &seed_val in &[0xC0FFEE_u64, 0xDEADC0DE_u64] {
+        let league = generate_league(Seed::from_u64(seed_val), &content).expect("generate_league");
+
+        let mut seen: BTreeSet<&str> = BTreeSet::new();
+        for club in &league.clubs {
+            assert!(
+                seen.insert(club.display_name.as_str()),
+                "seed {seed_val:#x}: duplicate club name {:?} found in league — \
+                 S9 dedup is broken",
+                club.display_name
+            );
+        }
+
+        assert_eq!(
+            seen.len(),
+            CLUBS_PER_LEAGUE,
+            "seed {seed_val:#x}: expected {CLUBS_PER_LEAGUE} distinct names, got {}",
+            seen.len()
+        );
+    }
+}
+
+/// Uniqueness holds across a range of seeds, not just two cherry-picked values.
+///
+/// Uses the same 5-seed sweep so the test stays fast while covering more
+/// of the seed space.
+#[test]
+fn within_league_club_names_unique_across_several_seeds() {
+    let content = load_content();
+
+    let seeds: &[u64] = &[
+        0x0000_0000_0000_0001,
+        0xAAAA_AAAA_AAAA_AAAA,
+        0xBBBB_BBBB_BBBB_BBBB,
+        0x1234_5678_9ABC_DEF0,
+        0xFFFF_FFFF_FFFF_FFFF,
+    ];
+
+    for &seed_val in seeds {
+        let league = generate_league(Seed::from_u64(seed_val), &content).expect("generate_league");
+
+        let names: BTreeSet<&str> = league
+            .clubs
+            .iter()
+            .map(|c| c.display_name.as_str())
+            .collect();
+        assert_eq!(
+            names.len(),
+            CLUBS_PER_LEAGUE,
+            "seed {seed_val:#x}: {}/{} distinct names — duplicate club names detected. \
+             Names: {:?}",
+            names.len(),
+            CLUBS_PER_LEAGUE,
+            league
+                .clubs
+                .iter()
+                .map(|c| c.display_name.as_str())
+                .collect::<Vec<_>>()
+        );
     }
 }

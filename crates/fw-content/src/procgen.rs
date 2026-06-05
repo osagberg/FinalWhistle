@@ -27,6 +27,8 @@
 //! This is simpler than 50+ per-site seeds and equally deterministic because
 //! the RNG sequence is a pure function of the seed.
 
+use std::collections::BTreeSet;
+
 use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -113,12 +115,19 @@ pub enum ProcGenError {
 /// Cheaper than a full newtype-symmetry refactor (which would touch the
 /// existing `TacticalArchetype` struct + fixtures + tests); the newtype
 /// extension is deferred to a dedicated row.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ProcGenInputs<'a> {
     pub culture_id: &'a str,
     pub tactical_archetype_id: &'a str,
     pub manager_archetype_id: &'a str,
     pub seed: Seed,
+    /// Team names already taken within this league (from clubs sharing the
+    /// same culture). `generate_team` will re-draw on the same ChaCha8
+    /// stream to avoid a collision; see the team-name-dedup section below.
+    ///
+    /// Pass `None` when generating a single isolated team (e.g. tests,
+    /// career-init single-team path) — no dedup is attempted.
+    pub used_team_names: Option<&'a BTreeSet<String>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +158,7 @@ pub fn generate_team(
         tactical_archetype_id,
         manager_archetype_id,
         seed,
+        used_team_names,
     } = inputs;
 
     // --- Validate references ---
@@ -205,8 +215,60 @@ pub fn generate_team(
     let mut rng = ChaCha8Rng::seed_from_u64(rng_seed);
 
     // --- Pick team name (index into team_name_bank; NOT Markov) ---
-    let team_name_idx = rng.gen_range(0..culture.team_name_bank.len());
-    let team_name = culture.team_name_bank[team_name_idx].clone();
+    //
+    // S9 dedup: if `used_team_names` is supplied, re-draw on the same RNG
+    // stream until we find a name not in the used set.
+    //
+    // Within-league club-name dedup (terminates even when a culture's bank is
+    // smaller than the number of clubs sharing it):
+    //   Draw one initial index. If it is free (or no used-set was supplied),
+    //   take it. Otherwise scan the bank DETERMINISTICALLY forward from the
+    //   next index (wrapping) and take the first free name. The scan consumes
+    //   NO extra RNG, so downstream draws (manager + players) stay a pure
+    //   function of the seed regardless of how many names were already taken,
+    //   and the bank is treated as exhausted only when ALL bank_len entries
+    //   are genuinely taken (a random re-draw could suffix prematurely while a
+    //   free name still existed).
+    //   On true exhaustion, fall back to a deterministic " (N)" disambiguator
+    //   on the initial name (N = used.len() + 1), guaranteeing uniqueness.
+    let bank_len = culture.team_name_bank.len();
+    let team_name_idx = rng.gen_range(0..bank_len);
+    let team_name = {
+        let initial_name = &culture.team_name_bank[team_name_idx];
+        match used_team_names {
+            None => initial_name.clone(),
+            Some(used) if !used.contains(initial_name.as_str()) => initial_name.clone(),
+            Some(used) => {
+                // Deterministic forward scan over the rest of the bank (NO
+                // extra RNG): the first free name wins; the bank is exhausted
+                // only if every one of its bank_len entries is taken.
+                let mut found: Option<String> = None;
+                for offset in 1..bank_len {
+                    let candidate_idx = (team_name_idx + offset) % bank_len;
+                    let candidate = &culture.team_name_bank[candidate_idx];
+                    if !used.contains(candidate.as_str()) {
+                        found = Some(candidate.clone());
+                        break;
+                    }
+                }
+                match found {
+                    Some(name) => name,
+                    None => {
+                        // All bank_len candidates collided.  Append a
+                        // deterministic suffix to the initial name to
+                        // guarantee uniqueness without further RNG draws.
+                        // N = number of clubs already using this culture =
+                        // used.len() + 1 (the current club would be the
+                        // (used.len()+1)-th club assigned to this culture).
+                        // Using `used.len() + 1` is deterministic for a
+                        // given (seed, league-generation-order) pair.
+                        let ordinal = used.len() + 1;
+                        format!("{} ({})", initial_name, ordinal)
+                    }
+                }
+            }
+        }
+    };
 
     // --- Sample manager name ---
     let manager_first = chain
@@ -358,6 +420,7 @@ mod tests {
                 tactical_archetype_id: "fwh.core:archetype.test",
                 manager_archetype_id: "fwh.core:manager.test",
                 seed: Seed::from_u64(0x1234),
+                used_team_names: None,
             },
         );
         assert!(result.is_ok(), "generate_team should succeed: {:?}", result);
@@ -383,6 +446,7 @@ mod tests {
                 tactical_archetype_id: "fwh.core:archetype.test",
                 manager_archetype_id: "fwh.core:manager.test",
                 seed,
+                used_team_names: None,
             },
         )
         .expect("generate a");
@@ -393,6 +457,7 @@ mod tests {
                 tactical_archetype_id: "fwh.core:archetype.test",
                 manager_archetype_id: "fwh.core:manager.test",
                 seed,
+                used_team_names: None,
             },
         )
         .expect("generate b");
@@ -421,6 +486,7 @@ mod tests {
                 tactical_archetype_id: "fwh.core:archetype.test",
                 manager_archetype_id: "fwh.core:manager.test",
                 seed: Seed::from_u64(0),
+                used_team_names: None,
             },
         );
         assert!(
@@ -440,6 +506,7 @@ mod tests {
                 tactical_archetype_id: "fwh.core:archetype.nonexistent",
                 manager_archetype_id: "fwh.core:manager.test",
                 seed: Seed::from_u64(0),
+                used_team_names: None,
             },
         );
         assert!(
@@ -459,6 +526,7 @@ mod tests {
                 tactical_archetype_id: "fwh.core:archetype.test",
                 manager_archetype_id: "fwh.core:manager.nonexistent",
                 seed: Seed::from_u64(0),
+                used_team_names: None,
             },
         );
         assert!(
@@ -484,6 +552,7 @@ mod tests {
                 tactical_archetype_id: "fwh.core:archetype.test",
                 manager_archetype_id: "fwh.core:manager.test",
                 seed: Seed::from_u64(0),
+                used_team_names: None,
             },
         );
         assert!(

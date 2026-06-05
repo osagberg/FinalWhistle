@@ -54,6 +54,7 @@ fn same_seed_produces_identical_team() {
             tactical_archetype_id: "fwh.core:archetype.low-block-counter",
             manager_archetype_id: "fwh.core:manager.pragmatic-defender",
             seed,
+            used_team_names: None,
         },
     )
     .expect("generate team A");
@@ -65,6 +66,7 @@ fn same_seed_produces_identical_team() {
             tactical_archetype_id: "fwh.core:archetype.low-block-counter",
             manager_archetype_id: "fwh.core:manager.pragmatic-defender",
             seed,
+            used_team_names: None,
         },
     )
     .expect("generate team B");
@@ -107,6 +109,7 @@ fn two_teams_from_one_seed_have_distinct_players() {
             tactical_archetype_id: "fwh.core:archetype.low-block-counter",
             manager_archetype_id: "fwh.core:manager.pragmatic-defender",
             seed: Seed::from_u64(PROCGEN_T1_7_SEED),
+            used_team_names: None,
         },
     )
     .expect("team A");
@@ -118,6 +121,7 @@ fn two_teams_from_one_seed_have_distinct_players() {
             tactical_archetype_id: "fwh.core:archetype.low-block-counter",
             manager_archetype_id: "fwh.core:manager.pragmatic-defender",
             seed: Seed::from_u64(PROCGEN_T1_7_SEED.wrapping_add(1)),
+            used_team_names: None,
         },
     )
     .expect("team B");
@@ -292,11 +296,13 @@ fn generate_team_with_real_fixtures_produces_valid_team() {
             tactical_archetype_id: "fwh.core:archetype.low-block-counter",
             manager_archetype_id: "fwh.core:manager.pragmatic-defender",
             seed: Seed::from_u64(0x1234),
+            used_team_names: None,
         },
     )
     .expect("generate_team with real fixtures");
 
-    // Team name must come from the anglo team_name_bank.
+    // Team name must come from the anglo team_name_bank (no dedup path here —
+    // used_team_names: None, so the name is always a direct bank pick).
     let anglo = store.cultures.get("fwh.core:culture.anglo").unwrap();
     assert!(
         anglo.team_name_bank.contains(&team.team_name),
@@ -331,6 +337,7 @@ fn generate_team_with_elvish_culture_succeeds() {
             tactical_archetype_id: "fwh.core:archetype.low-block-counter",
             manager_archetype_id: "fwh.core:manager.pragmatic-defender",
             seed: Seed::from_u64(0xE1F1),
+            used_team_names: None,
         },
     )
     .expect("generate elvish team");
