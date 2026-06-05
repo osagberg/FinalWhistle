@@ -51,7 +51,7 @@ THE MATCH SURFACE — promote it from a developer sandbox to the emotional payof
 - NO decorative hotkey hints in nav labels before keys are wired; NO permanent placeholder em-dashes ('Next fixture: —') — render a slot only when it has live data.
 - NO generic dashboard chart-icons, trophy emojis, or football-with-swoosh sports-app graphics. The 2D board is the only expressive visual; identity comes from football-native content (role abbreviations, formation notation, pitch-zone terms), not decoration.
 - NO entrance animations on page load; NO hover/micro-interactions that exist to show off. Motion is 150-200ms, functional, removable-without-loss, and respects reduce-motion.
-- NO banned mystical state-nouns ('The Hush', 'Awakened', '+5 Finishing') and NO marketing-speak ('revolutionary', 'next-gen', 'robust') — football-native vocabulary only, per the banned-terms lint.
+- NO banned mystical state-nouns or stat-delta callouts, and NO marketing-speak — football-native vocabulary only, per the banned-terms lint (catalog: docs/design/ui-vocabulary.md).
 
 ## Screen redesign priorities
 
