@@ -78,6 +78,12 @@ fn pass_outcomes(state: &MatchState) -> Vec<(bool, PassKind)> {
 fn completion_ordering_mechanical() {
     // Empirical ordering at the full-match level for the two kinds that fire in
     // the content-free BT (Long and Cross). The formula must produce Long > Cross.
+    //
+    // Seed set expanded from 10 to 30 at FUN-TS3-ShotModel: sigma change alters
+    // ball trajectories → changes game state → changes pass sample at old seeds.
+    // With 10 seeds / 600 ticks we got only ~30+26 samples (too few for 1pp margin
+    // to be robust). 30 seeds gives ~90+ samples per kind, making the empirical
+    // ordering a statistically meaningful check of the unchanged P_BASE constants.
     let seeds: Vec<u64> = [
         0xDEAD_BEEF_DEAD_BEEFu64,
         0xFEED_BEEF_CAFE_FADE,
@@ -89,6 +95,27 @@ fn completion_ordering_mechanical() {
         0x1111_2222_3333_4444,
         0x5555_6666_7777_8888,
         0x9999_AAAA_BBBB_CCCC,
+        // Additional seeds for statistical robustness:
+        0xAAAA_BBBB_CCCC_DDDDu64,
+        0xDDDD_EEEE_FFFF_0000,
+        0x2222_3333_4444_5555,
+        0x6666_7777_8888_9999,
+        0xA1B2_C3D4_E5F6_0718,
+        0x0819_2A3B_4C5D_6E7F,
+        0x1357_2468_ACE0_BDF1,
+        0xFDB9_7531_ECA8_6420,
+        0xABBA_CDDC_EFFE_0110,
+        0x1100_FFFE_DDCD_CBBA,
+        0x3C3C_3C3C_3C3C_3C3C,
+        0xC3C3_C3C3_C3C3_C3C3,
+        0x0F0F_0F0F_F0F0_F0F0,
+        0xF0F0_F0F0_0F0F_0F0F,
+        0x5A5A_5A5A_A5A5_A5A5,
+        0xA5A5_A5A5_5A5A_5A5A,
+        0x0101_0101_0101_0101,
+        0x1010_1010_1010_1010,
+        0x0707_0707_0707_0707,
+        0x7070_7070_7070_7070,
     ]
     .to_vec();
     let ticks = 600u32;

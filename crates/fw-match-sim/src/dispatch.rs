@@ -147,14 +147,18 @@ const PASS_PEAK_BONUS_MPS: Q32 = Q32::from_raw(10_i64 << 32);
 // docs/design/shot-model.md §Sub-system 2 §Revised coefficients
 // ---------------------------------------------------------------------------
 
-/// Base scatter in metres. FUN-TS2 recalibration (MISS1a): raised from 5.5m to 8.5m.
-/// Real football: ~60-65% of shots miss the target — at avg quality/distance the
-/// sigma must be large enough that P(on-target) ≈ 35-45%, not the prior ~63%.
-/// Target math: avg case (quality=0.5, mid-range, no pressure):
-///   sigma = 8.5 × (1 + 0.80×0.3 + 0.50×0) × (1 - 0.40×0.5) = 8.5 × 1.24 × 0.80 ≈ 8.44m
-///   sum-of-3-uniforms max = ±1.73 × SIGMA_NORMAL_SCALE(0.577) ≈ ±1.0 effective scale,
-///   so P(|target_y| < 3.66) ≈ 3.66/8.44 ≈ 43% — inside [35%,45%] band.
-const SIGMA_BASE_M: Q32 = Q32::from_raw(30_064_771_072_i64); // ≈ 7.0m (FUN-TS2 recal)
+/// Base scatter in metres. FUN-TS3-ShotModel sweep 6: raised to 9.0m.
+/// Sweep history:
+///   Baseline: 7.0m → on-target=44.4%, M1=2.60 (on-target too high)
+///   Sweep 1: 8.5m  → on-target=35.6%, M1=2.00 (M1 too low)
+///   Sweep 2: 8.0m  → on-target=41.0%, M1=2.30 (on-target just above 40% band, 20-seed)
+///   Sweep 3: 8.5m + SAVE_BASE(0.58,0.78) → on-target=39.2%, M1=2.20 (M1 still low)
+///   Sweep 4: 8.5m + SAVE_BASE(0.55,0.75) → on-target=38.2%, M1=2.30 (20-seed)
+///            40-seed: on-target=42.4%, M1=2.90 (on-target above ceiling)
+///   Sweep 5: 8.75m → on-target=40.9%, M1=3.05 (still on boundary; 40-seed)
+///   Sweep 6: 9.0m  → push further into 28-40% band
+/// See docs/design/shot-model.md Phase-2 re-fit for full per-sweep table.
+const SIGMA_BASE_M: Q32 = Q32::from_raw(38_654_705_664_i64); // ≈ 9.0m (FUN-TS3-ShotModel sweep 6)
 
 /// Distance contribution to sigma. dist_factor = clamp(d_m / 35, 0, 1) (the
 /// NON-inverted distance — 0=close, 1=far, opposite of the xG feature).

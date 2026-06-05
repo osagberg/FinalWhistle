@@ -734,3 +734,102 @@ and commit after visual inspection.
 New canonical hashes (for main-thread reference when re-pinning):
 - 60-tick smoke hash (new): `[229, 101, 98, 248, 76, 91, 255, 141, 34, 145, 133, 170, 116, 118, 44, 93, 129, 120, 231, 168, 243, 61, 53, 118, 117, 232, 200, 201, 28, 143, 240, 125]`
 - 600-tick extended hash (new): `[104, 5, 193, 5, 147, 40, 116, 142, 89, 76, 166, 16, 163, 43, 204, 191, 81, 59, 27, 241, 25, 45, 251, 241, 239, 186, 173, 252, 111, 155, 193, 150]`
+
+---
+
+## Phase-2 shot-dispersion re-fit (2026-06-05, 6 sweeps)
+
+**Status:** Complete. FUN-TS3 Step 3 — on-target dispersion tuning.
+**Objective:** Lower on-target % from ~49% (measured post-FUN-TS3b) to the realism band 28–40%
+while keeping M1, shots/match, and SAVE_BASE all within their respective guards.
+**Primary lever:** `SIGMA_BASE_M` (shot placement dispersion in metres, `dispatch.rs`).
+**Secondary lever:** `SAVE_BASE_MIN/MAX` (GK save range, `lib.rs`) — only when M1 dropped below 2.3.
+**Hard floor:** SAVE_BASE_MIN ≥ 0.50, SAVE_BASE_MAX ≥ 0.72 (GK must still stop most on-target shots).
+
+### Pre-condition
+
+Starting state from Phase-1 re-fit (above): SIGMA_BASE_M=5.5m, SAVE_BASE_MIN=0.73,
+SAVE_BASE_MAX=0.92. Measured post-FUN-TS3b: on-target≈49%, M1≈3.1, shots≈10.8.
+
+### Per-sweep results
+
+| Sweep | SIGMA_BASE_M | SAVE_BASE (min/max) | Seeds | on-target% | M1 | shots/match | Status |
+|-------|-------------|---------------------|-------|-----------|-----|-------------|--------|
+| Baseline | 5.5m | 0.73/0.92 | 20 | 49% (est.) | 3.1 | 10.8 | ABOVE BAND |
+| 1 | 8.5m | 0.73/0.92 | 20 | 35.6% | 2.00 | 10.1 | M1 below guard |
+| 2 | 8.0m | 0.73/0.92 | 20 | 41.0% | 2.30 | 10.2 | on-target above 40% |
+| 3 | 8.5m | 0.58/0.78 | 20 | 39.2% | 2.20 | 10.2 | M1 below guard |
+| 4 | 8.5m | 0.55/0.75 | 20+40 | 38.2%/42.4% | 2.30/2.90 | 10.2 | sample variance near ceiling |
+| 5 | 8.75m | 0.55/0.75 | 40 | 40.9% | 3.05 | 10.6 | on-target above 40% |
+| 6 (final) | **9.0m** | **0.55/0.75** | 40 | **36.7%** | **2.77** | **11.8** | ALL GUARDS PASS |
+
+Note on Sweep 4: the 20-seed and 40-seed sweeps disagreed (38.2% vs 42.4%). With ~10 shots/match
+× 20 matches = 200 shots the standard error on on-target% is ≈ 2.5pp; true value near 40% shows
+as in or out depending on sample. Switched to 40-seed sweeps from Sweep 5 onward.
+
+### Final configuration (Sweep 6)
+
+| File | Constant | Old value | New value | Q32 raw bits |
+|------|----------|-----------|-----------|--------------|
+| `dispatch.rs` | `SIGMA_BASE_M` | 5.5m | **9.0m** | `38_654_705_664_i64` |
+| `lib.rs` | `SAVE_BASE_MIN` | 0.73 | **0.55** | `2_362_232_012_i64` |
+| `lib.rs` | `SAVE_BASE_MAX` | 0.92 | **0.75** | `3_221_225_472_i64` |
+| `lib.rs` | `SAVE_PROB_MAX` | 0.92 | **0.75** | `3_221_225_472_i64` |
+
+### Confirmed metrics (40 seeds × 5400 ticks, 2026-06-05)
+
+| Metric | Target | Measured | Guard |
+|--------|--------|----------|-------|
+| on-target % | 28–40% | **36.7%** | PASS |
+| M1 goals/match mean | 2.3–3.2 | **2.77** | PASS |
+| shots/match | 9–18 | **11.8** | PASS |
+| conversion (goals/shots) | 8–13% | **23.5%** | HONEST FLAG — see below |
+| SAVE_BASE floor | MIN ≥ 0.50, MAX ≥ 0.72 | **0.55 / 0.75** | RESPECTED |
+
+### Honest flag — conversion above target
+
+Measured conversion is 23.5%, above the 8–13% band. This is a structural constraint from
+current shot volume: with 11.8 shots/match (both teams) and M1=2.77, the arithmetic demands
+~23% conversion. The spec's 8–13% target assumes ~25+ shots/match (more in line with real football).
+
+The three-way constraint (on-target in band, M1 in band, conversion in band) cannot be satisfied
+simultaneously at current shot volume without breaching the SAVE_BASE floor. Specifically:
+to get 8–13% conversion at M1=2.77 requires ~21–35 shots/match; at 11.8 shots/match it requires
+~23% conversion. Lowering M1 below 2.3 to reduce conversion would breach the M1 guard.
+
+This is a chance-creation volume problem, not a conversion-model problem. When the shot volume
+rises to real-football range (~24–28 shots/match both teams) from improved forward play and
+build-up patterns (FUN-TS4+), conversion will fall into band naturally. No coefficient can
+paper over insufficient shot creation.
+
+### SAVE_BASE floor verification
+
+SAVE_BASE_MIN = 0.55 > 0.50 hard floor. SAVE_BASE_MAX = 0.75 > 0.72 hard floor. The GK
+at mid-range attributes (gk_quality = 0.5) achieves save_base = 0.55 + (0.75 - 0.55)×0.50 = 0.65.
+A reasonable-position mid-GK saves ~65% of on-target shots before the positional penalty applies.
+
+### Canonical hash drift
+
+The 60-tick smoke seed and 600-tick extended seed pins in `fw-replay/tests/canonical_hash.rs`
+are UNCHANGED. Neither pinned seed exercises the shot-dispersion or GK-save code path within
+their tick budgets — the smoke seed fires no shots in 60 ticks; the extended seed's ball
+trajectory for ticks 0–600 does not reach shooting range on the exact Q32 path. No rebaseline
+needed for this change.
+
+### Test change — pass_completion_proptest.rs
+
+`completion_ordering_mechanical` test seed set expanded from 10 to 30 seeds. The sigma change
+shifted game state at fixed seeds, producing a different pass sample at the old 10-seed set
+(~28 samples total — insufficient for a 1% margin ordering check). The expanded set gives
+~90 samples per pass kind, making the empirical ordering statistically meaningful. The assertion
+itself (long_pct ≥ cross_pct within 1% margin) was NOT changed.
+
+### Tuning notes for the next engineer
+
+At SIGMA=9.0m, SAVE_BASE(0.55/0.75):
+- Raising SIGMA further (9.5m+) drops on-target below 30% and M1 below 2.5.
+- Lowering SIGMA back to 8.0–8.5m raises on-target above 40% at these save rates.
+- Lowering SAVE_BASE to recover M1 when sigma is high is the correct sequence, but the floor
+  limits how far this can go before the GK model becomes implausible.
+- The real fix for conversion is volume: more shots/match from improved forward positioning
+  and build-up patterns. That's FUN-TS4 territory.
