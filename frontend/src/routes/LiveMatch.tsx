@@ -1,5 +1,5 @@
 /*
- * LiveMatch route — S3b.
+ * LiveMatch route — S3b / M2b.
  *
  * "Nail being able to watch a good match." — owner brief
  *
@@ -11,8 +11,13 @@
  * next incident.
  *
  * Architecture:
- *   - On mount: startLiveMatch(seed) — seed comes from router location state
- *     (same pattern as ClubSelection) or a random hex if navigating directly.
+ *   - On mount: two paths:
+ *       1. FIXTURE path (M2b): location.state has { homeClubId, awayClubId }
+ *          (numbers) → calls startLiveMatchForFixture({ homeClubId, awayClubId }).
+ *          This produces the same deterministic MatchState as the AI-sim path in
+ *          advance_week, so the watched result == the AI-sim result.
+ *       2. SEED/DEV path (fallback): no fixture in state → calls
+ *          startLiveMatch(seedHex) with state.seedHex or a random hex.
  *   - Step loop (setInterval): calls stepLiveMatch(handle, ticksPerCall)
  *     at the configured pace. Each step result appends to the filtered event
  *     feed and pushes result.frame onto the growing frames array.
@@ -27,8 +32,23 @@
  *       "skip"  — 300 ticks/call; as fast as the backend permits; no pause.
  *   - Finish: loop stops on isFinished; finishLiveMatch called; final result shown.
  *
+ * Result model (v1 — read-only deterministic preview):
+ *   Watching is a READ-ONLY deterministic preview of the fixture. advance_week
+ *   remains the AUTHORITATIVE play of the round — it commits the result to the
+ *   season state. Because startLiveMatchForFixture uses the same seed + lineups
+ *   as advance_week's AI-sim path, the watched result == the committed result
+ *   when no in-match commands are issued.
+ *
+ *   Watching does NOT mutate season standings or advance the match day.
+ *
+ *   M3 hook: once M3 makes watching the authoritative play of the user's own
+ *   fixture, advance_week should skip that fixture (already resolved by the
+ *   user's watch). No rewrite of this route needed — the IPC surface is the
+ *   same; only the season-controller behaviour changes on the Rust side.
+ *
  * IPC (read-only; never mutates canonical state — CLAUDE.md §7):
- *   startLiveMatch, stepLiveMatch, finishLiveMatch from ~/lib/api/live_match.ts
+ *   startLiveMatch, startLiveMatchForFixture, stepLiveMatch, finishLiveMatch
+ *   from ~/lib/api/live_match.ts
  *
  * Rules compliance:
  *   - No `any` (Frontend/RULES.md §6)
@@ -57,6 +77,7 @@ import { describeRouteError } from "~/lib/route-errors";
 import { backendAvailable } from "~/lib/tauri";
 import {
   startLiveMatch,
+  startLiveMatchForFixture,
   stepLiveMatch,
   finishLiveMatch,
 } from "~/lib/api/live_match";
@@ -395,13 +416,44 @@ function KeyMomentItem(props: KeyMomentItemProps): JSX.Element {
 // Main component
 // ---------------------------------------------------------------------------
 
+/**
+ * Location state shapes accepted by this route.
+ *
+ * FIXTURE path (M2b): { homeClubId: number; awayClubId: number } — navigating
+ *   from the Home hub or Fixtures screen. Calls startLiveMatchForFixture().
+ *
+ * SEED/DEV path (fallback): { seedHex: string } or no state — dev direct-entry
+ *   or the old Match route. Calls startLiveMatch(seedHex).
+ */
+type LiveMatchState =
+  | { homeClubId: number; awayClubId: number }
+  | { seedHex?: string }
+  | null;
+
+function isFixtureState(
+  state: LiveMatchState,
+): state is { homeClubId: number; awayClubId: number } {
+  return (
+    state !== null &&
+    typeof state === "object" &&
+    "homeClubId" in state &&
+    "awayClubId" in state &&
+    typeof (state as { homeClubId: unknown }).homeClubId === "number" &&
+    typeof (state as { awayClubId: unknown }).awayClubId === "number"
+  );
+}
+
 export default function LiveMatch(): JSX.Element {
-  const location = useLocation<{ seedHex?: string }>();
+  const location = useLocation<LiveMatchState>();
   const navigate = useNavigate();
 
-  // Seed: from router state or a fresh random hex for dev direct-entry.
+  const locationState = location.state as LiveMatchState;
+
+  // Seed fallback for the dev path (used only when locationState is not a fixture).
   const initialSeed =
-    (location.state as { seedHex?: string } | null)?.seedHex ?? randomSeedHex();
+    !isFixtureState(locationState) && locationState !== null
+      ? ((locationState as { seedHex?: string }).seedHex ?? randomSeedHex())
+      : randomSeedHex();
 
   // ---------------------------------------------------------------------------
   // Core state
@@ -560,8 +612,18 @@ export default function LiveMatch(): JSX.Element {
       try {
         let h: MatchHandle;
         if (!backendAvailable()) {
+          // Browser-preview mock path — fixture context is noted but mock uses
+          // the same handle shape regardless of entry path.
           h = makeMockHandle(initialSeed);
+        } else if (isFixtureState(locationState)) {
+          // FIXTURE path (M2b): start from the real fixture so the watched
+          // result is deterministically equal to the AI-sim result.
+          h = await startLiveMatchForFixture({
+            homeClubId: locationState.homeClubId,
+            awayClubId: locationState.awayClubId,
+          });
         } else {
+          // SEED/DEV path (fallback): start from a seed — dev direct-entry.
           h = await startLiveMatch(initialSeed);
         }
         setHandle(h);

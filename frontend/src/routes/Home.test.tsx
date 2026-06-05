@@ -421,4 +421,101 @@ describe("Home — active-career hub", () => {
     // No list items rendered.
     expect(screen.queryAllByRole("listitem")).toHaveLength(0);
   });
+
+  // ---------------------------------------------------------------------------
+  // M2b: Watch entry-point tests
+  // ---------------------------------------------------------------------------
+
+  it("M2b-AC1: 'Watch this match' button is present when there is an unplayed fixture", async () => {
+    activateCareer();
+    vi.mocked(getStandings).mockResolvedValue(STANDINGS_4);
+    vi.mocked(getFixtures).mockResolvedValue(FIXTURES_WITH_NEXT);
+    vi.mocked(getPressInbox).mockResolvedValue({ seasonNumber: 1, items: [] });
+    renderHome();
+    // The button's accessible name is its aria-label ("Watch the match against <Opponent>")
+    // which takes precedence over the inner text ("Watch this match") in ARIA.
+    // Match on the aria-label pattern.
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /watch the match against/i }),
+      ).toBeInTheDocument();
+    });
+    // Also verify the button's visible text for completeness.
+    expect(screen.getByText("Watch this match")).toBeInTheDocument();
+  });
+
+  it("M2b-AC2: 'Watch this match' is absent when all fixtures are played", async () => {
+    activateCareer();
+    vi.mocked(getStandings).mockResolvedValue(STANDINGS_4);
+    vi.mocked(getFixtures).mockResolvedValue(FIXTURES_ALL_PLAYED);
+    vi.mocked(getPressInbox).mockResolvedValue({ seasonNumber: 1, items: [] });
+    renderHome();
+    await waitFor(() => {
+      // Wait for data to load — league position should be visible.
+      expect(screen.getByText(/3rd/i)).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole("button", { name: /watch the match against/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Watch this match")).not.toBeInTheDocument();
+  });
+
+  it("M2b-AC3: 'Watch this match' is absent when no career is active", () => {
+    // isCareerActive stays false from beforeEach defaults — pre-career menu renders.
+    renderHome();
+    expect(
+      screen.queryByRole("button", { name: /watch the match against/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Watch this match")).not.toBeInTheDocument();
+  });
+
+  it("M2b-AC4: home-game fixture → Watch button navigates to /live-match", async () => {
+    // managedClubId = 1; use a home fixture (isHome: true, opponentClubId: 20).
+    const HOME_FIXTURE = [
+      { matchDay: 6, opponentClubId: 20, opponentClubName: "Westbrook City", isHome: true, played: false },
+    ];
+    activateCareer(); // selectedClubId = "1"
+    vi.mocked(getStandings).mockResolvedValue(STANDINGS_4);
+    vi.mocked(getFixtures).mockResolvedValue(HOME_FIXTURE);
+    vi.mocked(getPressInbox).mockResolvedValue({ seasonNumber: 1, items: [] });
+
+    // Test via route stub — clicking Watch should navigate to /live-match.
+    const LiveMatchStub = () => <div data-testid="live-match-route">live match</div>;
+    const { unmount } = render(() => (
+      <MemoryRouter>
+        <Route path="/" component={Home} />
+        <Route path="/live-match" component={LiveMatchStub} />
+      </MemoryRouter>
+    ));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /watch the match against/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /watch the match against/i }));
+
+    // After navigation, /live-match stub should render.
+    await waitFor(() => {
+      expect(screen.getByTestId("live-match-route")).toBeInTheDocument();
+    });
+
+    unmount();
+  });
+
+  it("M2b-AC5: away-game fixture → Watch button present; '@' indicator confirms away orientation", async () => {
+    // FIXTURES_WITH_NEXT: matchDay 6, opponentClubId=20, isHome=false
+    // managed club id = 1 → expected derivation: home=20, away=1
+    activateCareer(); // selectedClubId = "1"
+    vi.mocked(getStandings).mockResolvedValue(STANDINGS_4);
+    vi.mocked(getFixtures).mockResolvedValue(FIXTURES_WITH_NEXT);
+    vi.mocked(getPressInbox).mockResolvedValue({ seasonNumber: 1, items: [] });
+
+    renderHome();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /watch the match against/i })).toBeInTheDocument();
+    });
+    // The away fixture renders "@" in the fixture bite — confirm orientation.
+    const opponentPara = screen.getByText(/westbrook city/i).closest("p");
+    expect(opponentPara?.textContent).toMatch(/@/);
+  });
 });

@@ -26,6 +26,23 @@ import type {
   PressTopicDto,
 } from "~/lib/types";
 
+// ---------------------------------------------------------------------------
+// Fixture → (homeClubId, awayClubId) derivation (M2b)
+//
+// getFixtures() returns fixtures RELATIVE to the managed club. For an unplayed
+// fixture, we need to derive the absolute (home, away) club ids so that
+// startLiveMatchForFixture can construct the correct MatchState.
+//
+// Rule:
+//   isHome === true  → managed club is at home: home = managedClubId, away = opponentClubId
+//   isHome === false → managed club is away:    home = opponentClubId, away = managedClubId
+// ---------------------------------------------------------------------------
+
+interface FixtureClubIds {
+  homeClubId: number;
+  awayClubId: number;
+}
+
 /**
  * Home route — two modes:
  *
@@ -224,6 +241,7 @@ function PreCareerMenu(): JSX.Element {
  */
 function ActiveCareerHub(): JSX.Element {
   const clubId = selectedClubId;
+  const navigate = useNavigate();
 
   // ── standings ──────────────────────────────────────────────────────────────
   // Fetch standings once on mount to derive managed-club position.
@@ -318,6 +336,35 @@ function ActiveCareerHub(): JSX.Element {
     return all.find((f) => !f.played) ?? null;
   });
 
+  /**
+   * Derives the absolute (homeClubId, awayClubId) pair for the next unplayed
+   * fixture so we can pass it directly to startLiveMatchForFixture.
+   *
+   * getFixtures() returns fixtures relative to the managed club:
+   *   isHome === true  → home = managedClubId, away = opponentClubId
+   *   isHome === false → home = opponentClubId, away = managedClubId
+   *
+   * Returns null when there is no unplayed fixture or the managed club id
+   * cannot be parsed.
+   */
+  const watchFixtureIds = createMemo<FixtureClubIds | null>(() => {
+    const nf = nextFixture();
+    const id = clubId();
+    if (!nf || id === null) return null;
+    const managedClubId = parseInt(id, 10);
+    if (isNaN(managedClubId)) return null;
+    if (nf.isHome) {
+      return { homeClubId: managedClubId, awayClubId: nf.opponentClubId };
+    }
+    return { homeClubId: nf.opponentClubId, awayClubId: managedClubId };
+  });
+
+  function handleWatchMatch(): void {
+    const ids = watchFixtureIds();
+    if (!ids) return;
+    navigate("/live-match", { state: ids });
+  }
+
   return (
     <div class="space-y-6">
       {/* ── Bite header ─────────────────────────────────────────────────────── */}
@@ -372,7 +419,7 @@ function ActiveCareerHub(): JSX.Element {
             {/* Next fixture — omitted when all matches are played or data missing */}
             <Show when={nextFixture()}>
               {(nf) => (
-                <div>
+                <div class="space-y-1.5">
                   <p class="text-[10px] uppercase tracking-wider text-ink-mute dark:text-paper-subtle">
                     Next fixture
                   </p>
@@ -385,6 +432,26 @@ function ActiveCareerHub(): JSX.Element {
                   <p class="text-xs font-mono text-ink-mute dark:text-paper-subtle">
                     Match day {nf().matchDay} · {nf().isHome ? "Home" : "Away"}
                   </p>
+                  {/*
+                    Watch entry-point (M2b): visible only when a managed club +
+                    unplayed fixture both exist (watchFixtureIds() handles both
+                    guards). Navigates to /live-match with { homeClubId, awayClubId }
+                    in router state so LiveMatch calls startLiveMatchForFixture.
+
+                    Read-only deterministic preview — advance_week is still the
+                    authoritative play of the round (M3 will wire the authoritative
+                    path here without changing this button).
+                  */}
+                  <Show when={watchFixtureIds()}>
+                    <button
+                      type="button"
+                      class="px-3 py-1 rounded text-xs font-mono bg-pitch-500 text-paper hover:bg-pitch-600 focus:outline-none focus:ring-2 focus:ring-pitch-400 transition-colors"
+                      onClick={handleWatchMatch}
+                      aria-label={`Watch the match against ${nf().opponentClubName}`}
+                    >
+                      Watch this match
+                    </button>
+                  </Show>
                 </div>
               )}
             </Show>

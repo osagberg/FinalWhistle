@@ -1,16 +1,20 @@
 /*
- * LiveMatch route — Vitest tests (S3b).
+ * LiveMatch route — Vitest tests (S3b / M2b).
  *
  * Acceptance criteria:
- *   AC1 — on mount, calls startLiveMatch(seed).
- *   AC2 — the step loop calls stepLiveMatch + appends key events to the feed.
- *   AC3 — board receives frames from step results.
- *   AC4 — scoreline updates on each step result.
- *   AC5 — auto mode: loop pauses when a key event is emitted; "Continue" resumes.
- *   AC6 — isFinished: loop stops; finishLiveMatch called; final result panel shown.
- *   AC7 — play/pause button toggles the loop.
- *   AC8 — speed mode buttons are aria-pressed for the active mode.
- *   AC9 — startLiveMatch failure shows a football-native error alert.
+ *   AC1  — on mount with seed state, calls startLiveMatch(seed).
+ *   AC1b — on mount with fixture state { homeClubId, awayClubId }, calls
+ *           startLiveMatchForFixture({ homeClubId, awayClubId }) NOT startLiveMatch.
+ *   AC1c — on mount with no state (direct dev entry), calls startLiveMatch with
+ *           a random seed hex (seed path fallback).
+ *   AC2  — the step loop calls stepLiveMatch + appends key events to the feed.
+ *   AC3  — board receives frames from step results.
+ *   AC4  — scoreline updates on each step result.
+ *   AC5  — auto mode: loop pauses when a key event is emitted; "Continue" resumes.
+ *   AC6  — isFinished: loop stops; finishLiveMatch called; final result panel shown.
+ *   AC7  — play/pause button toggles the loop.
+ *   AC8  — speed mode buttons are aria-pressed for the active mode.
+ *   AC9  — startLiveMatch failure shows a football-native error alert.
  *   AC10 — stepLiveMatch IPC error shows a football-native error alert.
  *
  * Mocking strategy:
@@ -20,6 +24,7 @@
  *   - pixi.js mocked globally (TacticalBoard is lazy — Suspense resolves the
  *     lazy import; mock ensures Pixi never touches real canvas).
  *   - @solidjs/router mocked: useLocation provides seed state; useNavigate spy.
+ *     The fixture-path tests reconfigure useLocation to return fixture state.
  *   - Fake timers (vi.useFakeTimers) control the setInterval step loop.
  */
 
@@ -64,6 +69,7 @@ vi.mock("~/lib/tauri", () => ({
 
 vi.mock("~/lib/api/live_match", () => ({
   startLiveMatch: vi.fn(),
+  startLiveMatchForFixture: vi.fn(),
   stepLiveMatch: vi.fn(),
   finishLiveMatch: vi.fn(),
   getMatchSnapshot: vi.fn(),
@@ -99,9 +105,11 @@ vi.mock("@solidjs/router", () => ({
 import LiveMatch from "./LiveMatch";
 import {
   startLiveMatch,
+  startLiveMatchForFixture,
   stepLiveMatch,
   finishLiveMatch,
 } from "~/lib/api/live_match";
+import { useLocation } from "@solidjs/router";
 
 // ---------------------------------------------------------------------------
 // Fixture builders
@@ -483,5 +491,81 @@ describe("LiveMatch route (S3b)", () => {
       if (!board) return;
       expect(board.getAttribute("data-follow-latest")).toBe("true");
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // M2b: fixture-path tests
+  // ---------------------------------------------------------------------------
+
+  // AC1b: when location state has { homeClubId, awayClubId }, calls
+  // startLiveMatchForFixture — NOT startLiveMatch.
+  it("calls startLiveMatchForFixture when fixture state is provided (AC1b)", async () => {
+    // Reconfigure useLocation to return fixture state.
+    vi.mocked(useLocation).mockReturnValue({
+      state: { homeClubId: 42, awayClubId: 7 },
+      pathname: "/live-match",
+      search: "",
+      hash: "",
+      query: {},
+      key: "test-key",
+    } as unknown as ReturnType<typeof useLocation>);
+
+    vi.mocked(startLiveMatchForFixture).mockResolvedValue(makeHandle());
+
+    render(() => <LiveMatch />);
+
+    await waitFor(() => {
+      expect(vi.mocked(startLiveMatchForFixture)).toHaveBeenCalledTimes(1);
+    });
+    expect(vi.mocked(startLiveMatchForFixture)).toHaveBeenCalledWith({
+      homeClubId: 42,
+      awayClubId: 7,
+    });
+    // The seed path must NOT have been called.
+    expect(vi.mocked(startLiveMatch)).not.toHaveBeenCalled();
+  });
+
+  // AC1c: when location state has seedHex (no fixture), uses the seed path.
+  it("calls startLiveMatch(seed) when only seedHex is in state (AC1c)", async () => {
+    vi.mocked(useLocation).mockReturnValue({
+      state: { seedHex: "0xdeadbeefdeadbeef" },
+      pathname: "/live-match",
+      search: "",
+      hash: "",
+      query: {},
+      key: "test-key",
+    } as unknown as ReturnType<typeof useLocation>);
+
+    render(() => <LiveMatch />);
+
+    await waitFor(() => {
+      expect(vi.mocked(startLiveMatch)).toHaveBeenCalledTimes(1);
+    });
+    expect(vi.mocked(startLiveMatch)).toHaveBeenCalledWith("0xdeadbeefdeadbeef");
+    expect(vi.mocked(startLiveMatchForFixture)).not.toHaveBeenCalled();
+  });
+
+  // AC1c-null: when state is null (direct dev entry), falls back to startLiveMatch
+  // with a random hex seed.
+  it("calls startLiveMatch with a random seed when state is null (AC1c-null)", async () => {
+    vi.mocked(useLocation).mockReturnValue({
+      state: null,
+      pathname: "/live-match",
+      search: "",
+      hash: "",
+      query: {},
+      key: "test-key",
+    } as unknown as ReturnType<typeof useLocation>);
+
+    render(() => <LiveMatch />);
+
+    await waitFor(() => {
+      expect(vi.mocked(startLiveMatch)).toHaveBeenCalledTimes(1);
+    });
+    // Seed is a random hex; we just verify the call happened and fixture path didn't.
+    const calledSeed = vi.mocked(startLiveMatch).mock.calls[0]?.[0];
+    expect(typeof calledSeed).toBe("string");
+    expect(calledSeed).toMatch(/^0x[0-9a-f]+$/i);
+    expect(vi.mocked(startLiveMatchForFixture)).not.toHaveBeenCalled();
   });
 });
