@@ -86,6 +86,25 @@
   .dark .fw-nav-link.active {
     @apply text-pitch-300 bg-pitch-900/40;
   }
+  /*
+   * Vertical sidebar nav variant. Extends fw-nav-link with:
+   *   - block display filling the sidebar width
+   *   - a pitch-accent left border on the active state (spatial anchor)
+   *   - semibold label on active for extra weight
+   *
+   * Tailwind v3 requires the --vertical modifier be applied as an additional
+   * class alongside fw-nav-link; the active state inherits from .fw-nav-link.active
+   * and is augmented here with the left border.
+   */
+  .fw-nav-link--vertical {
+    @apply block w-full rounded-none px-4 py-2 border-l-2 border-transparent;
+  }
+  .fw-nav-link--vertical.active {
+    @apply border-l-2 border-pitch-500 font-semibold;
+  }
+  .dark .fw-nav-link--vertical.active {
+    @apply border-pitch-400;
+  }
   /* Status pill — flag-yellow / flag-red / pitch for state cues. */
   .fw-pill {
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-mono uppercase tracking-wider;
