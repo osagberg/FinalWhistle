@@ -701,6 +701,10 @@ fn match_result_match_events_serializes_as_flat_dto_not_tagged_enum() {
             "Shot",
             "Pass",
             "SignatureFirstFired",
+            // FUN-TS2b
+            "Offside",
+            // FUN-CB1
+            "PassIncomplete",
         ];
         assert!(
             allowed.contains(&kind),

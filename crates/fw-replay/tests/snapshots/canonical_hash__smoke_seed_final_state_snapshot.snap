@@ -1,6 +1,5 @@
 ---
 source: crates/fw-replay/tests/canonical_hash.rs
-assertion_line: 621
 expression: state
 ---
 MatchState {

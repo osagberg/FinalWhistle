@@ -32,6 +32,8 @@ fn event_tick(ev: &MatchEvent) -> Tick {
         MatchEvent::Pass { tick, .. } => *tick,
         MatchEvent::SignatureFirstFired { tick, .. } => *tick,
         MatchEvent::Offside { tick, .. } => *tick,
+        // FUN-CB1: failed pass emits at the same tick as the Pass event.
+        MatchEvent::PassIncomplete { tick, .. } => *tick,
     }
 }
 

@@ -57,6 +57,8 @@ const PASS_DISC: u8 = 4;
 const SIGNATURE_FIRST_FIRED_DISC: u8 = 5;
 /// FUN-TS2b: Offside detection (discriminant 6).
 const OFFSIDE_DISC: u8 = 6;
+/// FUN-CB1: PassIncomplete (discriminant 7).
+const PASS_INCOMPLETE_DISC: u8 = 7;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -186,6 +188,15 @@ fn offside_ev() -> MatchEvent {
     }
 }
 
+fn pass_incomplete_ev() -> MatchEvent {
+    MatchEvent::PassIncomplete {
+        from_slot: 5,
+        to_slot: 9,
+        tick: Tick::from_raw(42),
+        kind: PassKind::Short,
+    }
+}
+
 #[test]
 fn offside_discriminant_is_6() {
     assert_eq!(
@@ -196,11 +207,21 @@ fn offside_discriminant_is_6() {
     );
 }
 
-/// Anti-vacuousness: all 7 discriminants are DISTINCT.
+#[test]
+fn pass_incomplete_discriminant_is_7() {
+    assert_eq!(
+        pass_incomplete_ev().discriminant() as u8,
+        PASS_INCOMPLETE_DISC,
+        "PassIncomplete discriminant must be {} (FUN-CB1 canonical encoder)",
+        PASS_INCOMPLETE_DISC
+    );
+}
+
+/// Anti-vacuousness: all 8 discriminants are DISTINCT.
 ///
 /// This test catches a naive implementation that returns a constant for all
 /// variants (which would pass each individual test above if the constant
-/// were 0..6, but would fail this one).
+/// were 0..7, but would fail this one).
 #[test]
 fn all_discriminants_are_distinct() {
     let all = [
@@ -211,6 +232,7 @@ fn all_discriminants_are_distinct() {
         pass_ev().discriminant() as u8,
         signature_first_fired().discriminant() as u8,
         offside_ev().discriminant() as u8,
+        pass_incomplete_ev().discriminant() as u8,
     ];
     // All must be distinct: collect into a BTreeSet and check the size.
     use std::collections::BTreeSet;
@@ -220,6 +242,52 @@ fn all_discriminants_are_distinct() {
         all.len(),
         "discriminant() returned duplicate values across variants: {:?}",
         all
+    );
+}
+
+#[test]
+fn all_discriminants_array_has_8_elements() {
+    // Pin the count — adding a new discriminant requires updating this test
+    // and the canonical encoder simultaneously.
+    assert_eq!(
+        fw_content::event::MatchEventDiscriminant::all().len(),
+        8,
+        "MatchEventDiscriminant::all() must return 8 elements after FUN-CB1 \
+         (added PassIncomplete = 7). Update this test + the canonical encoder \
+         if a new discriminant is added."
+    );
+}
+
+/// PassKind canonical tag stability (FUN-CB1 Fix 5).
+///
+/// `PassKind::canonical_tag()` is the single source of truth for the `kind u8`
+/// byte in both `Pass` and `PassIncomplete` wire-format records. These values
+/// MUST stay stable forever — changing them is a canonical-hash-invalidating
+/// event that requires an ADR-0012 rebaseline.
+///
+/// The table here MUST match the `#[repr(u8)]` explicit discriminants declared
+/// on `PassKind` in `fw-content::event`.
+#[test]
+fn pass_kind_canonical_tags_are_locked_forever() {
+    assert_eq!(
+        PassKind::Short.canonical_tag(),
+        0,
+        "Short canonical tag must be 0"
+    );
+    assert_eq!(
+        PassKind::Long.canonical_tag(),
+        1,
+        "Long canonical tag must be 1"
+    );
+    assert_eq!(
+        PassKind::Cross.canonical_tag(),
+        2,
+        "Cross canonical tag must be 2"
+    );
+    assert_eq!(
+        PassKind::LayOff.canonical_tag(),
+        3,
+        "LayOff canonical tag must be 3"
     );
 }
 
@@ -244,6 +312,7 @@ fn discriminant_agrees_with_match_event_discriminant_from_event() {
             MatchEventDiscriminant::SignatureFirstFired,
         ),
         (offside_ev(), MatchEventDiscriminant::Offside),
+        (pass_incomplete_ev(), MatchEventDiscriminant::PassIncomplete),
     ];
 
     for (event, expected_disc) in pairs {

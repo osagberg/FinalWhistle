@@ -270,6 +270,8 @@ const KNOWN_MATCH_EVENT_KINDS = new Set([
   "Substitution",
   "SignatureFirstFired",
   "Offside",
+  // FUN-CB1: failed pass (discriminant 7). Must mirror fw-content::event::MatchEvent.
+  "PassIncomplete",
 ] as const) satisfies ReadonlySet<MatchEventKind>;
 
 function isMatchEventKind(v: unknown): v is MatchEventKind {

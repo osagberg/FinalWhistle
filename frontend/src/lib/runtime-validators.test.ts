@@ -90,6 +90,21 @@ describe("isMatchEvent", () => {
       isMatchEvent({ tick: Number.NaN, minute: 0, kind: "Goal" }),
     ).toBe(false);
   });
+
+  // FUN-TS2b + FUN-CB1 lockstep guard — the identical bug class where a new
+  // MatchEvent variant is not added to KNOWN_MATCH_EVENT_KINDS causes
+  // isMatchResult to reject every match containing that event.
+  it("accepts Offside event (FUN-TS2b lockstep guard)", () => {
+    expect(
+      isMatchEvent({ tick: 230, minute: 3, kind: "Offside" }),
+    ).toBe(true);
+  });
+
+  it("accepts PassIncomplete event (FUN-CB1 lockstep guard)", () => {
+    expect(
+      isMatchEvent({ tick: 330, minute: 5, kind: "PassIncomplete" }),
+    ).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

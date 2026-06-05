@@ -480,6 +480,10 @@ fn event_tick_and_slot(event: &MatchEvent) -> (u32, PlayerSlot) {
             tick,
             offending_slot,
         } => (tick.to_raw() as u32, *offending_slot),
+        // FUN-CB1: PassIncomplete — from_slot is the primary actor.
+        MatchEvent::PassIncomplete {
+            tick, from_slot, ..
+        } => (tick.to_raw() as u32, *from_slot),
     }
 }
 
@@ -558,6 +562,18 @@ fn build_vars(event: &MatchEvent) -> Vec<(String, String)> {
         } => vec![
             ("tick".into(), tick.to_raw().to_string()),
             ("offendingSlot".into(), offending_slot.to_string()),
+        ],
+        // FUN-CB1: PassIncomplete event variables.
+        MatchEvent::PassIncomplete {
+            tick,
+            from_slot,
+            to_slot,
+            kind,
+        } => vec![
+            ("tick".into(), tick.to_raw().to_string()),
+            ("fromSlot".into(), from_slot.to_string()),
+            ("toSlot".into(), to_slot.to_string()),
+            ("passKind".into(), pass_kind_str(*kind).into()),
         ],
     }
 }

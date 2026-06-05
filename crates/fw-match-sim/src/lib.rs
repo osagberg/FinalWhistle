@@ -36,6 +36,7 @@ pub mod decision_cadence;
 pub mod dispatch;
 pub mod dto;
 pub mod goalkeeper_fsm;
+pub(crate) mod pass_completion;
 pub mod player;
 pub mod role_states;
 pub mod separation;

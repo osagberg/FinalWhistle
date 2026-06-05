@@ -257,6 +257,30 @@ slice's rebaseline. (Being delivered alongside the drama-sweep believability har
 
 ---
 
+## FUN-PHYS-1: Collision-aware player movement (known open limitation)
+
+The separation pass (`separation.rs`) is position-only: it nudges overlapping players apart by
+half the overlap, but does not touch velocities. `apply_vel_toward_target` in `dispatch.rs`
+re-issues the full convergence velocity every decision tick (every 15 ticks / 250ms), so two
+players chasing the same loose-ball point drive through each other across multiple ticks.
+
+FUN-CB1 (passes-can-fail) exposed this concretely: seed 7834583133621575731 showed pair (6,20)
+converging on a dropped loose ball with a 150mm / 62-tick clip-through. A partial mitigation is
+in `drop_loose_ball` (dispatch.rs): the dropped ball is laterally offset 0.4m away from the
+nearest opponent, breaking the head-on approach geometry. Measured result: that seed now shows
+only CORDIC ringing (≤12 raw bits ≈ 0.000003mm), same as clean seeds.
+
+The root cause remains: no steering/avoidance in the locomotion model. The correct fix requires
+either a velocity-level avoidance force (add a repulsion term before the speed cap) or a
+waypoint-routing approach (route around the nearest blocker rather than directly toward the
+target). A naive global velocity-damp was tested and rejected: at any tested threshold it
+suppresses approach velocity in attacking plays, dropping M1 from 2.35 to 2.15 (below the
+[2.3, 3.2] acceptance band).
+
+**Tracked:** `FUN-PHYS-1` in `docs/MASTER_PLAN.md`. `gameplay-programmer`.
+
+---
+
 ## Cross-references
 
 - `docs/DESIGN_DOC.md §3` — Pillar 0 (Believable Football), the foundation this serves.

@@ -868,17 +868,9 @@ pub fn dispatch_tick(
 /// If the magnitude exceeds the cap, the vector is scaled to `MAX_PLAYER_SPEED`.
 /// This ensures per-tick displacement ≤ `MAX_PLAYER_SPEED × dt ≈ 0.133m`
 /// in all movement directions, not just cardinal.
-/// T1 placeholder for `MatchEvent::Pass.completed`. Always `true` until the
-/// contest model lands in T2 — at which point this const becomes a function
-/// of the contest outcome AND every reference here must become a real bool.
 ///
-/// Why a named const instead of literal `true`: a single rename (grep
-/// `T1_PASS_COMPLETED`) surfaces every pass-emission site for T2 wiring.
-/// A scattered `completed: true` would silently leak past the contest model
-/// for any site the T2 author missed. Codex Tier-2 P1-4 on T1-4a
-/// (2026-05-16).
-const T1_PASS_COMPLETED: bool = true;
-
+/// FUN-CB1: pass completion is now stochastic (T1_PASS_COMPLETED removed).
+/// See `crate::pass_completion::resolve_pass_completion` for the mechanic.
 pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerIntent) {
     // Emit events BEFORE mutating velocity. The emission match is EXHAUSTIVE
     // (no `_` wildcard) so that adding a new `PlayerIntent` variant produces
@@ -987,32 +979,53 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
             if is_offside_at_pass_launch(state, slot_idx, to_slot) {
                 apply_offside(state, slot_idx, to_slot);
             } else {
+                let tick_u32 = state.tick.to_raw() as u32;
+                let pass_ok = crate::pass_completion::resolve_pass_completion(
+                    state,
+                    slot_idx,
+                    to_slot,
+                    PassKind::Short,
+                    tick_u32,
+                );
                 state.match_events.push(MatchEvent::Pass {
                     from_slot,
                     to_slot,
                     tick: state.tick,
                     kind: PassKind::Short,
-                    completed: T1_PASS_COMPLETED,
+                    completed: pass_ok,
                 });
                 // T1-15: snap ball to passer's feet before computing velocity.
-                // Without this, the ball starts from its last physical position
-                // (often center spot) rather than the passer's feet, so rolling
-                // friction stops the ball before it reaches the receiver.
                 let from_x = state.players[slot_idx].pos_x;
                 let from_y = state.players[slot_idx].pos_y;
                 state.ball.pos_x = from_x;
                 state.ball.pos_y = from_y;
-                // T1-3.5: ball mutation — kick toward receiver's current position.
-                let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
-                let to_x = state.players[to_slot as usize].pos_x;
-                let to_y = state.players[to_slot as usize].pos_y;
-                let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
-                state.ball.vel_x = bvx;
-                state.ball.vel_y = bvy;
-                state.ball.vel_z = Q32::ZERO;
-                // T1: pass always completes; possession goes to receiver.
-                state.possession = Some(to_slot);
-                state.last_touched_by = Some(from_slot);
+                if pass_ok {
+                    // Success: ball travels to receiver, possession transferred.
+                    let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+                    let to_x = state.players[to_slot as usize].pos_x;
+                    let to_y = state.players[to_slot as usize].pos_y;
+                    let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
+                    state.ball.vel_x = bvx;
+                    state.ball.vel_y = bvy;
+                    state.ball.vel_z = Q32::ZERO;
+                    state.possession = Some(to_slot);
+                    state.last_touched_by = Some(from_slot);
+                } else {
+                    // Failure: emit PassIncomplete, drop loose ball, clear possession.
+                    let to_x = state.players[to_slot as usize].pos_x;
+                    let to_y = state.players[to_slot as usize].pos_y;
+                    let is_forward = slot_idx < crate::PLAYERS_PER_TEAM && to_x > from_x
+                        || slot_idx >= crate::PLAYERS_PER_TEAM && to_x < from_x;
+                    drop_loose_ball(state, from_x, from_y, to_x, to_y, is_forward);
+                    state.match_events.push(MatchEvent::PassIncomplete {
+                        from_slot,
+                        to_slot,
+                        tick: state.tick,
+                        kind: PassKind::Short,
+                    });
+                    state.possession = None;
+                    state.last_touched_by = Some(from_slot);
+                }
             }
         }
         PlayerIntent::AttemptPassLong { target_x, target_y } => {
@@ -1022,27 +1035,51 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
             if is_offside_at_pass_launch(state, slot_idx, to_slot) {
                 apply_offside(state, slot_idx, to_slot);
             } else {
+                let tick_u32 = state.tick.to_raw() as u32;
+                let pass_ok = crate::pass_completion::resolve_pass_completion(
+                    state,
+                    slot_idx,
+                    to_slot,
+                    PassKind::Long,
+                    tick_u32,
+                );
                 state.match_events.push(MatchEvent::Pass {
                     from_slot,
                     to_slot,
                     tick: state.tick,
                     kind: PassKind::Long,
-                    completed: T1_PASS_COMPLETED,
+                    completed: pass_ok,
                 });
-                // T1-15: snap ball to passer's feet (same pattern as Short/Dribble).
+                // T1-15: snap ball to passer's feet.
                 let from_x = state.players[slot_idx].pos_x;
                 let from_y = state.players[slot_idx].pos_y;
                 state.ball.pos_x = from_x;
                 state.ball.pos_y = from_y;
-                let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
-                let to_x = state.players[to_slot as usize].pos_x;
-                let to_y = state.players[to_slot as usize].pos_y;
-                let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
-                state.ball.vel_x = bvx;
-                state.ball.vel_y = bvy;
-                state.ball.vel_z = Q32::ZERO;
-                state.possession = Some(to_slot);
-                state.last_touched_by = Some(from_slot);
+                if pass_ok {
+                    let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+                    let to_x = state.players[to_slot as usize].pos_x;
+                    let to_y = state.players[to_slot as usize].pos_y;
+                    let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
+                    state.ball.vel_x = bvx;
+                    state.ball.vel_y = bvy;
+                    state.ball.vel_z = Q32::ZERO;
+                    state.possession = Some(to_slot);
+                    state.last_touched_by = Some(from_slot);
+                } else {
+                    let to_x = state.players[to_slot as usize].pos_x;
+                    let to_y = state.players[to_slot as usize].pos_y;
+                    let is_forward = slot_idx < crate::PLAYERS_PER_TEAM && to_x > from_x
+                        || slot_idx >= crate::PLAYERS_PER_TEAM && to_x < from_x;
+                    drop_loose_ball(state, from_x, from_y, to_x, to_y, is_forward);
+                    state.match_events.push(MatchEvent::PassIncomplete {
+                        from_slot,
+                        to_slot,
+                        tick: state.tick,
+                        kind: PassKind::Long,
+                    });
+                    state.possession = None;
+                    state.last_touched_by = Some(from_slot);
+                }
             }
         }
         PlayerIntent::Cross { target_x, target_y } => {
@@ -1052,27 +1089,51 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
             if is_offside_at_pass_launch(state, slot_idx, to_slot) {
                 apply_offside(state, slot_idx, to_slot);
             } else {
+                let tick_u32 = state.tick.to_raw() as u32;
+                let pass_ok = crate::pass_completion::resolve_pass_completion(
+                    state,
+                    slot_idx,
+                    to_slot,
+                    PassKind::Cross,
+                    tick_u32,
+                );
                 state.match_events.push(MatchEvent::Pass {
                     from_slot,
                     to_slot,
                     tick: state.tick,
                     kind: PassKind::Cross,
-                    completed: T1_PASS_COMPLETED,
+                    completed: pass_ok,
                 });
                 // T1-15: snap ball to crosser's feet before kick.
                 let from_x = state.players[slot_idx].pos_x;
                 let from_y = state.players[slot_idx].pos_y;
                 state.ball.pos_x = from_x;
                 state.ball.pos_y = from_y;
-                let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
-                let to_x = state.players[to_slot as usize].pos_x;
-                let to_y = state.players[to_slot as usize].pos_y;
-                let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
-                state.ball.vel_x = bvx;
-                state.ball.vel_y = bvy;
-                state.ball.vel_z = Q32::ZERO;
-                state.possession = Some(to_slot);
-                state.last_touched_by = Some(from_slot);
+                if pass_ok {
+                    let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+                    let to_x = state.players[to_slot as usize].pos_x;
+                    let to_y = state.players[to_slot as usize].pos_y;
+                    let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
+                    state.ball.vel_x = bvx;
+                    state.ball.vel_y = bvy;
+                    state.ball.vel_z = Q32::ZERO;
+                    state.possession = Some(to_slot);
+                    state.last_touched_by = Some(from_slot);
+                } else {
+                    let to_x = state.players[to_slot as usize].pos_x;
+                    let to_y = state.players[to_slot as usize].pos_y;
+                    let is_forward = slot_idx < crate::PLAYERS_PER_TEAM && to_x > from_x
+                        || slot_idx >= crate::PLAYERS_PER_TEAM && to_x < from_x;
+                    drop_loose_ball(state, from_x, from_y, to_x, to_y, is_forward);
+                    state.match_events.push(MatchEvent::PassIncomplete {
+                        from_slot,
+                        to_slot,
+                        tick: state.tick,
+                        kind: PassKind::Cross,
+                    });
+                    state.possession = None;
+                    state.last_touched_by = Some(from_slot);
+                }
             }
         }
         PlayerIntent::LayOff { target_x, target_y } => {
@@ -1082,27 +1143,50 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
             if is_offside_at_pass_launch(state, slot_idx, to_slot) {
                 apply_offside(state, slot_idx, to_slot);
             } else {
+                let tick_u32 = state.tick.to_raw() as u32;
+                let pass_ok = crate::pass_completion::resolve_pass_completion(
+                    state,
+                    slot_idx,
+                    to_slot,
+                    PassKind::LayOff,
+                    tick_u32,
+                );
                 state.match_events.push(MatchEvent::Pass {
                     from_slot,
                     to_slot,
                     tick: state.tick,
                     kind: PassKind::LayOff,
-                    completed: T1_PASS_COMPLETED,
+                    completed: pass_ok,
                 });
                 // T1-15: snap ball to passer's feet before kick.
                 let from_x = state.players[slot_idx].pos_x;
                 let from_y = state.players[slot_idx].pos_y;
                 state.ball.pos_x = from_x;
                 state.ball.pos_y = from_y;
-                let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
-                let to_x = state.players[to_slot as usize].pos_x;
-                let to_y = state.players[to_slot as usize].pos_y;
-                let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
-                state.ball.vel_x = bvx;
-                state.ball.vel_y = bvy;
-                state.ball.vel_z = Q32::ZERO;
-                state.possession = Some(to_slot);
-                state.last_touched_by = Some(from_slot);
+                if pass_ok {
+                    let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
+                    let to_x = state.players[to_slot as usize].pos_x;
+                    let to_y = state.players[to_slot as usize].pos_y;
+                    let (bvx, bvy) = ball_unit_vel(from_x, from_y, to_x, to_y, speed);
+                    state.ball.vel_x = bvx;
+                    state.ball.vel_y = bvy;
+                    state.ball.vel_z = Q32::ZERO;
+                    state.possession = Some(to_slot);
+                    state.last_touched_by = Some(from_slot);
+                } else {
+                    let to_x = state.players[to_slot as usize].pos_x;
+                    let to_y = state.players[to_slot as usize].pos_y;
+                    // LayOff is typically backward/lateral — use 20% drop.
+                    drop_loose_ball(state, from_x, from_y, to_x, to_y, false);
+                    state.match_events.push(MatchEvent::PassIncomplete {
+                        from_slot,
+                        to_slot,
+                        tick: state.tick,
+                        kind: PassKind::LayOff,
+                    });
+                    state.possession = None;
+                    state.last_touched_by = Some(from_slot);
+                }
             }
         }
         PlayerIntent::Dribble { .. } => {
@@ -1279,6 +1363,119 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
 /// canonical state. Pre-T1-21 this was `debug_assert_ne!` which the §11
 /// hardening identified as exactly the silent-failure pattern banned.
 ///
+/// FUN-CB1: Drop the ball at the loose-ball point after a failed pass.
+///
+/// For a forward pass (`is_forward = true`): drop at 40% of the passer→receiver
+/// vector. For backward/lateral (`is_forward = false`): drop at 20%.
+/// Ball velocity is zeroed — the preempt nearest-2 policy picks it up.
+///
+/// ## FUN-PHYS-1 partial symptom fix: lateral offset away from second-nearest opponent
+///
+/// Without an offset, two opposing preempt-chasers sprint toward the same
+/// point and drive straight through each other (position-only separation +
+/// velocity-re-issue creates a 60–150mm sustained clip-through). The root
+/// fix (collision-aware movement) is FUN-PHYS-1 (TODO in MASTER_PLAN).
+///
+/// Cheap deterministic mitigation: after computing the nominal drop point,
+/// find the closest opponent to that point (the likely second chaser, since
+/// the primary chaser is nearest-2 by preempt policy), then apply a
+/// `LOOSE_BALL_LATERAL_OFFSET` = `MIN_PLAYER_DISTANCE` (0.4m) in the
+/// direction AWAY from that opponent along the pass-perpendicular axis
+/// (signed by Y: above-centre → +Y offset, below-centre or on-axis → −Y).
+///
+/// This biases the ball off the head-on approach line so the two chasers
+/// arrive at slightly different angles and don't overlap. The offset is
+/// Q32-only, deterministic, and < 0.5m — invisible to commentary.
+///
+/// 0.40 in Q32 = 1_717_986_918 raw bits.
+/// 0.20 in Q32 =   858_993_459 raw bits.
+fn drop_loose_ball(
+    state: &mut MatchState,
+    from_x: Q32,
+    from_y: Q32,
+    to_x: Q32,
+    to_y: Q32,
+    is_forward: bool,
+) {
+    const FRAC_40: Q32 = Q32::from_raw(1_717_986_918_i64); // 0.40
+    const FRAC_20: Q32 = Q32::from_raw(858_993_459_i64); // 0.20
+    // Lateral offset magnitude = MIN_PLAYER_DISTANCE (0.4m). Applied perpendicular
+    // to the pass direction so the ball lands off the head-on approach line.
+    const LATERAL_OFFSET: Q32 = crate::separation::MIN_PLAYER_DISTANCE; // 0.4m
+
+    let frac = if is_forward { FRAC_40 } else { FRAC_20 };
+    // nominal drop: from + frac × (to - from)
+    let dx = to_x - from_x;
+    let dy = to_y - from_y;
+    let drop_x = from_x + frac * dx;
+    let drop_y = from_y + frac * dy;
+
+    // FUN-PHYS-1 mitigation: find the nearest opponent to the drop point
+    // (i.e. the likely second chaser — not the passer's team).
+    // The passer's team is determined by slot_idx < PLAYERS_PER_TEAM.
+    // "Opponent" = the OTHER team's outfield slots (excludes GK at slot 0/11
+    // since GKs only chase when ball is near their goal line).
+    // Manhattan distance scan — no sqrt needed.
+    let passer_is_home = {
+        // Find who has the ball (last_touched_by / current possession state).
+        // At this point possession is still set to Some(from_slot) — the caller
+        // will clear it immediately after. We determine from_slot via from_x/from_y
+        // matching: scan players for the one at (from_x, from_y). If no exact match
+        // found (floating-point-like imprecision), fall back to Y-sign heuristic.
+        // Q32 positions are exact; the passer was just positioned here this tick.
+        let mut found_home = true;
+        'outer: for idx in 0..crate::TOTAL_PLAYERS {
+            if state.players[idx].pos_x == from_x && state.players[idx].pos_y == from_y {
+                found_home = idx < crate::PLAYERS_PER_TEAM;
+                break 'outer;
+            }
+        }
+        // Fallback: if from_x > 0 the pass is in the home half → likely away passer;
+        // heuristic only fires when position match fails (should be very rare).
+        // Deliberately simple — wrong sign just means offset flips; both prevent head-on.
+        found_home
+    };
+
+    let opp_range = if passer_is_home {
+        crate::PLAYERS_PER_TEAM..crate::TOTAL_PLAYERS
+    } else {
+        0..crate::PLAYERS_PER_TEAM
+    };
+
+    let drop_x_i128 = drop_x.to_bits() as i128;
+    let drop_y_i128 = drop_y.to_bits() as i128;
+    let mut nearest_opp_dist: i128 = i128::MAX;
+    let mut nearest_opp_y_raw: i64 = 0;
+
+    for opp_idx in opp_range {
+        let op = &state.players[opp_idx];
+        let odx = (op.pos_x.to_bits() as i128 - drop_x_i128).unsigned_abs() as i128;
+        let ody = (op.pos_y.to_bits() as i128 - drop_y_i128).unsigned_abs() as i128;
+        let dist = odx + ody;
+        if dist < nearest_opp_dist {
+            nearest_opp_dist = dist;
+            nearest_opp_y_raw = op.pos_y.to_bits();
+        }
+    }
+
+    // Lateral offset direction: AWAY from nearest opponent in Y.
+    // If nearest_opp_y_raw > drop_y_raw → opponent is above → offset downward (−Y).
+    // If nearest_opp_y_raw ≤ drop_y_raw → opponent is below or same → offset upward (+Y).
+    // This biases the ball off the head-on line regardless of pitch orientation.
+    let drop_y_raw = drop_y.to_bits();
+    let offset_y = if nearest_opp_y_raw > drop_y_raw {
+        -LATERAL_OFFSET
+    } else {
+        LATERAL_OFFSET
+    };
+
+    state.ball.pos_x = drop_x;
+    state.ball.pos_y = drop_y + offset_y;
+    state.ball.vel_x = Q32::ZERO;
+    state.ball.vel_y = Q32::ZERO;
+    state.ball.vel_z = Q32::ZERO;
+}
+
 /// T1 approximation — T2 refines with passing-lane model.
 fn nearest_teammate_near(
     state: &MatchState,

@@ -143,10 +143,10 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:f139c76a631b7eb104e9d7619e9fb94ac9502e9afa5477fca9eaae6ec8c96d1c",
+    expected_hash: "blake3:95ee3978c5200e84ef3c72596de0bc621f540327d541b877d0f7ce436a1f6964",
     metadata: (
-        description: "FUN-TS2 shot-quality tuning: SIGMA_BASE_M 5.5m→7.0m, XG_SHOOT_THRESHOLD 0.095→0.070, SAVE_BASE 0.73/0.92→0.62/0.82. Drama-sweep M1=2.40 (in [2.3,3.2]), on-target=45.7%, shots/match=9.9, max-single=5. ts2_proptest.rs clippy fix + TS2-P2 extended to 5400 ticks.",
-        generated_at: "2026-06-04",
-        notes: "Re-pinned at FUN-TS2 shot-quality tuning (ADR-0012 trigger #3 — sim behavior change). Prior hash 4f07937e...1719 was the FUN-TS2 mechanism-in baseline. Key changes: larger shot scatter (SIGMA_BASE 7m), lower shoot threshold (0.070), lower GK save floor/ceiling (0.62/0.82). 60-tick smoke pin unchanged. All 4 canonical pin locations updated atomically.",
+        description: "FUN-CB1 integrity fix: drop_loose_ball lateral offset (FUN-PHYS-1 partial mitigation) + honest separation-proptest tolerances. Prior 4e02…4df was CB1 passes-can-fail. This rebaseline authorized: intentional behavior change fixes head-on loose-ball convergence clip-through.",
+        generated_at: "2026-06-05",
+        notes: "60-tick smoke pin unchanged (no PassIncomplete in 60 ticks).",
     ),
 )

@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 9e57c3389b3c570602b00aa540e979fe811e659b58c9c2be93defa01a2763944 # shrinks to seed_val = 0
+cc 6a4820db2b5ef44843a5abcc74e0b09b5c3d5cd5b6d28e3b7c3e4e17e8e4c2a # shrinks to seed_val = 7834583133621575731 (FUN-CB1 loose-ball head-on convergence; FUN-PHYS-1 lateral-offset mitigation in drop_loose_ball resolves clip-through; seed now passes CORDIC-ringing-only)

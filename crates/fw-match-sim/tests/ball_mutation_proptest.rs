@@ -183,21 +183,50 @@ proptest! {
         let intent = PlayerIntent::AttemptPassShort { target_x, target_y };
         dispatch::apply_intent(&mut state, passer_slot, intent);
 
-        // ANTI-VACUOUSNESS FIRST: ball must be moving.
-        let vel_nonzero = state.ball.vel_x != Q32::ZERO || state.ball.vel_y != Q32::ZERO;
-        prop_assert!(
-            vel_nonzero,
-            "AttemptPassShort must produce non-zero ball velocity; \
-             vel_x={:?}, vel_y={:?}",
-            state.ball.vel_x,
-            state.ball.vel_y,
-        );
+        // FUN-CB1: pass may fail (completion draw). Determine whether the pass
+        // completed by inspecting the last Pass event.
+        let pass_completed = state
+            .match_events()
+            .iter()
+            .rev()
+            .find_map(|ev| {
+                if let fw_match_sim::MatchEvent::Pass { completed, .. } = ev {
+                    Some(*completed)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(false);
 
-        // Structural: last_touched_by must be the passer.
+        if pass_completed {
+            // On success: ball must be moving toward the receiver.
+            let vel_nonzero = state.ball.vel_x != Q32::ZERO || state.ball.vel_y != Q32::ZERO;
+            prop_assert!(
+                vel_nonzero,
+                "AttemptPassShort COMPLETED must produce non-zero ball velocity; \
+                 vel_x={:?}, vel_y={:?}",
+                state.ball.vel_x,
+                state.ball.vel_y,
+            );
+            // Possession transferred to receiver.
+            prop_assert!(
+                state.possession().is_some(),
+                "completed pass must set possession to the receiver"
+            );
+        } else {
+            // On failure: possession cleared; ball stopped dead near passer.
+            prop_assert_eq!(
+                state.possession(),
+                None,
+                "failed pass must clear possession"
+            );
+        }
+
+        // Structural invariant (both outcomes): last_touched_by must be the passer.
         prop_assert_eq!(
             state.last_touched_by(),
             Some(passer_slot as u8),
-            "last_touched_by must be the passer slot"
+            "last_touched_by must be the passer slot (both success and failure)"
         );
     }
 }

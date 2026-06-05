@@ -41,6 +41,26 @@
 //! - No RNG — the zero-distance fallback is a deterministic convention.
 //! - Positions are written back to the `players` Vec in slot order; the
 //!   canonical encoder iterates in the same order.
+//!
+//! ## FUN-CB1 / FUN-PHYS-1 note
+//!
+//! CB1's failed-pass loose-ball drops exposed a pre-existing limitation: two
+//! opposing preempt-chasers sprinting toward the same loose-ball point drive
+//! straight through each other. The separation pass (position-only nudge)
+//! cannot prevent this because `apply_vel_toward_target` re-issues the
+//! convergence velocity every decision tick (every 15 ticks).
+//!
+//! **FUN-PHYS-1 partial mitigation (drop_loose_ball, dispatch.rs):** the
+//! loose-ball drop point is now laterally offset 0.4m (= MIN_PLAYER_DISTANCE)
+//! away from the nearest opponent, breaking the head-on geometry. Measured
+//! result: seed 7834583133621575731 went from a 150mm / 62-tick clip-through
+//! to CORDIC-ringing-only (≤12 raw bits = 0.000003mm, same as clean seeds).
+//!
+//! **Root cause remains open:** collision-aware player movement (FUN-PHYS-1
+//! in MASTER_PLAN). The separation pass is still position-only; a sufficiently
+//! adversarial ball drop can still cause multi-tick overlap if two players are
+//! placed equidistant from the offset ball. The correct fix is a steering /
+//! avoidance approach that modifies velocity rather than position-clipping.
 
 use fw_core::Q32;
 
@@ -89,7 +109,7 @@ pub const EPSILON_SEPARATION: Q32 = Q32::from_raw(858_993_459); // ≈ 0.2m (= M
 
 /// Apply the player-separation positional correction to all 22 players.
 ///
-/// Called from `tick_match` after position integration (step 6).
+/// Called from `tick_match` after position integration (step 8).
 /// Mutates `state.players[*].pos_x` / `pos_y` in place; velocities are
 /// not touched.
 pub fn apply_player_separation(state: &mut MatchState) {
@@ -158,7 +178,6 @@ mod tests {
     // raw bits = round(value × 2^32)
     const Q32_0_3: Q32 = Q32::from_raw(1_288_490_188); // 0.3 m
     const Q32_0_5: Q32 = Q32::from_raw(2_147_483_648_u32 as i64); // 0.5 m
-    const Q32_0_1: Q32 = Q32::from_raw(429_496_729); // 0.1 m
 
     // ---- Chunk 1: pair-iteration count + order ----
 
@@ -411,19 +430,15 @@ mod tests {
     #[test]
     fn velocity_unchanged_after_separation() {
         let mut state = MatchState::initial(Seed::from_u64(42));
+        // Space all players 5m apart — no pair overlaps.
         for (k, p) in state.players.iter_mut().enumerate() {
+            p.pos_x = Q32::from_int((k as i32) * 5);
+            p.pos_y = Q32::ZERO;
             p.vel_x = Q32::from_int(k as i32);
             p.vel_y = Q32::from_int(-(k as i32));
         }
         let vels_before: Vec<(Q32, Q32)> =
             state.players.iter().map(|p| (p.vel_x, p.vel_y)).collect();
-
-        // Force every adjacent pair to be within MIN_PLAYER_DISTANCE.
-        for k in 0..state.players.len() {
-            state.players[k].pos_x = Q32::from_int(0);
-            // Space players 0.1 m apart (< 0.4 m min) to trigger separation.
-            state.players[k].pos_y = Q32_0_1 * Q32::from_int(k as i32);
-        }
 
         apply_player_separation(&mut state);
 

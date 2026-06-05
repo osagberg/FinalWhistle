@@ -219,6 +219,14 @@ proptest! {
 // Bumped from 10 → 100 ticks to exercise the multi-body resolution path over
 // a longer run and confirm the separation pass remains wired correctly as BT
 // decisions continuously update player velocities and positions.
+//
+// Tolerance: 16 raw Q32 bits (≈ 0.000004mm). This is the measured CORDIC
+// ringing ceiling on clean seeds + seed 7834583133621575731 after the
+// FUN-PHYS-1 lateral-offset mitigation in drop_loose_ball:
+//   clean seeds (7 seeds × 100 ticks): max deficit = 12 raw bits
+//   regression seed 7834583133621575731 (200 ticks):  max deficit = 12 raw bits
+// 16 raw bits gives a 33% margin above the measured ceiling. Any deficit larger
+// than 16 raw bits (> ~0.000004mm) is a real overlap, not CORDIC ringing.
 // ---------------------------------------------------------------------------
 
 proptest! {
@@ -233,10 +241,13 @@ proptest! {
         for i in 0..n {
             for j in (i + 1)..n {
                 let dist = player_dist(&state, i, j);
-                let tol = Q32::from_raw(4096);
+                // Tolerance = 16 raw Q32 bits ≈ 0.000004mm: the measured CORDIC
+                // ringing ceiling (12 raw bits max across all measured seeds).
+                let tol = Q32::from_raw(16_i64);
                 prop_assert!(
                     dist >= separation::MIN_PLAYER_DISTANCE || (separation::MIN_PLAYER_DISTANCE - dist) <= tol,
-                    "after 100 ticks pair ({i},{j}) dist {dist:?} below MIN_PLAYER_DISTANCE — separation may not be wired into tick_match"
+                    "after 100 ticks pair ({i},{j}) dist {dist:?} is more than 16 raw bits below \
+                     MIN_PLAYER_DISTANCE — real overlap, not CORDIC ringing"
                 );
             }
         }
@@ -248,10 +259,25 @@ proptest! {
 // ticks across a 100-tick run.
 //
 // The single-pass separation algorithm resolves isolated pairs in one tick.
-// Multi-body pileups may leave residual overlap for 1–2 ticks before BT
-// decisions redistribute players. The strictest bound is ≤ 2 consecutive
-// ticks of violation per pair. Tracks per-pair streak in a BTreeMap
-// (BTreeMap only — HashMap banned in sim crates per RULES.md §2).
+// Multi-body pileups may leave residual CORDIC ringing (≤16 raw bits ≈
+// 0.000004mm) for several ticks — these are NOT real overlaps.
+//
+// Tolerance and streak bound are both calibrated to the MEASURED CORDIC
+// ringing floor:
+//   - tol = 16 raw Q32 bits: anything ≤16 is ringing, not real overlap.
+//   - streak ≤ 2: any REAL overlap (deficit > 16 raw bits) must resolve
+//     within 2 ticks. Measured on seed 7834583133621575731 post-fix: 0 ticks
+//     above the 16-bit threshold. Measured on clean seeds: max real-overlap
+//     streak = 1 tick (three-body pileup at kick-off). Bound set to 2 to
+//     allow for three-body pileups that need an extra tick to unwind.
+//
+// FUN-PHYS-1 mitigation: drop_loose_ball applies a 0.4m lateral offset away
+// from the nearest opponent, preventing the head-on convergence that caused
+// the 150mm / 62-tick clip-through in the regression seed. The root cause
+// (collision-aware movement) is still pending as FUN-PHYS-1 in MASTER_PLAN.
+//
+// Tracks per-pair streak in a BTreeMap (BTreeMap only — HashMap banned in
+// sim crates per RULES.md §2).
 // ---------------------------------------------------------------------------
 
 proptest! {
@@ -263,7 +289,10 @@ proptest! {
         let n = state.players.len();
         // streak[(i,j)] = consecutive ticks pair (i,j) has been below MIN_PLAYER_DISTANCE.
         let mut streak: BTreeMap<(u8, u8), u32> = BTreeMap::new();
-        let tol = Q32::from_raw(4096);
+        // Tolerance = 16 raw Q32 bits (≈ 0.000004mm): the measured CORDIC ringing
+        // ceiling. Deficits ≤16 raw bits are ringing artefacts; only deficits
+        // larger than this count as real overlaps for streak purposes.
+        let tol = Q32::from_raw(16_i64);
 
         for _tick in 0..100 {
             state = tick_match(state, &std::collections::BTreeMap::new());

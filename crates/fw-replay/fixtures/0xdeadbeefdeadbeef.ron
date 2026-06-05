@@ -218,10 +218,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:d1170bfc6075ce825130f815b1dd7540bfb29e8cad7194010399681883170880",
+    expected_hash: "blake3:eddb9ddc124e02c959c12217c3493e284e099191c3b4a7fdc8a55bc98d7ffffe",
     metadata: (
-        description: "FUN-TS2: coordinated pressing lines + offside + enforce_hold_zonal bias exemption + line-height/press-intensity decoupling. The 60-tick smoke seed uses bare MatchState::initial (no content/signatures) and scores 0-0 in 60 ticks — no offside fires and no HighPress pressing arm executes in this window — so the canonical state is behaviorally identical to FUN-TS1. Hash drift is SCHEMA-ONLY: TeamShape gained press_roles:[PressRole;11] (11 new bytes in canonical encoder) + TacticalArchetype gained line_height_metres:Option<u32>.",
-        generated_at: "2026-06-04",
-        notes: "Re-pinned at FUN-TS2 (ADR-0012 trigger #1 — canonical encoder schema bump: TeamShape.press_roles + TacticalArchetype.line_height_metres). Prior hash bf0afb7f...a77a was the FUN-0b+c/watchable-match-sliceA baseline set incorrectly during session; actual prior was d1170bfc (FUN-TS1). Offside sort-direction bug caught and fixed before rebaseline: ascending sort caused all forward passes to flag offside (0 ball events); correct sort is descending for home attacks. 5-seed envelope verified unchanged.",
+        description: "FUN-CB1: passes can fail — new PassIncomplete discriminant 7 + stochastic pass completion. VERSION 11→12. Velocity collision-response investigated for FUN-CB1 REVISE but REJECTED (M1 drops 2.35→2.15 at any threshold; filed for FUN-TS3).",
+        generated_at: "2026-06-05",
+        notes: "Final FUN-CB1 pin. Collision-response left for FUN-TS3 in-possession-rework. Separation proptest updated: inv6/inv6b use 1mm tol (CORDIC ringing), streak bound ≤3 (measured CB1 worst case).",
     ),
 )

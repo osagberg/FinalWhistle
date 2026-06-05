@@ -103,6 +103,11 @@ fn all_events() -> Vec<MatchEvent> {
         shot_event(),
         pass_event(),
         sig_event(),
+        MatchEvent::Offside {
+            offending_slot: 8,
+            tick: Tick::from_raw(42),
+        },
+        pass_incomplete_event(),
     ]
 }
 
@@ -140,6 +145,15 @@ fn load_sources_loads_all_commentary_grammars() {
     }
 }
 
+fn pass_incomplete_event() -> MatchEvent {
+    MatchEvent::PassIncomplete {
+        from_slot: 5,
+        to_slot: 9,
+        tick: Tick::from_raw(42),
+        kind: PassKind::Short,
+    }
+}
+
 fn disc_to_event(disc: MatchEventDiscriminant) -> MatchEvent {
     match disc {
         MatchEventDiscriminant::KickOff => kickoff_event(),
@@ -152,6 +166,7 @@ fn disc_to_event(disc: MatchEventDiscriminant) -> MatchEvent {
             offending_slot: 8,
             tick: fw_core::Tick::from_raw(42),
         },
+        MatchEventDiscriminant::PassIncomplete => pass_incomplete_event(),
     }
 }
 

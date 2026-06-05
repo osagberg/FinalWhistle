@@ -39,6 +39,7 @@
 //! | 4 | `Pass` |
 //! | 5 | `SignatureFirstFired` |
 //! | 6 | `Offside` |
+//! | 7 | `PassIncomplete` |
 //!
 //! ## `PassKind` discriminants (stable; do not reorder)
 //!
@@ -61,7 +62,12 @@ use serde::{Deserialize, Serialize};
 ///
 /// Discriminant ordering is stable — do NOT reorder (encoder bumps VERSION
 /// on any discriminant change). See module-level table.
+///
+/// `#[repr(u8)]` pins the discriminant layout and powers `canonical_tag()`.
+/// The canonical encoder uses `kind.canonical_tag()` as the single source of
+/// truth for the wire-format byte — no hand-rolled match needed at call sites.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum PassKind {
     /// Short ground pass (≤ ~15m target distance, in the channel).
     Short = 0,
@@ -71,6 +77,24 @@ pub enum PassKind {
     Cross = 2,
     /// One-touch lay-off to a near-runner.
     LayOff = 3,
+}
+
+impl PassKind {
+    /// Return the stable canonical encoding tag for this pass kind.
+    ///
+    /// This is the **single source of truth** for the `kind u8` byte the
+    /// canonical encoder writes for both `Pass` and `PassIncomplete` events.
+    /// Because `PassKind` is `#[repr(u8)]` with explicit discriminants, casting
+    /// `self as u8` is sound and byte-identical to the prior hand-rolled `match`
+    /// in `canonical.rs`. The cross-crate test in
+    /// `fw-content/tests/event_discriminant_test.rs` pins all four values.
+    ///
+    /// Values are stable forever — changing them is an ADR-0012 trigger #1
+    /// canonical-hash-invalidating event.
+    #[must_use]
+    pub fn canonical_tag(self) -> u8 {
+        self as u8
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +227,27 @@ pub enum MatchEvent {
         /// The tick at which the pass was launched (and the offside detected).
         tick: Tick,
     },
+
+    /// A pass attempt that failed — the ball was lost or intercepted (FUN-CB1).
+    ///
+    /// Emitted immediately after `Pass { completed: false }` in `apply_intent`
+    /// when the completion draw fails. Spawns a loose ball dropped 40% of the
+    /// way from passer to receiver (forward pass) or 20% (backward/lateral).
+    ///
+    /// `possession` is set to `None` and `last_touched_by` to `from_slot` so
+    /// the nearest-2 preempt policy can pick it up on the next tick.
+    ///
+    /// Discriminant 7 (append-only — do NOT reorder).
+    PassIncomplete {
+        /// Which player attempted (and failed) the pass.
+        from_slot: PlayerSlot,
+        /// Intended recipient (the receiver the passer was targeting).
+        to_slot: PlayerSlot,
+        /// The tick at which the pass was launched.
+        tick: Tick,
+        /// The class of pass that failed (Short / Long / Cross / LayOff).
+        kind: PassKind,
+    },
 }
 
 impl MatchEvent {
@@ -248,6 +293,7 @@ impl MatchEvent {
             MatchEvent::Pass { .. } => MatchEventDiscriminant::Pass,
             MatchEvent::SignatureFirstFired { .. } => MatchEventDiscriminant::SignatureFirstFired,
             MatchEvent::Offside { .. } => MatchEventDiscriminant::Offside,
+            MatchEvent::PassIncomplete { .. } => MatchEventDiscriminant::PassIncomplete,
         }
     }
 }
@@ -268,6 +314,7 @@ impl MatchEvent {
 /// | 4            | `Pass`               |
 /// | 5            | `SignatureFirstFired` |
 /// | 6            | `Offside`            |
+/// | 7            | `PassIncomplete`     |
 ///
 /// `#[repr(u8)]` per Codex Tier-2 type-design P1 on T1-4b: pins the
 /// discriminant layout for any future `transmute` / FFI / serde-repr
@@ -289,6 +336,8 @@ pub enum MatchEventDiscriminant {
     SignatureFirstFired = 5,
     /// FUN-TS2b: offside detection at pass-launch.
     Offside = 6,
+    /// FUN-CB1: failed pass — loose ball spawned.
+    PassIncomplete = 7,
 }
 
 impl MatchEventDiscriminant {
@@ -308,7 +357,7 @@ impl MatchEventDiscriminant {
 
     /// All discriminants in canonical order — used by the `ContentStore` loader
     /// to validate that every event class has a grammar loaded.
-    pub fn all() -> [MatchEventDiscriminant; 7] {
+    pub fn all() -> [MatchEventDiscriminant; 8] {
         [
             Self::KickOff,
             Self::FullTime,
@@ -317,6 +366,7 @@ impl MatchEventDiscriminant {
             Self::Pass,
             Self::SignatureFirstFired,
             Self::Offside,
+            Self::PassIncomplete,
         ]
     }
 }

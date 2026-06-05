@@ -93,6 +93,9 @@ function eventLabel(kind: MatchEventKind): string {
       return "Signature";
     case "Offside":
       return "Offside";
+    // FUN-CB1: failed pass — ball released, possession lost.
+    case "PassIncomplete":
+      return "Lost";
     default: {
       // Post-T2-close Track C-1 gate-blocker fix: throw not return — see
       // formatIpcError above for full rationale. A future MatchEventKind
@@ -121,6 +124,9 @@ function badgeClass(kind: MatchEventKind): string {
     case "Substitution":
     case "SignatureFirstFired":
     case "Offside":
+    // FUN-CB1: neutral badge — same group as other ball-in-play events.
+    // eslint-disable-next-line no-fallthrough
+    case "PassIncomplete":
       return "bg-paper-bold text-ink-subtle dark:bg-midnight-subtle dark:text-paper-subtle";
     default: {
       // Post-T2-close Track C-1 gate-blocker fix: throw not return. Prior

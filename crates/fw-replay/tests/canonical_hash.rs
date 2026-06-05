@@ -313,8 +313,14 @@ const SMOKE_TICK_COUNT: u32 = 60;
 /// by the task spec is a real determinism regression — investigate before
 /// re-pinning. See `docs/specs/determinism-gate.md` §9 for the full
 /// re-baselining procedure.
+/// Re-baseline history (continued):
+/// - 2026-06-04 (FUN-CB1: passes can fail) — **re-baselined to `eddb9ddc…fffe`**
+///   per ADR-0012 trigger #1 (schema: new `PassIncomplete` discriminant 7) +
+///   trigger #3 (behavior: pass outcomes now stochastic — completion draw
+///   replaces `T1_PASS_COMPLETED = true`). VERSION bumped 11→12. Multi-pin
+///   rebaseline authorized by FUN-CB1 task spec.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("d1170bfc6075ce825130f815b1dd7540bfb29e8cad7194010399681883170880");
+    hex!("eddb9ddc124e02c959c12217c3493e284e099191c3b4a7fdc8a55bc98d7ffffe");
 
 /// Read `env_var` as the number of fresh runs for an intra-process determinism
 /// test, falling back to `default` when the env var is absent or unparseable.
@@ -826,8 +832,22 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 /// `crates/fw-replay/fixtures/0xfeedbeefcafefade.ron` in the same commit,
 /// per `docs/specs/determinism-gate.md` §9 — the same protocol that
 /// governs PINNED_60_TICK above.
+/// Re-baseline history (continued):
+/// - 2026-06-04 (FUN-CB1: passes can fail) — **re-baselined to `4e027024…4df`**
+///   per ADR-0012 trigger #1 (schema: new `PassIncomplete` discriminant 7) +
+///   trigger #3 (behavior: stochastic pass completion). Authorized by FUN-CB1
+///   task spec. Velocity collision-response investigated for FUN-CB1 REVISE
+///   but REJECTED (reduces M1 2.35→2.15 at any threshold; filed for FUN-TS3).
+/// - 2026-06-05 (FUN-CB1 integrity fix) — **re-baselined to `95ee3978…6964`**
+///   per ADR-0012 trigger #3 (behavior change). `drop_loose_ball` now applies
+///   a deterministic 0.4m lateral offset away from the nearest opponent before
+///   dropping the loose ball, preventing head-on two-opponent convergence that
+///   caused 60–150mm / 62-tick clip-throughs (FUN-PHYS-1 partial mitigation).
+///   Measured: seed 7834583133621575731 now shows CORDIC-ringing-only (≤12 raw
+///   bits = 0.000003mm). 60-tick smoke pin UNCHANGED (no PassIncomplete in 60
+///   ticks). Authorized: intentional canonical-behavior change to fix masking.
 const PINNED_600_TICK: [u8; 32] =
-    hex!("f139c76a631b7eb104e9d7619e9fb94ac9502e9afa5477fca9eaae6ec8c96d1c");
+    hex!("95ee3978c5200e84ef3c72596de0bc621f540327d541b877d0f7ce436a1f6964");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

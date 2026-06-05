@@ -148,7 +148,6 @@
 use crate::signature::SignatureFiring;
 use crate::tactic_fsm::{SetPieceKind, TacticState, TeamTacticState};
 use crate::{BallState, MatchEvent, MatchState, PlayerState};
-use fw_content::PassKind;
 
 const MAGIC: &[u8; 4] = b"FWMS";
 // VERSION history:
@@ -233,7 +232,15 @@ const MAGIC: &[u8; 4] = b"FWMS";
 //       Rebaseline authorized: dispossession mechanic + carrier-targeting (B1)
 //       change canonical possession-flow. Main thread re-pins after drama-sweep
 //       confirms bimodal 0-0/infinite lock is broken.
-const VERSION: u16 = 11;
+//  12 — FUN-CB1: new MatchEvent variant PassIncomplete (discriminant 7) +
+//       pass outcomes now stochastic (completion draw replaces T1_PASS_COMPLETED=true).
+//       Schema bump is the new discriminant. Behavioral change: passes fail ~14-17%
+//       of the time producing loose balls. Canonical hash REBASELINED per ADR-0012
+//       trigger #1 (schema) + trigger #3 (behavior). Rebaseline is authorized
+//       and expected — multi-pin per the FUN-CB1 task spec.
+//       Wire-format addition: PassIncomplete (7) in match_events section:
+//         [ from_slot u8 ] [ to_slot u8 ] [ tick i64 LE ] [ kind u8 ]
+const VERSION: u16 = 12;
 
 /// Streaming canonical encoder. Append bytes as values are emitted; call
 /// `finish()` to get the buffer for hashing.
@@ -435,6 +442,8 @@ impl CanonicalEncoder {
     /// - 3 = `Shot`
     /// - 4 = `Pass`
     /// - 5 = `SignatureFirstFired`
+    /// - 6 = `Offside`
+    /// - 7 = `PassIncomplete`
     ///
     /// PassKind discriminant table (stable; do NOT reorder):
     /// - 0 = `Short`
@@ -521,13 +530,9 @@ impl CanonicalEncoder {
                 self.write_u8(*from_slot);
                 self.write_u8(*to_slot);
                 self.write_i64(tick.to_raw());
-                let kind_tag: u8 = match kind {
-                    PassKind::Short => 0,
-                    PassKind::Long => 1,
-                    PassKind::Cross => 2,
-                    PassKind::LayOff => 3,
-                };
-                self.write_u8(kind_tag);
+                // `canonical_tag()` is the single source of truth for the
+                // kind byte — backed by `PassKind`'s `#[repr(u8)]` layout.
+                self.write_u8(kind.canonical_tag());
                 self.write_u8(if *completed { 1 } else { 0 });
             }
             MatchEvent::SignatureFirstFired {
@@ -555,6 +560,23 @@ impl CanonicalEncoder {
             } => {
                 self.write_u8(*offending_slot);
                 self.write_i64(tick.to_raw());
+            }
+            // FUN-CB1: PassIncomplete (discriminant 7). Emitted when the
+            // completion draw fails. Payload: from_slot (u8) + to_slot (u8)
+            // + tick (i64 LE) + kind (u8). Compact — no position fields;
+            // the loose-ball position is computed inline during dispatch and
+            // reflected in canonical state via ball.pos_x / ball.pos_y.
+            MatchEvent::PassIncomplete {
+                from_slot,
+                to_slot,
+                tick,
+                kind,
+            } => {
+                self.write_u8(*from_slot);
+                self.write_u8(*to_slot);
+                self.write_i64(tick.to_raw());
+                // Same `canonical_tag()` as the Pass arm — one source of truth.
+                self.write_u8(kind.canonical_tag());
             }
         }
     }
@@ -844,15 +866,15 @@ mod tests {
         let s = MatchState::initial(Seed::from_u64(1));
         let bytes = s.encode_canonical();
         assert_eq!(&bytes[0..4], MAGIC);
-        assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 11);
+        assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 12);
     }
 
     #[test]
-    fn version_is_11_after_fun0bc_dispossession_schema_bump() {
+    fn version_is_12_after_fun_cb1_schema_bump() {
         assert_eq!(
-            VERSION, 11,
-            "VERSION should be 11 after FUN-0b+c dispossession schema bump \
-             (MatchState gained tackle_cooldown_until: [Tick; 22])"
+            VERSION, 12,
+            "VERSION should be 12 after FUN-CB1 schema bump \
+             (new MatchEvent::PassIncomplete discriminant 7 + stochastic pass completion)"
         );
     }
 

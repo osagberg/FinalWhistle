@@ -137,6 +137,8 @@ fn load_commentary_grammars(
             "signature_first_fired" => MatchEventDiscriminant::SignatureFirstFired,
             // FUN-TS2b: offside grammar. Narrative-director to polish later.
             "offside" => MatchEventDiscriminant::Offside,
+            // FUN-CB1: pass incomplete — loose ball spawned.
+            "pass_incomplete" => MatchEventDiscriminant::PassIncomplete,
             other => {
                 // T2-R-C5 (post-T2 ultimate-review Track C-5): the prior
                 // shape claimed "log and skip" in the comment but never

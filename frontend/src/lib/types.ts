@@ -62,7 +62,9 @@ export type MatchEventKind =
   | "Card"
   | "Substitution"
   | "SignatureFirstFired"
-  | "Offside";
+  | "Offside"
+  // FUN-CB1: failed pass — spawns loose ball, clears possession.
+  | "PassIncomplete";
 
 export interface MatchEvent {
   tick: number;
