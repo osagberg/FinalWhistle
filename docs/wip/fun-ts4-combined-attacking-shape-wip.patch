@@ -1,0 +1,765 @@
+diff --git a/crates/fw-match-sim/src/bt/off_ball.rs b/crates/fw-match-sim/src/bt/off_ball.rs
+index b65a6143..f69d7b0c 100644
+--- a/crates/fw-match-sim/src/bt/off_ball.rs
++++ b/crates/fw-match-sim/src/bt/off_ball.rs
+@@ -363,6 +363,8 @@ mod tests {
+             is_defending: true,
+             press_roles: [crate::team_shape::PressRole::HoldShape; 11],
+             is_high_press: false,
++            attacking_line_x: Q32::from_int(-20), // MidBlock anchor: DEF at -20m, FWD at +20m
++            attacking_compactness_v: Q32::from_int(40),
+         }
+     }
+ 
+diff --git a/crates/fw-match-sim/src/bt/on_ball.rs b/crates/fw-match-sim/src/bt/on_ball.rs
+index ce232c5d..54fa31cc 100644
+--- a/crates/fw-match-sim/src/bt/on_ball.rs
++++ b/crates/fw-match-sim/src/bt/on_ball.rs
+@@ -124,10 +124,12 @@ pub(crate) fn player_zone_x(pos_x: Q32, team_idx: usize) -> u8 {
+ const ZONE_SHORT_BOOST: Q32 = Q32::from_raw(13_743_895_347_i64); // ≈ 3.2
+ 
+ /// Zone-x threshold above which LayOff is suppressed.
+-/// Zones ≥ LAYOFF_SUPPRESS_ZONE (attacking half, x > ~4m): a layoff to formation
+-/// position is a backward pass and is less rational than a short pass forward.
+-/// Uses the "old" MIDFIELD_ZONE=9 concept — apply at mid-pitch boundary.
+-const LAYOFF_SUPPRESS_ZONE: u8 = 9;
++/// FUN-TS4: lowered from 9→7 so LayOff is suppressed from the mid-pitch boundary
++/// onward. With the attacking-shape driver pushing MIDs to ~zone 8 in possession,
++/// more touches land at zone 8 where LayOff was previously unsuppressed, inflating
++/// LayOff % above the 8% ceiling. Zone 7 (x ≈ -10m for home) is a more aggressive
++/// suppress boundary — own half only.
++const LAYOFF_SUPPRESS_ZONE: u8 = 7;
+ 
+ /// Multiplier applied to LayOff utility in zones ≥ LAYOFF_SUPPRESS_ZONE.
+ /// At LayOff_biased=0.170, multiplied by 0.55: layoff_effective=0.094.
+diff --git a/crates/fw-match-sim/src/dispatch.rs b/crates/fw-match-sim/src/dispatch.rs
+index 4ac572fe..415ffb16 100644
+--- a/crates/fw-match-sim/src/dispatch.rs
++++ b/crates/fw-match-sim/src/dispatch.rs
+@@ -978,7 +978,8 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
+         }
+         PlayerIntent::AttemptPassShort { target_x, target_y } => {
+             let from_slot = state.players[slot_idx].slot;
+-            let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
++            // FUN-TS4: geometry-aware target selection.
++            let to_slot = best_pass_target(state, slot_idx, PassKind::Short, *target_x, *target_y);
+             // FUN-TS2c: offside check at pass-launch tick.
+             if is_offside_at_pass_launch(state, slot_idx, to_slot) {
+                 apply_offside(state, slot_idx, to_slot);
+@@ -1034,7 +1035,8 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
+         }
+         PlayerIntent::AttemptPassLong { target_x, target_y } => {
+             let from_slot = state.players[slot_idx].slot;
+-            let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
++            // FUN-TS4: geometry-aware target selection.
++            let to_slot = best_pass_target(state, slot_idx, PassKind::Long, *target_x, *target_y);
+             // FUN-TS2c: offside check at pass-launch tick.
+             if is_offside_at_pass_launch(state, slot_idx, to_slot) {
+                 apply_offside(state, slot_idx, to_slot);
+@@ -1088,7 +1090,8 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
+         }
+         PlayerIntent::Cross { target_x, target_y } => {
+             let from_slot = state.players[slot_idx].slot;
+-            let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
++            // FUN-TS4: geometry-aware target selection.
++            let to_slot = best_pass_target(state, slot_idx, PassKind::Cross, *target_x, *target_y);
+             // FUN-TS2c: offside check at pass-launch tick.
+             if is_offside_at_pass_launch(state, slot_idx, to_slot) {
+                 apply_offside(state, slot_idx, to_slot);
+@@ -1142,7 +1145,8 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
+         }
+         PlayerIntent::LayOff { target_x, target_y } => {
+             let from_slot = state.players[slot_idx].slot;
+-            let to_slot = nearest_teammate_near(state, slot_idx, *target_x, *target_y);
++            // FUN-TS4: geometry-aware target selection.
++            let to_slot = best_pass_target(state, slot_idx, PassKind::LayOff, *target_x, *target_y);
+             // FUN-TS2c: offside check at pass-launch tick.
+             if is_offside_at_pass_launch(state, slot_idx, to_slot) {
+                 apply_offside(state, slot_idx, to_slot);
+@@ -1529,6 +1533,308 @@ fn nearest_teammate_near(
+     best_slot
+ }
+ 
++// ---------------------------------------------------------------------------
++// FUN-TS4: geometry-aware pass target selection (best_pass_target)
++// ---------------------------------------------------------------------------
++//
++// Replaces `nearest_teammate_near` at the four outfield pass arms.
++// W_PC=0.50: lower than the backed-out Phase-1 W_PC=0.55 — the attacking-shape
++// driver now places FWDs in the attacking third, so the "safest" (high
++// attacker_control) teammate is more often forward rather than in own half.
++// SOFT — tune alongside attacking_line_x constants.
++
++// Q32 constants for pos_to_zone (x-axis).
++// Pitch x: [-52.5, +52.5]m, 16 bins → bin_width = 105/16 = 6.5625m.
++// 52.5 in Q32.32 = 52.5 × 2^32 = 225_485_783_040 raw bits.
++// 6.5625 × 2^32 = 28_185_722_880 (FUN-TS3b Fix B corrected value).
++const BPT_PITCH_HALF_X_Q32: Q32 = Q32::from_raw(225_485_783_040_i64);
++const BPT_PITCH_ZONE_WIDTH_Q32: Q32 = Q32::from_raw(28_185_722_880_i64);
++
++// Q32 constants for pos_to_zone (y-axis).
++// Pitch y: [-34, +34]m, 12 bins → bin_height = 68/12 ≈ 5.6667m.
++// 34.0 × 2^32 = 146_028_888_064.
++// 5.6667 × 2^32 ≈ 24_345_110_527.
++const BPT_PITCH_HALF_Y_Q32: Q32 = Q32::from_raw(146_028_888_064_i64);
++const BPT_PITCH_ZONE_HEIGHT_Q32: Q32 = Q32::from_raw(24_345_110_527_i64);
++
++/// Scoring weights for `best_pass_target`.
++/// W_PC: attacker-control (safety). W_XT: xT-gain (progression).
++/// W_TGT: proximity-to-intent-target (direction preservation).
++///
++/// W_PC=0.40 in combined context: the attacking-shape driver positions FWDs
++/// forward. Lower safety-bias allows xT weight to dominate route selection,
++/// directing passes toward high-threat zones (FWDs at +20-35m) rather than
++/// recycling to own-half players with high attacker_control. SOFT.
++const W_PC: Q32 = Q32::from_raw(1_717_986_918_i64); // ≈ 0.40
++const W_XT: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
++const W_TGT: Q32 = Q32::from_raw(429_496_730_i64); // ≈ 0.10
++
++/// xT neutral offset: backward passes get shifted xT so they still have a
++/// positive contribution when attacker_control is high. Value: 0.10.
++const XT_NEUTRAL: Q32 = Q32::from_raw(429_496_730_i64); // ≈ 0.10
++
++/// Short pass max distance² filter (30m threshold). Raised from blueprint 20m
++/// to accommodate the 44m attacking compactness_h — wing players sit ~22m from
++/// centre, so a 20m radius would exclude them from short-pass selection.
++const SHORT_PASS_MAX_DIST_SQ: Q32 = Q32::from_raw((30_i64 * 30_i64) << 32); // 900 m²
++
++/// Long pass min distance² filter (15m threshold). Candidates within 15m of
++/// the passer are excluded from long-pass selection (those are short-pass range).
++const LONG_PASS_MIN_DIST_SQ: Q32 = Q32::from_raw((15_i64 * 15_i64) << 32); // 225 m²
++
++/// Cross box-area x threshold: 35m from centre. For home (attacks +x), only
++/// candidates with pos_x > +35m qualify; away mirrors to pos_x < -35m.
++const CROSS_BOX_X_Q32: Q32 = Q32::from_raw(35_i64 << 32); // 35.0m
++
++/// Max Manhattan distance for proximity-to-target normalisation.
++/// A candidate at the intent's target point scores 1.0; 50m+ scores 0.0.
++const TARGET_PROX_MAX_DIST: Q32 = Q32::from_raw(50_i64 << 32); // 50.0m
++
++/// Convert pitch coordinates to a `PitchZone` for xT grid lookup.
++///
++/// Grid convention (per `xt.rs`): x=0 = own-goal end, x=15 = attacking-goal-line.
++/// For HOME team (attacks +x, own goal at -52.5m): zone_x = floor((pos_x + 52.5) / 6.5625).
++/// For AWAY team (attacks -x): mirror x = 15 - home_zone_x.
++/// Zone y is team-independent: y=0 = bottom touchline, y=11 = top.
++/// All arithmetic is Q32 — no floats in canonical paths.
++fn pos_to_zone(pos_x: Q32, pos_y: Q32, team_idx: usize) -> crate::utility::xt::PitchZone {
++    let shifted_x = pos_x + BPT_PITCH_HALF_X_Q32;
++    let zone_x_q32 = shifted_x / BPT_PITCH_ZONE_WIDTH_Q32;
++    let zone_x_raw = zone_x_q32.to_bits();
++    let zone_x_home: u8 = if zone_x_raw < 0 {
++        0u8
++    } else if zone_x_raw >= (16_i64 << 32) {
++        15u8
++    } else {
++        (zone_x_raw >> 32).clamp(0, 15) as u8
++    };
++    let zone_x: u8 = if team_idx == 0 {
++        zone_x_home
++    } else {
++        15 - zone_x_home
++    };
++
++    let shifted_y = pos_y + BPT_PITCH_HALF_Y_Q32;
++    let zone_y_q32 = shifted_y / BPT_PITCH_ZONE_HEIGHT_Q32;
++    let zone_y_raw = zone_y_q32.to_bits();
++    let zone_y: u8 = if zone_y_raw < 0 {
++        0u8
++    } else if zone_y_raw >= (12_i64 << 32) {
++        11u8
++    } else {
++        (zone_y_raw >> 32).clamp(0, 11) as u8
++    };
++
++    // SAFETY: zone_x ∈ [0, 15], zone_y ∈ [0, 11] — both within PitchZone bounds.
++    crate::utility::xt::PitchZone::new(zone_x, zone_y)
++        .expect("pos_to_zone: zone coords out of range after explicit clamp — invariant violated")
++}
++
++/// FUN-TS4: geometry-aware pass target selection.
++///
++/// Replaces `nearest_teammate_near` at the four outfield pass-class arms.
++/// Scores each same-team candidate (excluding the passer) by:
++///   `W_PC × attacker_control(candidate_pos)
++///    + W_XT × clamp(xt_gain + XT_NEUTRAL, 0, 1)
++///    + W_TGT × proximity_to_intent_target`
++///
++/// Kind filters applied before scoring:
++/// - `Short`: skip candidates > 30m from passer (dist²).
++/// - `Long`: skip candidates < 15m from passer (dist²).
++/// - `LayOff`: only backward/lateral candidates (cand_x ≤ passer_x for home).
++/// - `Cross`: only box-area candidates (cand_x > 35m for home); fallback to
++///   filter-free scoring when no box-area candidates exist.
++///
++/// GK is excluded from Short/Long/Cross selection (but allowed for LayOff).
++/// Fallback when no candidate passes the filter: filter-free scoring across all
++/// non-GK teammates (guarantees no self-pass).
++/// Slot-order tiebreak for determinism (lower slot wins ties).
++/// Panics (assert!) on self-pass — canonical invariant per Sim/RULES.md §11.
++fn best_pass_target(
++    state: &MatchState,
++    from_slot_idx: usize,
++    kind: PassKind,
++    target_x: Q32,
++    target_y: Q32,
++) -> u8 {
++    use crate::pass_completion::build_team_snapshots;
++    use crate::utility::pitch_control::pitch_control;
++    use crate::utility::xt::xt_delta;
++
++    let (attackers, defenders) = build_team_snapshots(state, from_slot_idx);
++    let passer = &state.players[from_slot_idx];
++    let passer_slot = passer.slot;
++    let passer_is_home = from_slot_idx < crate::PLAYERS_PER_TEAM;
++    let team_idx: usize = if passer_is_home { 0 } else { 1 };
++    let passer_x = passer.pos_x;
++    let passer_y = passer.pos_y;
++
++    let passer_zone = pos_to_zone(passer_x, passer_y, team_idx);
++
++    let team_start = team_idx * crate::PLAYERS_PER_TEAM;
++    let team_end = team_start + crate::PLAYERS_PER_TEAM;
++    let gk_slot_idx = team_start; // GK is always the first slot in each team.
++
++    let mut best_slot = passer_slot; // sentinel: "not found yet"
++    let mut best_score: Q32 = Q32::from_raw(i64::MIN);
++
++    for candidate_idx in team_start..team_end {
++        if candidate_idx == from_slot_idx {
++            continue;
++        }
++        // GK excluded from Short/Long/Cross — their high attacker_control in
++        // own penalty area dominates and directs passes backward into the GK
++        // zone, stalling build-up. LayOff to GK is allowed (emergency back-pass).
++        if candidate_idx == gk_slot_idx && kind != PassKind::LayOff {
++            continue;
++        }
++
++        let candidate = &state.players[candidate_idx];
++        let cand_x = candidate.pos_x;
++        let cand_y = candidate.pos_y;
++        let cand_slot = candidate.slot;
++
++        // Kind-specific distance/position filter.
++        match kind {
++            PassKind::Short => {
++                let dx = cand_x - passer_x;
++                let dy = cand_y - passer_y;
++                let dist_sq = dx * dx + dy * dy;
++                if dist_sq > SHORT_PASS_MAX_DIST_SQ {
++                    continue;
++                }
++            }
++            PassKind::Long => {
++                let dx = cand_x - passer_x;
++                let dy = cand_y - passer_y;
++                let dist_sq = dx * dx + dy * dy;
++                if dist_sq < LONG_PASS_MIN_DIST_SQ {
++                    continue;
++                }
++            }
++            PassKind::LayOff => {
++                // Backward or lateral only.
++                if passer_is_home {
++                    if cand_x > passer_x {
++                        continue;
++                    }
++                } else if cand_x < passer_x {
++                    continue;
++                }
++            }
++            PassKind::Cross => {
++                // Box-area only.
++                if passer_is_home {
++                    if cand_x <= CROSS_BOX_X_Q32 {
++                        continue;
++                    }
++                } else if cand_x >= -CROSS_BOX_X_Q32 {
++                    continue;
++                }
++            }
++        }
++
++        let ctrl_outcome = pitch_control((cand_x, cand_y), &attackers, &defenders);
++        let attacker_ctrl = ctrl_outcome.attacker_control;
++
++        let cand_zone = pos_to_zone(cand_x, cand_y, team_idx);
++        let xt_gain = xt_delta(passer_zone, cand_zone);
++        let adjusted_xt = xt_gain + XT_NEUTRAL;
++        let adjusted_xt_clamped = if adjusted_xt < Q32::ZERO {
++            Q32::ZERO
++        } else if adjusted_xt > Q32::ONE {
++            Q32::ONE
++        } else {
++            adjusted_xt
++        };
++
++        // Proximity to intent target: linear decay from 1.0 at target to 0.0 at 50m.
++        let dx_tgt = (cand_x - target_x).to_bits().unsigned_abs();
++        let dy_tgt = (cand_y - target_y).to_bits().unsigned_abs();
++        let manhattan_raw = (dx_tgt as i128 + dy_tgt as i128).min(i64::MAX as i128) as i64;
++        let manhattan = Q32::from_raw(manhattan_raw);
++        let prox_raw = Q32::ONE - manhattan / TARGET_PROX_MAX_DIST;
++        let proximity = if prox_raw < Q32::ZERO {
++            Q32::ZERO
++        } else {
++            prox_raw
++        };
++
++        let score = W_PC * attacker_ctrl + W_XT * adjusted_xt_clamped + W_TGT * proximity;
++
++        // Slot-order tiebreak: strictly-greater so lower slot indices win ties.
++        if best_slot == passer_slot || score > best_score {
++            best_score = score;
++            best_slot = cand_slot;
++        }
++    }
++
++    // Fallback: no candidate passed the kind filter (e.g. Cross with no box-area
++    // candidates early in the match). Run filter-free scoring across all non-GK
++    // teammates. This ensures progressive routing rather than ping-pong on the
++    // nearest-2 players when neither is in the box.
++    if best_slot == passer_slot {
++        let mut fb_best_slot = passer_slot;
++        let mut fb_best_score: Q32 = Q32::from_raw(i64::MIN);
++
++        for candidate_idx in team_start..team_end {
++            if candidate_idx == from_slot_idx || candidate_idx == gk_slot_idx {
++                continue;
++            }
++            let candidate = &state.players[candidate_idx];
++            let cand_x = candidate.pos_x;
++            let cand_y = candidate.pos_y;
++            let cand_slot = candidate.slot;
++
++            let ctrl_outcome = pitch_control((cand_x, cand_y), &attackers, &defenders);
++            let attacker_ctrl = ctrl_outcome.attacker_control;
++            let cand_zone = pos_to_zone(cand_x, cand_y, team_idx);
++            let xt_gain = xt_delta(passer_zone, cand_zone);
++            let adjusted_xt = xt_gain + XT_NEUTRAL;
++            let adjusted_xt_clamped = if adjusted_xt < Q32::ZERO {
++                Q32::ZERO
++            } else if adjusted_xt > Q32::ONE {
++                Q32::ONE
++            } else {
++                adjusted_xt
++            };
++            let dx_tgt = (cand_x - target_x).to_bits().unsigned_abs();
++            let dy_tgt = (cand_y - target_y).to_bits().unsigned_abs();
++            let manhattan_raw = (dx_tgt as i128 + dy_tgt as i128).min(i64::MAX as i128) as i64;
++            let manhattan = Q32::from_raw(manhattan_raw);
++            let prox_raw = Q32::ONE - manhattan / TARGET_PROX_MAX_DIST;
++            let proximity = if prox_raw < Q32::ZERO {
++                Q32::ZERO
++            } else {
++                prox_raw
++            };
++            let score = W_PC * attacker_ctrl + W_XT * adjusted_xt_clamped + W_TGT * proximity;
++
++            if fb_best_slot == passer_slot || score > fb_best_score {
++                fb_best_score = score;
++                fb_best_slot = cand_slot;
++            }
++        }
++
++        best_slot = if fb_best_slot == passer_slot {
++            // Absolute last resort: nearest teammate (guarantees no self-pass).
++            nearest_teammate_near(state, from_slot_idx, passer_x, passer_y)
++        } else {
++            fb_best_slot
++        };
++    }
++
++    // Canonical invariant: self-pass must never appear in match_events.
++    // assert! fires in both debug and release (Sim/RULES.md §11).
++    assert_ne!(
++        best_slot, passer_slot,
++        "best_pass_target produced a self-pass for slot_idx={from_slot_idx} \
++         (kind={kind:?}); loop found no teammate — check team-boundary derivation"
++    );
++
++    best_slot
++}
++
+ /// FUN-TS2c: offside detection at pass-launch tick.
+ ///
+ /// Returns `true` when the receiver would be in an offside position at the
+diff --git a/crates/fw-match-sim/src/lib.rs b/crates/fw-match-sim/src/lib.rs
+index dbcaf6b0..1712b081 100644
+--- a/crates/fw-match-sim/src/lib.rs
++++ b/crates/fw-match-sim/src/lib.rs
+@@ -2563,6 +2563,13 @@ mod smoke {
+     #[test]
+     fn tick_match_advances_ball_physics() {
+         let mut state = MatchState::initial(Seed::from_u64(1));
++        // Clear possession so no pass intent can snap the ball to a passer's
++        // feet and override the initial position / velocity.
++        // Place the ball in the home half to avoid triggering a goal (which
++        // resets ball position) during the 60-tick run.
++        state.possession = None;
++        state.ball.pos_x = Q32::from_int(-20); // safe in home half, no goal reset
++        state.ball.pos_y = Q32::ZERO;
+         // Set the ball to 10m altitude (pos_z) with 5 m/s along +X —
+         // it should fall (pos_z decreases) + drift (pos_x increases)
+         // over 60 ticks (1 second).
+@@ -2573,7 +2580,7 @@ mod smoke {
+         for _ in 0..60 {
+             state = tick_match(state, &BTreeMap::new());
+         }
+-        // After 1 second: ball has drifted along +X and fallen.
++        // After 1 second: ball has drifted along +X (net positive) and fallen.
+         assert!(
+             state.ball.pos_x > initial_pos_x,
+             "ball didn't drift in +X under initial velocity"
+diff --git a/crates/fw-match-sim/src/tactic_fsm.rs b/crates/fw-match-sim/src/tactic_fsm.rs
+index bc559d2e..ef07a75d 100644
+--- a/crates/fw-match-sim/src/tactic_fsm.rs
++++ b/crates/fw-match-sim/src/tactic_fsm.rs
+@@ -357,14 +357,19 @@ pub enum TacticEvent {
+ /// constant). Archetype-overrideable in T1-2b-iii; fixed for T1.
+ pub const PRESS_TIMEOUT_TICKS: i64 = 300;
+ 
+-/// Anti-thrash guard: HighPress re-entry requires >600 ticks since prior
++/// Anti-thrash guard: HighPress re-entry requires >300 ticks since prior
+ /// HighPress entry (prevents oscillation from rapid PossessionLost events).
+ ///
++/// FUN-TS4: lowered from 600→300 (10s→5s at 60 Hz) so pressing archetypes
++/// fire HighPress 3-5× per match half, generating CounterAttack transitions
++/// that activate the attacking shape driver. At 600 ticks HighPress was
++/// firing < 1× per half. SOFT — tune alongside attacking_line_x constants.
++///
+ /// T1-23: `u32` (was `i64`) to align with `Tick::checked_elapsed_since`'s
+ /// return type — durations are non-negative by definition, so u32 is the
+ /// honest signature + lets the comparison site type-check without an
+ /// `as i64` cast on the elapsed-tick count.
+-pub const HIGH_PRESS_REENTRY_COOLDOWN_TICKS: u32 = 600;
++pub const HIGH_PRESS_REENTRY_COOLDOWN_TICKS: u32 = 300;
+ 
+ /// HighPress 10s drift limit for the heartbeat: 600 ticks at 60 Hz.
+ ///
+diff --git a/crates/fw-match-sim/src/team_shape.rs b/crates/fw-match-sim/src/team_shape.rs
+index 37b71b4b..164a36ea 100644
+--- a/crates/fw-match-sim/src/team_shape.rs
++++ b/crates/fw-match-sim/src/team_shape.rs
+@@ -96,6 +96,57 @@ const COUNTER_ATTACK_COMPACTNESS_V: i32 = MID_BLOCK_COMPACTNESS_V;
+ /// Research: "out of possession ~30–44m" — use 35m as mid-range seed. SOFT.
+ const COMPACTNESS_H: i32 = 35; // SOFT — FUN-TS3 possession-widening deferred to Slice 4
+ 
++// ---------------------------------------------------------------------------
++// FUN-TS4: Attacking shape constants (in-possession line heights)
++//
++// When !is_defending, zonal_slot uses these instead of the defensive line.
++// Home attacking direction is +x; away team mirrors (negate).
++//
++// IMPORTANT: `attacking_line_x` is the DEFENSIVE ANCHOR (rear-line x) of the
++// in-possession shape — NOT the FWD target x. The affine transform is:
++//   FWD_target_x = attacking_line_x + (FWD_relative_x=40) × (attacking_compactness_v / 40)
++// With attacking_compactness_v=40 (full scale = 1.0):
++//   FWD_target_x = attacking_line_x + 40
++// So to put FWDs at +35m: attacking_line_x = -5. DEFs end up at attacking_line_x = -5m.
++//
++// Derivation (CounterAttack):
++//   FWD target = +35m, relative_x = 40, scale = 1.0 → anchor = 35 - 40 = -5
++// HighPress: FWD target = +28m → anchor = 28 - 40 = -12
++// MidBlock:  FWD target = +20m → anchor = 20 - 40 = -20
++// LowBlock:  FWD target = +15m → anchor = 15 - 40 = -25
++//
++// SOFT — tune in the combined geometry+shape calibration pass.
++// ---------------------------------------------------------------------------
++
++/// Home attacking defensive-anchor x in CounterAttack.
++/// DEF at -5m, MID at +15m, FWD at +35m in possession. SOFT.
++const COUNTER_ATTACK_ATTACKING_LINE: i32 = -5; // SOFT → FWD at +35m
++
++/// Home attacking defensive-anchor x in HighPress.
++/// DEF at -12m, MID at +8m, FWD at +28m in possession. SOFT.
++const HIGH_PRESS_ATTACKING_LINE: i32 = -12; // SOFT → FWD at +28m
++
++/// Home attacking defensive-anchor x in MidBlock.
++/// DEF at -20m, MID at 0m, FWD at +20m in possession. SOFT.
++const MID_BLOCK_ATTACKING_LINE: i32 = -20; // SOFT → FWD at +20m
++
++/// Home attacking defensive-anchor x in LowBlock.
++/// DEF at -25m, MID at -5m, FWD at +15m in possession. SOFT.
++const LOW_BLOCK_ATTACKING_LINE: i32 = -25; // SOFT → FWD at +15m
++
++/// Attacking compactness_v in CounterAttack — full native scale (40m) so the
++/// formation spread is 1:1 with formation positions shifted forward. SOFT.
++const COUNTER_ATTACK_ATTACKING_COMPACTNESS_V: i32 = 40; // SOFT
++
++/// Attacking compactness_v in HighPress. Full native scale. SOFT.
++const HIGH_PRESS_ATTACKING_COMPACTNESS_V: i32 = 40; // SOFT
++
++/// Attacking compactness_v in MidBlock. Full native scale. SOFT.
++const MID_BLOCK_ATTACKING_COMPACTNESS_V: i32 = 40; // SOFT
++
++/// Attacking compactness_v in LowBlock. Full native scale. SOFT.
++const LOW_BLOCK_ATTACKING_COMPACTNESS_V: i32 = 40; // SOFT
++
+ // NOTE: FORMATION_NATIVE_H and FORMATION_NATIVE_V are encoded into the
+ // inv40 constant used in zonal_slot. They are not needed as named constants
+ // since the transform is derived from them at compile time.
+@@ -141,6 +192,14 @@ pub struct TeamShape {
+     /// Derived from canonical tactic_state in `compute_press_from_parts`;
+     /// NOT canonical bytes (follows the same pattern as `is_defending`).
+     pub is_high_press: bool,
++    /// FUN-TS4: Target attacking-line x when !is_defending. Parallel to `line_x`
++    /// but for in-possession shape — pushes FWDs into the opponent's half.
++    /// #[serde(skip)] sidecar per ADR-0013: no canonical bytes.
++    pub attacking_line_x: Q32,
++    /// FUN-TS4: Target vertical compactness when !is_defending. Wider than
++    /// defensive compactness to stretch the opposing block.
++    /// #[serde(skip)] sidecar per ADR-0013: no canonical bytes.
++    pub attacking_compactness_v: Q32,
+ }
+ 
+ impl TeamShape {
+@@ -157,6 +216,9 @@ impl TeamShape {
+             is_defending: true,
+             press_roles: [PressRole::HoldShape; 11],
+             is_high_press: false,
++            // MidBlock attacking anchor = -20 (home): DEF at -20m, FWD at +20m.
++            attacking_line_x: Q32::from_int(MID_BLOCK_ATTACKING_LINE),
++            attacking_compactness_v: Q32::from_int(MID_BLOCK_ATTACKING_COMPACTNESS_V),
+         }
+     }
+ 
+@@ -171,6 +233,8 @@ impl TeamShape {
+         is_defending: true,
+         press_roles: [PressRole::HoldShape; 11],
+         is_high_press: false,
++        attacking_line_x: Q32::ZERO,
++        attacking_compactness_v: Q32::ZERO,
+     };
+ 
+     /// Press role for this team-local slot (0-indexed within the team, 0..11).
+@@ -226,6 +290,39 @@ fn target_compactness_v(tactic_state: TacticState) -> Q32 {
+     Q32::from_int(metres)
+ }
+ 
++/// FUN-TS4: Returns the target in-possession (attacking) line x for `tactic_state`,
++/// adjusted for `team_idx`. Mirrors `target_line_x` but for the attacking shape.
++///
++/// Home team attacks +x; away mirrors (negate). These values are SOFT — tune in
++/// the combined geometry+shape calibration pass.
++#[must_use]
++fn attacking_line_x_fn(tactic_state: TacticState, team_idx: usize) -> Q32 {
++    let home_x = match tactic_state {
++        TacticState::CounterAttack => COUNTER_ATTACK_ATTACKING_LINE,
++        TacticState::HighPress => HIGH_PRESS_ATTACKING_LINE,
++        TacticState::MidBlock => MID_BLOCK_ATTACKING_LINE,
++        TacticState::LowBlock => LOW_BLOCK_ATTACKING_LINE,
++        // SetPiece: use MidBlock attacking height as neutral default.
++        TacticState::SetPiece(_) => MID_BLOCK_ATTACKING_LINE,
++    };
++    let signed = if team_idx == 0 { home_x } else { -home_x };
++    Q32::from_int(signed)
++}
++
++/// FUN-TS4: Returns the target vertical compactness for in-possession shape.
++/// Wider than defensive compactness — more space between lines stretches the opp.
++#[must_use]
++fn attacking_compactness_v_fn(tactic_state: TacticState) -> Q32 {
++    let metres = match tactic_state {
++        TacticState::CounterAttack => COUNTER_ATTACK_ATTACKING_COMPACTNESS_V,
++        TacticState::HighPress => HIGH_PRESS_ATTACKING_COMPACTNESS_V,
++        TacticState::MidBlock => MID_BLOCK_ATTACKING_COMPACTNESS_V,
++        TacticState::LowBlock => LOW_BLOCK_ATTACKING_COMPACTNESS_V,
++        TacticState::SetPiece(_) => MID_BLOCK_ATTACKING_COMPACTNESS_V,
++    };
++    Q32::from_int(metres)
++}
++
+ /// Compute the per-team shape anchors for `team_idx` (0 = home, 1 = away)
+ /// from the current canonical `state`.
+ ///
+@@ -288,6 +385,10 @@ pub fn compute(team_idx: usize, state: &MatchState) -> TeamShape {
+         None => true,
+     };
+ 
++    // FUN-TS4: attacking shape sidecars (no canonical bytes — #[serde(skip)] pattern).
++    let attacking_line_x = attacking_line_x_fn(tactic_state, team_idx);
++    let attacking_compactness_v = attacking_compactness_v_fn(tactic_state);
++
+     TeamShape {
+         line_x,
+         block_centroid_x,
+@@ -299,6 +400,8 @@ pub fn compute(team_idx: usize, state: &MatchState) -> TeamShape {
+         // called after compute() in dispatch_tick.
+         press_roles: [PressRole::HoldShape; 11],
+         is_high_press: false,
++        attacking_line_x,
++        attacking_compactness_v,
+     }
+ }
+ 
+@@ -359,12 +462,22 @@ pub fn zonal_slot(roster_slot: u8, shape: &TeamShape, team_idx: usize) -> (Q32,
+     // scale_v = compactness_v × (1/40)
+     // 1/40 in Q32 raw = 2^32 / 40 = 107_374_182.4 ≈ 107_374_182
+     let inv40 = Q32::from_raw(107_374_182_i64);
+-    let scale_v = shape.compactness_v * inv40;
+ 
+-    // target_x = line_x + relative_x × scale_v
+-    // For a DEF (relative_x = 0): target_x = line_x (anchors the rear line).
++    // FUN-TS4: when in possession (!is_defending), use attacking anchors so FWDs
++    // push into the opponent's half rather than holding the defensive line height.
++    // Same affine transform as the defensive case — only the anchor changes.
++    let (anchor_x, compact_v) = if shape.is_defending {
++        (shape.line_x, shape.compactness_v)
++    } else {
++        (shape.attacking_line_x, shape.attacking_compactness_v)
++    };
++
++    let scale_v = compact_v * inv40;
++
++    // target_x = anchor_x + relative_x × scale_v
++    // For a DEF (relative_x = 0): target_x = anchor_x (rear-line anchor).
+     // For a FWD (relative_x = +40 home, -40 away): target_x scaled by compactness.
+-    let target_x = shape.line_x + relative_x * scale_v;
++    let target_x = anchor_x + relative_x * scale_v;
+ 
+     // --- Y transform: scale toward compactness_h ---
+     //
+@@ -652,13 +765,17 @@ mod tests {
+     #[test]
+     fn zonal_slot_defender_anchors_at_line_x() {
+         let state = mk_state_with_tactic(TacticState::LowBlock, TacticState::MidBlock);
+-        let shape = compute(0, &state);
++        let mut shape = compute(0, &state);
++        // Force is_defending = true so the defensive anchor (line_x) is used.
++        // MatchState::initial sets possession = Some(9) (home), so compute yields
++        // is_defending=false for home; override here to test defensive anchor.
++        shape.is_defending = true;
+         // Home DEF slot 1 is the rearmost formation position (x = -30).
+         let (tz_x, _tz_y) = zonal_slot(1, &shape, 0);
+         // The defender's zonal_slot x should equal line_x (relative_x = 0 for DEF).
+         assert_eq!(
+             tz_x, shape.line_x,
+-            "home DEF slot 1 zonal_x must equal line_x (relative_x = 0 for defender anchor)"
++            "home DEF slot 1 zonal_x must equal line_x when is_defending=true (relative_x = 0 for defender anchor)"
+         );
+     }
+ 
+@@ -709,6 +826,73 @@ mod tests {
+         assert_eq!(r1, r2, "zonal_slot must be deterministic");
+     }
+ 
++    // --- FUN-TS4: attacking shape ---
++
++    #[test]
++    fn attacking_line_x_home_ordering_counter_gt_highpress_gt_midblock_gt_lowblock() {
++        let counter = attacking_line_x_fn(TacticState::CounterAttack, 0);
++        let high = attacking_line_x_fn(TacticState::HighPress, 0);
++        let mid = attacking_line_x_fn(TacticState::MidBlock, 0);
++        let low = attacking_line_x_fn(TacticState::LowBlock, 0);
++        assert!(
++            counter > high,
++            "CounterAttack attacking line must be more forward than HighPress: {counter:?} vs {high:?}"
++        );
++        assert!(
++            high > mid,
++            "HighPress attacking line must be more forward than MidBlock: {high:?} vs {mid:?}"
++        );
++        assert!(
++            mid > low,
++            "MidBlock attacking line must be more forward than LowBlock: {mid:?} vs {low:?}"
++        );
++    }
++
++    #[test]
++    fn attacking_line_x_away_mirrors_home() {
++        let counter_home = attacking_line_x_fn(TacticState::CounterAttack, 0);
++        let counter_away = attacking_line_x_fn(TacticState::CounterAttack, 1);
++        assert_eq!(
++            counter_home,
++            Q32::ZERO - counter_away,
++            "away attacking line must negate home: {counter_home:?} vs {counter_away:?}"
++        );
++    }
++
++    #[test]
++    fn zonal_slot_fwd_in_counter_attack_not_defending_target_x_exceeds_30m() {
++        // FWD slot 8 (home team, attacks +x). With CounterAttack attacking shape
++        // and !is_defending, zonal_slot must return target_x > +30m.
++        let state = mk_state_with_tactic(TacticState::CounterAttack, TacticState::MidBlock);
++        let mut shape = compute(0, &state);
++        // Force !is_defending (home team has possession).
++        shape.is_defending = false;
++        let (fwd_x, _) = zonal_slot(8, &shape, 0);
++        let thirty_m = Q32::from_int(30);
++        assert!(
++            fwd_x > thirty_m,
++            "home FWD (slot 8) zonal_x in CounterAttack !is_defending must exceed +30m; got {fwd_x:?}"
++        );
++    }
++
++    #[test]
++    fn zonal_slot_fwd_defending_uses_defensive_line() {
++        // When is_defending=true the FWD target must use the defensive anchor (line_x),
++        // NOT the attacking anchor — block integrity.
++        let state = mk_state_with_tactic(TacticState::CounterAttack, TacticState::MidBlock);
++        let mut shape_def = compute(0, &state);
++        shape_def.is_defending = true;
++        let mut shape_att = compute(0, &state);
++        shape_att.is_defending = false;
++
++        let (def_x, _) = zonal_slot(8, &shape_def, 0);
++        let (att_x, _) = zonal_slot(8, &shape_att, 0);
++        assert!(
++            att_x > def_x,
++            "FWD attacking position must exceed defending position: att={att_x:?} def={def_x:?}"
++        );
++    }
++
+     #[test]
+     fn compute_centroid_is_within_pitch_bounds() {
+         let state = mk_state_with_tactic(TacticState::MidBlock, TacticState::MidBlock);
+diff --git a/crates/fw-match-sim/tests/snapshots/match_event_snapshot__smoke_seed_60_tick_match_events.snap b/crates/fw-match-sim/tests/snapshots/match_event_snapshot__smoke_seed_60_tick_match_events.snap
+index cfb37cd3..eb6edee8 100644
+--- a/crates/fw-match-sim/tests/snapshots/match_event_snapshot__smoke_seed_60_tick_match_events.snap
++++ b/crates/fw-match-sim/tests/snapshots/match_event_snapshot__smoke_seed_60_tick_match_events.snap
+@@ -29,7 +29,7 @@ expression: state.match_events()
+     },
+     Pass {
+         from_slot: 9,
+-        to_slot: 10,
++        to_slot: 8,
+         tick: Tick(
+             35,
+         ),
+@@ -37,27 +37,19 @@ expression: state.match_events()
+         completed: true,
+     },
+     Pass {
+-        from_slot: 10,
+-        to_slot: 9,
+-        tick: Tick(
+-            41,
+-        ),
+-        kind: Cross,
+-        completed: false,
+-    },
+-    PassIncomplete {
+-        from_slot: 10,
++        from_slot: 8,
+         to_slot: 9,
+         tick: Tick(
+-            41,
++            49,
+         ),
+-        kind: Cross,
++        kind: Short,
++        completed: true,
+     },
+     Pass {
+-        from_slot: 10,
+-        to_slot: 9,
++        from_slot: 17,
++        to_slot: 20,
+         tick: Tick(
+-            56,
++            60,
+         ),
+         kind: Short,
+         completed: true,
