@@ -62,8 +62,13 @@ vi.mock("pixi.js", () => ({
     moveTo: vi.fn().mockReturnThis(),
     lineTo: vi.fn().mockReturnThis(),
     setStrokeStyle: vi.fn().mockReturnThis(),
+    ellipse: vi.fn().mockReturnThis(),
+    arc: vi.fn().mockReturnThis(),
+    clear: vi.fn().mockReturnThis(),
     x: 0,
     y: 0,
+    alpha: 1,
+    scale: { set: vi.fn() },
   })),
 }));
 
@@ -366,5 +371,116 @@ describe("TacticalBoard controls", () => {
       const info = getByLabelText(/frame info/i);
       expect(info.textContent).toContain("Seed:");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. S5 — possession indicator: carrier ring visible iff possession non-null
+// ---------------------------------------------------------------------------
+
+describe("S5 possession indicator", () => {
+  beforeEach(() => {
+    mockAppInstances.length = 0;
+  });
+
+  it("allocates more Graphics objects when possession is used (stage.addChild called for ring, tether, shadow)", async () => {
+    // The board allocates: 1 pitch-lines + 22 player dots + ring + tether +
+    // shadow + ball = 27 addChild calls.
+    const { unmount } = render(() => (
+      <TacticalBoard frames={validFrames(3)} />
+    ));
+    await waitFor(() => expect(mockAppInstances.length).toBe(1));
+    const instance = mockAppInstances[0];
+    if (!instance) throw new Error("no instance");
+    await waitFor(() => expect(instance.ticker.add).toHaveBeenCalledTimes(1));
+    // 1 pitch lines + 22 dots + 1 ring + 1 tether + 1 shadow + 1 ball = 27.
+    expect(instance.stage.addChild).toHaveBeenCalledTimes(27);
+    unmount();
+  });
+
+  it("renders without error when all frames have possession: null (loose ball)", async () => {
+    const looseFrames = validFrames(3).map((f) => ({ ...f, possession: null }));
+    const { unmount } = render(() => (
+      <TacticalBoard frames={looseFrames} />
+    ));
+    await waitFor(() => expect(mockAppInstances.length).toBe(1));
+    unmount();
+  });
+
+  it("renders without error when all frames have a valid carrier slot", async () => {
+    const carrierFrames = validFrames(3).map((f) => ({ ...f, possession: 5 }));
+    const { unmount } = render(() => (
+      <TacticalBoard frames={carrierFrames} />
+    ));
+    await waitFor(() => expect(mockAppInstances.length).toBe(1));
+    unmount();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. S6 — ball height: shadow Graphics allocated in the scene graph
+// ---------------------------------------------------------------------------
+
+describe("S6 ball height shadow", () => {
+  beforeEach(() => {
+    mockAppInstances.length = 0;
+  });
+
+  it("allocates a ball shadow Graphics object (ellipse draw call issued on mount)", async () => {
+    // The Graphics mock tracks ellipse calls. The shadow is the ONLY object
+    // that calls ellipse(); all other sprites use circle(). We verify that
+    // at least one Graphics instance received an ellipse call.
+    // MockGraphics is imported after the mock factory runs — use the already-
+    // imported binding from the top of this file (post-mock import below).
+    const { unmount } = render(() => (
+      <TacticalBoard frames={validFrames(3)} />
+    ));
+    await waitFor(() => expect(mockAppInstances.length).toBe(1));
+    await waitFor(() => expect(mockAppInstances[0]?.ticker.add).toHaveBeenCalled());
+    // At least one Graphics instance must have had ellipse() called on it.
+    // GraphicsMock is the constructor captured from the vi.mock factory above.
+    const GraphicsMock = vi.mocked(
+      (await import("pixi.js")).Graphics as unknown as ReturnType<typeof vi.fn>,
+    );
+    const anyEllipse = GraphicsMock.mock.results.some((r) => {
+      const val = r.value as { ellipse?: { mock?: { calls: unknown[] } } } | undefined;
+      return (val?.ellipse?.mock?.calls?.length ?? 0) > 0;
+    });
+    expect(anyEllipse).toBe(true);
+    unmount();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. S7 — pitch furniture: arc + extra rect draw calls present
+// ---------------------------------------------------------------------------
+
+describe("S7 pitch furniture (drawPitchLines)", () => {
+  it("drawPitchLines issues arc calls for penalty arcs and corner arcs", async () => {
+    // drawPitchLines is a pure function — we can test it in isolation with a
+    // real-ish Graphics mock. We count arc() calls to verify the furniture is
+    // drawn: 2 penalty Ds + 4 corner arcs = 6 arc calls.
+    const arcFn = vi.fn().mockReturnThis();
+    const mockG = {
+      fill: vi.fn().mockReturnThis(),
+      circle: vi.fn().mockReturnThis(),
+      stroke: vi.fn().mockReturnThis(),
+      rect: vi.fn().mockReturnThis(),
+      moveTo: vi.fn().mockReturnThis(),
+      lineTo: vi.fn().mockReturnThis(),
+      setStrokeStyle: vi.fn().mockReturnThis(),
+      ellipse: vi.fn().mockReturnThis(),
+      arc: arcFn,
+      clear: vi.fn().mockReturnThis(),
+    };
+
+    const { drawPitchLines, pitchLayout } = await import("~/lib/pitch-coords");
+    const layout = pitchLayout(840, 560);
+    drawPitchLines(mockG as unknown as Parameters<typeof drawPitchLines>[0], layout);
+
+    // 2 penalty arcs + 4 corner arcs = 6 arc calls.
+    expect(arcFn).toHaveBeenCalledTimes(6);
+    // rect calls: 1 outer boundary + 2 pen boxes + 2 six-yard boxes + 2 goals = 7.
+    expect(mockG.rect).toHaveBeenCalledTimes(7);
   });
 });

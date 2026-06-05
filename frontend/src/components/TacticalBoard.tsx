@@ -48,6 +48,7 @@ import {
   BALL_COLOR,
   BALL_RADIUS,
   HOME_COLOR,
+  LINE_COLOR,
   PITCH_COLOR,
   PLAYER_RADIUS,
   drawPitchLines,
@@ -66,6 +67,20 @@ const CANVAS_H = 560;
 // Canonical frame rate in the sim (ticks per second). Positions advance one
 // frame per tick; 1× real-time playback = 60 ticks/second.
 const SIM_HZ = 60;
+
+// S6 ball height: 1 sim-metre of posZ lifts the ball dot by this many canvas
+// pixels. A typical high ball peaks around 20m; at 4px/m that is 80px of lift
+// — clearly visible without flying off-screen at a 560px-tall canvas.
+const BALL_Z_PX_PER_M = 4;
+
+// S6: ball dot scale range as a function of posZ.
+// Ground ball → 1.0 (BALL_RADIUS as drawn). Peak loft (~20m) → 1.5×.
+const BALL_Z_SCALE_MAX = 1.5;
+const BALL_Z_SCALE_REF = 20; // metres at which scale reaches BALL_Z_SCALE_MAX
+
+// S5 possession ring: drawn as a thin circle around the carrier dot.
+const CARRIER_RING_RADIUS = PLAYER_RADIUS + 4; // px outside the filled dot
+const CARRIER_RING_WIDTH = 1.5; // px stroke width
 
 // ---------------------------------------------------------------------------
 // Props
@@ -184,6 +199,13 @@ export default function TacticalBoard(props: TacticalBoardProps): JSX.Element {
   let app: Application | undefined;
   let playerDots: Graphics[] = [];
   let ballDot: Graphics | undefined;
+  // S5: possession carrier ring + tether line. Both are mutated each frame inside
+  // applyPositions — never via Solid effects (Frontend/RULES.md §4).
+  let carrierRing: Graphics | undefined;
+  let tetherLine: Graphics | undefined;
+  // S6: ground-shadow ellipse for the ball. Drawn at ball's ground position
+  // (posX/posY, no Z offset); shrinks as the ball rises.
+  let ballShadow: Graphics | undefined;
   let destroyed = false;
 
   // Ticker callback ref so we can remove it on cleanup.
@@ -207,6 +229,18 @@ export default function TacticalBoard(props: TacticalBoardProps): JSX.Element {
    * Position all sprites from the given fractional cursor value.
    * Interpolates positions between the floor and ceil frame.
    * Pure imperative — does NOT touch Solid signals.
+   *
+   * S5 — possession carrier ring + tether:
+   *   Reads frame.possession (slot index or null). If non-null, moves the
+   *   carrier ring to that player's interpolated position and draws a tether
+   *   line from carrier to ball. Both are cleared (alpha 0) when possession is
+   *   null. Updated every frame in the ticker path.
+   *
+   * S6 — ball height:
+   *   Reads ball.posZ (metres). Offsets the ball dot upward by posZ *
+   *   BALL_Z_PX_PER_M canvas pixels and scales the dot slightly larger.
+   *   The ground-shadow ellipse stays at the ground position and shrinks
+   *   as posZ increases.
    */
   function applyPositions(cur: number): void {
     const frames = props.frames;
@@ -220,6 +254,7 @@ export default function TacticalBoard(props: TacticalBoardProps): JSX.Element {
     const frameB = frames[hi];
     if (!frameA || !frameB) return;
 
+    // Player dot positions.
     for (let slot = 0; slot < 22; slot++) {
       const dot = playerDots[slot];
       if (!dot) continue;
@@ -234,10 +269,75 @@ export default function TacticalBoard(props: TacticalBoardProps): JSX.Element {
       dot.y = lerp(ay, by, t);
     }
 
+    // -----------------------------------------------------------------------
+    // S6 — ball height + ground shadow.
+    // Interpolate the ball's ground position (posX/posY) for both the shadow
+    // and the ball dot, then lift the dot by posZ.
+    // -----------------------------------------------------------------------
     const [bax, bay] = simToCanvas(frameA.ball.posX, frameA.ball.posY, layout);
     const [bbx, bby] = simToCanvas(frameB.ball.posX, frameB.ball.posY, layout);
-    ballDot.x = lerp(bax, bbx, t);
-    ballDot.y = lerp(bay, bby, t);
+    // Ground (projected) position — used for the shadow and tether origin.
+    const groundX = lerp(bax, bbx, t);
+    const groundY = lerp(bay, bby, t);
+    // Interpolate posZ for height lift (metres → canvas px offset).
+    const posZ = lerp(frameA.ball.posZ, frameB.ball.posZ, t);
+    const liftPx = posZ * BALL_Z_PX_PER_M;
+    // Ball dot: raised position.
+    ballDot.x = groundX;
+    ballDot.y = groundY - liftPx;
+    // Scale the dot slightly as the ball rises.
+    const ballScale = 1 + Math.min(posZ / BALL_Z_SCALE_REF, 1) * (BALL_Z_SCALE_MAX - 1);
+    ballDot.scale.set(ballScale);
+
+    // Ground shadow: stays at groundX/groundY, shrinks as ball rises.
+    if (ballShadow) {
+      ballShadow.x = groundX;
+      ballShadow.y = groundY;
+      // Shadow shrinks from full size at posZ=0 to ~30% at posZ=BALL_Z_SCALE_REF.
+      const shadowScale = Math.max(0.3, 1 - posZ / BALL_Z_SCALE_REF);
+      ballShadow.scale.set(shadowScale, shadowScale * 0.5); // flat ellipse on the pitch plane
+      // Only show the shadow when the ball is noticeably airborne.
+      ballShadow.alpha = posZ > 0.5 ? 0.45 : 0;
+    }
+
+    // -----------------------------------------------------------------------
+    // S5 — possession carrier ring + tether line.
+    // possession is the slot of the carrier, or null for loose/dead ball.
+    // -----------------------------------------------------------------------
+    const possession = frameA.possession; // use lo-frame for snap decisiveness
+    const carrierSlot = possession !== null && possession >= 0 && possession < 22
+      ? possession
+      : null;
+
+    if (carrierRing) {
+      if (carrierSlot !== null) {
+        const carrierDot = playerDots[carrierSlot];
+        if (carrierDot) {
+          carrierRing.x = carrierDot.x;
+          carrierRing.y = carrierDot.y;
+          carrierRing.alpha = 1;
+        } else {
+          carrierRing.alpha = 0;
+        }
+      } else {
+        carrierRing.alpha = 0;
+      }
+    }
+
+    if (tetherLine) {
+      // Redraw the tether each frame — it changes endpoint every tick.
+      tetherLine.clear();
+      if (carrierSlot !== null) {
+        const carrierDot = playerDots[carrierSlot];
+        if (carrierDot) {
+          tetherLine.setStrokeStyle({ width: 1, color: LINE_COLOR, alpha: 0.55 });
+          tetherLine
+            .moveTo(carrierDot.x, carrierDot.y)
+            .lineTo(groundX, groundY)
+            .stroke();
+        }
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -282,7 +382,36 @@ export default function TacticalBoard(props: TacticalBoardProps): JSX.Element {
         playerDots.push(dot);
       }
 
-      // Ball — rendered on top.
+      // S5 — carrier ring: a thin circle rendered over the carrier's dot.
+      // Drawn below the ball so the ball sits on top. Parked off-screen and
+      // made invisible until the first possession frame is applied.
+      const ring = new Graphics();
+      ring.setStrokeStyle({ width: CARRIER_RING_WIDTH, color: LINE_COLOR, alpha: 1 });
+      ring.circle(0, 0, CARRIER_RING_RADIUS).stroke();
+      ring.x = -200;
+      ring.y = -200;
+      ring.alpha = 0;
+      created.stage.addChild(ring);
+      carrierRing = ring;
+
+      // S5 — tether line: redrawn each frame between carrier and ball ground pos.
+      // Allocated as an empty Graphics; content is set in applyPositions.
+      const tether = new Graphics();
+      created.stage.addChild(tether);
+      tetherLine = tether;
+
+      // S6 — ball ground shadow: an ellipse at ball ground position.
+      // Rendered below the ball dot. Parked off-screen, alpha 0 until airborne.
+      const shadow = new Graphics();
+      shadow.fill({ color: 0x000000, alpha: 0.6 });
+      shadow.ellipse(0, 0, BALL_RADIUS * 1.4, BALL_RADIUS * 0.7).fill();
+      shadow.x = -200;
+      shadow.y = -200;
+      shadow.alpha = 0;
+      created.stage.addChild(shadow);
+      ballShadow = shadow;
+
+      // Ball dot — rendered on top of shadow, below carrier ring.
       const ball = new Graphics();
       ball.fill({ color: BALL_COLOR });
       ball.circle(0, 0, BALL_RADIUS).fill();
@@ -358,6 +487,9 @@ export default function TacticalBoard(props: TacticalBoardProps): JSX.Element {
       app = undefined;
       playerDots = [];
       ballDot = undefined;
+      carrierRing = undefined;
+      tetherLine = undefined;
+      ballShadow = undefined;
     }
   });
 
