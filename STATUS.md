@@ -1,8 +1,40 @@
 # STATUS — Final Whistle
 
-**Last updated**: 2026-06-05
+**Last updated**: 2026-06-05 (overnight)
 
-## Current state (2026-06-05) — believability arc shipped + a strategic fork for the owner
+## Current state (2026-06-05, overnight) — playable career loop + watchable match shipped; frontend redesign underway
+
+The owner played the prototype and steered to **game-feel over more engine
+depth**. Resolved fork: **A (engine) + B (playable loop) run concurrently**;
+match runs as a **live-sim of the user's fixture**; **major frontend redesign**
+is on (research done). Plan-of-record: `docs/design/prototype-roadmap-2026-06-05.md`
+(179-item backlog). Redesign direction: `docs/design/frontend-redesign-direction-2026-06-05.md`
+("the broadsheet and the technical area").
+
+**Shipped this session (on `main`, CI green):**
+- **Playable career loop (B1–B6)**: NEW CAREER → pick club → squad → manage a
+  season (advance weeks, AI-sim, standings/fixtures/press) → save/load. Pushed;
+  builds a runnable macOS `.app`.
+- **Watchable match (S3a/S3b + v0 + polish)**: a paced `/live-match` route —
+  live-sim step loop, speed modes (auto-sim-to-event + x1/x3/fast/skip), the 2D
+  board following the live play, a key-moments commentary feed (honest TYPE
+  filter, not salience), muted floodlit board palette + full pitch furniture +
+  possession ring/tether + ball-height/shadow. Blank-board + every-pass-spam +
+  duplicate-club-name bugs fixed.
+
+**Next (the loop is working it):** in-match decisions (S10 callout, S11
+ChangePressLevel = canonical, S12 half-time), wire `/live-match` to the user's
+REAL fixture (M2), then the frontend redesign foundation (vertical-sidebar nav,
+table text/numeric split, custom titlebar, inbox-heartbeat home), then the
+backlog (safe non-canonical findings → harness P0 gates → engine Lane A).
+
+**Process:** pre-commit hook runs just-lint + cargo test but NOT vitest/banned-terms
+— run `pnpm -C frontend test` + `scripts/fw banned-terms` before frontend/doc
+commits; `cargo fmt --all` before Rust commits; stage explicit paths, not `git add -A`.
+
+---
+
+## Earlier state (2026-06-05) — believability arc shipped + a strategic fork for the owner
 
 **Goal-production SHIPPED** (commit `d107cd86`) — the keystone drift-goals fix. The keeper now gathers loose non-shot balls and defenders clear the goal mouth, so goals come from shots (+ legit deflections / dribble-ins), not uncontested drift. Independently re-measured (100 seeds): drift 29%→**0%**, M1 **2.35** (in band), shots 13.0, on-target 43.2% — all PASS except M1 std-dev 1.61 (0.01 over the 1.6 band; the M1-vs-std tuning tension → `systems-designer`, task #26). Canonical hashes UNCHANGED (the 60/600-tick pinned seeds never reach shots/goal-mouth) → no rebaseline; follow-up: the pins don't cover believability behaviour. The match now plays believable football end-to-end with goals that come from shots.
 
