@@ -29,8 +29,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use fw_core::{AbilityCeiling, Q32, Seed};
-use fw_memory::SeasonNumber;
-use fw_save::{SaveEnvelope, SaveV4, encode};
+use fw_memory::{BreakthroughState, MemoryLedger, SeasonNumber};
+use fw_save::{SaveEnvelope, SaveV4, SavedPlayerInstance, encode};
 use fw_tauri::commands::{
     advance_week_inner, get_clubs_inner, get_squad_roster_inner, load_career_inner,
     save_career_inner, select_managed_club_inner,
@@ -303,6 +303,64 @@ fn scout_report_survives_save_load_round_trip() {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// BK-E-11: corrupted-save club_id mismatch returns Err, not a panic
+// ---------------------------------------------------------------------------
+
+/// A SaveV4 where a SavedPlayerInstance.club_id disagrees with its BTreeMap key
+/// must return Err(SaveLoadFailed), not panic the handler (Tauri/RULES §4).
+#[test]
+fn load_career_corrupted_club_id_mismatch_returns_save_load_failed() {
+    use fw_core::ClubId;
+
+    let seed = Seed::from_u64(0xDEAD_BEEF_C0FF_0005);
+    let (state, _dir) = test_state_with_temp_paths(seed);
+
+    // Pick a real club ID from the generated roster so the overlay loop
+    // reaches the mismatch check (unrecognised club IDs are silently skipped
+    // as content-pack-change graceful degradation, not as corruption errors).
+    let (real_club_key, real_player_id) = {
+        let career = state.career().read().expect("career lock");
+        let (&cid, instances) = career.roster.iter().next().expect("roster non-empty");
+        (cid, instances[0].player_id)
+    };
+    // A different, clearly wrong club ID embedded inside the struct.
+    let wrong_club_in_struct = ClubId::new(real_club_key.raw().wrapping_add(99_999));
+
+    let bad_instance = SavedPlayerInstance {
+        player_id: real_player_id,
+        club_id: wrong_club_in_struct, // disagrees with the BTreeMap key above
+        slot: 0,
+        ceiling: AbilityCeiling::try_new(Q32::ZERO, Q32::ZERO).expect("zero ceiling is valid"),
+        breakthrough_state: BreakthroughState::default(),
+        season_stats: fw_core::PlayerSeasonStats::default(),
+        career_apps: 0,
+        observation_count: 0,
+    };
+
+    let mut bad_roster: BTreeMap<ClubId, Vec<SavedPlayerInstance>> = BTreeMap::new();
+    bad_roster.insert(real_club_key, vec![bad_instance]);
+
+    let bad_save = SaveV4 {
+        career_seed: seed,
+        content_pack_version: 1,
+        ledger: MemoryLedger::new(),
+        season_number: SeasonNumber(0),
+        season: None,
+        roster: bad_roster,
+        breakthrough_eval_watermark: 0,
+    };
+
+    let bytes = encode(&SaveEnvelope::V4(bad_save)).expect("encode");
+    std::fs::write(state.career_save_path(), &bytes).expect("write bad save");
+
+    let result = load_career_inner(&state);
+    assert!(
+        matches!(result, Err(fw_tauri::IpcError::SaveLoadFailed { .. })),
+        "corrupted club_id mismatch must return SaveLoadFailed, got: {result:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------

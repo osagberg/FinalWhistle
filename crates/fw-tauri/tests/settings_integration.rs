@@ -8,6 +8,7 @@
 use std::path::PathBuf;
 
 use fw_core::Seed;
+use fw_save::load_settings_envelope;
 use fw_tauri::AppSettingsDto;
 use fw_tauri::commands::{get_settings_inner, set_settings_inner};
 use fw_tauri::state::AppState;
@@ -132,6 +133,58 @@ fn settings_persist_across_appstate() {
         json["reduceMotion"], true,
         "reduce_motion must survive across separate AppState instances"
     );
+}
+
+// ---------------------------------------------------------------------------
+// BK-E-42: get_settings on a missing file still returns defaults (TOCTOU fix
+// regression — the NotFound path must behave identically to the old exists() check)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn get_settings_missing_file_returns_defaults_without_toctou() {
+    // This test is intentionally identical in observable outcome to
+    // get_settings_on_missing_file_returns_defaults, but it validates that the
+    // new fs::read + NotFound path (not exists()+read) preserves first-run behaviour.
+    let (state, _dir) = test_state_with_temp_settings();
+
+    assert!(
+        !state.settings_path().exists(),
+        "precondition: no settings file"
+    );
+
+    let dto = get_settings_inner(&state).expect("must succeed on missing file");
+    let json = serde_json::to_value(&dto).expect("serialize");
+    assert_eq!(json["theme"], "light", "first-run default theme is light");
+    assert_eq!(
+        json["reduceMotion"], false,
+        "first-run default reduceMotion is false"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// BK-E-41: set_settings round-trip — written file is fully decodable (atomic write)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn set_settings_written_file_is_fully_decodable() {
+    // After set_settings_inner, the file on disk must be a valid SettingsEnvelope.
+    // A partially-clobbered file (non-atomic write interrupted mid-stream) would
+    // decode as garbage; the atomic rename guarantees either the old or the new
+    // file is present, never a partial splice.
+    let (state, _dir) = test_state_with_temp_settings();
+
+    let settings = fw_tauri::AppSettingsDto {
+        theme: fw_tauri::ThemePrefDto::Dark,
+        reduce_motion: true,
+    };
+
+    set_settings_inner(settings, &state).expect("set_settings_inner");
+
+    // Read the raw bytes and decode through the full envelope path — the same
+    // path get_settings_inner uses. If the file is truncated or misaligned this
+    // decode fails.
+    let bytes = std::fs::read(state.settings_path()).expect("settings file must exist after write");
+    load_settings_envelope(&bytes).expect("written file must decode as valid SettingsEnvelope");
 }
 
 // ---------------------------------------------------------------------------

@@ -2132,15 +2132,21 @@ pub fn get_settings_inner(state: &AppState) -> Result<crate::AppSettingsDto, Ipc
     let path = state.settings_path();
 
     // First-run: missing file → return defaults, NOT an error.
-    if !path.exists() {
-        return Ok(crate::AppSettingsDto::from_settings_v0(
-            fw_save::SettingsV0::default(),
-        ));
-    }
-
-    let bytes = std::fs::read(path).map_err(|e| IpcError::SettingsLoadFailed {
-        reason: e.to_string(),
-    })?;
+    // Drop the TOCTOU exists()+read pattern: attempt fs::read directly and
+    // treat NotFound as the first-run case. Any other I/O error is a real failure.
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(crate::AppSettingsDto::from_settings_v0(
+                fw_save::SettingsV0::default(),
+            ));
+        }
+        Err(e) => {
+            return Err(IpcError::SettingsLoadFailed {
+                reason: e.to_string(),
+            });
+        }
+    };
 
     let v0 = fw_save::load_settings_envelope(&bytes).map_err(|e| IpcError::SettingsLoadFailed {
         reason: e.to_string(),
@@ -2159,19 +2165,28 @@ pub fn set_settings_inner(
         reason: e.to_string(),
     })?;
 
+    let target = state.settings_path();
+
     // Ensure parent directory exists (first write on a fresh install).
-    if let Some(parent) = state
-        .settings_path()
+    let parent = target
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
-    {
-        std::fs::create_dir_all(parent).map_err(|e| IpcError::SettingsLoadFailed {
-            reason: format!("could not create settings directory: {e}"),
+        .ok_or_else(|| IpcError::SettingsLoadFailed {
+            reason: "settings path has no parent directory".to_string(),
         })?;
-    }
+    std::fs::create_dir_all(parent).map_err(|e| IpcError::SettingsLoadFailed {
+        reason: format!("could not create settings directory: {e}"),
+    })?;
 
-    std::fs::write(state.settings_path(), &bytes).map_err(|e| IpcError::SettingsLoadFailed {
-        reason: e.to_string(),
+    // Atomic write: write to a temp file in the same directory, then rename
+    // over the target. std::fs::rename on the same filesystem is atomic, so a
+    // crash mid-write cannot truncate the existing settings file.
+    let tmp_path = parent.join(".settings_tmp.fwcfg");
+    std::fs::write(&tmp_path, &bytes).map_err(|e| IpcError::SettingsLoadFailed {
+        reason: format!("could not write settings temp file: {e}"),
+    })?;
+    std::fs::rename(&tmp_path, target).map_err(|e| IpcError::SettingsLoadFailed {
+        reason: format!("could not rename settings temp file to target: {e}"),
     })?;
 
     Ok(())
@@ -2252,19 +2267,28 @@ pub fn save_career_inner(state: &AppState) -> Result<(), IpcError> {
         reason: e.to_string(),
     })?;
 
+    let target = state.career_save_path();
+
     // Ensure parent directory exists (first write on a fresh install).
-    if let Some(parent) = state
-        .career_save_path()
+    let parent = target
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
-    {
-        std::fs::create_dir_all(parent).map_err(|e| IpcError::SaveLoadFailed {
-            reason: format!("could not create career save directory: {e}"),
+        .ok_or_else(|| IpcError::SaveLoadFailed {
+            reason: "career save path has no parent directory".to_string(),
         })?;
-    }
+    std::fs::create_dir_all(parent).map_err(|e| IpcError::SaveLoadFailed {
+        reason: format!("could not create career save directory: {e}"),
+    })?;
 
-    std::fs::write(state.career_save_path(), &bytes).map_err(|e| IpcError::SaveLoadFailed {
-        reason: e.to_string(),
+    // Atomic write: write to a temp file in the same directory, then rename
+    // over the target. std::fs::rename on the same filesystem is atomic, so a
+    // crash mid-write cannot truncate the existing save file.
+    let tmp_path = parent.join(".career_tmp.fwsave");
+    std::fs::write(&tmp_path, &bytes).map_err(|e| IpcError::SaveLoadFailed {
+        reason: format!("could not write career temp file: {e}"),
+    })?;
+    std::fs::rename(&tmp_path, target).map_err(|e| IpcError::SaveLoadFailed {
+        reason: format!("could not rename career temp file to target: {e}"),
     })?;
 
     Ok(())
@@ -2313,13 +2337,18 @@ pub fn load_career_inner(state: &AppState) -> Result<(), IpcError> {
         };
         for saved in saved_instances {
             // The saved row's club_id must agree with its BTreeMap key — a
-            // mismatch means a corrupted/hand-edited save (Sim/RULES §11).
-            assert_eq!(
-                saved.club_id, *club_id,
-                "SavedPlayerInstance.club_id {:?} disagrees with its roster map key {:?} \
-                 — corrupted save",
-                saved.club_id, club_id
-            );
+            // mismatch means a corrupted/hand-edited save. This is save-bytes-derived
+            // data, so we return a graceful error rather than panicking
+            // (Tauri/RULES.md §4: never panic in a handler).
+            if saved.club_id != *club_id {
+                return Err(IpcError::SaveLoadFailed {
+                    reason: format!(
+                        "SavedPlayerInstance.club_id {:?} disagrees with its roster map key {:?} \
+                         — save file may be corrupted or hand-edited",
+                        saved.club_id, club_id
+                    ),
+                });
+            }
             // Linear scan: 22 slots per club — negligible.
             match base_instances
                 .iter_mut()
