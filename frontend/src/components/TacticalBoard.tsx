@@ -128,15 +128,18 @@ export default function TacticalBoard(props: TacticalBoardProps): JSX.Element {
     framesLengthRef = props.frames.length;
   });
 
-  // Auto-apply frame 0 and start playback the FIRST time BOTH conditions are
-  // true: (a) frames have arrived and (b) the Pixi app has initialised.
-  // This handles two races:
+  // Apply frame 0 the FIRST time BOTH conditions are true: (a) frames have
+  // arrived and (b) the Pixi app has initialised. This fixes the blank board —
+  // the dots were parked off-screen because the only applyPositions(0) call
+  // raced against the async frame load and always saw []. Handles both races:
   //   1. Board mounts before the async IPC frame load — pixiReady fires first,
   //      frames arrive later; the effect re-runs when frames length changes.
   //   2. Frames arrive before Pixi init completes — the effect re-runs when
   //      pixiReady flips to true.
-  // The firstFramesApplied guard ensures this runs at most ONCE per mount so
-  // a subsequent frames update never resets the cursor while the user scrubs.
+  // The firstFramesApplied guard makes it run at most ONCE per mount so a later
+  // frames update never resets the cursor while the user scrubs. We do NOT
+  // auto-start playback: the board shows the formation paused and the user (or
+  // the live-match step loop, which drives the board externally) controls play.
   createEffect(() => {
     const len = props.frames.length;
     const ready = pixiReady();
@@ -145,7 +148,6 @@ export default function TacticalBoard(props: TacticalBoardProps): JSX.Element {
     cursor = 0;
     setDisplayTick(0);
     applyPositions(0);
-    setPlayingBoth(true);
   });
 
   // Pixi imperative refs — not reactive state.

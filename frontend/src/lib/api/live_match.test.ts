@@ -56,6 +56,15 @@ function makeStepResult(handle: MatchHandle): StepResult {
     score: { home: 0, away: 0 },
     tick: 0,
     isFinished: false,
+    frame: {
+      seedHex: handle.seedHex,
+      tick: 0,
+      homeScore: 0,
+      awayScore: 0,
+      players: [],
+      ball: { posX: 0, posY: 0, posZ: 0, velX: 0, velY: 0, velZ: 0 },
+      possession: null,
+    },
   };
 }
 

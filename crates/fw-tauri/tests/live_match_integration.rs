@@ -413,3 +413,112 @@ fn live_match_command_unimplemented_serde_wire_shape() {
         "snake_case 'command_kind' must not appear in wire JSON"
     );
 }
+
+// ---------------------------------------------------------------------------
+// S3a: StepResult.frame carries live session positions for the 2D board
+// ---------------------------------------------------------------------------
+
+/// `StepResult.frame` must:
+/// 1. Contain exactly 22 player entries.
+/// 2. Have all player positions within pitch bounds (not the off-screen
+///    sentinel that initial formation placement would use if projection broke).
+/// 3. Advance between consecutive steps — proving the frame reflects the
+///    live session's evolving canonical state, not a constant.
+///
+/// Pitch bounds: pos_x in (-52.5, 52.5) m; pos_y in (-34.0, 34.0) m.
+/// These derive from fw-core's `GOAL_LINE_X` (52.5) / `SIDELINE_Y` (34.0).
+#[test]
+fn step_result_frame_has_22_players_in_bounds_and_advances() {
+    // Generous bounds: formation positions sit well inside GOAL_LINE_X ×
+    // SIDELINE_Y; we use 60 m × 40 m to absorb any near-goal kickoff
+    // positions while still catching true off-pitch sentinels (0.0 / i64::MAX).
+    const MAX_ABS_X: f64 = 60.0;
+    const MAX_ABS_Y: f64 = 40.0;
+
+    let state = test_app_state();
+    let handle = start_live_match_inner("0xfeedbabe12345678".to_string(), &state).expect("start");
+
+    let step1 = step_live_match_inner(handle.clone(), 1, &state).expect("step 1");
+    let step2 = step_live_match_inner(handle.clone(), 1, &state).expect("step 2");
+
+    // 1. Exactly 22 player entries in each frame.
+    assert_eq!(
+        step1.frame.players.len(),
+        22,
+        "step1 frame must have 22 player entries"
+    );
+    assert_eq!(
+        step2.frame.players.len(),
+        22,
+        "step2 frame must have 22 player entries"
+    );
+
+    // 2. All player positions in pitch bounds for both steps.
+    for (i, p) in step1.frame.players.iter().enumerate() {
+        assert!(
+            p.pos_x.abs() <= MAX_ABS_X,
+            "step1 player {i} pos_x={:.3} out of pitch bounds (±{MAX_ABS_X})",
+            p.pos_x
+        );
+        assert!(
+            p.pos_y.abs() <= MAX_ABS_Y,
+            "step1 player {i} pos_y={:.3} out of pitch bounds (±{MAX_ABS_Y})",
+            p.pos_y
+        );
+    }
+    for (i, p) in step2.frame.players.iter().enumerate() {
+        assert!(
+            p.pos_x.abs() <= MAX_ABS_X,
+            "step2 player {i} pos_x={:.3} out of pitch bounds (±{MAX_ABS_X})",
+            p.pos_x
+        );
+        assert!(
+            p.pos_y.abs() <= MAX_ABS_Y,
+            "step2 player {i} pos_y={:.3} out of pitch bounds (±{MAX_ABS_Y})",
+            p.pos_y
+        );
+    }
+
+    // Ball positions in bounds for both steps.
+    assert!(
+        step1.frame.ball.pos_x.abs() <= MAX_ABS_X,
+        "step1 ball pos_x={:.3} out of bounds",
+        step1.frame.ball.pos_x
+    );
+    assert!(
+        step1.frame.ball.pos_y.abs() <= MAX_ABS_Y,
+        "step1 ball pos_y={:.3} out of bounds",
+        step1.frame.ball.pos_y
+    );
+    assert!(
+        step2.frame.ball.pos_x.abs() <= MAX_ABS_X,
+        "step2 ball pos_x={:.3} out of bounds",
+        step2.frame.ball.pos_x
+    );
+    assert!(
+        step2.frame.ball.pos_y.abs() <= MAX_ABS_Y,
+        "step2 ball pos_y={:.3} out of bounds",
+        step2.frame.ball.pos_y
+    );
+
+    // 3. At least one player position must differ between step 1 and step 2,
+    //    proving the frame tracks the live session's evolving state.
+    //
+    //    Compare pos_x + pos_y as bit patterns (f64 equality is safe here —
+    //    both frames come from the same Q32→f64 projection applied to
+    //    consecutively-ticked states; if the state did not advance the bits
+    //    would be identical).
+    let any_player_moved = step1
+        .frame
+        .players
+        .iter()
+        .zip(step2.frame.players.iter())
+        .any(|(p1, p2)| {
+            p1.pos_x.to_bits() != p2.pos_x.to_bits() || p1.pos_y.to_bits() != p2.pos_y.to_bits()
+        });
+    assert!(
+        any_player_moved,
+        "S3a: no player position changed between step1 and step2 — \
+         frame is not tracking the live session's state"
+    );
+}

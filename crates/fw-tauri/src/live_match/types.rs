@@ -9,6 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use fw_core::PlayerId;
+use fw_match_sim::MatchFrameDto;
 use serde::{Deserialize, Serialize};
 
 use crate::result::MatchEventDto;
@@ -35,7 +36,8 @@ pub struct MatchHandle {
 
 /// Returned by `step_live_match`. Carries the events emitted during this step
 /// only (since the previous `step_live_match` call), the current score, the
-/// current tick, and a flag indicating whether the match has reached FullTime.
+/// current tick, a flag indicating whether the match has reached FullTime, and
+/// a position frame for the 2D tactical board.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StepResult {
@@ -45,6 +47,13 @@ pub struct StepResult {
     pub score: ScoreDto,
     pub tick: u32,
     pub is_finished: bool,
+    /// Per-tick position frame projected from the live session's `MatchState`
+    /// at `result.tick`. Contains 22 player entries (slot 0-21) + ball with
+    /// full 3D position + velocity. One-way projection (Q32 → f64); the
+    /// frontend 2D board consumes this directly without re-simming. Shares
+    /// the `MatchFrameDto` shape with `match_frames` so the board's prop type
+    /// is unchanged (Tauri/RULES §3 — DTO is a read-only projection).
+    pub frame: MatchFrameDto,
 }
 
 // ---------------------------------------------------------------------------

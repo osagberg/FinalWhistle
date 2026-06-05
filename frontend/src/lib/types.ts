@@ -438,6 +438,14 @@ export interface StepResult {
   score: LiveScoreDto;
   tick: number;
   isFinished: boolean;
+  /**
+   * Position frame projected from the live session's `MatchState` at
+   * `result.tick`. Contains 22 player entries (slots 0-21) plus ball with
+   * full 3D position and velocity. Shares the `MatchFrameDTO` shape so the
+   * tactical board can consume it without re-simming independently. The frame
+   * is a one-way read projection (Tauri IPC §3) — never written back.
+   */
+  frame: MatchFrameDTO;
 }
 
 /**

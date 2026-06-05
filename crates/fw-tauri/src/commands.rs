@@ -2016,6 +2016,11 @@ pub fn step_live_match_inner(
         },
         tick: session.state.tick.to_raw().max(0) as u32,
         is_finished: session.is_finished(),
+        // Project the live session's current MatchState into a position frame
+        // so the frontend 2D board can render from the live session without
+        // re-simming independently. Reuses the same MatchFrameDto::from_state
+        // projection as match_frames (Tauri/RULES §3: one-way read projection).
+        frame: MatchFrameDto::from_state(&session.state),
     };
 
     Ok(result)
