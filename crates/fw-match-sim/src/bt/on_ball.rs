@@ -215,7 +215,18 @@ const CROSS_GATE_COEFF: Q32 = Q32::from_raw(10_737_418_240_i64); // ≈ 2.5
 /// shot volume to ~7/match; -0.025 recovers ~3-4 shots/match from speculative
 /// mid-range efforts (15-30m zone). Keeps blind 50m+ pokes gated (xG ≈ 0.031
 /// at formation start positions stays below even 0.070).
-pub(crate) const XG_SHOOT_THRESHOLD: Q32 = Q32::from_raw(300_647_710_i64); // ≈ 0.070 (FUN-TS2 recal)
+///
+/// Goal-production re-tune (2026-06-05): lowered 0.070 -> 0.054. After the
+/// goalmouth-defending slice closed all drift goals, shot volume (~11/match)
+/// with the floored save model and 8.0m sigma reached only M1 ~2.1. Relaxing
+/// the gate to 0.054 lifts shot volume to ~13/match (still inside the 9-18
+/// band) and lands M1 ~2.5-2.6 from shots over 100-seed windows, with on-target
+/// held at ~43% (in band) and zero drift. xG approx 0.031 at formation start
+/// positions stays below 0.054, so blind 50m+ pokes remain gated. Caveat: the
+/// extra lower-quality efforts push the M1 goal-distribution std-dev to roughly
+/// 1.6 (the top of its 0.8-1.6 band); std-band tuning is a systems-designer
+/// balance call.
+pub(crate) const XG_SHOOT_THRESHOLD: Q32 = Q32::from_raw(231_928_234_i64); // = 0.054 (goal-production re-tune 2026-06-05)
 
 /// Shooter quality composite weights for `xg_utility` feature extraction.
 /// `shooter_quality = finishing × 0.55 + composure × 0.25 + technique × 0.20`

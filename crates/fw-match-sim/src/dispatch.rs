@@ -158,7 +158,17 @@ const PASS_PEAK_BONUS_MPS: Q32 = Q32::from_raw(10_i64 << 32);
 ///   Sweep 5: 8.75m → on-target=40.9%, M1=3.05 (still on boundary; 40-seed)
 ///   Sweep 6: 9.0m  → push further into 28-40% band
 /// See docs/design/shot-model.md Phase-2 re-fit for full per-sweep table.
-const SIGMA_BASE_M: Q32 = Q32::from_raw(38_654_705_664_i64); // ≈ 9.0m (FUN-TS3-ShotModel sweep 6)
+///
+/// Goal-production re-tune (2026-06-05): lowered 9.0m -> 8.0m. After the
+/// goalmouth-defending slice closed all drift goals (M1 fell to 1.82, all
+/// shot-based), conversion had to be recovered from SHOTS. The save model was
+/// already lowered to its hard floor (0.50/0.72), so the remaining honest lever
+/// was on-target volume: 8.0m lifts on-target ~39% -> ~43% (within the 33-45%
+/// realism band) without making finishing clinical. Combined with the shoot
+/// threshold drop (XG_SHOOT_THRESHOLD 0.070 -> 0.054) this lands M1 ~2.5-2.6
+/// from shots over 100-seed windows. Going lower (7.0m) pushes on-target to 51%
+/// (clinical) — rejected as dishonest.
+const SIGMA_BASE_M: Q32 = Q32::from_raw(34_359_738_368_i64); // = 8.0m (goal-production re-tune 2026-06-05)
 
 /// Distance contribution to sigma. dist_factor = clamp(d_m / 35, 0, 1) (the
 /// NON-inverted distance — 0=close, 1=far, opposite of the xG feature).

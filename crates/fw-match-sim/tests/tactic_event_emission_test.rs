@@ -387,6 +387,10 @@ fn goal_tick_skips_dispatch_so_kickoff_taker_decisions_dont_override_midblock() 
     state.ball.vel_y = Q32::ZERO;
     state.ball.vel_z = Q32::ZERO;
     state = state.with_last_touched_by(8); // home CAM
+    // GK gather guard: away GK (slot 11) at formation x=+45 is 7.5 m from crossing
+    // (+52.5), which is within GK_GATHER_RADIUS (10 m). Move GK to y=+20 so
+    // distance = sqrt(7.5²+20²) ≈ 21.4 m > 10 m → gather does not fire → goal stands.
+    state.players[11].pos_y = Q32::from_int(20);
     // possession is pub(crate); set via the builder pattern. The test
     // doesn't need to pre-set possession because last_touched_by is what
     // the Goal arm reads for scorer attribution; possession before the

@@ -28,6 +28,20 @@ fn state_with_ball(ball: BallState) -> MatchState {
     state
 }
 
+/// Move both GKs far off their lines (y = ±20 m) so GK_GATHER_RADIUS (10 m)
+/// cannot fire for a ball crossing at y = 0. Distance from formation to crossing
+/// point is sqrt(7.5² + 20²) ≈ 21.4 m > 10 m. Used in tests that verify a
+/// clear-goal scenario where the GK was already beaten.
+///
+/// Slot 0  = home GK.
+/// Slot 11 = away GK.
+fn with_gk_out_of_position(mut state: MatchState) -> MatchState {
+    use fw_core::Q32;
+    state.players[0].pos_y = Q32::from_int(20); // home GK pushed to y=+20 m
+    state.players[11].pos_y = Q32::from_int(20); // away GK pushed to y=+20 m
+    state
+}
+
 /// Verify the ball is at the centre spot (all position/velocity fields zero).
 fn assert_ball_at_centre(state: &MatchState) {
     let c = BallState::centre_spot();
@@ -75,7 +89,9 @@ fn ball_crossing_positive_goal_line_in_mouth_triggers_home_goal() {
         spin_y: Q32::ZERO,
         spin_z: Q32::ZERO,
     };
-    let state_before = state_with_ball(ball);
+    // GK out of position: away GK (slot 11) was beaten; move to y=+20 m so the
+    // GK_GATHER_RADIUS (10 m) does not fire for this non-shot crossing.
+    let state_before = with_gk_out_of_position(state_with_ball(ball));
     // last_touched_by = Some(9) from initial state (home CF).
     // Home team last touched → home team scores (ball in AWAY goal = +X side).
     assert_eq!(state_before.home_score, 0);
@@ -132,7 +148,9 @@ fn ball_crossing_negative_goal_line_in_mouth_triggers_away_goal() {
         spin_y: Q32::ZERO,
         spin_z: Q32::ZERO,
     };
-    let state_before = state_with_ball(ball).with_last_touched_by(19);
+    // Home GK out of position (slot 0): move to y=+20 m so GK_GATHER_RADIUS (10 m)
+    // does not fire for this non-shot crossing at y=0.
+    let state_before = with_gk_out_of_position(state_with_ball(ball)).with_last_touched_by(19);
     assert_eq!(state_before.away_score, 0);
 
     let state_after = tick_match(state_before, &std::collections::BTreeMap::new());
@@ -207,7 +225,8 @@ fn goal_transitions_both_teams_tactic_state_to_midblock() {
         spin_y: Q32::ZERO,
         spin_z: Q32::ZERO,
     };
-    let mut state_before = state_with_ball(ball);
+    // GK out of position so GK_GATHER_RADIUS (10 m) does not prevent the goal.
+    let mut state_before = with_gk_out_of_position(state_with_ball(ball));
     // Put both teams in HighPress to confirm it transitions to MidBlock.
     // Use the pub `transition` method (pub on TeamTacticState).
     state_before.team_tactic_states[0] =
@@ -361,6 +380,115 @@ fn ball_past_non_goal_goal_line_is_clamped() {
     assert!(!has_goal, "wide-of-post OOB must not trigger Goal");
 }
 
+// ---------------------------------------------------------------------------
+// Goalmouth defending — GK gather (non-shot balls, xg_score == 0)
+// ---------------------------------------------------------------------------
+
+/// GK positioned within GK_GATHER_RADIUS of the ball crossing point gathers
+/// the loose ball: no goal.
+///
+/// Mechanism: the `xg_score == 0` gather in step 2b of `tick_match`.
+/// The away GK (slot 11) is placed at (+50, 0), 2.5 m from the crossing
+/// at (+52.5, 0). GK_GATHER_RADIUS = 10 m → dist(2.5 m) < radius → gather
+/// fires → no `MatchEvent::Goal` emitted.
+///
+/// Note: the GK gather is gated on `xg_score == 0` (no shot context) —
+/// independent of the `possession` field. Even with possession=Some(9) from
+/// the initial state (the clearance step skips), the gather in step 2b checks
+/// only GK distance and `xg_score`.
+#[test]
+fn gk_near_crossing_point_gathers_loose_ball_no_goal() {
+    // Ball just past the positive goal line (home scores WITHOUT the gather).
+    let ball = BallState {
+        pos_x: GOAL_LINE_X + Q32::from_raw(1_i64 << 28), // 52.5 + ~0.06 m
+        pos_y: Q32::ZERO,
+        pos_z: Q32::ZERO,
+        vel_x: Q32::from_int(5),
+        vel_y: Q32::ZERO,
+        vel_z: Q32::ZERO,
+        spin_x: Q32::ZERO,
+        spin_y: Q32::ZERO,
+        spin_z: Q32::ZERO,
+    };
+    let mut state = fw_match_sim::MatchState::initial(fw_core::Seed::from_u64(42));
+    state.ball = ball;
+    // Place the away GK (slot 11) at (+50, 0): 2.5 m from the crossing.
+    // GK_GATHER_RADIUS = 10 m → 2.5 m < 10 m → gather fires.
+    state.players[11].pos_x = Q32::from_int(50);
+    state.players[11].pos_y = Q32::ZERO;
+    // last_touched_by = home player (slot 9) so home would score without gather.
+    state = state.with_last_touched_by(9);
+    // last_shot_xg[9] stays zero (no shot was declared) → xg_score = 0 → gather path.
+
+    let state_after = tick_match(state, &std::collections::BTreeMap::new());
+
+    // No Goal event — GK gathered the ball.
+    let has_goal = state_after
+        .match_events()
+        .iter()
+        .any(|e| matches!(e, MatchEvent::Goal { .. }));
+    assert!(
+        !has_goal,
+        "GK within 10 m of crossing must gather the ball — no Goal expected"
+    );
+    assert_eq!(
+        state_after.home_score, 0,
+        "home_score must remain 0 (GK gathered)"
+    );
+    assert_eq!(state_after.away_score, 0, "away_score unchanged");
+    // last_touched_by transfers to the away GK.
+    assert_eq!(
+        state_after.last_touched_by(),
+        Some(11),
+        "last_touched_by must be away GK (slot 11) after gather"
+    );
+}
+
+/// GK positioned more than 10 m from the crossing point cannot gather:
+/// the ball scores as a legitimate goal.
+///
+/// Mechanism: GK placed at (+30, 0) is 22.5 m from crossing (+52.5, 0).
+/// GK_GATHER_RADIUS = 10 m → 22.5 m > 10 m → gather does NOT fire
+/// → goal stands. (At the formation position of +45 the keeper is only
+/// 7.5 m away — within radius — so this test uses +30 to represent a
+/// genuinely out-of-position keeper.)
+#[test]
+fn gk_far_from_crossing_point_goal_stands() {
+    // Ball just past positive goal line.
+    let ball = BallState {
+        pos_x: GOAL_LINE_X + Q32::from_raw(1_i64 << 28),
+        pos_y: Q32::ZERO,
+        pos_z: Q32::ZERO,
+        vel_x: Q32::from_int(5),
+        vel_y: Q32::ZERO,
+        vel_z: Q32::ZERO,
+        spin_x: Q32::ZERO,
+        spin_y: Q32::ZERO,
+        spin_z: Q32::ZERO,
+    };
+    // Away GK placed at (+30, 0): 22.5 m from crossing point.
+    // GK_GATHER_RADIUS = 10 m → 22.5 m > 10 m → does NOT gather → goal stands.
+    let mut state = state_with_ball(ball).with_last_touched_by(9);
+    state.players[11].pos_x = Q32::from_int(30); // GK far out of position
+    state.players[11].pos_y = Q32::ZERO;
+    let state = state;
+
+    let state_after = tick_match(state, &std::collections::BTreeMap::new());
+
+    let has_goal = state_after
+        .match_events()
+        .iter()
+        .any(|e| matches!(e, MatchEvent::Goal { .. }));
+    assert!(
+        has_goal,
+        "GK 22.5 m from crossing (out of position) must NOT gather — goal expected"
+    );
+    assert_eq!(
+        state_after.home_score, 1,
+        "home_score must be 1 (legitimate goal; GK could not reach)"
+    );
+}
+
 /// Scorer slot attribution: the Goal event's scorer_slot must be last_touched_by.
 #[test]
 fn goal_scorer_slot_matches_last_touched_by() {
@@ -375,7 +503,8 @@ fn goal_scorer_slot_matches_last_touched_by() {
         spin_y: Q32::ZERO,
         spin_z: Q32::ZERO,
     };
-    let state_before = state_with_ball(ball).with_last_touched_by(10);
+    // GK out of position so GK_GATHER_RADIUS (10 m) does not prevent the goal.
+    let state_before = with_gk_out_of_position(state_with_ball(ball)).with_last_touched_by(10);
 
     let state_after = tick_match(state_before, &std::collections::BTreeMap::new());
 

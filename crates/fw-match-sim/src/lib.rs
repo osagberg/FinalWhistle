@@ -1006,16 +1006,19 @@ impl MatchState {
 // ---------------------------------------------------------------------------
 
 // Minimum save probability for the worst GK (attrs = 0.0) in a perfect position.
-// FUN-TS3-ShotModel sweep 4: lowered from 0.62 to 0.55 to compensate for sigma=8.5m
-// reducing on-target shot count (fewer on-target shots → fewer goals → lower M1).
-// Hard floor: 0.50 (a keeper must still stop half of close-range shots; below this is fantasy).
-// This value (0.55) is above the hard floor.
-const SAVE_BASE_MIN: Q32 = Q32::from_raw(2_362_232_012_i64); // ≈ 0.55
+// FUN-TS3-ShotModel sweep 4: lowered from 0.62 to 0.55 to compensate for sigma=8.5m.
+// Goal-production re-tune (2026-06-05): lowered 0.55 -> 0.50 (its HARD FLOOR) to
+// recover shot-based goals after the goalmouth-defending slice closed all drift
+// goals (M1 had fallen to 1.82, all shot-based). 0.50 is the believability floor —
+// a keeper must still stop half of close-range shots; below this is fantasy. We
+// hold AT the floor and reach the M1 target via shot quality/volume, never below.
+const SAVE_BASE_MIN: Q32 = Q32::from_raw(2_147_483_648_i64); // = 0.50 (hard floor)
 
 // Maximum save probability for the best GK (attrs = 1.0) in a perfect position.
 // FUN-TS3-ShotModel sweep 4: lowered from 0.82 to 0.75 in lockstep with SAVE_BASE_MIN.
-// Hard floor: 0.72. This value (0.75) is above the hard floor.
-const SAVE_BASE_MAX: Q32 = Q32::from_raw(3_221_225_472_i64); // ≈ 0.75
+// Goal-production re-tune (2026-06-05): lowered 0.75 -> 0.72 (its HARD FLOOR) in
+// lockstep with SAVE_BASE_MIN. 0.72 is the believability floor and is NOT breached.
+const SAVE_BASE_MAX: Q32 = Q32::from_raw(3_092_376_453_i64); // = 0.72 (hard floor)
 
 // Position penalty per metre of GK-to-ball y-error.
 // At 1m error: factor drops by 0.15. At 3m error: factor ≈ 0.55.
@@ -1024,9 +1027,13 @@ const POSITION_PENALTY_RATE: Q32 = Q32::from_raw(644_245_094_i64); // ≈ 0.15 p
 // Minimum positional factor (GK completely out of position — last-chance reach).
 const POSITION_MIN: Q32 = Q32::from_raw(429_496_729_i64); // ≈ 0.10
 
-// Maximum save probability cap — best GK misses ~25% of on-target shots.
+// Maximum save probability cap — best GK misses ~28% of on-target shots.
 // FUN-TS3-ShotModel sweep 4: lowered from 0.82 to 0.75 in lockstep with SAVE_BASE_MAX.
-const SAVE_PROB_MAX: Q32 = Q32::from_raw(3_221_225_472_i64); // ≈ 0.75
+// Goal-production re-tune (2026-06-05): lowered 0.75 -> 0.72 in lockstep with the
+// save_base floor so the cap does not blunt the floor's effect at the high-quality
+// GK end. (Measured negligible at the current sigma — the cap is rarely hit — but
+// kept consistent with the floor.)
+const SAVE_PROB_MAX: Q32 = Q32::from_raw(3_092_376_453_i64); // = 0.72
 
 // Site discriminant for the GK save roll (0x5A7E = "SAVE" mnemonic).
 const SAVE_ROLL_SITE_DISCRIMINANT: u32 = 0x5A7E;
@@ -1037,6 +1044,201 @@ const W_GK_REFLEXES: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
 const W_GK_HANDLING: Q32 = Q32::from_raw(1_288_490_188_i64); // ≈ 0.30
 const W_GK_ONE_ON_ONES: Q32 = Q32::from_raw(644_245_094_i64); // ≈ 0.15
 const W_GK_POSITIONING: Q32 = Q32::from_raw(429_496_729_i64); // ≈ 0.10
+
+// ---------------------------------------------------------------------------
+// Goalmouth defending constants
+// ---------------------------------------------------------------------------
+
+/// Squared clearance radius (m²): a goal-side outfield defender within this
+/// distance of the ball can reach and clear it before it crosses the line.
+/// Home DEFs sit at x=-30 (22.5 m from goal line at -52.5). With the
+/// CLEARANCE_DANGER_ZONE_M=20 gate, clearance only fires when the ball
+/// is within 20 m of the line (i.e. bx between -32.5 and -52.5).
+/// A defender at x=-30 is at most ~2.5 m from the danger-zone boundary and
+/// can be within 10 m of a ball at x=-32 to x=-40 depending on y. Using
+/// 10 m radius (100 m²) is the right compromise: covers defenders who are
+/// tracking a loose ball near the box without firing in midfield.
+const DEFENDER_CLEAR_RADIUS_SQ: Q32 = Q32::from_raw(100_i64 << 32); // 10² = 100 m²
+
+/// Ball velocity magnitude for a defensive clearance (m/s upfield).
+/// Slower than a shot so the clearance stays on the pitch; fast enough to
+/// move the ball well away from danger in 3–5 ticks.
+const CLEARANCE_SPEED: Q32 = Q32::from_raw(10_i64 << 32); // 10.0 m/s
+
+/// Squared gather radius (m²): the GK claims a loose non-shot ball crossing
+/// the goal mouth when within this distance of the crossing point.
+///
+/// This is NOT a model of the keeper's bodily reach (a real keeper claims
+/// ~5–6 m). It is "is the keeper positioned to have come and covered the
+/// mouth": the radius is measured from the keeper's BODY (formation depth
+/// ~7.5 m off the line — home GK at x=-45, away at x=+45) to the ball's
+/// CROSSING POINT (at x=±52.5). The 7.5 m x-gap alone consumes most of the
+/// budget, so the radius must exceed it for the gather to fire at all on a
+/// central ball. Empirically (50-seed sweep, base 0x1000…0): at 10 m the
+/// keeper gathers central crossings and concedes the corners + balls when
+/// pushed wide (0 drift goals); at 6 m the gather can NEVER fire (the x-gap
+/// exceeds the radius) and 20 drift goals leak. 10 m is calibrated to the
+/// formation depth, not to a bodily-reach claim.
+const GK_GATHER_RADIUS_SQ: Q32 = Q32::from_raw(100_i64 << 32); // 10² = 100 m²
+
+/// Distance from goal line within which the clearance step operates.
+/// Only balls within this distance of the goal line are candidates for
+/// defensive clearance. Keeps clearance out of attacking transitions
+/// (a pass heading toward goal from midfield should not be intercepted
+/// by the clearance logic — that's dispossession/tackle territory).
+/// 20 m = penalty area depth (16 m) + 4 m buffer.
+const CLEARANCE_DANGER_ZONE_M: Q32 = Q32::from_raw(20_i64 << 32); // 20.0 m from goal line
+
+// ---------------------------------------------------------------------------
+// Goalmouth defending — defensive clearance
+// ---------------------------------------------------------------------------
+
+/// Pre-detection step: for each team, if a loose ball is moving toward their
+/// own goal AND an outfield defender of that team is within `DEFENDER_CLEAR_RADIUS`
+/// of the ball, the nearest such defender clears it upfield.
+///
+/// Runs BEFORE goal detection so a cleared ball never enters the goal-mouth
+/// check. GK slots (0 and 11) are excluded — GK gathering is handled
+/// inside goal detection via the `xg_score == 0` branch below.
+///
+/// Determinism: iteration is slot-ordered (ascending); ties are broken by
+/// the smallest slot index. No RNG — the clearance is geometrically
+/// deterministic. Q32 only; no floats.
+fn resolve_goalmouth_defending(mut state: MatchState) -> MatchState {
+    let bx = state.ball.pos_x;
+    let by = state.ball.pos_y;
+    let bvx = state.ball.vel_x;
+
+    // Act when the ball is physically unclaimed: either possession == None (loose)
+    // OR the nominal possessor is farther than PHYSICAL_POSSESSION_RADIUS from
+    // the ball (pass-in-flight / overshoot scenario — possession is "notional").
+    // If the possessor IS close to the ball, they physically hold it and a
+    // defensive clearance is not applicable (tackle / dispossession handles that).
+    //
+    // A dribble-in by an attacker (possessor IS close to ball near goal line)
+    // is a legitimate goal; clearance does not fire.
+    const PHYSICAL_POSSESSION_RADIUS_SQ: Q32 = Q32::from_raw(25_i64 << 32); // 5² = 25 m²
+    let ball_is_physically_unclaimed = match state.possession {
+        None => true,
+        Some(slot) => {
+            let slot_idx = slot as usize;
+            if slot_idx < TOTAL_PLAYERS {
+                let px = state.players[slot_idx].pos_x;
+                let py = state.players[slot_idx].pos_y;
+                let dx = px - bx;
+                let dy = py - by;
+                let dist_sq = dx * dx + dy * dy;
+                // Physically unclaimed = possessor is far from ball.
+                dist_sq > PHYSICAL_POSSESSION_RADIUS_SQ
+            } else {
+                true // structural guard: bad slot index → treat as unclaimed
+            }
+        }
+    };
+    if !ball_is_physically_unclaimed {
+        return state;
+    }
+
+    // ---- Home team defending (-X goal) ----
+    // Ball moving toward home goal: vel_x < 0.
+    // Danger-zone gate: only apply clearance when ball is within
+    // CLEARANCE_DANGER_ZONE_M of the home goal line. This prevents the
+    // clearance from intercepting legitimate passes/attacks in the home half
+    // that are far from the goal (those are dispossession/tackle territory).
+    // Home goal line at -GOAL_LINE_X. Distance = bx - (-GOAL_LINE_X) = bx + GOAL_LINE_X.
+    if bvx < Q32::ZERO {
+        let bx_bits = bx.to_bits();
+        // Ball must be in home's defensive half (x < 0).
+        if bx_bits < 0 {
+            // Distance of ball from home goal line (positive value when bx > -GOAL_LINE_X).
+            let home_goal_line_neg = -GOAL_LINE_X; // -52.5
+            let dist_from_home_line = bx - home_goal_line_neg; // bx + 52.5; positive if bx > -52.5
+            // Only clear when within the danger zone (ball within 20 m of home goal line).
+            if dist_from_home_line >= Q32::ZERO && dist_from_home_line <= CLEARANCE_DANGER_ZONE_M {
+                let mut nearest_slot: Option<usize> = None;
+                let mut nearest_dist_sq = DEFENDER_CLEAR_RADIUS_SQ;
+                // Iterate home outfield slots (1..11); slot 0 is home GK (excluded).
+                for slot_idx in 1..PLAYERS_PER_TEAM {
+                    let p = &state.players[slot_idx];
+                    if p.pos_x > Q32::ZERO {
+                        continue; // defender in away half — skip
+                    }
+                    let dx = p.pos_x - bx;
+                    let dy = p.pos_y - by;
+                    let dist_sq = dx * dx + dy * dy;
+                    // Within-radius check is inclusive (`<=` the threshold), but
+                    // the nearest-defender selection uses strict `<` so an exact
+                    // distance tie is won by the LOWER slot (ascending tie-break,
+                    // deterministic). `is_none()` admits the first in-radius
+                    // defender even when its dist_sq equals the threshold.
+                    if dist_sq <= DEFENDER_CLEAR_RADIUS_SQ
+                        && (nearest_slot.is_none() || dist_sq < nearest_dist_sq)
+                    {
+                        nearest_dist_sq = dist_sq;
+                        nearest_slot = Some(slot_idx);
+                    }
+                }
+                if let Some(slot_idx) = nearest_slot {
+                    // Clear the ball upfield (toward +X for home defenders).
+                    state.ball.vel_x = CLEARANCE_SPEED;
+                    state.ball.vel_y = Q32::ZERO;
+                    state.possession = None;
+                    let p_slot = state.players[slot_idx].slot;
+                    state.last_touched_by = Some(p_slot);
+                }
+            }
+        }
+    }
+
+    // Re-read after possible home-team clearance.
+    let bvx = state.ball.vel_x;
+
+    // ---- Away team defending (+X goal) ----
+    // Ball moving toward away goal: vel_x > 0.
+    if bvx > Q32::ZERO {
+        let bx_bits = state.ball.pos_x.to_bits();
+        // Ball must be in away's defensive half (x > 0).
+        if bx_bits > 0 {
+            let bx2 = state.ball.pos_x;
+            let by2 = state.ball.pos_y;
+            // Danger-zone gate: ball within CLEARANCE_DANGER_ZONE_M of away goal line.
+            // Away goal line at +GOAL_LINE_X (+52.5). Dist = GOAL_LINE_X - bx2.
+            let dist_from_away_line = GOAL_LINE_X - bx2; // positive when bx2 < 52.5
+            if dist_from_away_line >= Q32::ZERO && dist_from_away_line <= CLEARANCE_DANGER_ZONE_M {
+                let mut nearest_slot: Option<usize> = None;
+                let mut nearest_dist_sq = DEFENDER_CLEAR_RADIUS_SQ;
+                // Away outfield slots: 12..22; slot 11 is away GK (excluded).
+                for slot_idx in (PLAYERS_PER_TEAM + 1)..TOTAL_PLAYERS {
+                    let p = &state.players[slot_idx];
+                    if p.pos_x < Q32::ZERO {
+                        continue; // defender in home half — skip
+                    }
+                    let dx = p.pos_x - bx2;
+                    let dy = p.pos_y - by2;
+                    let dist_sq = dx * dx + dy * dy;
+                    // See home-branch note: inclusive radius, strict `<` selection
+                    // for a lower-slot ascending tie-break.
+                    if dist_sq <= DEFENDER_CLEAR_RADIUS_SQ
+                        && (nearest_slot.is_none() || dist_sq < nearest_dist_sq)
+                    {
+                        nearest_dist_sq = dist_sq;
+                        nearest_slot = Some(slot_idx);
+                    }
+                }
+                if let Some(slot_idx) = nearest_slot {
+                    // Clear the ball upfield (toward -X for away defenders).
+                    state.ball.vel_x = -CLEARANCE_SPEED;
+                    state.ball.vel_y = Q32::ZERO;
+                    state.possession = None;
+                    let p_slot = state.players[slot_idx].slot;
+                    state.last_touched_by = Some(p_slot);
+                }
+            } // end danger-zone gate (dist_from_away_line)
+        }
+    }
+
+    state
+}
 
 /// Determine the per-team `SetPieceKind` to emit alongside a `BallOutOfPlay`
 /// TacticEvent on the tick the OOB-clamp triggers (T2-1c).
@@ -1883,7 +2085,18 @@ pub fn tick_match(
     // match_end_tick (which the freeze guard normally prevents), step 9 still
     // emits exactly one FullTime with no gameplay having run.
     if state.tick <= state.match_end_tick {
-        // Step 2 (T1-3.5): goal detection — checks ball.pos BEFORE physics.
+        // Step 2a (goalmouth-defending): defensive clearance + GK gather.
+        //
+        // Run before goal detection (step 2b) so a defender or GK who is
+        // positioned near a loose ball heading toward goal intercepts it
+        // before the crossing check fires. A ball cleared here will have
+        // vel_x pointing upfield; it won't satisfy the goal-crossing condition
+        // on this tick (it hasn't reached the line yet), and it won't on the
+        // NEXT tick unless it bounces back. GK gather (xg_score == 0) lives in
+        // step 2b so the same positional data drives both checks.
+        state = resolve_goalmouth_defending(state);
+
+        // Step 2b (T1-3.5): goal detection — checks ball.pos BEFORE physics.
         //
         // If the ball ended last tick in the goal mouth, detect and score it here.
         // Running before physics means the physics integrator never sees a ball that
@@ -2015,19 +2228,61 @@ pub fn tick_match(
                     // Upper 32 bits → Q32 in [0, 1)
                     let roll = Q32::from_raw((roll_u64 >> 32) as i64);
 
+                    // GK gather (non-shot balls only):
+                    //
+                    // For a ball reaching the goal mouth with NO shot context
+                    // (`xg_score == 0`: drift, deflection, own-goal-direction), the
+                    // conceding GK gathers it IF they are within GK_GATHER_RADIUS of
+                    // the ball's crossing point. This is the non-shot analogue of
+                    // SS3: a GK who tracked the loose ball claims it; one caught
+                    // out of position concedes a legitimate goal.
+                    //
+                    // The SS3 shot-save model (below) handles `xg_score > 0` balls.
+                    //
+                    // No RNG: the gather is purely geometric — "GK is close enough
+                    // to reach the ball" is a deterministic reachability question.
+                    let gk_gathered = if xg_score == Q32::ZERO {
+                        let gk_bx = state.ball.pos_x;
+                        let gk_by = state.ball.pos_y;
+                        let gk_px = state.players[gk_slot_idx].pos_x;
+                        let gk_py = state.players[gk_slot_idx].pos_y;
+                        let dx = gk_px - gk_bx;
+                        let dy = gk_py - gk_by;
+                        let dist_sq = dx * dx + dy * dy;
+                        dist_sq <= GK_GATHER_RADIUS_SQ
+                    } else {
+                        false
+                    };
+                    if gk_gathered {
+                        // GK claims the loose ball — no goal. Snap ball to GK,
+                        // clear velocity, give possession to GK.
+                        state.ball.vel_x = Q32::ZERO;
+                        state.ball.vel_y = Q32::ZERO;
+                        state.ball.vel_z = Q32::ZERO;
+                        state.ball.pos_x = state.players[gk_slot_idx].pos_x;
+                        state.ball.pos_y = state.players[gk_slot_idx].pos_y;
+                        let gk_slot_id = state.players[gk_slot_idx].slot;
+                        state.possession = Some(gk_slot_id);
+                        state.last_touched_by = Some(gk_slot_id);
+                        // goal_fired_this_tick stays false — step 3 OOB skipped.
+                        // Ball is at GK body position (≤ 45m) so step 3's bx_abs
+                        // check passes naturally; no further action needed.
+                    }
+
                     // SS3 gate (FUN-0b+c): the save model models a KEEPER FACING A
                     // SHOT. It only applies when a real shot put the ball here —
                     // i.e. `last_shot_xg[scorer] > 0` (the BT dispatches AttemptShot
                     // only when xG > XG_SHOOT_THRESHOLD, so a real shot always has
                     // xG > 0). A ball crossing the line with NO shot context
                     // (`xg_score == 0`: own goal, deflection, goalmouth scramble,
-                    // dribbled-in ball) is NOT a save situation — the goal stands.
+                    // dribbled-in ball) is NOT a save situation — the goal stands
+                    // (unless the GK gather above already claimed it).
                     // Without this gate, `save_base × (1 - 0) = save_base` (0.73-0.92)
                     // would near-automatically "save" every non-shot crossing, which
                     // both misates football (own goals can't be saved) AND made the
                     // goal-detection geometry tests non-deterministic (they inject a
                     // ball at the line with no shot, so xg_score == 0).
-                    let save_made = xg_score > Q32::ZERO && roll < save_prob;
+                    let save_made = !gk_gathered && xg_score > Q32::ZERO && roll < save_prob;
                     if save_made {
                         // GK makes the save — no goal. Clear `last_shot_xg` for this
                         // scorer slot and give possession to the GK.
@@ -2059,8 +2314,8 @@ pub fn tick_match(
                         // (We exit the `if bx_abs >= goal_line_bits` branch below
                         //  by NOT setting goal_fired_this_tick = true, so the
                         //  score increment and KickOff are skipped.)
-                    } else {
-                        // Roll missed save — goal stands. Fall through to score increment.
+                    } else if !gk_gathered {
+                        // Neither saved (SS3) nor gathered (GK) — goal stands.
                         // Codex 2026-05-16 audit silent-failure P1-1: saturating_add
                         // silently caps at 255. T1's 60-tick smoke seed never reaches
                         // 255 goals but the 90-minute integration scenarios at T1-5+
@@ -2878,6 +3133,197 @@ mod setpiece_autoexit_tests {
              after the auto-exit -- the exact silent failure the Codex Tier-2 P2 #3 \
              hardening guards. Got {:?}.",
             state.team_tactic_states[0].state(),
+        );
+    }
+}
+
+// -------------------------------------------------------------------------
+// Goalmouth defending — unit tests (module-private, access to pub(crate) fields)
+// -------------------------------------------------------------------------
+
+#[cfg(test)]
+mod goalmouth_defending_tests {
+    use super::*;
+
+    /// Home defender within DEFENDER_CLEAR_RADIUS of a loose ball heading toward
+    /// home goal clears it upfield (vel_x becomes positive).
+    ///
+    /// Mechanism: `resolve_goalmouth_defending` checks possession == None,
+    /// bvx < 0 (toward home), bx < 0 (ball in home half), then finds the
+    /// nearest defender within 8 m and sets vel_x = +CLEARANCE_SPEED.
+    #[test]
+    fn home_defender_near_loose_ball_clears_upfield() {
+        let mut state = MatchState::initial(Seed::from_u64(0xC1EA));
+        // Ball at x=-46, y=0, heading toward home goal (vel_x=-6).
+        // Home CB (slot 1) is at formation (-30, -20); we move it to (-46, 0)
+        // so it's exactly co-located with the ball (dist = 0 < 8 m radius).
+        state.ball.pos_x = Q32::from_int(-46);
+        state.ball.pos_y = Q32::ZERO;
+        state.ball.vel_x = -Q32::from_int(6);
+        state.ball.vel_y = Q32::ZERO;
+        state.players[1].pos_x = Q32::from_int(-46);
+        state.players[1].pos_y = Q32::ZERO;
+        // Set possession = None (loose ball).
+        state.possession = None;
+        state.last_touched_by = Some(20); // away player last touched → clearance is urgent
+
+        let cleared = resolve_goalmouth_defending(state);
+
+        assert!(
+            cleared.ball.vel_x > Q32::ZERO,
+            "home defender should clear ball upfield (vel_x > 0 after clearance); \
+             got vel_x={:?}",
+            cleared.ball.vel_x
+        );
+        assert_eq!(
+            cleared.ball.vel_x, CLEARANCE_SPEED,
+            "cleared vel_x must equal CLEARANCE_SPEED (10 m/s)"
+        );
+        assert_eq!(cleared.ball.vel_y, Q32::ZERO, "cleared vel_y must be zero");
+        // last_touched_by must be the clearing defender (slot 1).
+        assert_eq!(
+            cleared.last_touched_by,
+            Some(1),
+            "last_touched_by must be the clearing defender (slot 1)"
+        );
+        // possession must be None (the clearance releases the ball; nobody holds it).
+        assert!(
+            cleared.possession.is_none(),
+            "possession must be None after defensive clearance"
+        );
+    }
+
+    /// Clearance does NOT fire when the defender is outside the radius.
+    #[test]
+    fn defender_outside_radius_does_not_clear() {
+        let mut state = MatchState::initial(Seed::from_u64(0xC1EB));
+        // Ball at x=-46, vel_x=-6 (toward home goal).
+        state.ball.pos_x = Q32::from_int(-46);
+        state.ball.pos_y = Q32::ZERO;
+        state.ball.vel_x = -Q32::from_int(6);
+        state.ball.vel_y = Q32::ZERO;
+        // Move ALL home defenders to x=-30 (16 m from ball at -46). >> 8 m radius.
+        for slot_idx in 1..PLAYERS_PER_TEAM {
+            state.players[slot_idx].pos_x = Q32::from_int(-30);
+        }
+        state.possession = None;
+        state.last_touched_by = Some(20);
+
+        let after = resolve_goalmouth_defending(state);
+
+        // Ball velocity must NOT have changed (no clearance fired).
+        assert_eq!(
+            after.ball.vel_x,
+            -Q32::from_int(6),
+            "no defender within radius — ball vel_x must be unchanged"
+        );
+    }
+
+    /// Clearance does NOT fire when the ball is NOT heading toward home goal
+    /// (vel_x ≥ 0).
+    #[test]
+    fn no_clearance_when_ball_not_heading_toward_home_goal() {
+        let mut state = MatchState::initial(Seed::from_u64(0xC1EC));
+        // Ball at x=-46 but heading AWAY from home goal (vel_x = +6).
+        state.ball.pos_x = Q32::from_int(-46);
+        state.ball.pos_y = Q32::ZERO;
+        state.ball.vel_x = Q32::from_int(6); // moving away from home goal
+        state.ball.vel_y = Q32::ZERO;
+        // Place a defender at the ball position.
+        state.players[1].pos_x = Q32::from_int(-46);
+        state.players[1].pos_y = Q32::ZERO;
+        state.possession = None;
+
+        let after = resolve_goalmouth_defending(state);
+
+        assert_eq!(
+            after.ball.vel_x,
+            Q32::from_int(6),
+            "vel_x must not change when ball is moving away from home goal"
+        );
+    }
+
+    /// Clearance does NOT fire when an away player is physically close to the
+    /// ball (dribbling it toward home goal) — that is a legitimate attack.
+    #[test]
+    fn no_clearance_when_ball_in_possession() {
+        let mut state = MatchState::initial(Seed::from_u64(0xC1ED));
+        state.ball.pos_x = Q32::from_int(-46);
+        state.ball.pos_y = Q32::ZERO;
+        state.ball.vel_x = -Q32::from_int(6); // toward home goal
+        state.players[1].pos_x = Q32::from_int(-46);
+        state.players[1].pos_y = Q32::ZERO;
+        // Away player (slot 20) physically co-located with ball (dribbling).
+        // With the updated check: possessor within 5 m of ball → physically held
+        // → clearance does NOT fire.
+        state.possession = Some(20);
+        state.players[20].pos_x = Q32::from_int(-46); // slot 20 at ball position
+        state.players[20].pos_y = Q32::ZERO;
+
+        let after = resolve_goalmouth_defending(state);
+
+        assert_eq!(
+            after.ball.vel_x,
+            -Q32::from_int(6),
+            "clearance must not fire when ball is in possession"
+        );
+    }
+
+    /// Away defender within DEFENDER_CLEAR_RADIUS of a loose ball heading toward
+    /// away goal clears it toward -X (upfield for away team).
+    #[test]
+    fn away_defender_near_loose_ball_clears_upfield() {
+        let mut state = MatchState::initial(Seed::from_u64(0xC1EE));
+        // Ball at x=+46, vel_x=+6 (toward away goal).
+        state.ball.pos_x = Q32::from_int(46);
+        state.ball.pos_y = Q32::ZERO;
+        state.ball.vel_x = Q32::from_int(6);
+        state.ball.vel_y = Q32::ZERO;
+        // Away CB (slot 12) co-located with ball.
+        state.players[12].pos_x = Q32::from_int(46);
+        state.players[12].pos_y = Q32::ZERO;
+        state.possession = None;
+        state.last_touched_by = Some(9); // home player last touched
+
+        let cleared = resolve_goalmouth_defending(state);
+
+        assert!(
+            cleared.ball.vel_x < Q32::ZERO,
+            "away defender must clear ball toward -X (vel_x < 0); got {:?}",
+            cleared.ball.vel_x
+        );
+        assert_eq!(cleared.ball.vel_x, -CLEARANCE_SPEED);
+        assert_eq!(cleared.last_touched_by, Some(12));
+    }
+
+    /// `resolve_goalmouth_defending` is deterministic: same input → same output.
+    #[test]
+    fn resolve_goalmouth_defending_is_deterministic() {
+        let mut state = MatchState::initial(Seed::from_u64(0xC1EF));
+        state.ball.pos_x = Q32::from_int(-46);
+        state.ball.pos_y = Q32::ZERO;
+        state.ball.vel_x = -Q32::from_int(6);
+        state.players[1].pos_x = Q32::from_int(-46);
+        state.players[1].pos_y = Q32::ZERO;
+        state.possession = None;
+
+        // Clone MatchState manually (Serialize/Deserialize round-trip via canonical).
+        // Actually MatchState doesn't derive Clone — use two fresh identical builds.
+        let mut state2 = MatchState::initial(Seed::from_u64(0xC1EF));
+        state2.ball.pos_x = Q32::from_int(-46);
+        state2.ball.pos_y = Q32::ZERO;
+        state2.ball.vel_x = -Q32::from_int(6);
+        state2.players[1].pos_x = Q32::from_int(-46);
+        state2.players[1].pos_y = Q32::ZERO;
+        state2.possession = None;
+
+        let r1 = resolve_goalmouth_defending(state);
+        let r2 = resolve_goalmouth_defending(state2);
+
+        assert_eq!(
+            r1.encode_canonical(),
+            r2.encode_canonical(),
+            "resolve_goalmouth_defending must be deterministic"
         );
     }
 }
