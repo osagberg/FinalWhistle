@@ -11,6 +11,13 @@
  *
  * Numeric stat columns (P, W, D, L, GF, GA, GD, Pts) are sortable by
  * default (TanStack Table v8 default when getSortedRowModel is active).
+ *
+ * Column alignment (DataTable meta.align):
+ *   - "num"  → JetBrains Mono, right-aligned, tabular-nums. Used for every
+ *              value the eye scans vertically: played, wins, goals, points, GD.
+ *   - "text" → Inter body, left-aligned. Used for the Club name identifier.
+ *   - omitted → defaults to "text" in DataTable.
+ * The position (#) column is positional/numeric so it uses "num".
  */
 
 import { type ColumnDef } from "@tanstack/solid-table";
@@ -35,41 +42,51 @@ export const leagueColumns: ColumnDef<StandingsRow>[] = [
     cell: (info) =>
       info.table.getRowModel().rows.findIndex((r) => r.id === info.row.id) + 1,
     enableSorting: false,
+    meta: { align: "num" },
   },
   {
     accessorKey: "clubName",
     header: "Club",
+    meta: { align: "text" },
   },
   {
     accessorKey: "played",
     header: "P",
+    meta: { align: "num" },
   },
   {
     accessorKey: "wins",
     header: "W",
+    meta: { align: "num" },
   },
   {
     accessorKey: "draws",
     header: "D",
+    meta: { align: "num" },
   },
   {
     accessorKey: "losses",
     header: "L",
+    meta: { align: "num" },
   },
   {
     accessorKey: "goalsFor",
     header: "GF",
+    meta: { align: "num" },
   },
   {
     accessorKey: "goalsAgainst",
     header: "GA",
+    meta: { align: "num" },
   },
   {
     accessorKey: "goalDifference",
     header: "GD",
+    meta: { align: "num" },
   },
   {
     accessorKey: "points",
     header: "Pts",
+    meta: { align: "num" },
   },
 ];

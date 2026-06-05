@@ -30,6 +30,7 @@ import {
 } from "~/lib/api/season";
 import { leagueColumns } from "~/lib/columns/league.columns";
 import { describeRouteError } from "~/lib/route-errors";
+import { selectedClubId } from "~/lib/state";
 import type {
   AdvanceWeekSummary,
   IpcError,
@@ -335,6 +336,14 @@ function LeagueInner(): JSX.Element {
                 columns={leagueColumns}
                 data={standings() ?? []}
                 emptyMessage="No standings yet — click Advance Week to play the first match-day."
+                // Highlight the managed club row when a club is selected.
+                // selectedClubId() is the numeric club ID stored as a string
+                // (set via ClubSelection using String(club.clubId)).
+                // Prop is omitted entirely (not passed as undefined) when no
+                // club is active, to satisfy exactOptionalPropertyTypes.
+                {...(selectedClubId() !== null
+                  ? { rowHighlight: (row: StandingsRow) => String(row.clubId) === selectedClubId() }
+                  : {})}
               />
             </Show>
           }

@@ -23,6 +23,10 @@
  *
  * Separated from Squad.tsx per Frontend/RULES.md §3 ("Column defs in
  * dedicated *.columns.ts files alongside the route").
+ *
+ * Column alignment (DataTable meta.align):
+ *   - "text": Player name, Role — body font, left-aligned.
+ *   - "num":  Apps, Goals, Minutes — mono, right-aligned, tabular-nums.
  */
 
 import { type CellContext, type ColumnDef } from "@tanstack/solid-table";
@@ -50,23 +54,28 @@ export const rosterColumns: ColumnDef<PlayerRosterDto>[] = [
   {
     accessorKey: "name",
     header: "Player",
+    meta: { align: "text" },
   },
   {
     id: "role",
     header: "Role",
     accessorFn: (row) => slotToRole(row.slot),
+    meta: { align: "text" },
   },
   {
     accessorKey: "appearances",
     header: "Apps",
+    meta: { align: "num" },
   },
   {
     accessorKey: "goals",
     header: "Goals",
+    meta: { align: "num" },
   },
   {
     accessorKey: "minutesPlayed",
     header: "Minutes",
+    meta: { align: "num" },
   },
 ];
 
@@ -87,14 +96,17 @@ export const squadColumns: ColumnDef<SquadPlayer>[] = [
     accessorKey: "name",
     header: "Player",
     cell: playerNameCell,
+    meta: { align: "text" },
   },
   {
     accessorKey: "role",
     header: "Role",
+    meta: { align: "text" },
   },
   {
     accessorKey: "birthRegion",
     header: "Region",
+    meta: { align: "text" },
   },
   {
     accessorKey: "phenotypeLabels",
@@ -104,5 +116,6 @@ export const squadColumns: ColumnDef<SquadPlayer>[] = [
       return labels.length > 0 ? labels.join(", ") : "—";
     },
     enableSorting: false,
+    meta: { align: "text" },
   },
 ];
