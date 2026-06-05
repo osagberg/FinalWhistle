@@ -52,6 +52,7 @@ const KNOWN_IPC_ERROR_KINDS = [
   "settingsLoadFailed",
   "notYetObserved",
   "leagueGenerationFailed",
+  "saveLoadFailed",
 ] as const satisfies readonly IpcError["kind"][];
 
 const KNOWN_IPC_ERROR_KINDS_SET: ReadonlySet<string> = new Set(
@@ -160,6 +161,11 @@ export function describeRouteError(
       return {
         headline: "The league couldn't be assembled",
         detail: "Something went wrong putting the season together in the back office. Restarting the campaign should clear it — if it keeps happening, check your content pack.",
+      };
+    case "saveLoadFailed":
+      return {
+        headline: "Your save couldn't be read",
+        detail: "The save file looks to be damaged or couldn't be reached. Try loading again, or restore a backup if you have one — restarting the app may also help.",
       };
     default: {
       // Exhaustiveness gate: TypeScript flags this if a new IpcError variant

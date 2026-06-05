@@ -135,10 +135,10 @@ pub enum IpcError {
     ///
     /// Wire shape: `{ kind: "saveLoadFailed", reason: "..." }`.
     ///
-    /// NOTE: The TypeScript `IpcError` union mirror does NOT yet include this
-    /// variant (out of scope for T4-2.5g per spec). Add `saveLoadFailed` to
-    /// `frontend/src/lib/types.ts` when the first frontend surface calls
-    /// `save_career` / `load_career`.
+    /// The TypeScript `IpcError` union mirror includes `saveLoadFailed` as of
+    /// the 2026-06-05 IPC-drift fix — added to `frontend/src/lib/types.ts` and
+    /// `route-errors.ts` (`KNOWN_IPC_ERROR_KINDS` + the `describeRouteError`
+    /// switch), keeping the wire contract in lockstep for the save UI.
     #[error("career save failed: {reason}")]
     SaveLoadFailed { reason: String },
 

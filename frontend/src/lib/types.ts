@@ -137,6 +137,11 @@ export type IpcError =
       kind: "leagueGenerationFailed";
       /** Human-readable reason from the content store. Not shown raw in player-facing UI. */
       reason: string;
+    }
+  | {
+      kind: "saveLoadFailed";
+      /** Save I/O or decode failure reason (disk full, permission, corrupted/future save). Not shown raw in player-facing UI. */
+      reason: string;
     };
 
 // ---------------------------------------------------------------------------
