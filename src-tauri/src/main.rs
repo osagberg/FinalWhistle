@@ -90,6 +90,8 @@ fn main() {
             fw_tauri::commands::get_match_snapshot,
             fw_tauri::commands::finish_live_match,
             fw_tauri::commands::apply_match_command,
+            // M2a: real-fixture live session (determinism-equivalent to advance_week)
+            fw_tauri::commands::start_live_match_for_fixture,
             // T4-6a: settings persistence
             fw_tauri::commands::get_settings,
             fw_tauri::commands::set_settings,

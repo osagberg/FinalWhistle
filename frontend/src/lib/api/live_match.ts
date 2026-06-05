@@ -19,6 +19,7 @@ import type {
   MatchCommand,
   MatchHandle,
   MatchSnapshot,
+  StartLiveMatchForFixtureArgs,
   StepResult,
 } from "../types";
 
@@ -30,6 +31,30 @@ import type {
  */
 export async function startLiveMatch(seedHex: string): Promise<MatchHandle> {
   return safeInvoke("start_live_match", { seedHex }, isMatchHandle);
+}
+
+/**
+ * Start a live-match session for a specific real fixture.
+ *
+ * Constructs the `MatchState` identically to `advance_week`'s AI-sim path
+ * (same fixture seed, same per-club archetype IDs, same slot-signature
+ * overrides). When no in-match decisions are made, stepping to completion
+ * produces the same final score and canonical state as `advance_week` would
+ * for the same fixture.
+ *
+ * @param args.homeClubId - Raw `ClubId` u32 of the home club.
+ * @param args.awayClubId - Raw `ClubId` u32 of the away club.
+ * @throws `IpcError::ClubNotFound` if either club is not in the current league.
+ * @throws `IpcError::LeagueGenerationFailed` if no fixture exists for the pair.
+ */
+export async function startLiveMatchForFixture(
+  args: StartLiveMatchForFixtureArgs,
+): Promise<MatchHandle> {
+  return safeInvoke(
+    "start_live_match_for_fixture",
+    { homeClubId: args.homeClubId, awayClubId: args.awayClubId },
+    isMatchHandle,
+  );
 }
 
 /**

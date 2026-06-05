@@ -399,6 +399,15 @@ export interface MatchHandle {
   seedHex: string;
 }
 
+// M2a: start_live_match_for_fixture args — mirrors the command parameters in
+// `fw-tauri::commands::start_live_match_for_fixture`. Returns a `MatchHandle`.
+export interface StartLiveMatchForFixtureArgs {
+  /** Raw `ClubId` u32 of the home club. Must exist in the current league. */
+  homeClubId: number;
+  /** Raw `ClubId` u32 of the away club. Must exist in the current league. */
+  awayClubId: number;
+}
+
 /** Score pair within a live-match context (separate from `Score` in MatchResult). */
 export interface LiveScoreDto {
   home: number;

@@ -230,6 +230,26 @@ pub async fn apply_match_command(
     apply_match_command_inner(handle, command, &state)
 }
 
+/// `start_live_match_for_fixture(homeClubId, awayClubId)` — start a live
+/// session for the user's real fixture, construction-equivalent to
+/// `advance_week`'s AI-sim path.
+///
+/// The session is registered in `AppState::live_matches` and the returned
+/// `MatchHandle` can be passed directly to `step_live_match`,
+/// `get_match_snapshot`, `apply_match_command`, and `finish_live_match`.
+///
+/// When no in-match decisions are made, stepping to completion produces the
+/// same final score and canonical state as `advance_week` would for the same
+/// fixture.
+#[tauri::command]
+pub async fn start_live_match_for_fixture(
+    home_club_id: u32,
+    away_club_id: u32,
+    state: tauri::State<'_, AppState>,
+) -> Result<MatchHandle, IpcError> {
+    start_live_match_for_fixture_inner(home_club_id, away_club_id, &state)
+}
+
 // ---------------------------------------------------------------------------
 // Inner logic (takes `&AppState`; testable without `tauri::State`)
 // ---------------------------------------------------------------------------
@@ -1919,6 +1939,170 @@ pub fn start_live_match_inner(seed_hex: String, state: &AppState) -> Result<Matc
         fw_match_sim::DEFAULT_ARCHETYPE_ID,
     )?;
 
+    let id = state.alloc_live_match_id();
+    let handle = MatchHandle {
+        id,
+        seed_hex: seed_hex.clone(),
+    };
+    let session = LiveMatchSession::new(id, seed.to_u64(), seed_hex, sim_state);
+
+    state
+        .live_matches()
+        .write()
+        .map_err(|_| IpcError::LockPoisoned {
+            lock: "live_matches".to_string(),
+        })?
+        .insert(id, session);
+
+    Ok(handle)
+}
+
+/// Start a live-match session for a specific real fixture, constructing the
+/// `MatchState` identically to how `advance_week_inner` constructs it for the
+/// AI-sim path.
+///
+/// The construction uses the same three inputs that `advance_week_inner` uses:
+///
+/// 1. `fixture_seed(career_seed, fixture_index)` — the per-fixture seed derived
+///    from the career seed and the fixture's position in `league.fixtures`.
+/// 2. Per-club tactical archetype IDs from `career.season.tactical_archetype_ids`.
+/// 3. Per-club slot-signature overrides from `career.roster` (via
+///    `season::build_slot_signatures`), applied via `MatchState::with_slot_signatures`.
+///
+/// When no in-match decisions are made, stepping this session to completion MUST
+/// yield the same final score and canonical `MatchState` as `advance_week_inner`
+/// would for that fixture. The determinism-equivalence test in this module
+/// (`live_fixture_determinism_matches_ai_sim`) verifies this invariant with a
+/// full-season sim + watched-replay comparison.
+///
+/// The returned `MatchHandle` is accepted by all five live-match commands
+/// (`step_live_match`, `get_match_snapshot`, `apply_match_command`,
+/// `finish_live_match`). The session's `seed_hex` echoes the fixture seed in
+/// `"0x…"` form for replay traceability.
+///
+/// ## Errors
+///
+/// - `IpcError::LockPoisoned { lock: "career" }` if the career read lock is poisoned.
+/// - `IpcError::ClubNotFound { club_id }` if either `home_club_id` or `away_club_id`
+///   is not present in `league.clubs`.
+/// - `IpcError::LeagueGenerationFailed` if the fixture formed by `(home, away)` is not
+///   found in `league.fixtures` (indicates a caller/logic bug — only valid current-
+///   season fixtures should be passed).
+/// - `IpcError::MatchInitFailed` if `MatchState::initial_with_content` rejects the
+///   archetype IDs (content-pack integrity violation).
+/// - `IpcError::LockPoisoned { lock: "live_matches" }` if the live-match write lock
+///   is poisoned.
+pub fn start_live_match_for_fixture_inner(
+    home_club_id: u32,
+    away_club_id: u32,
+    state: &AppState,
+) -> Result<MatchHandle, IpcError> {
+    let home = ClubId::new(home_club_id);
+    let away = ClubId::new(away_club_id);
+
+    // Acquire career read lock — we only read fixture metadata and roster, no mutation.
+    let career = state.career().read().map_err(|_| IpcError::LockPoisoned {
+        lock: "career".to_string(),
+    })?;
+
+    // Validate both clubs exist in the current league.
+    let _ = career
+        .season
+        .league
+        .clubs
+        .iter()
+        .find(|c| c.id == home)
+        .ok_or(IpcError::ClubNotFound {
+            club_id: home_club_id,
+        })?;
+    let _ = career
+        .season
+        .league
+        .clubs
+        .iter()
+        .find(|c| c.id == away)
+        .ok_or(IpcError::ClubNotFound {
+            club_id: away_club_id,
+        })?;
+
+    // Build a synthetic Fixture key to look up the index in league.fixtures.
+    // `league.fixtures` is sorted by (match_day, home_id, away_id) — the sort
+    // order means any (home, away) pair appears at most once per match_day, and
+    // at most once total across the season. We search for any fixture where
+    // home==home and away==away, regardless of match_day, because the caller
+    // supplies the clubs directly (not the match_day).
+    let fixture_idx = career
+        .season
+        .league
+        .fixtures
+        .iter()
+        .position(|f| f.home == home && f.away == away)
+        .ok_or_else(|| IpcError::LeagueGenerationFailed {
+            reason: format!(
+                "no fixture found for home={} away={} in league.fixtures \
+                 (caller supplied clubs not in the current fixture list)",
+                home_club_id, away_club_id,
+            ),
+        })? as u32;
+
+    let career_seed = state.career_seed();
+    let seed = fixture_seed(career_seed, fixture_idx);
+
+    // Resolve per-club archetype IDs — same look-up as advance_week_inner.
+    let home_arch = career
+        .season
+        .tactical_archetype_ids
+        .get(&home)
+        .cloned()
+        .ok_or_else(|| IpcError::LeagueGenerationFailed {
+            reason: format!(
+                "no tactical archetype for home club {} (generate_league invariant)",
+                home_club_id
+            ),
+        })?;
+    let away_arch = career
+        .season
+        .tactical_archetype_ids
+        .get(&away)
+        .cloned()
+        .ok_or_else(|| IpcError::LeagueGenerationFailed {
+            reason: format!(
+                "no tactical archetype for away club {} (generate_league invariant)",
+                away_club_id
+            ),
+        })?;
+
+    // Build slot-signature overrides — same path as advance_week_inner.
+    let slot_signatures = {
+        let home_instances = career.roster.get(&home);
+        let away_instances = career.roster.get(&away);
+        match (home_instances, away_instances) {
+            (Some(home_vec), Some(away_vec)) => Some(season::build_slot_signatures(
+                home_vec.as_slice(),
+                away_vec.as_slice(),
+            )),
+            _ => None,
+        }
+    };
+
+    // Construct MatchState identically to `season::play_one_match`.
+    let base_state =
+        MatchState::initial_with_content(seed, state.content(), &home_arch, &away_arch).map_err(
+            |e| IpcError::MatchInitFailed {
+                reason: e.to_string(),
+            },
+        )?;
+
+    let sim_state = if let Some(overrides) = slot_signatures {
+        base_state.with_slot_signatures(overrides)
+    } else {
+        base_state
+    };
+
+    // Drop the career read lock before taking the live_matches write lock.
+    drop(career);
+
+    let seed_hex = format!("0x{:016x}", seed.to_u64());
     let id = state.alloc_live_match_id();
     let handle = MatchHandle {
         id,
@@ -4039,5 +4223,158 @@ mod tests {
             dto.observation_count, 1,
             "observation_count must be 1 after one advance_week"
         );
+    }
+
+    // ---- M2a: start_live_match_for_fixture determinism equivalence ----
+
+    /// The watched result of a real fixture MUST be byte-identical to the
+    /// AI-sim result for that fixture.
+    ///
+    /// Construction path verified:
+    /// 1. `season::play_one_match(fixture_seed, …, SEASON_MATCH_TICK_BUDGET, slot_sigs)` —
+    ///    the AI-sim reference path (same function called by `advance_week_inner`).
+    /// 2. `start_live_match_for_fixture_inner(home, away, state)` — the live path.
+    ///    Step to completion (SEASON_MATCH_TICK_BUDGET ticks) without any
+    ///    in-match decisions.
+    ///
+    /// If this test fails, the two construction paths have diverged and the live
+    /// session is NOT equivalent to the AI-sim — fix the construction, do NOT
+    /// weaken the assertion.
+    #[test]
+    fn live_fixture_determinism_matches_ai_sim() {
+        use crate::season::{SEASON_MATCH_TICK_BUDGET, build_slot_signatures};
+        use crate::state::fixture_seed;
+
+        let state = test_app_state();
+
+        // Pick the first fixture in the league (deterministic, seed-derived).
+        let career = state.career().read().expect("career lock");
+        let first_fixture = career
+            .season
+            .league
+            .fixtures
+            .first()
+            .copied()
+            .expect("league must have at least one fixture");
+        let home = first_fixture.home;
+        let away = first_fixture.away;
+
+        let fixture_idx = career
+            .season
+            .league
+            .fixtures
+            .iter()
+            .position(|f| f.home == home && f.away == away)
+            .expect("first fixture must exist in league.fixtures") as u32;
+
+        let career_seed = state.career_seed();
+        let seed = fixture_seed(career_seed, fixture_idx);
+
+        let home_arch = career
+            .season
+            .tactical_archetype_ids
+            .get(&home)
+            .cloned()
+            .expect("home club must have a tactical archetype");
+        let away_arch = career
+            .season
+            .tactical_archetype_ids
+            .get(&away)
+            .cloned()
+            .expect("away club must have a tactical archetype");
+
+        let slot_sigs = {
+            let home_vec = career.roster.get(&home);
+            let away_vec = career.roster.get(&away);
+            match (home_vec, away_vec) {
+                (Some(h), Some(a)) => Some(build_slot_signatures(h.as_slice(), a.as_slice())),
+                _ => None,
+            }
+        };
+
+        drop(career);
+
+        // --- AI-sim reference path (same as advance_week_inner) ---
+        let (ai_outcome, ai_state) = season::play_one_match(
+            seed,
+            state.content(),
+            state.signature_definitions(),
+            &home_arch,
+            &away_arch,
+            SEASON_MATCH_TICK_BUDGET,
+            slot_sigs,
+        )
+        .expect("play_one_match must succeed for a valid career fixture");
+
+        // --- Live-match path ---
+        let handle = start_live_match_for_fixture_inner(home.raw(), away.raw(), &state)
+            .expect("start_live_match_for_fixture_inner must succeed");
+
+        // Step to completion using exactly SEASON_MATCH_TICK_BUDGET ticks
+        // (same budget as play_one_match). No decisions applied.
+        let step = step_live_match_inner(handle.clone(), SEASON_MATCH_TICK_BUDGET, &state)
+            .expect("step_live_match_inner must succeed");
+
+        // Score equivalence.
+        assert_eq!(
+            step.score.home, ai_outcome.home_score,
+            "live home_score must equal AI-sim home_score for the same fixture"
+        );
+        assert_eq!(
+            step.score.away, ai_outcome.away_score,
+            "live away_score must equal AI-sim away_score for the same fixture"
+        );
+
+        // Canonical-state byte equivalence: the watched match state must be
+        // identical to the AI-simmed match state at the same tick count.
+        let live_matches = state.live_matches().read().expect("live_matches lock");
+        let session = live_matches
+            .get(&handle.id)
+            .expect("session must still be present");
+        let live_canonical = session.state.encode_canonical();
+        let ai_canonical = ai_state.encode_canonical();
+        assert_eq!(
+            live_canonical, ai_canonical,
+            "canonical MatchState bytes must be identical between the live path \
+             and the AI-sim path — if they differ, start_live_match_for_fixture \
+             diverged from advance_week's construction"
+        );
+    }
+
+    /// `start_live_match_for_fixture_inner` returns `ClubNotFound` when the
+    /// home club ID is not in the current league.
+    #[test]
+    fn live_match_for_fixture_unknown_club_returns_club_not_found() {
+        let state = test_app_state();
+        let err = start_live_match_for_fixture_inner(0xFFFF_FFFF, 0xFFFF_FFFE, &state)
+            .expect_err("must fail with unknown clubs");
+        match err {
+            IpcError::ClubNotFound { club_id } => {
+                assert_eq!(
+                    club_id, 0xFFFF_FFFF,
+                    "should report the home club as not found"
+                );
+            }
+            other => panic!("expected ClubNotFound, got {other:?}"),
+        }
+    }
+
+    /// `start_live_match_for_fixture_inner` returns `LeagueGenerationFailed`
+    /// when valid club IDs are supplied but no fixture exists between them
+    /// (e.g. a team vs itself — valid clubs, absent fixture).
+    #[test]
+    fn live_match_for_fixture_no_fixture_between_clubs_returns_error() {
+        let state = test_app_state();
+        let career = state.career().read().expect("career lock");
+        let first_club_id = career.season.league.clubs[0].id.raw();
+        drop(career);
+
+        // A club vs itself has no fixture in the schedule.
+        let err = start_live_match_for_fixture_inner(first_club_id, first_club_id, &state)
+            .expect_err("a team vs itself has no fixture");
+        match err {
+            IpcError::LeagueGenerationFailed { .. } => {}
+            other => panic!("expected LeagueGenerationFailed, got {other:?}"),
+        }
     }
 }
