@@ -22,6 +22,7 @@ mod schemas;
 // Re-use the library surface (exposed via lib.rs) so the bin and integration
 // tests share the same module tree.
 use fw_content_baker::bake::BakeNamesOffline;
+use fw_content_baker::stub_unimplemented;
 use fw_content_baker::validators::{
     CultureValidator, PlayerBioRosterValidator, PlayerBioValidator, PlayerTemplateValidator,
     RoleAffinityTableValidator, TacticalArchetypeValidator,
@@ -462,15 +463,6 @@ fn run_validate_structural(workspace: &str) -> anyhow::Result<()> {
          linted for banned terms / licensed-data collisions. Semantic \
          validator lands at T4.5-D/QA-2 alongside the real bake pipeline. \
          Do NOT publish a content pack on the basis of this exit code alone."
-    );
-    Ok(())
-}
-
-fn stub_unimplemented(cmd: &str, milestone: &str) -> anyhow::Result<()> {
-    println!(
-        "fw-content-baker: `{}` not implemented yet (lands at MASTER_PLAN {}). \
-         See docs/CONTENT_PIPELINE.md §6 for the milestone table.",
-        cmd, milestone
     );
     Ok(())
 }

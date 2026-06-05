@@ -9,3 +9,18 @@
 
 pub mod bake;
 pub mod validators;
+
+/// Return `Err` for a subcommand that is not yet implemented.
+///
+/// BK-E-3 fix: stubs must exit non-zero so CI and operators cannot mistake
+/// "not implemented" for "ran successfully". Every unimplemented subcommand
+/// in `main.rs` calls this function; the process exits with a non-zero status
+/// because `main()` propagates the `Err` via `anyhow::Result`.
+pub fn stub_unimplemented(cmd: &str, milestone: &str) -> anyhow::Result<()> {
+    anyhow::bail!(
+        "bake subcommand `{}` is not yet implemented (deferred to MASTER_PLAN {}). \
+         See docs/CONTENT_PIPELINE.md §6 for the milestone table.",
+        cmd,
+        milestone
+    )
+}
