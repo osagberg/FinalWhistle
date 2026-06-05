@@ -21,12 +21,18 @@ const PADDING_M = 4;
 export const PLAYER_RADIUS = 6;
 export const BALL_RADIUS = 4;
 
-// Colors: home = steel-blue, away = amber, ball = white.
-export const HOME_COLOR = 0x2563eb; // Tailwind blue-600
-export const AWAY_COLOR = 0xf59e0b; // Tailwind amber-400
-export const BALL_COLOR = 0xffffff;
-export const PITCH_COLOR = 0x16a34a; // Tailwind green-600
-const LINE_COLOR = 0xffffff;
+// Board palette — derived from the design tokens (tailwind.config.ts), not raw
+// Tailwind defaults. The redesign research flagged the old bright green/blue/
+// amber as the one place the muted "broadsheet" identity broke into video-game
+// slop. The turf is a dim floodlit-evening green so the dots + ball pop; home
+// is the signature light sage, away a muted warm amber, ball warm paper-white.
+// (Per-club accent colours from procgen are a later slice; these are the
+// neutral defaults.)
+export const HOME_COLOR = 0x9fcaab; // pitch-200 — light sage (managed side)
+export const AWAY_COLOR = 0xc8843c; // muted warm amber (not flag-yellow caution)
+export const BALL_COLOR = 0xf7f4ee; // paper — warm white
+export const PITCH_COLOR = 0x13311d; // pitch-800 — dim floodlit turf, not grass-green
+const LINE_COLOR = 0xf7f4ee; // paper — pitch markings
 
 /**
  * Compute the scale + offset that fits the pitch + padding into a canvas
