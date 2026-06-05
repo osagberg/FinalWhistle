@@ -1,6 +1,6 @@
 # STATUS — Final Whistle
 
-**Last updated**: 2026-06-05 (overnight)
+**Last updated**: 2026-06-06 (overnight)
 
 ## Current state (2026-06-05, overnight) — playable career loop + watchable match shipped; frontend redesign underway
 
