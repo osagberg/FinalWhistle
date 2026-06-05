@@ -21,7 +21,8 @@
 //! recv_pressure  = pitch_control(receiver_pos).defender_control
 //! p_complete     = clamp(
 //!     P_BASE[kind] × lerp(LOW_MOD, 1, passer_quality)
-//!              × (1 − RECV_PRESSURE_WEIGHT × recv_pressure),
+//!              × (1 − RECV_PRESSURE_WEIGHT × recv_pressure)
+//!              × lerp(LANE_FLOOR, 1, lane_openness),
 //!     P_FLOOR[kind], 1.0)
 //! ```
 //!
@@ -29,8 +30,8 @@
 //!
 //! ## Constants (SOFT — drama-sweep calibrated)
 //!
-//! Seed values chosen to produce ~83-86% baseline completion rate with the
-//! HARD ordering: layoff > short > long > cross.
+//! Seed values chosen to produce ~80-86% baseline completion rate (after the
+//! lane gate) with the HARD ordering: layoff > short > long > cross.
 
 use fw_content::PassKind;
 use fw_core::{PlayerId, Q32, SeedLayer, seed_fn};
@@ -46,22 +47,35 @@ use crate::{MatchState, PLAYERS_PER_TEAM};
 // -------------------------------------------------------------------------
 
 /// Base completion probability for each pass kind.
-/// SOFT: calibrated so mid-quality passer × mirror-team pressure → 83-86% overall.
-/// With quality_mod=1.0 and pressure_term≈0.925, p_raw = P_BASE × 0.925.
-/// Target: short≈87%, long≈82%, cross≈77%, layoff≈91% → overall ~84%.
+/// SOFT: calibrated so mid-quality passer × mirror-team pressure × the lane gate
+/// → ~81% overall completion (in the 80-86% band).
 ///
-/// FUN-TS3: long/cross P_BASE are calibrated against a Long/Cross-dominated
-/// pass mix (content-free BT never fires Short/LayOff in the drama-sweep).
-/// Once TS3's `best_pass_target` makes the pass mix short-dominated, recalibrate
-/// these values and re-run drama-sweep. Also: on-target% 49.9% (above 35-45%
-/// band) is the same symptom — the pass mix skews toward long/cross which have
-/// high sigma scatter and often land in dangerous positions; short-dominated
-/// play will naturally lower on-target%.
+/// FUN-CB1-#23 (lane-openness integrity fix): the `lane_gate` factor is now
+/// wired into `p_raw` (it was computed-then-discarded). The lane gate cuts the
+/// completion mean by ≈16% at the observed mean lane_openness (≈0.47), so each
+/// P_BASE was scaled up by ≈1.12 from its pre-fix value to HOLD the band while
+/// the lane gate REDISTRIBUTES completion (open lanes higher, contested lower).
+/// Pre-fix → post-fix nominal: short 0.95→1.064, long 0.88→0.986,
+/// cross 0.83→0.930, layoff 0.99→1.109. LayOff/Short now exceed 1.0 nominally;
+/// the final clamp is the binding ceiling for elite passers on open lanes.
+/// HARD ordering preserved: layoff > short > long > cross.
 // Raw bits: x × 2^32. Computed as round(x × 4_294_967_296).
-pub(crate) const P_BASE_SHORT: Q32 = Q32::from_raw(4_080_218_931_i64); // 0.95 × 2^32
-pub(crate) const P_BASE_LONG: Q32 = Q32::from_raw(3_779_571_220_i64); // 0.88 × 2^32
-pub(crate) const P_BASE_CROSS: Q32 = Q32::from_raw(3_563_802_855_i64); // 0.83 × 2^32
-pub(crate) const P_BASE_LAYOFF: Q32 = Q32::from_raw(4_252_017_523_i64); // 0.99 × 2^32
+pub(crate) const P_BASE_SHORT: Q32 = Q32::from_raw(4_569_845_203_i64); // ≈ 1.064 (0.95 × 1.12)
+pub(crate) const P_BASE_LONG: Q32 = Q32::from_raw(4_233_119_767_i64); // ≈ 0.986 (0.88 × 1.12)
+pub(crate) const P_BASE_CROSS: Q32 = Q32::from_raw(3_992_601_598_i64); // ≈ 0.930 (0.83 × 1.12)
+pub(crate) const P_BASE_LAYOFF: Q32 = Q32::from_raw(4_762_259_738_i64); // ≈ 1.109 (0.99 × 1.12)
+
+/// Defensive floor for the `lane_gate` factor (when the lane is fully contested).
+/// `lane_gate = LANE_FLOOR + (1 − LANE_FLOOR) × lane_openness`, so a fully-blocked
+/// lane (lane_openness = 0) still yields a 0.70 multiplier rather than collapsing
+/// the pass to a near-certain failure — keeper errors, scrambles and a receiver
+/// reading the ball all permit recovery. 0.70 (vs the spec's initial 0.25 guess)
+/// is the calibrated value: real-match lane_openness clusters around 0.47 and
+/// never reaches 0, so a 0.25 floor would cut the completion mean by ≈40% and
+/// tank M1; 0.70 keeps the gate genuinely lane-SENSITIVE (≈20% relative spread
+/// between a contested and an open lane) while holding completion in band.
+/// 0.70 × 2^32 = 3_006_477_107.
+pub(crate) const LANE_FLOOR: Q32 = Q32::from_raw(3_006_477_107_i64); // ≈ 0.70
 
 /// Completion floor per kind — ensures the ordering is preserved even under
 /// maximum adversity (worst passer, maximum receiver pressure).
@@ -235,16 +249,26 @@ pub(crate) fn resolve_pass_completion(
     // recv_pressure ∈ [0, 1], RECV_PRESSURE_WEIGHT ≤ 1, so product ≤ 1 — safe.
     let pressure_term = Q32::ONE - RECV_PRESSURE_WEIGHT * recv_pressure;
 
-    // Full probability: base × quality_mod × pressure_term.
-    // Per the spec: p = P_BASE × lerp(LOW_MOD, 1, passer_quality) × (1 − RECV_PRESSURE_WEIGHT × recv_pressure)
-    // All factors in [0, 1]; product is at most 1 — bare * is safe.
-    let p_raw = p_base * quality_mod * pressure_term;
-    // FUN-TS3: wire lane_openness into the formula once TS3's geometry-aware
-    // target selection (`best_pass_target`) makes the pass mix short-dominated.
-    // Today the content-free BT fires ~50% Long / ~50% Cross; lane_openness is
-    // computed but discarded because its effect was absorbed into the P_BASE
-    // calibration values. See blueprint §CB1/TS3 sequencing rationale.
-    let _ = lane_openness;
+    // Lane gate: lerp(LANE_FLOOR, 1.0, lane_openness) = LANE_FLOOR + (1 − LANE_FLOOR) × x.
+    //   open lane    (x→0.83 observed max) → ≈0.95  (near no penalty)
+    //   typical lane (x≈0.47 observed mean)→ ≈0.84
+    //   contested    (x→0.17 observed min) → ≈0.75  (penalised, never zero)
+    // A fully-blocked lane (x=0.0) still leaves LANE_FLOOR = 0.70 — a contested
+    // pass can complete (keeper error, scramble, receiver reading the ball).
+    // FUN-TS3b shipped the short-dominated pass mix, so the FUN-CB1 deferral of
+    // this factor is retired: lane_openness now genuinely moves the output.
+    let lane_gate = LANE_FLOOR + (Q32::ONE - LANE_FLOOR) * lane_openness;
+
+    // Full probability: base × quality_mod × pressure_term × lane_gate.
+    // P_BASE was recalibrated up (× ~1.12, see consts) so the held-mean
+    // completion stays in the 80-86% band AFTER the lane gate's ~16% mean cut;
+    // the lane gate redistributes (open lanes higher, contested lower) rather
+    // than uniformly lowering. P_BASE_LAYOFF/SHORT now exceed 1.0, and
+    // quality_mod can reach HIGH_MOD (≈1.30), so p_raw may exceed 1.0 — the
+    // clamp below is the binding ceiling. quality_mod, pressure_term, lane_gate
+    // are each ≤ 1.30, so the product is bounded well within Q32 range; bare *
+    // panics on the (impossible here) overflow per Sim/RULES.md §11.
+    let p_raw = p_base * quality_mod * pressure_term * lane_gate;
 
     // Clamp to [P_FLOOR, 1.0].
     let p_complete = if p_raw < p_floor {
@@ -395,6 +419,115 @@ mod tests {
         assert!(P_BASE_LONG > P_FLOOR_LONG);
         assert!(P_BASE_CROSS > P_FLOOR_CROSS);
         assert!(P_BASE_LAYOFF > P_FLOOR_LAYOFF);
+    }
+
+    /// `LANE_FLOOR` must be a defensible defensive floor: strictly inside
+    /// (0, 1) so the lane gate genuinely lerps, and strictly below the lowest
+    /// per-kind P_FLOOR (P_FLOOR_CROSS ≈ 0.30 is NOT below 0.70 — the binding
+    /// relation here is different from the spec's initial 0.25 draft). We keep
+    /// the float-free comparison via raw bits: assert LANE_FLOOR is in (0, 1).
+    #[test]
+    fn lane_floor_constant_defensible() {
+        assert!(
+            LANE_FLOOR.to_bits() > 0,
+            "LANE_FLOOR must be > 0 so a contested lane still permits completion"
+        );
+        assert!(
+            LANE_FLOOR.to_bits() < Q32::ONE.to_bits(),
+            "LANE_FLOOR must be < 1 so the lane gate actually lerps (an open lane \
+             must score higher than a contested one)"
+        );
+    }
+
+    /// INTEGRITY PROOF (FUN-CB1-#23): the wired `lane_gate` factor must
+    /// MEASURABLY move the completion output. Hold passer quality + receiver
+    /// pressure constant; place a single defender either ON the passing-lane
+    /// midpoint (low lane_openness) or OFF it (high lane_openness). Over many
+    /// independent seeded draws, completions with the defender on the lane MUST
+    /// be measurably fewer than off the lane. Before this fix `lane_openness`
+    /// was discarded, so the two arms were byte-identical — this test would have
+    /// asserted `on < off` against equal counts and failed.
+    #[test]
+    fn lane_openness_effect_measurable() {
+        use crate::TOTAL_PLAYERS;
+        use fw_core::Seed;
+
+        // Build one base state, then derive two arms differing ONLY in the
+        // single defender's position (which changes lane_openness, not
+        // recv_pressure materially — see assertion notes below).
+        let m = |v: i64| Q32::from_raw(v << 32);
+        // Park irrelevant players at the defending touchline corners — far enough
+        // that their arrival probability at the lane midpoint is negligible, but
+        // not so far that they dominate `mean_tau` and compress the sigmoid (which
+        // would mask the lane swing). Slots 5/9 are the attackers on the lane;
+        // away slots 12..21 are the parked defenders; away slot 11 (GK) carries
+        // the differing on/off-lane position.
+        fn arm_state(m: &dyn Fn(i64) -> Q32, lane_defenders_near: bool) -> MatchState {
+            let mut state = MatchState::initial(Seed::from_u64(0x1A4E_0000_0000_0001u64));
+            // Passer slot 5 at (-20, 0); receiver slot 9 at (+20, 0).
+            state.players[5].pos_x = m(-20);
+            state.players[5].pos_y = m(0);
+            state.players[9].pos_x = m(20);
+            state.players[9].pos_y = m(0);
+            // Park every other HOME player at the far attacking corner.
+            for slot in 0..PLAYERS_PER_TEAM {
+                if slot != 5 && slot != 9 {
+                    state.players[slot].pos_x = m(-50);
+                    state.players[slot].pos_y = m(30);
+                }
+            }
+            // Park every AWAY player at the far defending corner.
+            for slot in PLAYERS_PER_TEAM..TOTAL_PLAYERS {
+                state.players[slot].pos_x = m(50);
+                state.players[slot].pos_y = m(30);
+            }
+            // Three away defenders contest (or not) the lane. ON = clustered on the
+            // (0,0) midpoint; OFF = left at the far defending corner (parked above).
+            if lane_defenders_near {
+                state.players[11].pos_x = m(0);
+                state.players[11].pos_y = m(0);
+                state.players[12].pos_x = m(-2);
+                state.players[12].pos_y = m(1);
+                state.players[13].pos_x = m(2);
+                state.players[13].pos_y = m(-1);
+            }
+            // Zero velocities so the angular penalty is identical across arms.
+            for p in state.players.iter_mut() {
+                p.vel_x = Q32::ZERO;
+                p.vel_y = Q32::ZERO;
+            }
+            state
+        }
+
+        // ON the lane: three defenders clustered on the (0,0) midpoint.
+        let on_lane = arm_state(&m, true);
+        // OFF the lane: all defenders parked at the far corner → open lane.
+        let off_lane = arm_state(&m, false);
+
+        // Count completions over many independent draws (vary tick → vary seed).
+        let n_draws = 4000u32;
+        let mut on_completions = 0usize;
+        let mut off_completions = 0usize;
+        for tick in 0..n_draws {
+            if resolve_pass_completion(&on_lane, 5, 9, PassKind::Short, tick) {
+                on_completions += 1;
+            }
+            if resolve_pass_completion(&off_lane, 5, 9, PassKind::Short, tick) {
+                off_completions += 1;
+            }
+        }
+
+        // Integer comparison (no floats per Sim/RULES.md §1): off-lane must beat
+        // on-lane by ≥ 3 percentage points of n_draws. Observed delta is ≈5.4pp
+        // (off ≈80.7%, on ≈75.3%) at this geometry — comfortably above the floor.
+        let margin = (3 * n_draws as usize) / 100;
+        assert!(
+            off_completions >= on_completions + margin,
+            "lane_gate has no measurable effect: on-lane completions \
+             ({on_completions}/{n_draws}) must be at least {margin} fewer than \
+             off-lane ({off_completions}/{n_draws}). If equal, lane_openness is \
+             being discarded again (the FUN-CB1-#23 regression)."
+        );
     }
 
     /// Mid-range passer (all attrs = 0.5) with no pressure: completion probability

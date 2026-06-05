@@ -3645,8 +3645,8 @@ mod tests {
             )
         };
         assert!(
-            hash_600.starts_with("blake3:885888ec"),
-            "600-tick canonical hash must start with 885888ec (FUN-TS3b Attempt 2: pass-kind utility reweighting; keep in lockstep with fw-replay's PINNED_600_TICK); got {hash_600}"
+            hash_600.starts_with("blake3:a5dd8dfa"),
+            "600-tick canonical hash must start with a5dd8dfa (FUN-CB1-#23: lane_openness wired into pass completion; keep in lockstep with fw-replay's PINNED_600_TICK); got {hash_600}"
         );
     }
 

@@ -143,7 +143,7 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:885888eceaae823228757cbc60e702ca0bf47e21708c9b37bb4be6b67bfb98c7",
+    expected_hash: "blake3:a5dd8dfa2469390b2e533ec6a2222e5c5bb610e41c7585f8fd5e275daafd0d68",
     metadata: (
         description: "FUN-TS3b Attempt 2: pass-kind utility reweighting — ZONE_SHORT_BOOST 3.2, LONG_BASE_SUPPRESS 0.45, LONG_NO_SUPPRESS_ZONE 15, CROSS_GATE_COEFF 2.5 (width-only gate). 40-seed gate: Short=77.0% Long=10.4% Cross=7.8% LayOff=4.7%. Pre-commit fixes (Fix A/B/C) are all no-ops at baseline attrs — hash UNCHANGED.",
         generated_at: "2026-06-05",

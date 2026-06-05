@@ -876,8 +876,18 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   hash UNCHANGED from `885888ec…b98c7`. Same reasoning as PINNED_60_TICK
 ///   Fix note above: all three fixes are no-ops at baseline mid-attrs on all
 ///   seeds exercised; no canonical bytes shift.
+/// - 2026-06-05 (FUN-CB1-#23 lane-openness integrity fix) — **re-baselined to
+///   `a5dd8dfa…0d68`** per ADR-0012 trigger #3 (sim behavior change). The
+///   computed-then-discarded `lane_openness` is now wired into pass completion
+///   (a `LANE_FLOOR=0.70` lane gate, P_BASE recalibrated ×1.12 to hold the
+///   completion band while the gate redistributes), so the content-driven
+///   600-tick run's pass outcomes now depend on the lane → canonical bytes
+///   change. 60-tick smoke pin UNCHANGED (bare-init smoke passes complete
+///   identically in 60 ticks). Envelope-verified BEFORE re-pin (main-thread
+///   independent 100-seed × 2 bases: M1 2.47/2.56 in band 2.3-3.2, std
+///   1.55/1.46 in band, shots 12.1/12.8, on-target 44.9/41.5% — all PASS).
 const PINNED_600_TICK: [u8; 32] =
-    hex!("885888eceaae823228757cbc60e702ca0bf47e21708c9b37bb4be6b67bfb98c7");
+    hex!("a5dd8dfa2469390b2e533ec6a2222e5c5bb610e41c7585f8fd5e275daafd0d68");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {
