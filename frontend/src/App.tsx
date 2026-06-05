@@ -12,6 +12,7 @@ const Tactics = lazy(() => import("./routes/Tactics"));
 const Transfers = lazy(() => import("./routes/Transfers"));
 const League = lazy(() => import("./routes/League"));
 const Match = lazy(() => import("./routes/Match"));
+const LiveMatch = lazy(() => import("./routes/LiveMatch"));
 const Career = lazy(() => import("./routes/Career"));
 const Stats = lazy(() => import("./routes/Stats"));
 const Settings = lazy(() => import("./routes/Settings"));
@@ -40,6 +41,7 @@ export default function App(): JSX.Element {
       <Route path="/transfers" component={Transfers} />
       <Route path="/league" component={League} />
       <Route path="/match" component={Match} />
+      <Route path="/live-match" component={LiveMatch} />
       <Route path="/career" component={Career} />
       <Route path="/stats" component={Stats} />
       <Route path="/settings" component={Settings} />

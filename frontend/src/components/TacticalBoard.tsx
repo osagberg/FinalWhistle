@@ -74,6 +74,15 @@ const SIM_HZ = 60;
 export interface TacticalBoardProps {
   /** Frames to replay. Pass [] for an empty board (no dots rendered). */
   frames: readonly MatchFrameDTO[];
+  /**
+   * When true, the board automatically snaps the cursor to the last frame
+   * whenever new frames arrive. Used by the live-match route (S3b) so
+   * accumulating step results advance the board without requiring Play.
+   *
+   * When false (default), the board uses its own play/pause/scrub controls.
+   * This preserves the batch-replay behaviour in /match and /dev/board.
+   */
+  followLatest?: boolean;
   /** Optional CSS class applied to the outer wrapper div. */
   class?: string;
 }
@@ -126,6 +135,26 @@ export default function TacticalBoard(props: TacticalBoardProps): JSX.Element {
   // (createEffect) so the reactive read is legitimate.
   createEffect(() => {
     framesLengthRef = props.frames.length;
+  });
+
+  // followLatest mode (S3b): when props.followLatest is true, snap the cursor
+  // to the last frame whenever new frames arrive. This is how the live-match
+  // route streams step results onto the board without requiring the user to
+  // press Play — each new frame from stepLiveMatch advances the display
+  // automatically. We only apply this when Pixi is ready (sprites allocated).
+  //
+  // The effect is lightweight: it reads props.frames.length (tracked) and
+  // props.followLatest (tracked). When followLatest is false (the default for
+  // all batch / dev / replay uses) the effect short-circuits immediately, so
+  // the existing board behaviour is completely unchanged.
+  createEffect(() => {
+    if (!props.followLatest) return;
+    const len = props.frames.length;
+    if (len === 0 || !pixiReady()) return;
+    const lastIdx = len - 1;
+    cursor = lastIdx;
+    setDisplayTick(lastIdx);
+    applyPositions(lastIdx);
   });
 
   // Apply frame 0 the FIRST time BOTH conditions are true: (a) frames have

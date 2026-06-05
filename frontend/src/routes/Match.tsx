@@ -43,6 +43,7 @@ import type {
   MatchFrameDTO,
 } from "~/lib/types";
 import { MAX_FRAMES_PER_REQUEST } from "~/lib/types";
+import { isHighFrequencyKind as isHighFrequencyKindUtil } from "~/lib/match-events";
 import { TauriFrameSource } from "~/routes/Dev/FrameSource";
 
 // ---------------------------------------------------------------------------
@@ -78,10 +79,11 @@ const ProductionTacticalBoard = lazy(() => import("~/components/TacticalBoard"))
 /**
  * Returns true for kinds that are suppressed by the key-moments type filter.
  * When keyMomentsOnly is false this function is never called.
+ *
+ * Delegated to the shared util (~/lib/match-events.ts) so LiveMatch and
+ * Match share the same suppression predicate.
  */
-function isHighFrequencyKind(kind: MatchEventKind): boolean {
-  return kind === "Pass" || kind === "PassIncomplete";
-}
+const isHighFrequencyKind = isHighFrequencyKindUtil;
 
 // ---------------------------------------------------------------------------
 // Event-list helpers
