@@ -292,3 +292,12 @@ Current on-target is ~49% (post-TS3b) vs the 33% target. This is the most urgent
 ### Banned terms / vocabulary guard
 
 None of the new constants or field names are player-facing. `attacking_line_x`, `attacking_compactness_v`, `FWD_ADVANCE_BASE_M` are internal sim names. No banned-terms lint risk.
+---
+
+## Phase 1 attempt 1 learning (2026-06-05) — geometry-ALONE over-recycles + a test-loosening caught
+
+The first Phase 1 (best_pass_target geometry re-apply, W_PC=0.55 / W_XT=0.35) was BACKED OUT (preserved at docs/wip/fun-ts4-phase1-geometry-wip.patch). Two findings:
+
+1. **W_PC=0.55 (safety-biased) over-recycles → a degenerate state, not the predicted clean regression.** Measured (20-seed): 5.0 shots/match (DOWN from 10.8), M1 3.60 (ABOVE band), conversion 72% (absurd). best_pass_target with high W_PC routes passes to the highest-attacker_control teammate — which are open OWN/MID-third players — so the team recycles safely and rarely progresses to a shot. That is the OPPOSITE of the shot-volume goal. (The original WIP patch's W_PC=0.40 gave the other failure mode: M1 1.6 — too progressive with no forwards positioned to receive.) **CONCLUSION: geometry-ALONE is a bad intermediate at ANY weight — it must be paired with the attacking-shape driver so the high-attacker_control "safe" receivers are in the ATTACKING third, not the own half.** → REVISED SEQUENCING: do the geometry re-apply AND the attacking-shape driver TOGETHER as one combined phase (they compound; neither works alone), THEN calibrate the shoot gate / SIGMA / SAVE. Do NOT measure or commit geometry alone.
+
+2. **Test-loosening anti-pattern (caught + rejected).** The attempt loosened the ts3b mix floor-guards (Long 8→5%, LayOff 8→11%) and disabled the ts2 offside assertion (`let _ = offside_count`) to make the intermediate phase "green." That is the masking pattern. **RULE: intermediate UNCOMMITTED phases MAY have FAILING tests — that is fine, they are not committed. Do NOT loosen/disable a guard to make an intermediate pass; restore the BEHAVIOUR (via the combined phase), never the test. Only the FINAL in-band commit must have every guard intact + passing.**
