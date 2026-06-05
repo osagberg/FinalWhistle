@@ -852,15 +852,38 @@ pub fn get_squad_roster_inner(
         lock: "career".to_string(),
     })?;
 
-    // Resolve the default club: lowest ClubId in BTreeMap order.
-    let (club_id, instances) =
-        career
-            .roster
-            .iter()
-            .next()
-            .ok_or_else(|| IpcError::LeagueGenerationFailed {
-                reason: "career roster is empty — no default club available".to_string(),
-            })?;
+    // Anchor on the managed club if one is set + present in the roster; else
+    // fall back to the lowest-ClubId placeholder (BTreeMap order). The
+    // managed_club_id lock is separate from `career` (read+read, no deadlock).
+    let managed = *state
+        .managed_club_id()
+        .read()
+        .map_err(|_| IpcError::LockPoisoned {
+            lock: "managed_club_id".to_string(),
+        })?;
+    let empty_roster = || IpcError::LeagueGenerationFailed {
+        reason: "career roster is empty — no club available".to_string(),
+    };
+    let (club_id, instances, is_managed) = match managed {
+        Some(cid) => match career.roster.get_key_value(&cid) {
+            Some((id, inst)) => (id, inst, true),
+            None => {
+                // Managed id absent (e.g. loaded a different-seed save after
+                // selecting): fall back to placeholder, surfaced as a
+                // greppable warn rather than a silent wrong-club.
+                log::warn!(
+                    "get_squad_roster: managed club {cid:?} not in the current roster — \
+                     falling back to the lowest-ClubId placeholder"
+                );
+                let (id, inst) = career.roster.iter().next().ok_or_else(empty_roster)?;
+                (id, inst, false)
+            }
+        },
+        None => {
+            let (id, inst) = career.roster.iter().next().ok_or_else(empty_roster)?;
+            (id, inst, false)
+        }
+    };
 
     // Structural invariant: each club must have exactly 22 instances.
     assert!(
@@ -896,6 +919,7 @@ pub fn get_squad_roster_inner(
         club_id: club_id.raw(),
         club_name,
         players,
+        is_managed,
     })
 }
 
@@ -1486,7 +1510,7 @@ pub fn advance_season_inner(state: &AppState) -> Result<AdvanceSeasonSummaryDto,
 /// club list, renders cross-season callbacks via `render_memory_callback`.
 pub fn get_career_overview_inner(state: &AppState) -> Result<CareerOverviewDto, IpcError> {
     // Collect all career state under one read lock, then release before rendering.
-    let (current_season_num, club_names, past_title_events) = {
+    let (current_season_num, club_names, past_title_events, career_seed) = {
         let career = state.career().read().map_err(|_| IpcError::LockPoisoned {
             lock: "career".to_string(),
         })?;
@@ -1511,7 +1535,18 @@ pub fn get_career_overview_inner(state: &AppState) -> Result<CareerOverviewDto, 
             .cloned()
             .collect();
 
-        (current_season_num, club_names, past_title_events)
+        // Read the seed UNDER the career guard so it pairs with the snapshot
+        // above. new_career / load_career re-seed only while holding the career
+        // WRITE lock, so a re-seed cannot interleave with this read block —
+        // this is the invariant set_career_seed's doc relies on.
+        let career_seed = state.career_seed().to_u64();
+
+        (
+            current_season_num,
+            club_names,
+            past_title_events,
+            career_seed,
+        )
     }; // career read guard dropped
 
     // Build champion history: one entry per season (ordered by season ASC).
@@ -1546,8 +1581,8 @@ pub fn get_career_overview_inner(state: &AppState) -> Result<CareerOverviewDto, 
     history.sort_by_key(|e| e.season);
 
     // Render cross-season callbacks via the T3-6 render_memory_callback path.
+    // `career_seed` was captured under the career guard above (paired snapshot).
     let bank = &state.content().memory_callback_grammars;
-    let career_seed = state.career_seed().to_u64();
 
     let cross_season_callbacks: Vec<String> = past_title_events
         .iter()
@@ -2398,6 +2433,165 @@ pub fn load_career_inner(state: &AppState) -> Result<(), IpcError> {
     // usize. The value is a ledger length, never near u32::MAX, so the cast is lossless.
     career.breakthrough_eval_watermark = save.breakthrough_eval_watermark as usize;
 
+    // Re-seed AppState to the loaded save's seed (while still holding the
+    // career write lock so the seed + season stay paired). Pre-new_career this
+    // was a no-op because every career used DEFAULT_CAREER_SEED; once
+    // new_career lets the user choose a seed, a save from a different-seed
+    // career MUST update the seed or fixture derivation (fixture_seed) would
+    // use the constructor's seed and desync from the loaded world.
+    state.set_career_seed(save.career_seed);
+
+    // Loading a (possibly different-world) save invalidates any session-managed
+    // club from the prior world. Clear it under the career write lock (same
+    // atomic-reset reasoning as new_career) so get_squad_roster starts
+    // unanchored rather than silently anchoring on a stale, positional ClubId
+    // that happens to exist in the loaded world.
+    *state
+        .managed_club_id()
+        .write()
+        .map_err(|_| IpcError::LockPoisoned {
+            lock: "managed_club_id".to_string(),
+        })? = None;
+
+    Ok(())
+}
+
+// -------------------------------------------------------------------------
+// Career lifecycle: new_career / get_clubs / select_managed_club (B1-B3)
+//
+// These make the career loop *startable* and *anchored to a club*. The world
+// seed was previously hardcoded (DEFAULT_CAREER_SEED) and the Squad screen
+// fell back to the lowest-ClubId placeholder. `new_career` re-seeds the
+// AppState career in place (the Tauri-managed state is shared immutably, so
+// the career is reset under the existing `career` write lock + the seed
+// atomic). `managed_club_id` is session-only (NOT persisted by SaveV4) —
+// cross-save persistence is a flagged SaveV5 owner decision.
+// -------------------------------------------------------------------------
+
+/// `new_career(seed_hex)` — start a fresh career world from a chosen seed.
+///
+/// Regenerates the league + roster + season deterministically from `seed_hex`
+/// and replaces the in-memory career. Clears any previously-selected managed
+/// club (the player picks one via `select_managed_club`). Does NOT touch the
+/// save file — call `save_career` to persist.
+#[tauri::command]
+pub async fn new_career(
+    seed_hex: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), IpcError> {
+    new_career_inner(&seed_hex, &state)
+}
+
+pub fn new_career_inner(seed_hex: &str, state: &AppState) -> Result<(), IpcError> {
+    let seed = parse_seed_hex(seed_hex)?;
+
+    // Regenerate the base world from the new seed (mirrors load_career_inner
+    // step 1, minus the saved-delta overlay — a fresh career has no deltas).
+    let (league, procgen_teams) =
+        generate_league_with_teams(seed, state.content()).map_err(|e| {
+            IpcError::LeagueGenerationFailed {
+                reason: e.to_string(),
+            }
+        })?;
+    let roster = crate::roster::build_roster_from_league(&league, &procgen_teams, state.content())
+        .map_err(|e| IpcError::LeagueGenerationFailed {
+            reason: e.to_string(),
+        })?;
+    let season = SeasonState::new(league, state.content());
+
+    // Swap the career under the write lock, then re-seed while still holding
+    // it: this keeps a concurrent reader from pairing the new season with the
+    // old seed. new_career is a rare, user-initiated, effectively-exclusive
+    // operation, so the race window is theoretical — this just minimises it.
+    {
+        let mut career = state.career().write().map_err(|_| IpcError::LockPoisoned {
+            lock: "career".to_string(),
+        })?;
+        career.season = season;
+        career.ledger = fw_memory::ledger::MemoryLedger::new();
+        career.season_number = SeasonNumber(0);
+        career.roster = roster;
+        career.breakthrough_eval_watermark = 0;
+        state.set_career_seed(seed);
+        // Clear the managed club WHILE holding the career write lock so the
+        // reset is atomic w.r.t. get_squad_roster (which reads career then
+        // managed_club_id — same career-outer/managed-inner lock order, no
+        // deadlock). Clearing it after releasing the lock would let a
+        // concurrent read pair the NEW roster with the OLD managed club; since
+        // ClubIds are positional (not seed-derived), that can silently anchor
+        // a same-id-but-different club.
+        *state
+            .managed_club_id()
+            .write()
+            .map_err(|_| IpcError::LockPoisoned {
+                lock: "managed_club_id".to_string(),
+            })? = None;
+    }
+
+    Ok(())
+}
+
+/// One club in the club-selection list returned by `get_clubs`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClubChoiceDto {
+    /// `ClubId.raw()` — raw u32 wire form; TS receives as `number`.
+    pub club_id: u32,
+    /// Club display name from the current season's league.
+    pub club_name: String,
+}
+
+/// `get_clubs()` — enumerate the clubs in the current league for the
+/// club-selection screen. Ordered as `league.clubs` (deterministic).
+#[tauri::command]
+pub async fn get_clubs(state: tauri::State<'_, AppState>) -> Result<Vec<ClubChoiceDto>, IpcError> {
+    get_clubs_inner(&state)
+}
+
+pub fn get_clubs_inner(state: &AppState) -> Result<Vec<ClubChoiceDto>, IpcError> {
+    let career = state.career().read().map_err(|_| IpcError::LockPoisoned {
+        lock: "career".to_string(),
+    })?;
+    let clubs = career
+        .season
+        .league
+        .clubs
+        .iter()
+        .map(|c| ClubChoiceDto {
+            club_id: c.id.raw(),
+            club_name: c.display_name.clone(),
+        })
+        .collect();
+    Ok(clubs)
+}
+
+/// `select_managed_club(club_id)` — set the club the player manages this
+/// session. Validates the id against the current league; the Squad screen then
+/// anchors on this club. Session-only (see `AppState::managed_club_id`).
+#[tauri::command]
+pub async fn select_managed_club(
+    club_id: u32,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), IpcError> {
+    select_managed_club_inner(club_id, &state)
+}
+
+pub fn select_managed_club_inner(club_id: u32, state: &AppState) -> Result<(), IpcError> {
+    let cid = ClubId::new(club_id);
+    {
+        let career = state.career().read().map_err(|_| IpcError::LockPoisoned {
+            lock: "career".to_string(),
+        })?;
+        if !career.season.league.clubs.iter().any(|c| c.id == cid) {
+            return Err(IpcError::ClubNotFound { club_id });
+        }
+    }
+    *state
+        .managed_club_id()
+        .write()
+        .map_err(|_| IpcError::LockPoisoned {
+            lock: "managed_club_id".to_string(),
+        })? = Some(cid);
     Ok(())
 }
 
@@ -2449,6 +2643,102 @@ mod tests {
 
     fn test_app_state() -> AppState {
         AppState::new(&workspace_content_path()).expect("AppState::new in test")
+    }
+
+    // ---- B1-B3: new_career / get_clubs / select_managed_club ----
+
+    #[test]
+    fn get_clubs_inner_returns_full_league_with_unique_named_clubs() {
+        let state = test_app_state();
+        let clubs = get_clubs_inner(&state).expect("get_clubs");
+        assert_eq!(clubs.len(), 20, "the procgen division has 20 clubs");
+        let mut ids: Vec<u32> = clubs.iter().map(|c| c.club_id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 20, "club ids must be unique");
+        assert!(
+            clubs.iter().all(|c| !c.club_name.is_empty()),
+            "every club must carry a display name"
+        );
+    }
+
+    #[test]
+    fn new_career_reseeds_and_regenerates_a_different_world() {
+        let state = test_app_state();
+        let before: Vec<String> = get_clubs_inner(&state)
+            .expect("clubs before")
+            .into_iter()
+            .map(|c| c.club_name)
+            .collect();
+
+        new_career_inner("0x0badc0de", &state).expect("new_career");
+
+        assert_eq!(
+            state.career_seed().to_u64(),
+            0x0bad_c0de,
+            "new_career must re-seed AppState"
+        );
+        let after: Vec<String> = get_clubs_inner(&state)
+            .expect("clubs after")
+            .into_iter()
+            .map(|c| c.club_name)
+            .collect();
+        assert_ne!(
+            before, after,
+            "a different seed must regenerate a different league (procgen names are seed-derived)"
+        );
+    }
+
+    #[test]
+    fn select_managed_club_anchors_the_squad_screen() {
+        let state = test_app_state();
+        let clubs = get_clubs_inner(&state).expect("clubs");
+
+        let placeholder = get_squad_roster_inner(&state).expect("placeholder squad");
+        assert!(
+            !placeholder.is_managed,
+            "with no club chosen the squad is the placeholder"
+        );
+
+        // Pick a club distinct from the lowest-id placeholder so the anchor is observable.
+        let target = clubs
+            .iter()
+            .find(|c| c.club_id != placeholder.club_id)
+            .expect("a second club exists");
+        select_managed_club_inner(target.club_id, &state).expect("select");
+
+        let squad = get_squad_roster_inner(&state).expect("managed squad");
+        assert!(squad.is_managed, "squad must report the managed club");
+        assert_eq!(squad.club_id, target.club_id);
+        assert_eq!(squad.club_name, target.club_name);
+        assert_eq!(squad.players.len(), 22);
+    }
+
+    #[test]
+    fn select_managed_club_rejects_unknown_id() {
+        let state = test_app_state();
+        let err = select_managed_club_inner(99_999, &state).expect_err("unknown club");
+        assert!(
+            matches!(err, IpcError::ClubNotFound { club_id: 99_999 }),
+            "expected ClubNotFound, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn new_career_clears_the_managed_club() {
+        let state = test_app_state();
+        let clubs = get_clubs_inner(&state).expect("clubs");
+        select_managed_club_inner(clubs[1].club_id, &state).expect("select");
+        assert!(
+            get_squad_roster_inner(&state).expect("squad").is_managed,
+            "club is managed after selection"
+        );
+
+        new_career_inner("0x1234", &state).expect("new_career");
+        assert!(
+            !get_squad_roster_inner(&state).expect("squad2").is_managed,
+            "new_career must clear the managed club"
+        );
     }
 
     // ---- parse_seed_hex ----

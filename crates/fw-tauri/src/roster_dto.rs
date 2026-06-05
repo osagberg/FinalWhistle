@@ -77,10 +77,12 @@ impl PlayerRosterDto {
 
 /// Returned by `get_squad_roster`.
 ///
-/// Bundles the default club's identity with its 22-player roster rows.
-/// The "default club" is the lowest `ClubId` in the career roster — a
-/// deterministic stand-in until career-start club selection is implemented
-/// (a future feature, not this row).
+/// Bundles the displayed club's identity with its 22-player roster rows.
+///
+/// The club is the player's chosen managed club (`is_managed: true`) when one
+/// is selected and present in the roster; otherwise it falls back to the
+/// lowest-`ClubId` placeholder (`is_managed: false`) — the deterministic
+/// stand-in used before a club is chosen at career start.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SquadRosterDto {
@@ -90,6 +92,11 @@ pub struct SquadRosterDto {
     pub club_name: String,
     /// 22 slot-ordered player rows for this club.
     pub players: Vec<PlayerRosterDto>,
+    /// `true` when this is the player's chosen managed club; `false` when the
+    /// screen is showing the lowest-`ClubId` placeholder (no club selected yet,
+    /// or the managed club is absent from the current roster). The frontend
+    /// uses this to drop the "no club selected" placeholder label.
+    pub is_managed: bool,
 }
 
 // ---------------------------------------------------------------------------

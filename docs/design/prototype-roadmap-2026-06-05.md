@@ -167,6 +167,28 @@ These are governing but non-code; surfaced for the owner, not silently picked:
 
 ---
 
+## B1-B3 review follow-ups (deferred, tracked)
+
+The B1-B3 self-review trio (silent-failure + type-design + code-reviewer)
+accepted the slice after four fixes shipped in it: clear `managed_club_id` on
+both `new_career` and `load_career` (the latter closes a silent same-positional-
+ClubId wrong-club bug), read `career_seed` under the career guard in
+`get_career_overview_inner` (close a torn read), and correct the
+`set_career_seed` doc to state the real pairing invariant. Three non-blocking
+items were deferred:
+
+- **BK-LOOP-9** — move `career_seed` into `CareerState` under the `career` lock
+  (retire the `AtomicU64`; make the seed↔season pairing structurally true rather
+  than convention-enforced). Both reviewers' preferred design; a multi-site
+  refactor, so deferred out of the prototype slice.
+- **BK-LOOP-10** — when SaveV5 persists `managed_club_id`, the load path must
+  re-validate or clear it (today it is session-only and cleared on load).
+- **BK-LOOP-11** — `is_managed: bool` conflates "no club chosen" with "managed
+  club absent from roster"; promote to a tagged enum if the club-selection UI
+  ever needs to tell the player their saved club is gone.
+
+---
+
 ## Consolidated backlog
 
 179 items, generated below from the scoping synthesis. Tracks: A-engine /

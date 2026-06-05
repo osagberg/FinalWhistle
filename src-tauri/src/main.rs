@@ -104,6 +104,10 @@ fn main() {
             fw_tauri::commands::get_squad_roster,
             // T4-2.5k: press inbox
             fw_tauri::commands::get_press_inbox,
+            // B1-B3 (prototype loop): career lifecycle + managed-club anchor
+            fw_tauri::commands::new_career,
+            fw_tauri::commands::get_clubs,
+            fw_tauri::commands::select_managed_club,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

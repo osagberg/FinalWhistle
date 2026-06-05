@@ -31,7 +31,10 @@ use std::path::PathBuf;
 use fw_core::{AbilityCeiling, Q32, Seed};
 use fw_memory::SeasonNumber;
 use fw_save::{SaveEnvelope, SaveV4, encode};
-use fw_tauri::commands::{advance_week_inner, load_career_inner, save_career_inner};
+use fw_tauri::commands::{
+    advance_week_inner, get_clubs_inner, get_squad_roster_inner, load_career_inner,
+    save_career_inner, select_managed_club_inner,
+};
 use fw_tauri::state::AppState;
 
 fn workspace_content_path() -> PathBuf {
@@ -300,4 +303,54 @@ fn scout_report_survives_save_load_round_trip() {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// AC4: load_career clears the session-selected managed club (B3 review fix)
+// ---------------------------------------------------------------------------
+
+/// Loading a save clears any session-selected managed club. Without the reset,
+/// a `managed_club_id` chosen before load would persist into the loaded world;
+/// because ClubIds are positional (not seed-derived), a stale id could silently
+/// anchor the Squad screen on a same-id-but-different club. The fix clears it
+/// under the career write lock in `load_career_inner`, mirroring `new_career`.
+#[test]
+fn load_career_clears_session_managed_club() {
+    let seed = Seed::from_u64(0xDEAD_BEEF_C1AB_0004);
+    let (state, dir) = test_state_with_temp_paths(seed);
+
+    // Persist a clean career to disk.
+    save_career_inner(&state).expect("save_career_inner");
+
+    // Fresh AppState at the same seed; select a managed club so the session
+    // pointer is non-None *before* the load.
+    let settings_path = dir.path().join("settings.fwcfg");
+    let career_save_path = dir.path().join("career.fwsave");
+    let mut state2 =
+        AppState::new_with_settings_path(&workspace_content_path(), seed, settings_path)
+            .expect("AppState::new_with_settings_path (state2)");
+    state2.set_career_save_path(career_save_path);
+
+    let clubs = get_clubs_inner(&state2).expect("get_clubs");
+    // Pick a club distinct from the lowest-id placeholder so is_managed is
+    // observably true (not coincidentally equal to the placeholder).
+    let placeholder_id = get_squad_roster_inner(&state2).expect("squad").club_id;
+    let chosen = clubs
+        .iter()
+        .find(|c| c.club_id != placeholder_id)
+        .expect("a second club exists");
+    select_managed_club_inner(chosen.club_id, &state2).expect("select_managed_club");
+    assert!(
+        get_squad_roster_inner(&state2).expect("squad").is_managed,
+        "managed club must be set before load (test precondition)"
+    );
+
+    // Load → the session managed club must be cleared.
+    load_career_inner(&state2).expect("load_career_inner");
+    assert!(
+        !get_squad_roster_inner(&state2)
+            .expect("squad after load")
+            .is_managed,
+        "load_career must clear the session managed club (stale-positional-ClubId guard)"
+    );
 }

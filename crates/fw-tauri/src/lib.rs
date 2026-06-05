@@ -40,11 +40,12 @@ pub mod season;
 pub mod state;
 
 pub use commands::{
-    advance_season, advance_week, apply_match_command, finish_live_match, get_backend_handshake,
-    get_career_overview, get_fixtures, get_match_snapshot, get_player_detail, get_press_inbox,
-    get_roster_for_club, get_scout_report, get_settings, get_squad, get_squad_roster,
-    get_standings, load_career, match_frames, play_fixtures, play_match, save_career, set_settings,
-    start_live_match, step_live_match,
+    ClubChoiceDto, advance_season, advance_week, apply_match_command, finish_live_match,
+    get_backend_handshake, get_career_overview, get_clubs, get_fixtures, get_match_snapshot,
+    get_player_detail, get_press_inbox, get_roster_for_club, get_scout_report, get_settings,
+    get_squad, get_squad_roster, get_standings, load_career, match_frames, new_career,
+    play_fixtures, play_match, save_career, select_managed_club, set_settings, start_live_match,
+    step_live_match,
 };
 // AppSettingsDto and ThemePrefDto are defined in this module below; they are
 // already pub and visible to integration tests via `fw_tauri::AppSettingsDto`.

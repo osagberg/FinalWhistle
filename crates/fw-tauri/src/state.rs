@@ -23,7 +23,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use fw_content::{
@@ -131,7 +131,14 @@ pub struct AppState {
     /// access without re-borrowing `content` across the async boundary.
     pub(crate) signature_definitions: Arc<BTreeMap<String, SignatureDefinition>>,
     /// The career seed used to generate the current league + fixture seeds.
-    pub(crate) career_seed: Seed,
+    ///
+    /// `AtomicU64` (not a bare `Seed`) so `new_career` / `load_career` can
+    /// re-seed the career under `&AppState` — the Tauri-managed state is shared
+    /// immutably, so interior mutability is the only seam. Lock-free (rather
+    /// than moving the seed under the `career` lock) avoids the re-entrancy
+    /// hazard at the call sites that read `career_seed()` and then take the
+    /// `career` lock in the same handler.
+    pub(crate) career_seed: AtomicU64,
     /// All mutable career state: season, ledger, season_number.
     ///
     /// One lock means `advance_season` is atomic — all three fields move
@@ -142,6 +149,16 @@ pub struct AppState {
     /// `IpcError::LockPoisoned { lock: "career".to_string() }` rather than
     /// `.expect()` (Tauri/RULES.md §4 forbids panics in handlers).
     pub(crate) career: RwLock<CareerState>,
+
+    /// The club the player manages this session, if chosen.
+    ///
+    /// Set by `new_career` (cleared to `None`) and `select_managed_club`; read
+    /// by `get_squad_roster` to anchor the Squad screen on the managed club
+    /// rather than the lowest-`ClubId` placeholder. Session-only — NOT
+    /// persisted by SaveV4; cross-save persistence is a flagged SaveV5 owner
+    /// decision (a §8 schema bump). `None` until the player picks a club at
+    /// career start.
+    pub(crate) managed_club_id: RwLock<Option<ClubId>>,
 
     // ---- T4-6a: settings persistence ----
     /// Path to the settings file (`settings.fwcfg` in the Tauri app-config dir).
@@ -262,7 +279,8 @@ impl AppState {
         Ok(AppState {
             content,
             signature_definitions,
-            career_seed,
+            career_seed: AtomicU64::new(career_seed.to_u64()),
+            managed_club_id: RwLock::new(None),
             career: RwLock::new(CareerState {
                 season,
                 ledger: MemoryLedger::new(),
@@ -323,7 +341,32 @@ impl AppState {
     /// The career seed (T2-5). Used to derive per-fixture seeds so the same
     /// career seed always produces the same season results.
     pub fn career_seed(&self) -> Seed {
-        self.career_seed
+        Seed::from_u64(self.career_seed.load(Ordering::Relaxed))
+    }
+
+    /// Replace the career seed (interior mutability — see the field doc).
+    ///
+    /// Called by `new_career` (a fresh world) and `load_career` (the loaded
+    /// save's seed, which may differ from the constructor's seed now that
+    /// `new_career` exists). Both writers store the seed WHILE HOLDING the
+    /// `career` write lock, so the seed and the season are re-seeded together.
+    ///
+    /// PAIRING INVARIANT: a reader that needs the seed to match the live
+    /// `career` (e.g. deriving fixture seeds for the current world) MUST read
+    /// `career_seed()` while holding a `career` guard — that excludes a
+    /// concurrent re-seed for the read's duration. Readers that only need *a*
+    /// seed (not paired with a specific season snapshot) may read it lock-free.
+    /// `Relaxed` is sufficient: the `career` lock provides the happens-before
+    /// edge for the paired case; the bare atomic carries no ordering of its own.
+    pub fn set_career_seed(&self, seed: Seed) {
+        self.career_seed.store(seed.to_u64(), Ordering::Relaxed);
+    }
+
+    /// The session's managed-club slot. Read/written via the lock, with the
+    /// same poison discipline as [`AppState::career`] — handlers map a poisoned
+    /// guard to `IpcError::LockPoisoned { lock: "managed_club_id" }`.
+    pub fn managed_club_id(&self) -> &RwLock<Option<ClubId>> {
+        &self.managed_club_id
     }
 
     /// Access to all mutable career state (season + ledger + season_number).

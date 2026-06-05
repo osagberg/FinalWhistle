@@ -312,9 +312,10 @@ export interface PlayerRosterDto {
 /**
  * Returned by `get_squad_roster`.
  *
- * Bundles the default club identity with its 22-player roster rows.
- * The "default club" is the lowest ClubId in the career roster — a
- * placeholder until career-start club selection is implemented.
+ * Bundles the displayed club identity with its 22-player roster rows. The club
+ * is the player's chosen managed club when `isManaged` is true; otherwise it is
+ * the lowest-ClubId placeholder (no club chosen yet, or the managed club is
+ * absent from the current roster).
  */
 export interface SquadRosterDto {
   /** Raw u32 of the club being displayed. */
@@ -323,6 +324,23 @@ export interface SquadRosterDto {
   clubName: string;
   /** 22 slot-ordered player rows. */
   players: PlayerRosterDto[];
+  /**
+   * True when this is the player's chosen managed club; false when showing the
+   * lowest-ClubId placeholder. Drives whether the screen shows the
+   * "no club selected" placeholder label.
+   */
+  isManaged: boolean;
+}
+
+/**
+ * One club in the club-selection list. Mirrors `fw-tauri::commands::ClubChoiceDto`.
+ * Returned by `get_clubs`.
+ */
+export interface ClubChoiceDto {
+  /** Raw u32 ClubId. */
+  clubId: number;
+  /** Club display name from the current league. */
+  clubName: string;
 }
 
 // ---------------------------------------------------------------------------

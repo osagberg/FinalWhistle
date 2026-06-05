@@ -42,6 +42,7 @@ import { getSquadRoster } from "~/lib/api/squad";
 const FIXTURE_ROSTER: SquadRosterDto = {
   clubId: 1,
   clubName: "Ashvale United",
+  isManaged: false,
   players: [
     {
       playerId: 1000000,
