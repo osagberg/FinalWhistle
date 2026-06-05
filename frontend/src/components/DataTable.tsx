@@ -5,6 +5,12 @@
  * Pattern: callers pass `columns` + `data` (Solid signals — pass accessors,
  * not raw arrays, when the data is reactive). The wrapper handles sorting,
  * compact rendering, and empty-state copy.
+ *
+ * Accessibility: sortable column headers are keyboard-operable. Each sortable
+ * <th> receives tabindex="0", an onKeyDown handler (Enter + Space toggle sort),
+ * role="columnheader", and a dynamic aria-sort attribute so screen readers
+ * announce the current sort direction. Non-sortable headers are not focusable.
+ * A focus-visible ring is applied via Tailwind so keyboard users see focus.
  */
 
 import {
@@ -16,6 +22,14 @@ import {
   type SortingState,
 } from "@tanstack/solid-table";
 import { createSignal, For, type JSX, Show } from "solid-js";
+
+type AriaSortValue = "ascending" | "descending" | "none";
+
+function ariaSortValue(sortDir: false | "asc" | "desc"): AriaSortValue {
+  if (sortDir === "asc") return "ascending";
+  if (sortDir === "desc") return "descending";
+  return "none";
+}
 
 export interface DataTableProps<TData> {
   columns: ColumnDef<TData>[];
@@ -58,21 +72,44 @@ export default function DataTable<TData>(props: DataTableProps<TData>): JSX.Elem
             {(headerGroup) => (
               <tr>
                 <For each={headerGroup.headers}>
-                  {(header) => (
-                    <th
-                      class="px-2 py-1.5 text-left font-semibold text-ink-subtle dark:text-paper-subtle cursor-pointer select-none hover:bg-paper-bold dark:hover:bg-midnight-line"
-                      onClick={header.column.getToggleSortingHandler()}
-                    >
-                      <span class="inline-flex items-center gap-1">
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                        <Show when={header.column.getIsSorted()}>
-                          <span class="text-pitch-600 dark:text-pitch-300 text-xs">
-                            {header.column.getIsSorted() === "asc" ? "▲" : "▼"}
-                          </span>
-                        </Show>
-                      </span>
-                    </th>
-                  )}
+                  {(header) => {
+                    const canSort = header.column.getCanSort();
+                    const sortDir = () => header.column.getIsSorted();
+
+                    function handleKeyDown(e: KeyboardEvent) {
+                      if (!canSort) return;
+                      if (e.key === "Enter" || e.key === " ") {
+                        // Prevent Space from scrolling the page.
+                        e.preventDefault();
+                        header.column.getToggleSortingHandler()?.(e);
+                      }
+                    }
+
+                    return (
+                      <th
+                        role="columnheader"
+                        aria-sort={canSort ? ariaSortValue(sortDir()) : undefined}
+                        tabindex={canSort ? 0 : undefined}
+                        class={[
+                          "px-2 py-1.5 text-left font-semibold text-ink-subtle dark:text-paper-subtle select-none",
+                          canSort
+                            ? "cursor-pointer hover:bg-paper-bold dark:hover:bg-midnight-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pitch-500 focus-visible:ring-inset"
+                            : "cursor-default",
+                        ].join(" ")}
+                        onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                        onKeyDown={handleKeyDown}
+                      >
+                        <span class="inline-flex items-center gap-1">
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          <Show when={sortDir()}>
+                            <span class="text-pitch-600 dark:text-pitch-300 text-xs" aria-hidden="true">
+                              {sortDir() === "asc" ? "▲" : "▼"}
+                            </span>
+                          </Show>
+                        </span>
+                      </th>
+                    );
+                  }}
                 </For>
               </tr>
             )}
