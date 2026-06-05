@@ -41,6 +41,160 @@ use crate::role_states::PlayerIntent;
 use crate::subtree_library::formation_position;
 
 // ---------------------------------------------------------------------------
+// FUN-TS3b — zone-conditional pass-kind bias constants (Attempt 2)
+// ---------------------------------------------------------------------------
+//
+// These constants implement zone-conditional suppression/boosting of pass-kind
+// utility so the pass mix approaches realistic football (Short dominant but
+// Long/Cross present as a meaningful minority — the "floored gate").
+//
+// Root cause: Short has a 4-factor primary product (0.5^4 ≈ 0.063) vs Long/Cross
+// 3-factor (0.5^3 ≈ 0.125), causing Long/Cross to win ~49%/49% of softmax
+// competitions at mid-range attributes.
+//
+// Fix: apply zone-conditional multipliers AFTER the attribute-derived raw utility
+// and BEFORE the personality bias. These reflect real football rationale:
+//   - Short passing is rational in own/mid zones (recycle possession).
+//   - Long is rational in mid-to-deep zones with an open forward lane.
+//   - Cross is only rational wide in the attacking third.
+//
+// Attempt 1 (ZONE_SHORT_BOOST=5.0 universal in zones 0-13) drove long/cross to 0%.
+// Attempt 2 final calibration:
+//   - ZONE_SHORT_BOOST=3.2 applied universally (all 16 zones covered):
+//     short beats layoff everywhere but does not crush long. Raised from
+//     the initial Attempt 2 draft value of 2.8 → 3.2 to push short above
+//     hold_ball in the top-3 softmax competition.
+//   - LAYOFF_SUPPRESS_ZONE=9: layoff utility suppressed 0.55x in zones ≥ 9 (attacking half).
+//     In own/mid zones layoff is rational; in the attacking half it goes backward.
+//   - LONG_BASE_SUPPRESS=0.45, LONG_LANE_COEFF=0.35: suppressor at vision=0.5 is 0.625.
+//     Long fires at 8-15% of passes. LONG_NO_SUPPRESS_ZONE raised to 15.
+//   - CROSS_GATE_COEFF=2.5, CROSS_CENTRAL_Y_M=8m, width-only gate: any player 8m+ wide
+//     can cross (no attacking-third gate). At y=15m (wide FWD): suppressor ≈ 0.952.
+//
+// Target gate: Short 75-85%, Long 8-15%, Cross 3-10%, LayOff 3-8%.
+//
+// Pitch geometry: x ∈ [-52.5m, +52.5m] goal-to-goal, y ∈ [-34m, +34m].
+// Zone grid: 16 x-columns × 12 y-rows. Column width = 105/16 = 6.5625m.
+// Zone_x is the attack-direction column (0 = own goal, 15 = opponent goal).
+// For HOME team (attacks +x): zone_x = floor((pos_x + 52.5) / 6.5625).
+// For AWAY team (attacks -x): zone_x = 15 - home_zone_x.
+
+/// Q32 constant for pitch half-width: 52.5m = 52.5 × 2^32 raw bits.
+const PITCH_HALF_X_Q32: Q32 = Q32::from_raw(225_485_783_040_i64);
+/// Q32 constant for zone column width: 6.5625m = 6.5625 × 2^32 raw bits.
+/// Exact: 6.5625 × 4_294_967_296 = 28_185_722_880. Prior value 28_180_722_893
+/// was off by ~1mm (6.5613m vs 6.5625m); corrected in FUN-TS3b Fix B.
+const PITCH_ZONE_WIDTH_Q32: Q32 = Q32::from_raw(28_185_722_880_i64);
+
+/// Compute the attack-direction zone index (0-15) from player position.
+///
+/// Used by `utility_pass_short`, `utility_pass_long`, and `utility_cross` to
+/// apply zone-conditional bias. Pure Q32 arithmetic — no floats.
+///
+/// Returns zone_x ∈ [0, 15]: 0 = own goal end, 15 = opponent goal line.
+/// `team_idx`: 0 = home (attacks +x), 1 = away (attacks -x).
+#[inline]
+pub(crate) fn player_zone_x(pos_x: Q32, team_idx: usize) -> u8 {
+    // Home-team zone_x: (pos_x + 52.5m) / 6.5625m → [0, 16) → clamp to [0, 15].
+    let shifted = pos_x + PITCH_HALF_X_Q32;
+    let zone_q32 = shifted / PITCH_ZONE_WIDTH_Q32;
+    let zone_raw = zone_q32.to_bits();
+    let home_zone: u8 = if zone_raw < 0 {
+        0u8
+    } else if zone_raw >= (16_i64 << 32) {
+        15u8
+    } else {
+        (zone_raw >> 32).clamp(0, 15) as u8
+    };
+    if team_idx == 0 {
+        home_zone
+    } else {
+        15 - home_zone
+    }
+}
+
+// --- Short pass zone boost ---
+
+/// Universal multiplier applied to raw_short before bias (all zones).
+/// At mid-attrs short primary × secondary ≈ 0.097. With boost 3.2: boosted = 0.310.
+/// Raised from 2.8→3.2 to push short above hold_ball (0.177) in the top-3 softmax
+/// competition, lifting the overall short pass share from 70% toward 75%.
+///
+/// Q32 raw: round(3.2 × 2^32) = 13_743_895_347.
+const ZONE_SHORT_BOOST: Q32 = Q32::from_raw(13_743_895_347_i64); // ≈ 3.2
+
+/// Zone-x threshold above which LayOff is suppressed.
+/// Zones ≥ LAYOFF_SUPPRESS_ZONE (attacking half, x > ~4m): a layoff to formation
+/// position is a backward pass and is less rational than a short pass forward.
+/// Uses the "old" MIDFIELD_ZONE=9 concept — apply at mid-pitch boundary.
+const LAYOFF_SUPPRESS_ZONE: u8 = 9;
+
+/// Multiplier applied to LayOff utility in zones ≥ LAYOFF_SUPPRESS_ZONE.
+/// At LayOff_biased=0.170, multiplied by 0.55: layoff_effective=0.094.
+/// Short_biased (boosted, no clamp) ≈ 0.272×1.35 = 0.368 >> 0.094.
+/// Short dominates in attacking zones. In own/mid zones layoff is unsuppressed
+/// (rational backward touch in build-up).
+///
+/// Q32 raw: round(0.55 × 2^32) = 2_362_232_012.
+const LAYOFF_ATTACK_SUPPRESS: Q32 = Q32::from_raw(2_362_232_012_i64); // ≈ 0.55
+
+// --- Long pass suppressor ---
+
+/// Zone-x threshold below which full long suppressor applies (no vision bonus).
+/// Zones 0-5 = very deep own-half (own penalty area).
+const LONG_THRESHOLD_ZONE: u8 = 6;
+
+/// Zone-x threshold above which long passes are unsuppressed.
+/// Raised from 14→15: only the final 6m strip near opponent goal is free.
+/// In zones 6-14 (mid to attacking), long is suppressed by LONG_BASE_SUPPRESS.
+const LONG_NO_SUPPRESS_ZONE: u8 = 15;
+
+/// Long-pass base suppressor (multiplier floor at zero vision).
+/// raw_long × (LONG_BASE_SUPPRESS + LONG_LANE_COEFF × vision).
+/// At vision=0.5: 0.45+0.35×0.5=0.625. At vision=1.0: 0.45+0.35=0.80.
+/// Reduced from 0.58→0.45 to bring long % from 18% down toward 10-15%.
+/// At vision=0.5: long_biased ≈ 0.152 × 0.625 × 1.302 ≈ 0.124.
+/// Below hold_ball (0.177) so long competes in top-3 only when layoff/dribble low.
+///
+/// Q32 raw: round(0.45 × 2^32) = 1_932_735_283.
+const LONG_BASE_SUPPRESS: Q32 = Q32::from_raw(1_932_735_283_i64); // ≈ 0.45
+
+/// Lane-openness coefficient for the long-pass suppressor.
+/// At vision=1.0: suppressor = 0.45+0.35 = 0.80 (vision-elite can play long).
+/// Reduced from 0.37→0.35, narrowing the vision-scaling range.
+///
+/// Q32 raw: round(0.35 × 2^32) = 1_503_238_554.
+const LONG_LANE_COEFF: Q32 = Q32::from_raw(1_503_238_554_i64); // ≈ 0.35
+
+// --- Cross suppressor ---
+
+/// Centre-of-pitch half-width for classifying "central" players (metres).
+/// Lowered to 8m: players 8m+ from centre qualify as "wide".
+/// Wide FWD at y=15m: wide_pos = (15-8)/26 = 0.269. Cross fires.
+/// Q32 raw: 8 × 2^32 = 34_359_738_368.
+const CROSS_CENTRAL_Y_M: Q32 = Q32::from_raw(34_359_738_368_i64); // ≈ 8m
+
+/// Width range beyond CROSS_CENTRAL_Y_M to touchline used for normalising
+/// wide_position to [0, 1]. 8m → 34m sideline = 26m range.
+/// Q32 raw: 26 × 2^32 = 111_669_149_696.
+const CROSS_WIDE_RANGE_M: Q32 = Q32::from_raw(111_669_149_696_i64); // ≈ 26m
+
+/// Cross base suppressor (multiplier floor when cross_gate=0).
+/// Central or deep players → raw_cross × 0.28.
+/// Q32 raw: round(0.28 × 2^32) = 1_202_590_843.
+const CROSS_BASE_SUPPRESS: Q32 = Q32::from_raw(1_202_590_843_i64); // ≈ 0.28
+
+/// Gate coefficient scaling wide_position to lift cross into top-3 softmax.
+/// Raised from 0.72 to 2.5: at y=15m wide_pos=0.269, suppressor=0.28+2.5×0.269=0.952.
+/// raw_cross × 0.952 × bias ≈ 0.163 × 0.952 × 1.2 ≈ 0.186, above hold_ball (0.177).
+/// At y=20m: suppressor=1.435 → raw×suppressor ≈ 0.234 (clamped to ≤1.0 in utility_cross).
+/// At y=34m (touchline): suppressor=2.78 → raw×suppressor ≈ 0.453 → still ≤1.0 at mid-attrs.
+/// At y=0m (central): suppressor = 0.28 (base only), cross stays suppressed.
+///
+/// Q32 raw: round(2.5 × 2^32) = 10_737_418_240.
+const CROSS_GATE_COEFF: Q32 = Q32::from_raw(10_737_418_240_i64); // ≈ 2.5
+
+// ---------------------------------------------------------------------------
 // SS1 — shot-decision quality gate constants (FUN-0b)
 // ---------------------------------------------------------------------------
 
@@ -363,6 +517,11 @@ pub fn utility_shoot(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q3
 ///
 /// Attribute binding (spec): passing × first_touch × technique × vision (primary);
 /// composure + decisions as secondary modifiers; risk_appetite + selflessness via bias.
+///
+/// FUN-TS3b: universal ZONE_SHORT_BOOST (3.2×) applied across all zones.
+/// Short passing is rational everywhere; the 4-factor primary would otherwise lose to
+/// Long/Cross's 3-factor primary at equal attributes. LayOff is separately suppressed
+/// in attacking zones (see utility_lay_off + LAYOFF_SUPPRESS_ZONE).
 pub fn utility_pass_short(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
@@ -376,6 +535,19 @@ pub fn utility_pass_short(player: &PlayerState, roster_slot: u8) -> (PlayerInten
     let secondary =
         (Q32::ONE + w_comp * a.mental.composure) * (Q32::ONE + w_dec * a.mental.decisions);
     let raw = raw * secondary;
+
+    // FUN-TS3b: universal short boost (Attempt 2 final, 3.2×).
+    // Applied in all zones — the 16-zone pitch grid is fully covered.
+    // Short must beat LayOff everywhere; layoff is separately suppressed in attacking
+    // zones (see utility_lay_off). Short_raw×secondary ≈ 0.097; boosted 3.2× ≈ 0.310.
+    let raw = {
+        let boosted = raw * ZONE_SHORT_BOOST;
+        if boosted > Q32::ONE {
+            Q32::ONE
+        } else {
+            boosted
+        }
+    };
 
     let biased = apply_safe_pass_bias(raw, a);
 
@@ -401,6 +573,11 @@ pub fn utility_pass_short(player: &PlayerState, roster_slot: u8) -> (PlayerInten
 ///
 /// Attribute binding (spec): passing × vision × decisions (primary); long_shots as
 /// ball-power proxy, composure + anticipation as secondary; risk_appetite + flair via bias.
+///
+/// FUN-TS3b: vision-weighted suppressor applied so long passes fire proportionally to
+/// forward-lane openness (proxied by mental.vision). Suppressor: base=0.45, lane_coeff=0.35.
+/// At vision=0.5: suppressor=0.625. At vision=1.0: 0.80 (vision-elite can play long).
+/// Final-third players (zone ≥ LONG_NO_SUPPRESS_ZONE=15) are unsuppressed — through-balls.
 pub fn utility_pass_long(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
@@ -416,6 +593,26 @@ pub fn utility_pass_long(player: &PlayerState, roster_slot: u8) -> (PlayerIntent
         * (Q32::ONE + w_ant * a.mental.anticipation)
         * (Q32::ONE + w_comp * a.mental.composure);
     let raw = raw * secondary;
+
+    // FUN-TS3b: zone-conditional suppressor (Attempt 2 final).
+    // Zones ≥ LONG_NO_SUPPRESS_ZONE=15: no suppressor (final-third through-balls).
+    // Zones 6-14: vision-weighted suppressor.
+    //   suppressor = LONG_BASE_SUPPRESS(0.45) + LONG_LANE_COEFF(0.35) × vision.
+    //   At vision=0.5: 0.45+0.175=0.625. At vision=1.0: 0.80. At vision=0.0: 0.45.
+    // Zones 0-5 (very deep own half): flat LONG_BASE_SUPPRESS(0.45) regardless of vision.
+    let team_idx = if (roster_slot as usize) < 11 { 0 } else { 1 };
+    let zone_x = player_zone_x(player.pos_x, team_idx);
+    let raw = if zone_x >= LONG_NO_SUPPRESS_ZONE {
+        // Final-third: no suppressor — long through-balls are tactical here.
+        raw
+    } else if zone_x >= LONG_THRESHOLD_ZONE {
+        // Mid zone: vision-dependent suppressor (gentler than Attempt 1).
+        let suppressor = LONG_BASE_SUPPRESS + LONG_LANE_COEFF * a.mental.vision;
+        raw * suppressor
+    } else {
+        // Very deep own half: flat suppressor (no lane openness credit).
+        raw * LONG_BASE_SUPPRESS
+    };
 
     // is_progressive proxy = vision (high vision → sees forward option).
     let is_progressive = IsProgressive(a.mental.vision);
@@ -441,6 +638,14 @@ pub fn utility_pass_long(player: &PlayerState, roster_slot: u8) -> (PlayerIntent
 ///
 /// Attribute binding (spec): crossing × vision × pace (primary);
 /// first_touch + anticipation as secondary; work_rate + flair via bias.
+///
+/// FUN-TS3b: width-only cross gate. Cross fires for any wide player (|pos_y| > CROSS_CENTRAL_Y_M=8m),
+/// regardless of x-position. In-possession events from wide positions are rare in the sim;
+/// requiring an attacking-zone condition drove cross to 0% (players rarely have the ball
+/// while both wide AND attacking). Gate is now pure width: suppressor grows from
+/// CROSS_BASE_SUPPRESS(0.28) at y=8m to (0.28+2.5×1.0)=2.78 at y=34m (touchline).
+/// The clamped raw = min(raw × suppressor, 1.0); at baseline attrs (crossing/vision/pace=0.5)
+/// raw_pre_suppressor ≈ 0.163 so the clamp is dormant until real attrs arrive.
 pub fn utility_cross(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
@@ -453,6 +658,49 @@ pub fn utility_cross(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q3
     let secondary =
         (Q32::ONE + w_ft * a.technical.first_touch) * (Q32::ONE + w_ant * a.mental.anticipation);
     let raw = raw * secondary;
+
+    // FUN-TS3b: width-only cross gate (Attempt 2 final).
+    // wide_position = clamp((|pos_y| - CROSS_CENTRAL_Y_M) / CROSS_WIDE_RANGE_M, 0, 1).
+    //   CROSS_CENTRAL_Y_M=8m: players 8m+ from centre qualify as "wide".
+    //   Wide FWD at y=15m: wide_pos = (15-8)/26 = 0.269.
+    // cross_gate = wide_position (no attacking-third gate).
+    // suppressor = CROSS_BASE_SUPPRESS(0.28) + CROSS_GATE_COEFF(2.5) × cross_gate.
+    //   At y=15m: suppressor = 0.28 + 2.5×0.269 = 0.952. At y=34m: suppressor = 2.78.
+    //   raw × suppressor is clamped to ≤ Q32::ONE before apply_cross_bias (Fix A).
+    //
+    // Requiring in_attacking drove cross to 0%: players rarely possess the ball
+    // while simultaneously wide AND in the attacking third. Width alone is sufficient
+    // — a wide player crossing from mid-pitch is still a rational cross attempt.
+    let py_abs_bits = player.pos_y.to_bits().unsigned_abs();
+    let central_bits = CROSS_CENTRAL_Y_M.to_bits().unsigned_abs();
+    let wide_pos: Q32 = if py_abs_bits <= central_bits {
+        Q32::ZERO
+    } else {
+        let excess = Q32::from_raw((py_abs_bits - central_bits) as i64);
+        let w = excess / CROSS_WIDE_RANGE_M;
+        if w > Q32::ONE { Q32::ONE } else { w }
+    };
+
+    // Width-only gate: no attacking-third condition.
+    let cross_gate = wide_pos;
+
+    let suppressor = CROSS_BASE_SUPPRESS + CROSS_GATE_COEFF * cross_gate;
+    // Apply the width gate: multiply raw by the suppressor first, then clamp.
+    // FUN-TS3b Fix A: suppressor can exceed 1.0 for very wide players (e.g. at
+    // y=34m touchline: suppressor ≈ 2.78). At current mid-attrs (crossing=0.5,
+    // vision=0.5, pace=0.5) raw_pre ≈ 0.163, and 0.163 × 2.78 ≈ 0.453, which is
+    // already ≤ 1.0. However, when real PlayerTemplate attrs land near 1.0,
+    // raw_pre × suppressor ≈ 2.78 → panics apply_cross_bias's assert. Clamp
+    // to Q32::ONE mirrors the short-pass path (on_ball.rs utility_pass_short).
+    // This clamp is a no-op at current baseline attrs (no hash change from Fix A).
+    let raw = {
+        let with_suppressor = raw * suppressor;
+        if with_suppressor > Q32::ONE {
+            Q32::ONE
+        } else {
+            with_suppressor
+        }
+    };
 
     // Cross bias: WorkRate + FlairBias per spec (P1-5 fix — was safe_pass proxy).
     let biased = apply_cross_bias(raw, a);
@@ -530,6 +778,11 @@ pub fn utility_hold_ball(player: &PlayerState, roster_slot: u8) -> (PlayerIntent
 ///
 /// Attribute binding (spec): first_touch × passing × vision (primary);
 /// teamwork + composure as secondary; selflessness via bias.
+///
+/// FUN-TS3b: zone-conditional suppressor in attacking zones (zone_x ≥ LAYOFF_SUPPRESS_ZONE).
+/// In the attacking half, a layoff targets formation_position.y - 7m — a backward pass.
+/// Suppressed to prevent layoff dominating over short passes in the final third.
+/// In own/mid zones layoff is unsuppressed — a backward recycling touch is rational.
 pub fn utility_lay_off(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
@@ -545,6 +798,19 @@ pub fn utility_lay_off(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, 
 
     // Lay-off bias: Selflessness ONLY per spec (P1-5 fix — was safe_pass proxy which also read risk_appetite).
     let biased = apply_lay_off_bias(raw, a);
+
+    // FUN-TS3b: zone-conditional layoff suppressor.
+    // In attacking zones (zone_x ≥ LAYOFF_SUPPRESS_ZONE=9), a layoff sends the ball
+    // backward toward formation position — less rational than a short pass forward.
+    // Suppressor = LAYOFF_ATTACK_SUPPRESS (0.55) in attacking zones.
+    // This prevents layoff from dominating over short in the final third.
+    let team_idx = if (roster_slot as usize) < 11 { 0 } else { 1 };
+    let zone_x = player_zone_x(player.pos_x, team_idx);
+    let biased = if zone_x >= LAYOFF_SUPPRESS_ZONE {
+        biased * LAYOFF_ATTACK_SUPPRESS
+    } else {
+        biased
+    };
 
     let (fx, fy) = formation_position(roster_slot);
     let target_x = fx;

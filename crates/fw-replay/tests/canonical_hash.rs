@@ -319,8 +319,26 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   trigger #3 (behavior: pass outcomes now stochastic — completion draw
 ///   replaces `T1_PASS_COMPLETED = true`). VERSION bumped 11→12. Multi-pin
 ///   rebaseline authorized by FUN-CB1 task spec.
+/// - 2026-06-05 (FUN-TS3b pass-kind utility reweighting) — **re-baselined to
+///   `110158b9…b5d7`** per ADR-0012 trigger #3 (sim behavior change with
+///   documented intent). Zone-conditional pass-kind bias constants retuned:
+///   ZONE_SHORT_BOOST 2.8→3.2, LONG_BASE_SUPPRESS 0.58→0.45,
+///   LONG_LANE_COEFF 0.37→0.35, LONG_NO_SUPPRESS_ZONE 14→15,
+///   CROSS_GATE_COEFF 0.72→2.5 (width-only gate; no attacking-third
+///   condition). 40-seed 5400-tick gate: Short=77.0% Long=10.4% Cross=7.8%
+///   LayOff=4.7% — all four in the floored band (75-85/8-15/3-10/3-8%).
+///   Authorized by FUN-TS3b task spec + user honesty contract.
+/// - 2026-06-05 (FUN-TS3b pre-commit defect fixes: Fix A + Fix B + Fix C) —
+///   hash UNCHANGED from `110158b9…b5d7`. Fix A: clamp added to cross path
+///   before apply_cross_bias (no-op at mid-attrs; prevents T4.5-E1 panic when
+///   real player attrs near 1.0). Fix B: PITCH_ZONE_WIDTH_Q32 corrected from
+///   28_180_722_893 (≈6.5613m) to 28_185_722_880 (exactly 6.5625m = 105/16 ×
+///   2^32); zone assignments for all player positions exercised in these seeds
+///   are unchanged (verified: ~1mm boundary delta doesn't cross any zone
+///   boundary in practice). Fix C: stale comments reconciled (no code change).
+///   Net canonical-state effect: zero. All three fixes are no-ops at baseline.
 const PINNED_60_TICK: [u8; 32] =
-    hex!("eddb9ddc124e02c959c12217c3493e284e099191c3b4a7fdc8a55bc98d7ffffe");
+    hex!("110158b9bab7aae225726afdae338435d62c783634ef2b3fd847e8ce90eeb5d7");
 
 /// Read `env_var` as the number of fresh runs for an intra-process determinism
 /// test, falling back to `default` when the env var is absent or unparseable.
@@ -846,8 +864,20 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   Measured: seed 7834583133621575731 now shows CORDIC-ringing-only (≤12 raw
 ///   bits = 0.000003mm). 60-tick smoke pin UNCHANGED (no PassIncomplete in 60
 ///   ticks). Authorized: intentional canonical-behavior change to fix masking.
+/// - 2026-06-05 (FUN-TS3b pass-kind utility reweighting) — **re-baselined to
+///   `885888ec…b98c7`** per ADR-0012 trigger #3 (sim behavior change). Same
+///   constant changes as PINNED_60_TICK FUN-TS3b entry above. Over this
+///   600-tick content-driven run, player trajectories and pass-kind selection
+///   shift → canonical bytes change. 40-seed 5400-tick gate verified BEFORE
+///   rebaseline: Short=77.0% Long=10.4% Cross=7.8% LayOff=4.7% — all in band.
+///   600-tick goal envelope check run inline below.
+///   Authorized by FUN-TS3b task spec + user honesty contract.
+/// - 2026-06-05 (FUN-TS3b pre-commit defect fixes: Fix A + Fix B + Fix C) —
+///   hash UNCHANGED from `885888ec…b98c7`. Same reasoning as PINNED_60_TICK
+///   Fix note above: all three fixes are no-ops at baseline mid-attrs on all
+///   seeds exercised; no canonical bytes shift.
 const PINNED_600_TICK: [u8; 32] =
-    hex!("95ee3978c5200e84ef3c72596de0bc621f540327d541b877d0f7ce436a1f6964");
+    hex!("885888eceaae823228757cbc60e702ca0bf47e21708c9b37bb4be6b67bfb98c7");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

@@ -143,10 +143,10 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:95ee3978c5200e84ef3c72596de0bc621f540327d541b877d0f7ce436a1f6964",
+    expected_hash: "blake3:885888eceaae823228757cbc60e702ca0bf47e21708c9b37bb4be6b67bfb98c7",
     metadata: (
-        description: "FUN-CB1 integrity fix: drop_loose_ball lateral offset (FUN-PHYS-1 partial mitigation) + honest separation-proptest tolerances. Prior 4e02…4df was CB1 passes-can-fail. This rebaseline authorized: intentional behavior change fixes head-on loose-ball convergence clip-through.",
+        description: "FUN-TS3b Attempt 2: pass-kind utility reweighting — ZONE_SHORT_BOOST 3.2, LONG_BASE_SUPPRESS 0.45, LONG_NO_SUPPRESS_ZONE 15, CROSS_GATE_COEFF 2.5 (width-only gate). 40-seed gate: Short=77.0% Long=10.4% Cross=7.8% LayOff=4.7%. Pre-commit fixes (Fix A/B/C) are all no-ops at baseline attrs — hash UNCHANGED.",
         generated_at: "2026-06-05",
-        notes: "60-tick smoke pin unchanged (no PassIncomplete in 60 ticks).",
+        notes: "Fix A (cross clamp) no-op at baseline attrs. Fix B (PITCH_ZONE_WIDTH_Q32 precision) does not move any player into a different zone in seeds exercised. Fix C = comment-only. Prior 95ee…6964 was FUN-CB1 integrity fix.",
     ),
 )

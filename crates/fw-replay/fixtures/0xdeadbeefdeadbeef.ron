@@ -218,10 +218,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:eddb9ddc124e02c959c12217c3493e284e099191c3b4a7fdc8a55bc98d7ffffe",
+    expected_hash: "blake3:110158b9bab7aae225726afdae338435d62c783634ef2b3fd847e8ce90eeb5d7",
     metadata: (
-        description: "FUN-CB1: passes can fail — new PassIncomplete discriminant 7 + stochastic pass completion. VERSION 11→12. Velocity collision-response investigated for FUN-CB1 REVISE but REJECTED (M1 drops 2.35→2.15 at any threshold; filed for FUN-TS3).",
+        description: "FUN-TS3b Attempt 2: pass-kind utility reweighting — ZONE_SHORT_BOOST 2.8→3.2, LONG_BASE_SUPPRESS 0.58→0.45, LONG_LANE_COEFF 0.37→0.35, LONG_NO_SUPPRESS_ZONE 14→15, CROSS_GATE_COEFF 0.72→2.5 (width-only gate). 40-seed gate: Short=77.0% Long=10.4% Cross=7.8% LayOff=4.7% — all floored. Pre-commit fixes (Fix A/B/C) are all no-ops at baseline attrs — hash UNCHANGED.",
         generated_at: "2026-06-05",
-        notes: "Final FUN-CB1 pin. Collision-response left for FUN-TS3 in-possession-rework. Separation proptest updated: inv6/inv6b use 1mm tol (CORDIC ringing), streak bound ≤3 (measured CB1 worst case).",
+        notes: "Fix A (cross clamp) no-op at mid-attrs. Fix B (PITCH_ZONE_WIDTH_Q32 28_180_722_893→28_185_722_880) does not move any player into a different zone for seeds exercised. Fix C = comment-only.",
     ),
 )

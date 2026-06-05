@@ -1613,16 +1613,16 @@ MatchState {
         PlayerState {
             slot: 8,
             pos_x: Q32(
-                16.23563004,
+                16.2442523718,
             ),
             pos_y: Q32(
-                -13.5355524851,
+                -13.3885251437,
             ),
             vel_x: Q32(
-                7.238609884,
+                7.2524413988,
             ),
             vel_y: Q32(
-                3.4062482193,
+                3.376698643,
             ),
             scalars: {},
             role_state: Forward(
@@ -1813,13 +1813,13 @@ MatchState {
         PlayerState {
             slot: 9,
             pos_x: Q32(
-                10.332222211,
+                9.446597212,
             ),
             pos_y: Q32(
                 0,
             ),
             vel_x: Q32(
-                6.5333332226,
+                7.5083332213,
             ),
             vel_y: Q32(
                 0,
@@ -2013,16 +2013,16 @@ MatchState {
         PlayerState {
             slot: 10,
             pos_x: Q32(
-                13.4816435326,
+                16.251535951,
             ),
             pos_y: Q32(
-                13.8205140163,
+                12.5251544835,
             ),
             vel_x: Q32(
-                7.9583835173,
+                8,
             ),
             vel_y: Q32(
-                0.8149428107,
+                0,
             ),
             scalars: {},
             role_state: Forward(
@@ -2213,20 +2213,20 @@ MatchState {
         PlayerState {
             slot: 11,
             pos_x: Q32(
-                40.3659028579,
+                43.4935343154,
             ),
             pos_y: Q32(
-                0.7601158384,
+                -0.2857835786,
             ),
             vel_x: Q32(
-                -5.3685689415,
+                1.9649552344,
             ),
             vel_y: Q32(
-                1.1571027907,
+                0.3727611853,
             ),
             scalars: {},
             role_state: Goalkeeper(
-                SweeperKeeperRush,
+                InBoxPositioning,
             ),
             local_decision_counter: 4,
             attributes: PlayerAttributes {
@@ -3413,7 +3413,7 @@ MatchState {
         PlayerState {
             slot: 17,
             pos_x: Q32(
-                10.7322222092,
+                9.846597212,
             ),
             pos_y: Q32(
                 0,
@@ -4413,19 +4413,19 @@ MatchState {
     ],
     ball: BallState {
         pos_x: Q32(
-            12.618959508,
+            15.0807144518,
         ),
         pos_y: Q32(
-            12.6213373267,
+            11.4929808783,
         ),
         pos_z: Q32(
             0,
         ),
         vel_x: Q32(
-            -2.9549490502,
+            -7.4679743212,
         ),
         vel_y: Q32(
-            -16.7572654593,
+            -15.2894417497,
         ),
         vel_z: Q32(
             0,
@@ -4702,29 +4702,11 @@ MatchState {
         },
         Pass {
             from_slot: 9,
-            to_slot: 10,
-            tick: Tick(
-                5,
-            ),
-            kind: Cross,
-            completed: true,
-        },
-        Pass {
-            from_slot: 10,
-            to_slot: 9,
-            tick: Tick(
-                11,
-            ),
-            kind: Cross,
-            completed: true,
-        },
-        Pass {
-            from_slot: 9,
             to_slot: 8,
             tick: Tick(
                 20,
             ),
-            kind: Cross,
+            kind: Short,
             completed: true,
         },
         Pass {
@@ -4733,7 +4715,7 @@ MatchState {
             tick: Tick(
                 34,
             ),
-            kind: Long,
+            kind: Short,
             completed: true,
         },
         Pass {
@@ -4742,8 +4724,25 @@ MatchState {
             tick: Tick(
                 35,
             ),
-            kind: Cross,
+            kind: Short,
             completed: true,
+        },
+        Pass {
+            from_slot: 10,
+            to_slot: 9,
+            tick: Tick(
+                41,
+            ),
+            kind: Cross,
+            completed: false,
+        },
+        PassIncomplete {
+            from_slot: 10,
+            to_slot: 9,
+            tick: Tick(
+                41,
+            ),
+            kind: Cross,
         },
         Pass {
             from_slot: 10,
@@ -4751,7 +4750,7 @@ MatchState {
             tick: Tick(
                 56,
             ),
-            kind: Long,
+            kind: Short,
             completed: true,
         },
     ],
@@ -4893,7 +4892,7 @@ MatchState {
             74,
         ),
         Tick(
-            23,
+            0,
         ),
         Tick(
             0,
@@ -4911,10 +4910,10 @@ MatchState {
                 -13,
             ),
             block_centroid_x: Q32(
-                -6.8036425267,
+                -6.6152584646,
             ),
             block_centroid_y: Q32(
-                -0.3247094217,
+                -0.4381351538,
             ),
             compactness_v: Q32(
                 30,
@@ -4943,7 +4942,7 @@ MatchState {
                 13,
             ),
             block_centroid_x: Q32(
-                6.9280077307,
+                6.8386327308,
             ),
             block_centroid_y: Q32(
                 0.0092404266,

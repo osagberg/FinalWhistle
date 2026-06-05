@@ -11,29 +11,11 @@ expression: state.match_events()
     },
     Pass {
         from_slot: 9,
-        to_slot: 10,
-        tick: Tick(
-            5,
-        ),
-        kind: Cross,
-        completed: true,
-    },
-    Pass {
-        from_slot: 10,
-        to_slot: 9,
-        tick: Tick(
-            11,
-        ),
-        kind: Cross,
-        completed: true,
-    },
-    Pass {
-        from_slot: 9,
         to_slot: 8,
         tick: Tick(
             20,
         ),
-        kind: Cross,
+        kind: Short,
         completed: true,
     },
     Pass {
@@ -42,7 +24,7 @@ expression: state.match_events()
         tick: Tick(
             34,
         ),
-        kind: Long,
+        kind: Short,
         completed: true,
     },
     Pass {
@@ -51,8 +33,25 @@ expression: state.match_events()
         tick: Tick(
             35,
         ),
-        kind: Cross,
+        kind: Short,
         completed: true,
+    },
+    Pass {
+        from_slot: 10,
+        to_slot: 9,
+        tick: Tick(
+            41,
+        ),
+        kind: Cross,
+        completed: false,
+    },
+    PassIncomplete {
+        from_slot: 10,
+        to_slot: 9,
+        tick: Tick(
+            41,
+        ),
+        kind: Cross,
     },
     Pass {
         from_slot: 10,
@@ -60,7 +59,7 @@ expression: state.match_events()
         tick: Tick(
             56,
         ),
-        kind: Long,
+        kind: Short,
         completed: true,
     },
     FullTime {
