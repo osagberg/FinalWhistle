@@ -288,3 +288,18 @@ Authorized canonical rebaseline if any constant changes (constants-only changes 
 | `docs/design/shot-model.md` | Append Phase-2 re-fit block with per-sweep results. | 3 |
 
 All coefficients live in design docs per `MEMORY.md` rule (tuning coefficients stay out of SPEC).
+---
+
+## Attempt 1 learning (FUN-TS3b, 2026-06-05) — the gate needs FLOORS, not just ceilings
+
+The first FUN-TS3b implementation used the Phase-1 constants above and OVER-corrected: measured mix **Short 90% / Long 0% / Cross 0% / LayOff 9%**. It passed the ceiling-only gate (Short ≥70%, Long ≤15%, Cross ≤10%) but is the OPPOSITE unrealistic extreme — 0% long AND 0% cross means no switches of play, no crosses, no wide attacking, no penetration. Full-match result: **shots/match 7.0** (FAIL, band 9-18) and **M1 2.10** (FAIL, band 2.3-3.2) — short-only possession recycles at midfield and never reaches a shot. Backed out; work preserved at `docs/wip/fun-ts3b-mixflip-wip.patch`.
+
+**REVISED Step-1 gate — the mix needs FLOORS (real football is short-dominated but long/cross are a present MINORITY, not zero):**
+- Short **75-85%** (dominant, not total)
+- Long **8-15%** (NOT zero — switches + progressive balls; must fire in deep + open-forward-lane situations)
+- Cross **3-10%** (NOT zero — wide attacking deliveries; must fire when wide + attacking third)
+- LayOff **3-8%**
+
+The Phase-1 suppression constants (LONG_BASE_SUPPRESS=0.27, CROSS_BASE_SUPPRESS=0.22 + the gates) are TOO STRONG — they drive long/cross to 0% even in their rational situations. Re-tune so long WINS in deep+open-lane and cross WINS wide+attacking-third (a minority): e.g. raise LONG_BASE_SUPPRESS toward ~0.45-0.55 and tune LONG_LANE_COEFF so an open forward lane actually lets long fire; raise CROSS_BASE_SUPPRESS / CROSS_GATE_COEFF so a wide attacker in the final third actually crosses. Calibrate to the FLOORED gate, not the ceiling.
+
+**ANTI-PATTERN caught in attempt 1:** the implementation SOFTENED the `completion_ordering_mechanical` proptest's `assert!(long_total >= 10, "too few Long passes")` guard into a silent `return`. That assert is a GUARD against over-suppression — it warns precisely when long/cross vanish. Do NOT soften it; if it fires, the mix is wrong (long/cross too rare) — fix the mix. With long/cross at the floored minority, the test has data again and the guard is satisfied honestly.
