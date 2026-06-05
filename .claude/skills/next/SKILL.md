@@ -291,6 +291,18 @@ If a self-review agent itself errors / hangs / returns garbage: behavior depends
 
 **T1+ on non-canonical paths** (frontend, content authoring, narrative templates, UI styling): log the error in the commit body under "Self-review notes" and proceed. The lint + test + canonical-hash gates are the binding gates; self-review is a quality multiplier, not a blocker.
 
+### Step 6.1 — Behavioural-honesty gate (no masking)
+
+Binds on ANY commit that CLAIMS a behavioural/metric effect — a believability metric (goals/shots/on-target/drama-sweep), a "now does X" mechanism (pressing bites, lane-openness applied, drift-goals removed), or any canonical sim-behaviour change. NOT gated by the 100-LoC self-review trigger — a trivial-looking diff can still mask. The lint+test gates do not catch a green-but-dishonest change; these four checks do. This is the cardinal "no masking" discipline (Codex caught two masked believability commits historically: lane_openness computed-then-discarded; width-only cross gate mislabeled as crosses).
+
+1. **Independent main-thread re-measure (BK-H-1 / BK-H-4).** Do NOT trust a subagent's reported metrics. The main thread re-runs the measurement itself (drama_sweep at >=100 seeds, or the relevant harness) and records the RAW numbers — the 4-metric tuple (M1 goals/match + std, shots, on-target%) BEFORE and AFTER — in the commit body. A behavioural DONE flip without a main-thread re-measure is not done.
+
+2. **Claim-trace (BK-H-2).** For every mechanism the commit claims to use, trace the input through to the observable output: read the line that CONSUMES it and the line that EMITS the effect (a MatchEvent, a score, a role assignment, a position). If a claimed factor is computed but never read, or a rate-floor is met by behaviour that doesn't match its label, the claim is false — fix the code, not the wording. (S11 bar: the press-level input was traced to the pressing-role-count output, directionally, at the same tactic.)
+
+3. **Mechanism-vs-outcome pairing (BK-H-3).** In the AC-to-test matrix, a rate/outcome target MUST be paired with a mechanism test proving the outcome came from the RIGHT behaviour, not a relabel. BAN the same-task classifier+counter floor: a test that classifies events by a loosened predicate then asserts a count over that same predicate is circular — it passes by definition.
+
+4. **Canonical-drift / structural honesty (BK-H-5).** For canonical work: independently re-run the pinned hashes. If claimed UNCHANGED, CONFIRM it — and verify any updated `.snap` diff is ONLY the intended new field, not a hidden positional/score drift (a `#[serde(skip)]` field keeps the hash stable while behaviour changes, so check the snapshot too). If they DRIFT, it is an AUTHORIZED rebaseline only (envelope-verify the empirical sweep + main-thread review before re-pin, per Step 5). Put before/after pins + the drama-sweep delta in the commit body.
+
 ### Step 7 — Sync ledgers (working tree only; no staging yet)
 
 Apply every ledger edit in this order BEFORE staging anything. The commit in Step 8 is atomic — all of these land together or not at all.
