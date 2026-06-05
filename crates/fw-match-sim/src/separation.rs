@@ -51,10 +51,16 @@
 //! convergence velocity every decision tick (every 15 ticks).
 //!
 //! **FUN-PHYS-1 partial mitigation (drop_loose_ball, dispatch.rs):** the
-//! loose-ball drop point is now laterally offset 0.4m (= MIN_PLAYER_DISTANCE)
-//! away from the nearest opponent, breaking the head-on geometry. Measured
-//! result: seed 7834583133621575731 went from a 150mm / 62-tick clip-through
-//! to CORDIC-ringing-only (≤12 raw bits = 0.000003mm, same as clean seeds).
+//! loose-ball drop point is laterally offset 0.4m (= MIN_PLAYER_DISTANCE)
+//! away from the nearest opponent, breaking the head-on geometry at the drop.
+//! This clears the CONTENT-FREE separation test (inv6/inv6b: seed
+//! 7834583133621575731 shows 0 real-overlap ticks — independently re-measured
+//! 2026-06-05). It does NOT fully resolve the CONTENT-LOADED carrier/mark
+//! deadlock — measured at ~59mm / 2-tick in a full match (the BT re-issues
+//! convergence velocity each decision tick). That residual is the deferred
+//! FUN-PHYS-1 (collision-aware steering) — see MASTER_PLAN. A naive global
+//! velocity-damp resolves it but suppresses goals (M1 2.35→2.08, measured),
+//! so the real fix must be goal-safe steering, not damping.
 //!
 //! **Root cause remains open:** collision-aware player movement (FUN-PHYS-1
 //! in MASTER_PLAN). The separation pass is still position-only; a sufficiently

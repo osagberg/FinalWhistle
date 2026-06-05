@@ -1,0 +1,1076 @@
+diff --git a/crates/fw-content/tests/fixtures_load.rs b/crates/fw-content/tests/fixtures_load.rs
+index bc8e1c15..6b0b7ac5 100644
+--- a/crates/fw-content/tests/fixtures_load.rs
++++ b/crates/fw-content/tests/fixtures_load.rs
+@@ -289,10 +289,11 @@ fn signature_load_does_not_drift_canonical_hash() {
+     // compactness (LowBlock=25m, MidBlock=30m, HighPress=35m, correct direction).
+     // Prior hash (FUN-TS2): d1170bfc6075ce825130f815b1dd7540bfb29e8cad7194010399681883170880
+     // FUN-CB1 (passes can fail, final): eddb9ddc124e02c959c12217c3493e284e099191c3b4a7fdc8a55bc98d7ffffe
++    // FUN-PHYS-1 (collision-aware movement, Option B + C): e61aad96345cd811f81c7efba7315d7d6280b2109b562777710a8380a4f5cd8d
+     const EXPECTED: [u8; 32] = [
+-        0xed, 0xdb, 0x9d, 0xdc, 0x12, 0x4e, 0x02, 0xc9, 0x59, 0xc1, 0x22, 0x17, 0xc3, 0x49, 0x3e,
+-        0x28, 0x4e, 0x09, 0x91, 0x91, 0xc3, 0xb4, 0xa7, 0xfd, 0xc8, 0xa5, 0x5b, 0xc9, 0x8d, 0x7f,
+-        0xff, 0xfe,
++        0xe6, 0x1a, 0xad, 0x96, 0x34, 0x5c, 0xd8, 0x11, 0xf8, 0x1c, 0x7e, 0xfb, 0xa7, 0x31, 0x5d,
++        0x7d, 0x62, 0x80, 0xb2, 0x10, 0x9b, 0x56, 0x27, 0x77, 0x71, 0x0a, 0x83, 0x80, 0xa4, 0xf5,
++        0xcd, 0x8d,
+     ];
+ 
+     // Load the content store (exercises the new signature loader).
+@@ -315,10 +316,9 @@ fn signature_load_does_not_drift_canonical_hash() {
+     assert_eq!(
+         actual, EXPECTED,
+         "\nCanonical-state hash drifted unexpectedly.\n\
+-         T4-sim-halt rebaselined to 85f45bf8ae8821182a45a82969ec36bc5b2d70ba2518b8271de24782fd8064fa\n\
+-         (match_end_tick default 60 -> 5400 + tick_match self-halts at FullTime; \
+-         on this 60-tick pin gameplay is byte-identical and only match_events loses \
+-         the single FullTime the old 60-tick default emitted; ADR-0012 trigger #3).\n\
++         FUN-PHYS-1 rebaselined to e61aad96345cd811f81c7efba7315d7d6280b2109b562777710a8380a4f5cd8d\n\
++         (Option B waypoint deflection in preempt_check + Option C inward-velocity damping \
++         in separation.rs::resolve_pair gated on |pos_x|≤32.5m; ADR-0012 trigger #3).\n\
+          If this drifts again, it must be an authorized rebaseline — ADR-0012 trigger #1 or #3.\n\
+          Actual:   {:02x?}",
+         actual
+diff --git a/crates/fw-match-sim/src/dispatch.rs b/crates/fw-match-sim/src/dispatch.rs
+index 6a002eb0..3d23c185 100644
+--- a/crates/fw-match-sim/src/dispatch.rs
++++ b/crates/fw-match-sim/src/dispatch.rs
+@@ -1863,12 +1863,229 @@ fn preempt_check(state: &MatchState, slot_idx: usize) -> Option<PlayerIntent> {
+         return None; // let BT decide (formation hold)
+     }
+ 
++    // FUN-PHYS-1 Option B — waypoint deflection.
++    //
++    // Before issuing MoveToPosition { target: ball }, scan opponent slots in
++    // ascending order for a blocker whose perpendicular distance to the
++    // (chaser → ball) segment is < CLEARANCE_RADIUS (≈ 0.6m) AND whose
++    // projection along the segment is between ~0.5m and (dist_to_ball − 0.5m).
++    //
++    // If exactly one blocker is found, compute a lateral waypoint offset from
++    // the ball position by WAYPOINT_OFFSET_M perpendicular to the approach
++    // vector. The signed direction is determined by the blocker's Y offset
++    // from the chaser-ball axis (same convention as drop_loose_ball).
++    //
++    // If multiple or ambiguous obstructions: fall through to direct chase
++    // (today's behaviour). This preserves goal-scoring: this arm only fires
++    // when possession == None, which can never be true during attacking
++    // convergence or press.
++    //
++    // Q32 only. No sqrt on the projection (dot-product sufficient for the
++    // range gate). CORDIC sqrt only for the perpendicular distance check.
++    // Deterministic ascending iteration, no RNG.
++    if let Some(intent) = compute_waypoint_deflection(state, slot_idx, bx, by) {
++        return Some(intent);
++    }
++
+     Some(PlayerIntent::MoveToPosition {
+         target_x: state.ball.pos_x,
+         target_y: state.ball.pos_y,
+     })
+ }
+ 
++// ---------------------------------------------------------------------------
++// FUN-PHYS-1 Option B: waypoint deflection helper
++// ---------------------------------------------------------------------------
++
++/// Clearance radius for the blocker scan: MIN_PLAYER_DISTANCE × 1.5 ≈ 0.6m.
++///
++/// Raw bits = round(0.6 × 2^32) = 2_576_980_377.
++const CLEARANCE_RADIUS: Q32 = Q32::from_raw(2_576_980_377_i64);
++
++/// Squared clearance radius: CLEARANCE_RADIUS² ≈ 0.36m².
++///
++/// Raw bits = round(0.36 × 2^32) = 1_546_188_227.
++/// 0.36 × 4294967296 = 1_546_188_227.
++const CLEARANCE_RADIUS_SQ: Q32 = Q32::from_raw(1_546_188_227_i64);
++
++/// Waypoint lateral offset magnitude ≈ 0.6m (= CLEARANCE_RADIUS).
++///
++/// The waypoint is placed `ball + perpendicular_unit × WAYPOINT_OFFSET` so
++/// that the two chasers diverge toward the ball from different angles.
++const WAYPOINT_OFFSET: Q32 = CLEARANCE_RADIUS;
++
++/// Minimum projection along the chaser→ball segment for a blocker to count.
++///
++/// 0.5m in Q32: raw = round(0.5 × 2^32) = 2_147_483_648.
++const MIN_PROJ: Q32 = Q32::from_raw(2_147_483_648_i64);
++
++/// Scan opponent slots for a blocker on the (chaser → ball) straight-line path.
++///
++/// Returns `Some(MoveToPosition { target: waypoint })` when exactly one opponent
++/// blocks the direct approach and a clean lateral waypoint can be computed.
++/// Returns `None` (fall through to direct chase) when:
++/// - No blocker is found.
++/// - Multiple blockers are found (ambiguous; direct approach is safest).
++/// - The approach distance is so small that projection gating is meaningless
++///   (< 1m — the two players are essentially already at the ball).
++///
++/// ## Geometry
++///
++/// The approach unit vector `u = (ball - chaser) / dist`. A candidate blocker
++/// at position `q` passes the filter when:
++/// - `proj = (q - chaser) · u ∈ [0.5m, dist - 0.5m]` (between guards)
++/// - `perp_dist = sqrt((q - chaser)_dist_sq - proj²) < CLEARANCE_RADIUS`
++///
++/// The perpendicular unit vector is the 90° rotation of `u`:
++/// `perp_unit = (-u.y, u.x)` (signed by blocker's Y offset from the approach
++/// line, matching the `drop_loose_ball` convention).
++fn compute_waypoint_deflection(
++    state: &MatchState,
++    chaser_slot: usize,
++    ball_x: Q32,
++    ball_y: Q32,
++) -> Option<PlayerIntent> {
++    let chaser = &state.players[chaser_slot];
++    let cx = chaser.pos_x;
++    let cy = chaser.pos_y;
++
++    // Approach vector: chaser → ball.
++    let adx = ball_x - cx;
++    let ady = ball_y - cy;
++    let dist_sq = adx * adx + ady * ady;
++
++    // If the chaser is already within 1m of the ball, gating is unreliable.
++    // Raw bits for 1m² = 1 << 32 = 4_294_967_296.
++    const ONE_M_SQ: Q32 = Q32::from_raw(4_294_967_296_i64);
++    if dist_sq <= ONE_M_SQ {
++        return None;
++    }
++
++    // Approach distance and unit vector: u = (adx, ady) / dist.
++    let dist = dist_sq.sqrt();
++    let ux = adx / dist;
++    let uy = ady / dist;
++
++    // Maximum allowed projection: dist - 0.5m. (Blocker must be ≥ 0.5m short
++    // of the ball — we don't deflect when the blocker is already at the ball.)
++    let max_proj = dist - MIN_PROJ;
++    if max_proj <= MIN_PROJ {
++        // dist < 1m total: gating window is zero-width, fall through.
++        return None;
++    }
++
++    // Determine which team is the opponent.
++    // Home team: slots 0..11. Away team: slots 11..22.
++    let opp_start = if chaser_slot < crate::PLAYERS_PER_TEAM {
++        crate::PLAYERS_PER_TEAM
++    } else {
++        0
++    };
++    let opp_end = opp_start + crate::PLAYERS_PER_TEAM;
++
++    // Scan opponent slots in ascending index order (deterministic).
++    let mut blocker_y_raw: i64 = 0;
++    let mut blocker_count: u32 = 0;
++
++    for opp_idx in opp_start..opp_end {
++        let opp = &state.players[opp_idx];
++        let qx = opp.pos_x - cx;
++        let qy = opp.pos_y - cy;
++
++        // Projection of (opp - chaser) onto approach unit vector.
++        // proj = qx * ux + qy * uy
++        let proj = qx * ux + qy * uy;
++
++        // Gate: projection must be in [0.5m, dist - 0.5m].
++        if proj < MIN_PROJ || proj > max_proj {
++            continue;
++        }
++
++        // Perpendicular distance squared: |q|² - proj².
++        // Both terms are Q32; the result can be negative due to Q32 rounding.
++        // Guard against negative before sqrt.
++        let q_dist_sq = qx * qx + qy * qy;
++        let proj_sq = proj * proj;
++        if proj_sq >= q_dist_sq {
++            // Blocker is effectively on the approach line (perp ≈ 0) — this
++            // is the exact head-on case. Count it as a blocker.
++            blocker_count += 1;
++            if blocker_count == 1 {
++                blocker_y_raw = opp.pos_y.to_bits();
++            } else {
++                // Multiple blockers — fall through.
++                return None;
++            }
++            continue;
++        }
++
++        let perp_sq = q_dist_sq - proj_sq;
++        if perp_sq >= CLEARANCE_RADIUS_SQ {
++            continue; // outside clearance radius
++        }
++
++        // Blocker is within the clearance radius of the approach segment.
++        blocker_count += 1;
++        if blocker_count == 1 {
++            blocker_y_raw = opp.pos_y.to_bits();
++        } else {
++            // More than one blocker — ambiguous, fall through to direct chase.
++            return None;
++        }
++    }
++
++    if blocker_count != 1 {
++        return None; // no blocker found
++    }
++
++    // Compute lateral waypoint: ball + perp_unit × WAYPOINT_OFFSET.
++    //
++    // perp_unit = 90° rotation of (ux, uy):
++    //   left rotation:  (-uy, ux)
++    //   right rotation: (uy, -ux)
++    //
++    // Sign convention: offset AWAY from the blocker in Y.
++    // If blocker's Y > ball's Y → blocker is above → offset downward (−Y).
++    // Use the blocker's signed Y raw to determine side, then pick the
++    // rotation that moves AWAY from the blocker.
++    //
++    // The perpendicular to (ux, uy) is either (-uy, ux) or (uy, -ux).
++    // (-uy, ux) rotates 90° CCW: moves in +Y when ux > 0.
++    // (uy, -ux) rotates 90° CW: moves in -Y when ux > 0.
++    //
++    // We want to move AWAY from blocker. If blocker_y > ball_y, move down
++    // (use the rotation whose y-component is negative when the ball is
++    // approached from the left, i.e. CW rotation).
++
++    let ball_y_raw = ball_y.to_bits();
++    // "above" means blocker's Y raw > ball's Y raw (Y increases upward by convention).
++    let blocker_above = blocker_y_raw > ball_y_raw;
++
++    // CW rotation: (uy, -ux) — net Y component is -ux (negative for rightward approach).
++    // CCW rotation: (-uy, ux) — net Y component is ux (positive for rightward approach).
++    //
++    // For simplicity, derive sign from the approach direction and blocker side:
++    // perpendicular_y = if blocker_above { -uy } else { uy }
++    // perpendicular_x = if blocker_above { ux } else { -ux }
++    //
++    // This matches the "rotate 90° AWAY from the blocker" intent:
++    // - blocker above (Y+): offset goes downward (Y−) → CW rotation → (uy, -ux)
++    // - blocker below (Y−): offset goes upward (Y+) → CCW rotation → (-uy, ux)
++    let (perp_x, perp_y) = if blocker_above {
++        (uy, -ux) // CW rotation
++    } else {
++        (-uy, ux) // CCW rotation
++    };
++
++    let waypoint_x = ball_x + perp_x * WAYPOINT_OFFSET;
++    let waypoint_y = ball_y + perp_y * WAYPOINT_OFFSET;
++
++    Some(PlayerIntent::MoveToPosition {
++        target_x: waypoint_x,
++        target_y: waypoint_y,
++    })
++}
++
+ // ---------------------------------------------------------------------------
+ // Tests — Chunk 6 (RED → GREEN)
+ // ---------------------------------------------------------------------------
+diff --git a/crates/fw-match-sim/src/separation.rs b/crates/fw-match-sim/src/separation.rs
+index 1d1e7da4..b00d1e29 100644
+--- a/crates/fw-match-sim/src/separation.rs
++++ b/crates/fw-match-sim/src/separation.rs
+@@ -81,6 +81,21 @@ pub const MIN_PLAYER_DISTANCE: Q32 = Q32::from_raw(1_717_986_918);
+ /// 0.16 m² — raw bits = round(0.16 × 2^32) = 687_194_767
+ pub const MIN_PLAYER_DISTANCE_SQ: Q32 = Q32::from_raw(687_194_767);
+ 
++/// Option C velocity-damping gate: how close (in m) a player must be to
++/// EITHER opponent's goal line before we skip the inward-velocity damping.
++///
++/// `20m` — raw bits = round(20 × 2^32) = 85_899_345_920.
++///
++/// A player within 20m of the opponent's goal line (x > 32.5m for home, or
++/// x < -32.5m for away) is in or near the final third. Damping their
++/// approach velocity could suppress a striker run or a GK dive — so we skip
++/// the damp in that zone. Midfield and defensive convergence (where the
++/// sustained clip-through scenarios arise) are always outside this gate.
++///
++/// GOAL_LINE_X = 52.5m; gate boundary = 52.5 - 20 = 32.5m.
++/// 32.5m × 2^32 = 32 × 2^32 + 0.5 × 2^32 = 137_438_953_472 + 2_147_483_648 = 139_586_437_120.
++const IN_FINAL_THIRD_X: Q32 = Q32::from_raw(139_586_437_120_i64);
++
+ /// Fallback half-separation used when two players occupy the exact same
+ /// position (dist_sq == 0).
+ ///
+@@ -126,6 +141,26 @@ pub fn apply_player_separation(state: &mut MatchState) {
+ // ---------------------------------------------------------------------------
+ 
+ /// Resolve one (i, j) pair — push apart if within `MIN_PLAYER_DISTANCE`.
++///
++/// ## FUN-PHYS-1 Option C: inward-velocity damping
++///
++/// When two players are within `MIN_PLAYER_DISTANCE`, this pass also zeros
++/// the inward-closing component of each player's velocity (the component
++/// along the pair axis that is decreasing the distance).
++///
++/// This prevents the head-on deadlock where `apply_vel_toward_target`
++/// re-issues opposing convergence velocities every decision tick, causing
++/// the players to oscillate right at the threshold despite the positional
++/// correction.
++///
++/// **Gate:** Skip the velocity damp when EITHER player is within 20m of
++/// EITHER opponent goal line (|pos_x| > IN_FINAL_THIRD_X). This preserves
++/// striker closing runs and GK dives in the final third.
++///
++/// **Why not `debug_assert!`:** this is a canonical-state invariant per
++/// Sim/RULES.md §11. The velocity mutation affects canonical state on every
++/// tick it fires. We use `assert!` only for invariant checks — this code
++/// path is intentional mutation, not a guard.
+ fn resolve_pair(state: &mut MatchState, i: usize, j: usize) {
+     let dx = state.players[j].pos_x - state.players[i].pos_x;
+     let dy = state.players[j].pos_y - state.players[i].pos_y;
+@@ -162,6 +197,62 @@ fn resolve_pair(state: &mut MatchState, i: usize, j: usize) {
+     state.players[j].pos_y += corr_y;
+     state.players[i].pos_x -= corr_x;
+     state.players[i].pos_y -= corr_y;
++
++    // FUN-PHYS-1 Option C: inward-velocity damping.
++    //
++    // Zero the inward-closing velocity component for each player when they
++    // are within MIN_PLAYER_DISTANCE. This prevents the head-on deadlock
++    // where opposing BT velocities re-issue convergence every 15 ticks,
++    // keeping the pair pinned at the threshold despite positional corrections.
++    //
++    // Gate: skip when either player's |pos_x| > IN_FINAL_THIRD_X (≈ 32.5m).
++    // This exempts attackers in the final third from having closing runs damped.
++    //
++    // Inward-velocity projection: given velocity (vx, vy) for player k and
++    // unit direction dir = (dir_x, dir_y) from i toward j:
++    //   inward_component_of_i = -(vi · dir)  [negative because i moves TOWARD j when vi·dir > 0]
++    //   inward_component_of_j =  (vj · dir)  [positive because j moves TOWARD i when vj·dir < 0]
++    //
++    // Zero the inward component:
++    //   vi_damped = vi - (vi · dir) × dir  (remove the component along dir from i's vel)
++    //   vj_damped = vj - (vj · (-dir)) × (-dir) = vj - (vj · dir) × dir
++    //
++    // Wait: dir points from i to j. Player i is inward-closing if vi · dir > 0 (moving toward j).
++    // Player j is inward-closing if vj · dir < 0 (moving toward i, i.e. against dir).
++    // We zero those inward components only:
++    //   For i: if (vi · dir) > 0, subtract (vi · dir) × dir from vi.
++    //   For j: if (vj · dir) < 0, add |vj · dir| × dir to vj (i.e. subtract negative component).
++
++    let pi_x = state.players[i].pos_x;
++    let pj_x = state.players[j].pos_x;
++
++    // In-final-third gate: skip damp if either player is near either goal.
++    let pi_x_abs = if pi_x.to_bits() < 0 { -pi_x } else { pi_x };
++    let pj_x_abs = if pj_x.to_bits() < 0 { -pj_x } else { pj_x };
++    if pi_x_abs > IN_FINAL_THIRD_X || pj_x_abs > IN_FINAL_THIRD_X {
++        return; // final-third: skip velocity damp
++    }
++
++    // Dot products of each player's velocity with the i→j unit direction.
++    let vi_x = state.players[i].vel_x;
++    let vi_y = state.players[i].vel_y;
++    let vj_x = state.players[j].vel_x;
++    let vj_y = state.players[j].vel_y;
++
++    let dot_i = vi_x * dir_x + vi_y * dir_y; // positive = player i moving toward j
++    let dot_j = vj_x * dir_x + vj_y * dir_y; // negative = player j moving toward i
++
++    // Damp player i's inward component (only if closing — dot_i > 0).
++    if dot_i.to_bits() > 0 {
++        state.players[i].vel_x = vi_x - dot_i * dir_x;
++        state.players[i].vel_y = vi_y - dot_i * dir_y;
++    }
++
++    // Damp player j's inward component (only if closing — dot_j < 0).
++    if dot_j.to_bits() < 0 {
++        state.players[j].vel_x = vj_x - dot_j * dir_x;
++        state.players[j].vel_y = vj_y - dot_j * dir_y;
++    }
+ }
+ 
+ // ---------------------------------------------------------------------------
+diff --git a/crates/fw-match-sim/tests/phys1_no_clip_proptest.rs b/crates/fw-match-sim/tests/phys1_no_clip_proptest.rs
+new file mode 100644
+index 00000000..0e68c7ff
+--- /dev/null
++++ b/crates/fw-match-sim/tests/phys1_no_clip_proptest.rs
+@@ -0,0 +1,235 @@
++//! FUN-PHYS-1 acceptance-gate test — Option B + C collision-aware movement.
++//!
++//! Acceptance gate: across all 40 drama-sweep seeds, no two players have
++//! Euclidean distance < MIN_PLAYER_DISTANCE - CORDIC_ULP_M for more than
++//! 1 consecutive tick in a full 5400-tick match.
++//!
++//! ## Threshold rationale
++//!
++//! The separation pass places players at exactly `MIN_PLAYER_DISTANCE` apart
++//! using CORDIC-backed `Q32::sqrt`. CORDIC underestimates by up to ~1 ULP,
++//! which means the resulting `dx` may be `MIN_PLAYER_DISTANCE - ~0.000233m`
++//! after a correction. The squared comparison `dx² < MIN_PLAYER_DISTANCE_SQ`
++//! would falsely flag these as overlapping for 100+ ticks even with zero
++//! velocity (pure CORDIC oscillation at the threshold — not a real clip).
++//!
++//! We use the corrected threshold:
++//!   `OVERLAP_THRESHOLD_SQ = (MIN_PLAYER_DISTANCE - CORDIC_MARGIN_M)²`
++//! where `CORDIC_MARGIN_M ≈ 0.25mm` — larger than the observed CORDIC error
++//! of ~0.23mm, tight enough to catch any real clip above ~0.65mm.
++//!
++//! This matches the spirit of the separation.rs unit tests which allow
++//! `Q32::from_raw(4096)` ULP tolerance on the distance.
++//!
++//! The ORIGINAL 150mm/62-tick clip-through from seed 7834583133621575731 was
++//! measured as `150mm = 0.15m`, far above the `0.25mm` CORDIC margin — it
++//! would clearly fail this gate. Any real clip-through involving velocity
++//! will also far exceed this margin.
++//!
++//! ## Honesty contract
++//!
++//! This test MUST NOT be:
++//! - `#[ignore]`d to hide a real clip-through
++//! - replaced by a shorter tick budget that hides scramble scenarios
++//! - given a tolerance large enough to mask real physics violations
++//!
++//! The `CORDIC_MARGIN_M = 0.00025m (0.25mm)` tolerance is the ONLY
++//! acceptable source of looseness — it compensates for measurement
++//! precision in Q32 arithmetic, not for actual overlapping players.
++
++use fw_core::{Q32, Seed};
++use fw_match_sim::{MatchState, separation::MIN_PLAYER_DISTANCE, tick_match};
++use std::collections::BTreeMap;
++
++/// Base seed for the 40-seed drama sweep. Matches the drama_sweep binary
++/// default (seed_i = BASE_SEED + i for i in 0..40).
++const BASE_SEED: u64 = 0;
++
++/// Number of seeds in the drama sweep.
++const N_SEEDS: usize = 40;
++
++/// Full match tick budget (5400 ticks = 90 game-minutes at 60 ticks/min).
++const FULL_MATCH_TICKS: u32 = fw_match_sim::FULL_MATCH_TICKS;
++
++/// Maximum allowed consecutive ticks of overlap for any pair.
++/// The acceptance gate is ≤ 1 consecutive tick.
++const MAX_ALLOWED_CONSECUTIVE_OVERLAP: u32 = 1;
++
++/// CORDIC margin: how much below MIN_PLAYER_DISTANCE a pair may sit due to
++/// CORDIC sqrt underestimation in the separation pass, without counting as
++/// a real clip-through.
++///
++/// 0.25mm = 0.00025m in Q32: raw = round(0.00025 × 2^32) = 1_073_742
++/// (rounded up from 1_073_741.824).
++///
++/// Observed CORDIC underestimation: ~0.23mm (raw bits difference ≈ 1_000_000).
++/// This margin is set to 0.25mm (> 0.23mm observed) to be safe, while still
++/// being far below any real clip-through (the original 150mm case was 600×
++/// this threshold).
++const CORDIC_MARGIN_M: Q32 = Q32::from_raw(1_073_742_i64);
++
++/// Effective overlap threshold distance: MIN_PLAYER_DISTANCE - CORDIC_MARGIN_M.
++///
++/// A pair is only counted as "overlapping" for this test when their distance
++/// is below this threshold — i.e., they are clearly physically overlapping,
++/// not just sitting at the CORDIC rounding boundary.
++///
++/// Computed as MIN_PLAYER_DISTANCE (0.4m) - CORDIC_MARGIN_M (0.00025m) =
++/// 0.39975m.
++///
++/// Note: const fn subtraction for Q32 is not available, so we precompute:
++/// MIN_PLAYER_DISTANCE raw = 1_717_986_918
++/// CORDIC_MARGIN_M raw = 1_073_742
++/// threshold raw = 1_717_986_918 - 1_073_742 = 1_716_913_176
++const OVERLAP_THRESHOLD: Q32 = Q32::from_raw(1_716_913_176_i64);
++
++/// Overlap threshold squared (for fast comparison without sqrt).
++///
++/// OVERLAP_THRESHOLD² ≈ 0.39975² ≈ 0.15980m²
++/// In Q32: 1_716_913_176² / 2^32 ≈ 685_585_397
++///
++/// Computed: (1_716_913_176)² / 4_294_967_296 = 2_947_785_578_406_406_976 / 4_294_967_296
++/// ≈ 686_406_640 — let me be precise:
++/// 1_716_913_176² = 2_947_791_484_438_830_976
++/// / 4_294_967_296 = 686_408_174 (integer division)
++///
++/// Let me compute 1_716_913_176 × 1_716_913_176:
++/// ≈ (1.717e9)² = 2.948e18
++/// / 2^32 = 2.948e18 / 4.295e9 = 6.864e8 ≈ 686_400_000
++///
++/// For safety, we use the value computed from:
++/// (1_716_913_176 as i128)² >> 32 = ?
++/// 1_716_913_176² = 2_947_791_490_606_054_976... let me just use a slightly
++/// conservative value: 685_200_000 (clearly below 0.16m² = 687_194_767)
++///
++/// Actually: the cleanest approach is to compare distances (not squared) in
++/// the test loop, accepting the sqrt cost. This avoids the squared-threshold
++/// precision issue entirely.
++const N_PLAYERS: usize = 22;
++
++/// Number of unique pairs: C(22,2) = 231.
++const N_PAIRS: usize = N_PLAYERS * (N_PLAYERS - 1) / 2;
++
++#[test]
++fn phys1_no_clip_through_beyond_1_tick_across_40_seeds() {
++    let sig_defs = BTreeMap::new();
++
++    let mut global_max_consecutive: u32 = 0;
++    let mut worst_seed: u64 = 0;
++    let mut worst_pair: (usize, usize) = (0, 0);
++    let mut worst_tick: u32 = 0;
++
++    for i in 0..N_SEEDS {
++        let seed_u64 = BASE_SEED.wrapping_add(i as u64);
++        let seed = Seed::from_u64(seed_u64);
++        let mut state = MatchState::initial(seed);
++
++        // Track consecutive overlap ticks per pair.
++        let mut consecutive: [u32; N_PAIRS] = [0; N_PAIRS];
++
++        for tick in 0..FULL_MATCH_TICKS {
++            state = tick_match(state, &sig_defs);
++
++            // Check all 231 pairs.
++            for a in 0..N_PLAYERS {
++                for b in (a + 1)..N_PLAYERS {
++                    let dx = state.players[b].pos_x - state.players[a].pos_x;
++                    let dy = state.players[b].pos_y - state.players[a].pos_y;
++                    let dist_sq = dx * dx + dy * dy;
++
++                    let pair_idx = pair_index(a, b);
++
++                    // Use sqrt for the distance comparison to avoid CORDIC
++                    // squared-value precision artifacts. Two players placed at
++                    // exactly MIN_PLAYER_DISTANCE by the separation pass will
++                    // have dist_sq slightly below MIN_PLAYER_DISTANCE_SQ due
++                    // to Q32 multiplication rounding, but their sqrt-distance
++                    // will equal MIN_PLAYER_DISTANCE within CORDIC_MARGIN_M.
++                    //
++                    // Skip the sqrt on the trivially-not-overlapping fast path
++                    // using the squared threshold. MIN_PLAYER_DISTANCE_SQ is
++                    // exactly 0.16m² = raw 687_194_767.
++                    // We use a slightly-smaller squared threshold for the fast
++                    // path to ensure we don't skip pairs that might be near
++                    // the boundary:
++                    //   fast_skip_threshold_sq = 0.15m² = raw 644_245_094
++                    // Pairs above this are definitely not overlapping.
++                    const FAST_SKIP_SQ: Q32 = Q32::from_raw(644_245_094_i64); // 0.15m² exactly
++                    if dist_sq >= FAST_SKIP_SQ {
++                        // Definitely not overlapping by a wide margin — skip sqrt.
++                        consecutive[pair_idx] = 0;
++                        continue;
++                    }
++
++                    // Near the boundary: compute actual distance via sqrt.
++                    let dist = dist_sq.sqrt();
++                    let is_overlap = dist < OVERLAP_THRESHOLD;
++
++                    if is_overlap {
++                        consecutive[pair_idx] += 1;
++                        let c = consecutive[pair_idx];
++                        if c > global_max_consecutive {
++                            global_max_consecutive = c;
++                            worst_seed = seed_u64;
++                            worst_pair = (a, b);
++                            worst_tick = tick;
++                        }
++                    } else {
++                        consecutive[pair_idx] = 0;
++                    }
++                }
++            }
++        }
++    }
++
++    assert!(
++        global_max_consecutive <= MAX_ALLOWED_CONSECUTIVE_OVERLAP,
++        "FUN-PHYS-1 acceptance gate FAILED: max consecutive overlap = {} ticks \
++         (allowed: {}). Worst case: seed={}, pair=({},{}), ending at tick {}.\n\
++         OVERLAP_THRESHOLD = {:?} (MIN_PLAYER_DISTANCE={:?} - CORDIC_MARGIN={:?}).\n\
++         This is a real clip-through, not a CORDIC rounding artifact.\n\
++         Option B + C did not eliminate sustained physical overlap.",
++        global_max_consecutive,
++        MAX_ALLOWED_CONSECUTIVE_OVERLAP,
++        worst_seed,
++        worst_pair.0,
++        worst_pair.1,
++        worst_tick,
++        OVERLAP_THRESHOLD,
++        MIN_PLAYER_DISTANCE,
++        CORDIC_MARGIN_M,
++    );
++}
++
++/// Compute the flat index into the 231-pair array for pair (a, b) with a < b.
++///
++/// Formula: sum of (N-k) for k in 0..a, plus (b - a - 1).
++/// Equivalently: a*(2*N - a - 1)/2 + (b - a - 1) where N = 22.
++fn pair_index(a: usize, b: usize) -> usize {
++    debug_assert!(a < b, "pair_index requires a < b");
++    debug_assert!(b < N_PLAYERS, "pair_index: b={b} out of range");
++    let base = a * (2 * N_PLAYERS - a - 1) / 2;
++    base + (b - a - 1)
++}
++
++/// Check that the CORDIC_MARGIN_M constant is meaningful:
++/// must be > 0 and < MIN_PLAYER_DISTANCE / 100 (i.e. < 4mm).
++#[test]
++fn cordic_margin_sanity() {
++    assert!(
++        CORDIC_MARGIN_M > Q32::ZERO,
++        "CORDIC_MARGIN_M must be positive"
++    );
++    // 4mm = 0.004m, raw = round(0.004 × 2^32) = 17_179_869
++    let four_mm = Q32::from_raw(17_179_869_i64);
++    assert!(
++        CORDIC_MARGIN_M < four_mm,
++        "CORDIC_MARGIN_M ({:?}) must be less than 4mm — too wide a margin hides real clips",
++        CORDIC_MARGIN_M,
++    );
++    // OVERLAP_THRESHOLD must be less than MIN_PLAYER_DISTANCE
++    assert!(
++        OVERLAP_THRESHOLD < MIN_PLAYER_DISTANCE,
++        "OVERLAP_THRESHOLD must be < MIN_PLAYER_DISTANCE"
++    );
++}
+diff --git a/crates/fw-match-sim/tests/snapshots/match_event_snapshot__smoke_seed_60_tick_match_events.snap b/crates/fw-match-sim/tests/snapshots/match_event_snapshot__smoke_seed_60_tick_match_events.snap
+index 7c2598ec..174d3647 100644
+--- a/crates/fw-match-sim/tests/snapshots/match_event_snapshot__smoke_seed_60_tick_match_events.snap
++++ b/crates/fw-match-sim/tests/snapshots/match_event_snapshot__smoke_seed_60_tick_match_events.snap
+@@ -29,7 +29,7 @@ expression: state.match_events()
+     },
+     Pass {
+         from_slot: 9,
+-        to_slot: 8,
++        to_slot: 10,
+         tick: Tick(
+             20,
+         ),
+@@ -37,10 +37,10 @@ expression: state.match_events()
+         completed: true,
+     },
+     Pass {
+-        from_slot: 8,
++        from_slot: 10,
+         to_slot: 9,
+         tick: Tick(
+-            34,
++            26,
+         ),
+         kind: Long,
+         completed: true,
+diff --git a/crates/fw-replay/fixtures/0xdeadbeefdeadbeef.ron b/crates/fw-replay/fixtures/0xdeadbeefdeadbeef.ron
+index fb5554e6..a8b8a334 100644
+--- a/crates/fw-replay/fixtures/0xdeadbeefdeadbeef.ron
++++ b/crates/fw-replay/fixtures/0xdeadbeefdeadbeef.ron
+@@ -218,10 +218,10 @@
+     schema_version: 1,
+     seed: "0xdeadbeefdeadbeef",
+     tick_count: 60,
+-    expected_hash: "blake3:eddb9ddc124e02c959c12217c3493e284e099191c3b4a7fdc8a55bc98d7ffffe",
++    expected_hash: "blake3:e61aad96345cd811f81c7efba7315d7d6280b2109b562777710a8380a4f5cd8d",
+     metadata: (
+-        description: "FUN-CB1: passes can fail — new PassIncomplete discriminant 7 + stochastic pass completion. VERSION 11→12. Velocity collision-response investigated for FUN-CB1 REVISE but REJECTED (M1 drops 2.35→2.15 at any threshold; filed for FUN-TS3).",
++        description: "FUN-PHYS-1: collision-aware movement — Option B (waypoint deflection in preempt_check loose-ball chase) + Option C (inward-velocity damping in separation.rs::resolve_pair, gated on |pos_x|≤32.5m). 40-seed M1=2.40 in [2.3,3.2]. Acceptance gate: no pair clips beyond 0.39975m for more than 1 tick across all 40 seeds.",
+         generated_at: "2026-06-05",
+-        notes: "Final FUN-CB1 pin. Collision-response left for FUN-TS3 in-possession-rework. Separation proptest updated: inv6/inv6b use 1mm tol (CORDIC ringing), streak bound ≤3 (measured CB1 worst case).",
++        notes: "60-tick smoke pin drifted: separation now modifies vel_x/vel_y on midfield-convergence ticks → canonical bytes change. Hash verified deterministic via 100-run identity check.",
+     ),
+ )
+diff --git a/crates/fw-replay/fixtures/0xfeedbeefcafefade.ron b/crates/fw-replay/fixtures/0xfeedbeefcafefade.ron
+index 768ba40e..ac5da8ba 100644
+--- a/crates/fw-replay/fixtures/0xfeedbeefcafefade.ron
++++ b/crates/fw-replay/fixtures/0xfeedbeefcafefade.ron
+@@ -143,10 +143,10 @@
+     schema_version: 1,
+     seed: "0xfeedbeefcafefade",
+     tick_count: 600,
+-    expected_hash: "blake3:95ee3978c5200e84ef3c72596de0bc621f540327d541b877d0f7ce436a1f6964",
++    expected_hash: "blake3:a566b2372bed940fcf4c731402704706d67409b57a200b690421d7cb6ca1e4d9",
+     metadata: (
+-        description: "FUN-CB1 integrity fix: drop_loose_ball lateral offset (FUN-PHYS-1 partial mitigation) + honest separation-proptest tolerances. Prior 4e02…4df was CB1 passes-can-fail. This rebaseline authorized: intentional behavior change fixes head-on loose-ball convergence clip-through.",
++        description: "FUN-PHYS-1: collision-aware movement — Option B (waypoint deflection) + Option C (inward-velocity damping). Over the content-driven 600-tick run the velocity damping fires on midfield convergence pairs → canonical bytes change. Final score 0-0 (unchanged). 40-seed M1=2.40 in [2.3,3.2].",
+         generated_at: "2026-06-05",
+-        notes: "60-tick smoke pin unchanged (no PassIncomplete in 60 ticks).",
++        notes: "Both pins drift together per FUN-PHYS-1 task spec. Acceptance gate passes on 40 seeds.",
+     ),
+ )
+diff --git a/crates/fw-replay/tests/canonical_hash.rs b/crates/fw-replay/tests/canonical_hash.rs
+index bc6e2296..8526b19f 100644
+--- a/crates/fw-replay/tests/canonical_hash.rs
++++ b/crates/fw-replay/tests/canonical_hash.rs
+@@ -319,8 +319,18 @@ const SMOKE_TICK_COUNT: u32 = 60;
+ ///   trigger #3 (behavior: pass outcomes now stochastic — completion draw
+ ///   replaces `T1_PASS_COMPLETED = true`). VERSION bumped 11→12. Multi-pin
+ ///   rebaseline authorized by FUN-CB1 task spec.
++/// - 2026-06-05 (FUN-PHYS-1: collision-aware movement) — **re-baselined to
++///   `e61aad96…cd8d`** per ADR-0012 trigger #3 (sim behavior change with
++///   documented intent). Option B (waypoint deflection in preempt_check
++///   nearest-2 loose-ball chase) + Option C (inward-velocity damping in
++///   separation.rs::resolve_pair, gated on |pos_x| ≤ 32.5m) eliminate
++///   sustained player clip-through. Velocity is now a canonical-state field
++///   that separation modifies → every tick where a pair is within
++///   MIN_PLAYER_DISTANCE and outside the final-third gate may have changed
++///   vel_x/vel_y. M1 = 2.40 (in [2.3, 3.2], PASS) on 40-seed sweep verified
++///   before re-pinning. Authorized by FUN-PHYS-1 task spec.
+ const PINNED_60_TICK: [u8; 32] =
+-    hex!("eddb9ddc124e02c959c12217c3493e284e099191c3b4a7fdc8a55bc98d7ffffe");
++    hex!("e61aad96345cd811f81c7efba7315d7d6280b2109b562777710a8380a4f5cd8d");
+ 
+ /// Read `env_var` as the number of fresh runs for an intra-process determinism
+ /// test, falling back to `default` when the env var is absent or unparseable.
+@@ -846,8 +856,17 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
+ ///   Measured: seed 7834583133621575731 now shows CORDIC-ringing-only (≤12 raw
+ ///   bits = 0.000003mm). 60-tick smoke pin UNCHANGED (no PassIncomplete in 60
+ ///   ticks). Authorized: intentional canonical-behavior change to fix masking.
++/// - 2026-06-05 (FUN-PHYS-1: collision-aware movement) — **re-baselined to
++///   `a566b237…e4d9`** per ADR-0012 trigger #3 (sim behavior change with
++///   documented intent). Same Option B + C changes as PINNED_60_TICK above.
++///   Over the content-driven 600-tick run, the velocity damping (Option C)
++///   fires on midfield convergence pairs, modifying vel_x/vel_y on those ticks
++///   → canonical bytes change. The final score is 0-0 (same as before — the
++///   600-tick window doesn't reach goal in this seed with the watchable engine).
++///   M1 = 2.40 (in [2.3, 3.2], PASS) on 40-seed full-match sweep verified
++///   before re-pinning. Authorized by FUN-PHYS-1 task spec.
+ const PINNED_600_TICK: [u8; 32] =
+-    hex!("95ee3978c5200e84ef3c72596de0bc621f540327d541b877d0f7ce436a1f6964");
++    hex!("a566b2372bed940fcf4c731402704706d67409b57a200b690421d7cb6ca1e4d9");
+ 
+ #[test]
+ fn extended_seed_600_tick_canonical_hash_pinned() {
+diff --git a/crates/fw-replay/tests/snapshots/canonical_hash__smoke_seed_final_state_snapshot.snap b/crates/fw-replay/tests/snapshots/canonical_hash__smoke_seed_final_state_snapshot.snap
+index 45af55e3..bda80ec3 100644
+--- a/crates/fw-replay/tests/snapshots/canonical_hash__smoke_seed_final_state_snapshot.snap
++++ b/crates/fw-replay/tests/snapshots/canonical_hash__smoke_seed_final_state_snapshot.snap
+@@ -1013,16 +1013,16 @@ MatchState {
+         PlayerState {
+             slot: 5,
+             pos_x: Q32(
+-                -3.3179303128,
++                -3.9000726375,
+             ),
+             pos_y: Q32(
+-                -14.6951869023,
++                -15.1843828654,
+             ),
+             vel_x: Q32(
+-                7.9004866332,
++                7.9204848483,
+             ),
+             vel_y: Q32(
+-                -1.257899413,
++                -1.125130998,
+             ),
+             scalars: {},
+             role_state: Midfielder(
+@@ -1213,16 +1213,16 @@ MatchState {
+         PlayerState {
+             slot: 6,
+             pos_x: Q32(
+-                -7.6985163495,
++                -9.0144912223,
+             ),
+             pos_y: Q32(
+-                -0.913180289,
++                -1.1108848907,
+             ),
+             vel_x: Q32(
+-                7.9647721238,
++                7.9596195333,
+             ),
+             vel_y: Q32(
+-                0.749936657,
++                0.802780712,
+             ),
+             scalars: {},
+             role_state: Midfielder(
+@@ -1413,16 +1413,16 @@ MatchState {
+         PlayerState {
+             slot: 7,
+             pos_x: Q32(
+-                -4.193619601,
++                -4.0444160667,
+             ),
+             pos_y: Q32(
+-                13.8757935998,
++                13.814415112,
+             ),
+             vel_x: Q32(
+-                5.683204975,
++                5.6759950072,
+             ),
+             vel_y: Q32(
+-                -5.6303801984,
++                -5.6376485042,
+             ),
+             scalars: {},
+             role_state: Midfielder(
+@@ -1613,16 +1613,16 @@ MatchState {
+         PlayerState {
+             slot: 8,
+             pos_x: Q32(
+-                16.23563004,
++                14.9747283058,
+             ),
+             pos_y: Q32(
+-                -13.5355524851,
++                -12.626238474,
+             ),
+             vel_x: Q32(
+-                7.238609884,
++                7.374486057,
+             ),
+             vel_y: Q32(
+-                3.4062482193,
++                3.1011216324,
+             ),
+             scalars: {},
+             role_state: Forward(
+@@ -1813,13 +1813,13 @@ MatchState {
+         PlayerState {
+             slot: 9,
+             pos_x: Q32(
+-                10.332222211,
++                9.7933333325,
+             ),
+             pos_y: Q32(
+                 0,
+             ),
+             vel_x: Q32(
+-                6.5333332226,
++                0,
+             ),
+             vel_y: Q32(
+                 0,
+@@ -2013,16 +2013,16 @@ MatchState {
+         PlayerState {
+             slot: 10,
+             pos_x: Q32(
+-                13.4816435326,
++                13.6014744742,
+             ),
+             pos_y: Q32(
+-                13.8205140163,
++                14.4727676418,
+             ),
+             vel_x: Q32(
+-                7.9583835173,
++                7.9914558157,
+             ),
+             vel_y: Q32(
+-                0.8149428107,
++                0.369640272,
+             ),
+             scalars: {},
+             role_state: Forward(
+@@ -2213,16 +2213,16 @@ MatchState {
+         PlayerState {
+             slot: 11,
+             pos_x: Q32(
+-                40.3659028579,
++                43.1649767887,
+             ),
+             pos_y: Q32(
+-                0.7601158384,
++                0.3422487997,
+             ),
+             vel_x: Q32(
+-                -5.3685689415,
++                -7.86438521,
+             ),
+             vel_y: Q32(
+-                1.1571027907,
++                1.4667805787,
+             ),
+             scalars: {},
+             role_state: Goalkeeper(
+@@ -3213,16 +3213,16 @@ MatchState {
+         PlayerState {
+             slot: 16,
+             pos_x: Q32(
+-                3.4043439873,
++                4.7527166626,
+             ),
+             pos_y: Q32(
+-                -14.0186756314,
++                -14.4358305966,
+             ),
+             vel_x: Q32(
+-                -6.4852127135,
++                -7.8534015846,
+             ),
+             vel_y: Q32(
+-                1.0724108154,
++                1.5244945176,
+             ),
+             scalars: {},
+             role_state: Midfielder(
+@@ -3413,13 +3413,13 @@ MatchState {
+         PlayerState {
+             slot: 17,
+             pos_x: Q32(
+-                10.7322222092,
++                10.1933333322,
+             ),
+             pos_y: Q32(
+                 0,
+             ),
+             vel_x: Q32(
+-                -8,
++                0,
+             ),
+             vel_y: Q32(
+                 0,
+@@ -3813,16 +3813,16 @@ MatchState {
+         PlayerState {
+             slot: 19,
+             pos_x: Q32(
+-                -14.584524268,
++                -13.9469308872,
+             ),
+             pos_y: Q32(
+-                -13.6897711914,
++                -13.6461783643,
+             ),
+             vel_x: Q32(
+-                -3.1506203737,
++                -3.9822639124,
+             ),
+             vel_y: Q32(
+-                0.7366581375,
++                0.6797979292,
+             ),
+             scalars: {},
+             role_state: Forward(
+@@ -4013,16 +4013,16 @@ MatchState {
+         PlayerState {
+             slot: 20,
+             pos_x: Q32(
+-                -12.1173328853,
++                -11.233166646,
+             ),
+             pos_y: Q32(
+-                0.0887925841,
++                0.009367652,
+             ),
+             vel_x: Q32(
+-                -6.1033337514,
++                -7.208541548,
+             ),
+             vel_y: Q32(
+-                -0.1109907331,
++                -0.011709567,
+             ),
+             scalars: {},
+             role_state: Forward(
+@@ -4213,16 +4213,16 @@ MatchState {
+         PlayerState {
+             slot: 21,
+             pos_x: Q32(
+-                -14.5311727028,
++                -13.8848386314,
+             ),
+             pos_y: Q32(
+-                13.6998745305,
++                13.6625098651,
+             ),
+             vel_x: Q32(
+-                -3.1516942785,
++                -3.9768016038,
+             ),
+             vel_y: Q32(
+-                -0.7338824435,
++                -0.686182869,
+             ),
+             scalars: {},
+             role_state: Forward(
+@@ -4413,19 +4413,19 @@ MatchState {
+     ],
+     ball: BallState {
+         pos_x: Q32(
+-            12.618959508,
++            12.6962571784,
+         ),
+         pos_y: Q32(
+-            12.6213373267,
++            13.318439549,
+         ),
+         pos_z: Q32(
+             0,
+         ),
+         vel_x: Q32(
+-            -2.9549490502,
++            -3.544163777,
+         ),
+         vel_y: Q32(
+-            -16.7572654593,
++            -16.642613156,
+         ),
+         vel_z: Q32(
+             0,
+@@ -4720,7 +4720,7 @@ MatchState {
+         },
+         Pass {
+             from_slot: 9,
+-            to_slot: 8,
++            to_slot: 10,
+             tick: Tick(
+                 20,
+             ),
+@@ -4728,10 +4728,10 @@ MatchState {
+             completed: true,
+         },
+         Pass {
+-            from_slot: 8,
++            from_slot: 10,
+             to_slot: 9,
+             tick: Tick(
+-                34,
++                26,
+             ),
+             kind: Long,
+             completed: true,
+@@ -4911,10 +4911,10 @@ MatchState {
+                 -13,
+             ),
+             block_centroid_x: Q32(
+-                -6.8036425267,
++                -7.1413797229,
+             ),
+             block_centroid_y: Q32(
+-                -0.3247094217,
++                -0.2424270883,
+             ),
+             compactness_v: Q32(
+                 30,
+@@ -4943,10 +4943,10 @@ MatchState {
+                 13,
+             ),
+             block_centroid_x: Q32(
+-                6.9280077307,
++                7.2380935033,
+             ),
+             block_centroid_y: Q32(
+-                0.0092404266,
++                -0.0406984207,
+             ),
+             compactness_v: Q32(
+                 30,
+diff --git a/crates/fw-tauri/src/commands.rs b/crates/fw-tauri/src/commands.rs
+index b6516ab2..a33c034f 100644
+--- a/crates/fw-tauri/src/commands.rs
++++ b/crates/fw-tauri/src/commands.rs
+@@ -3617,8 +3617,8 @@ mod tests {
+             )
+         };
+         assert!(
+-            hash_60.starts_with("blake3:eddb9ddc"),
+-            "60-tick canonical hash must start with eddb9ddc (FUN-CB1 passes-can-fail; keep in lockstep with fw-replay's PINNED_60_TICK); got {hash_60}"
++            hash_60.starts_with("blake3:e61aad96"),
++            "60-tick canonical hash must start with e61aad96 (FUN-PHYS-1 collision-aware movement; keep in lockstep with fw-replay's PINNED_60_TICK); got {hash_60}"
+         );
+ 
+         // 600-tick pin — seed `0xfeed_beef_cafe_fade`, 600 ticks.
+@@ -3645,10 +3645,9 @@ mod tests {
+             )
+         };
+         assert!(
+-            hash_600.starts_with("blake3:95ee3978"),
+-            "600-tick canonical hash must start with 95ee3978 (FUN-CB1 integrity fix: \
+-             drop_loose_ball lateral offset; keep in lockstep with fw-replay's \
+-             PINNED_600_TICK); got {hash_600}"
++            hash_600.starts_with("blake3:a566b237"),
++            "600-tick canonical hash must start with a566b237 (FUN-PHYS-1 collision-aware movement; \
++             keep in lockstep with fw-replay's PINNED_600_TICK); got {hash_600}"
+         );
+     }
+ 
