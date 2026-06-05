@@ -34,6 +34,43 @@ use crate::subtree_library::FORMATION_4_3_3_POSITIONS;
 use crate::tactic_fsm::TacticState;
 
 // ---------------------------------------------------------------------------
+// SimPressLevel — manager-instructed pressing intensity (non-canonical sidecar)
+// ---------------------------------------------------------------------------
+
+/// Manager-instructed pressing intensity for one team.
+///
+/// Set via `apply_match_command(ChangePressLevel { level })` and stored in the
+/// `MatchState::press_level` sidecar (non-canonical — `#[serde(skip)]`).
+///
+/// Affects two things computed each tick in `compute`:
+///   - `line_x`: High pushes the defensive line forward by `PRESS_LINE_SHIFT_M`
+///     metres; Low pulls it back by the same amount; Standard is unchanged.
+///   - Press-role assignment in `compute_press_from_parts`: High triggers
+///     Primary/Cover role assignment even when the team's `TacticState` is
+///     `MidBlock` (as if the tactic were `HighPress`); Low suppresses role
+///     assignment to all-`HoldShape` even when the tactic is `HighPress`.
+///
+/// Default is `Standard`, which reproduces the exact pre-command behaviour so
+/// pinned canonical hashes are byte-identical to before this field existed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SimPressLevel {
+    /// Sit deeper; suppress all Primary/Cover assignments. Defensive line
+    /// shifted back by `PRESS_LINE_SHIFT_M` metres.
+    Low,
+    /// Default. Behaviour identical to the pre-command sim path. No line
+    /// shift; press roles assigned only when `TacticState == HighPress`.
+    #[default]
+    Standard,
+    /// Push line forward by `PRESS_LINE_SHIFT_M` metres and assign
+    /// Primary/Cover roles even from `MidBlock` tactic state.
+    High,
+}
+
+/// Metres by which `High` advances the defensive line and `Low` retreats it,
+/// relative to the tactic-FSM baseline. SOFT tuning value.
+const PRESS_LINE_SHIFT_M: i32 = 6; // SOFT
+
+// ---------------------------------------------------------------------------
 // Tuning constants
 // All distances are signed metres from pitch centre (range ±52.5m).
 // The design doc lists them as "distance from own goal line at ±52.5m";
@@ -231,11 +268,40 @@ fn target_compactness_v(tactic_state: TacticState) -> Q32 {
 ///
 /// Called once per tick in `dispatch_tick` before the per-player decision loop.
 /// Pure function of canonical inputs — deterministic, no RNG, no floats.
+///
+/// `state.press_level[team_idx]` shifts the defensive line:
+///   - `High`: line_x shifted forward by `PRESS_LINE_SHIFT_M` m.
+///   - `Low`: line_x shifted backward by `PRESS_LINE_SHIFT_M` m.
+///   - `Standard`: no shift (original behavior, preserves pinned hashes).
 #[must_use]
 pub fn compute(team_idx: usize, state: &MatchState) -> TeamShape {
     let tactic_state = state.team_tactic_states[team_idx].state();
 
-    let line_x = target_line_x(tactic_state, team_idx);
+    let base_line_x = target_line_x(tactic_state, team_idx);
+    // Apply the manager's press-level shift on top of the tactic FSM baseline.
+    // Home team: positive x = forward; Away team: negative x = forward.
+    // So for home (team_idx=0) High shifts +SHIFT, Low shifts -SHIFT.
+    // For away (team_idx=1) High shifts -SHIFT (toward opponent's half), Low shifts +SHIFT.
+    let shift = Q32::from_int(PRESS_LINE_SHIFT_M);
+    let line_x = match state.press_level[team_idx] {
+        SimPressLevel::Standard => base_line_x,
+        SimPressLevel::High => {
+            // Forward = less negative (home) or less positive (away).
+            if team_idx == 0 {
+                base_line_x + shift
+            } else {
+                base_line_x - shift
+            }
+        }
+        SimPressLevel::Low => {
+            // Backward = more negative (home) or more positive (away).
+            if team_idx == 0 {
+                base_line_x - shift
+            } else {
+                base_line_x + shift
+            }
+        }
+    };
     let compactness_v = target_compactness_v(tactic_state);
     let compactness_h = Q32::from_int(COMPACTNESS_H);
 
@@ -420,7 +486,13 @@ pub enum PressRole {
 /// Called once per tick AFTER `compute` (which fills `is_defending`), BEFORE
 /// the per-slot decision loop so the Pressing arm can read `shape.press_roles`.
 ///
-/// For each team in `HighPress` tactic state AND `is_defending`:
+/// Role assignment gate (per team):
+///   - `SimPressLevel::Low`: always all `HoldShape` (suppresses even HighPress tactic).
+///   - `SimPressLevel::Standard`: roles assigned only when `TacticState == HighPress`.
+///   - `SimPressLevel::High`: roles assigned when `TacticState` is `HighPress` OR `MidBlock`
+///     (the manager instructs an active press from the touchline).
+///
+/// Within each assignment pass:
 ///   - Sort the 10 outfield defending-team slots by squared-distance to the
 ///     carrier (GK always HoldShape — never the primary presser).
 ///   - Assign `Primary` to rank 0, `Cover` to ranks 1..=2, `HoldShape` to rest.
@@ -444,6 +516,7 @@ pub fn compute_press_from_parts(
     possession: Option<u8>,
     player_positions: &[(Q32, Q32); 22],
     tactic_states: &[crate::tactic_fsm::TeamTacticState; 2],
+    press_levels: &[SimPressLevel; 2],
 ) {
     // No carrier → leave all roles at HoldShape.
     let carrier_slot = match possession {
@@ -453,12 +526,28 @@ pub fn compute_press_from_parts(
     let (carrier_x, carrier_y) = player_positions[carrier_slot as usize];
 
     for team_idx in 0..2usize {
-        // Only assign press roles when defending AND in HighPress state.
-        if !shapes[team_idx].is_defending
-            || tactic_states[team_idx].state() != TacticState::HighPress
-        {
-            // Non-HighPress: mark is_high_press=false so subtree_library knows
-            // to fall back to standard utility_press behavior.
+        // Determine whether to assign press roles based on press_level + tactic state.
+        let should_assign = match press_levels[team_idx] {
+            // Low: suppress all Primary/Cover assignments regardless of tactic.
+            SimPressLevel::Low => false,
+            // Standard: only when the tactic FSM has settled on HighPress.
+            SimPressLevel::Standard => {
+                shapes[team_idx].is_defending
+                    && tactic_states[team_idx].state() == TacticState::HighPress
+            }
+            // High: assign even from MidBlock — manager is calling for a press.
+            SimPressLevel::High => {
+                shapes[team_idx].is_defending
+                    && matches!(
+                        tactic_states[team_idx].state(),
+                        TacticState::HighPress | TacticState::MidBlock
+                    )
+            }
+        };
+
+        if !should_assign {
+            // Not pressing: mark is_high_press=false so subtree_library falls
+            // back to standard utility_press behavior.
             shapes[team_idx].is_high_press = false;
             continue;
         }
@@ -524,6 +613,7 @@ pub fn compute_press(shapes: &mut [TeamShape; 2], state: &MatchState) {
         state.possession,
         &player_positions,
         &state.team_tactic_states,
+        &state.press_level,
     );
 }
 

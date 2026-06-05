@@ -634,6 +634,7 @@ pub fn dispatch_tick(
             state.possession,
             &pos_snap,
             &state.team_tactic_states,
+            &state.press_level,
         );
     }
 

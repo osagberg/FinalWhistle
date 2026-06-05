@@ -22,7 +22,7 @@ use fw_content::{
 };
 use fw_core::{Q32, Seed, Tick};
 use fw_match_sim::tactic_fsm::{PressIntensity, TacticState, TeamTacticState};
-use fw_match_sim::team_shape::{PressRole, TeamShape, compute_press_from_parts};
+use fw_match_sim::team_shape::{PressRole, SimPressLevel, TeamShape, compute_press_from_parts};
 use fw_match_sim::{MatchState, PlayerRoleState, subtree_library};
 use proptest::prelude::*;
 use rand_chacha::rand_core::SeedableRng;
@@ -191,6 +191,7 @@ proptest! {
             Some(carrier_slot),
             &player_positions,
             &tactic_states,
+            &[SimPressLevel::Standard; 2],
         );
 
         let home_shape = &shapes[0];
@@ -273,6 +274,7 @@ proptest! {
             Some(carrier_slot),
             &player_positions,
             &tactic_states,
+            &[SimPressLevel::Standard; 2],
         );
 
         let home_shape = &shapes[0];

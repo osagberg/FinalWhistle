@@ -2277,6 +2277,35 @@ pub fn apply_match_command_inner(
         })?;
 
     let kind = command.kind_str().to_string();
+
+    // S11 — ChangePressLevel is the first implemented variant.
+    // Convert the IPC PressLevel (Low/Mid/High) to the sim's SimPressLevel
+    // (Low/Standard/High). "Mid" maps to "Standard" — same semantic, different
+    // names across the IPC boundary (IPC is user-facing; sim is internal).
+    //
+    // The `side` affected: the managed-team side. At S11 scope the touchline
+    // instruction applies to HOME (team_idx = 0) only; a `side: Side` field
+    // can be added to the variant when bidirectional management lands.
+    // The `ChangePressLevel` variant carries no `side` field today — it is
+    // assumed to apply to the manager's team. For the live-match prototype the
+    // managed team is always home (team_idx = 0) per the existing live-match
+    // architecture. The command handler sets only that team's level.
+    if let MatchCommand::ChangePressLevel { level } = &command {
+        use crate::live_match::types::PressLevel;
+        use fw_match_sim::SimPressLevel;
+
+        let sim_level = match level {
+            PressLevel::Low => SimPressLevel::Low,
+            PressLevel::Mid => SimPressLevel::Standard,
+            PressLevel::High => SimPressLevel::High,
+        };
+        // Apply to the managed team (home = team_idx 0 per S11 prototype scope).
+        session.state.set_press_level(0, sim_level);
+        // Record for audit trail.
+        session.pending_commands.push(command);
+        return Ok(());
+    }
+
     // Record for audit trail before returning the error.
     session.pending_commands.push(command);
 

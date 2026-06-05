@@ -1,0 +1,7 @@
+---
+source: crates/fw-match-sim/tests/press_level_test.rs
+expression: shape.line_x
+---
+Q32(
+    -7,
+)

@@ -4970,4 +4970,8 @@ MatchState {
             is_high_press: false,
         },
     ],
+    press_level: [
+        Standard,
+        Standard,
+    ],
 }

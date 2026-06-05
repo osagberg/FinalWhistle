@@ -70,6 +70,7 @@ pub use tactic_fsm::{
     ArchetypeParams, CounterIntent, PressIntensity, SetPieceKind, TacticEvent, TacticState,
     TeamTacticState,
 };
+pub use team_shape::SimPressLevel;
 
 // -------------------------------------------------------------------------
 // ContentInitError — failure type for initial_with_content
@@ -517,6 +518,24 @@ pub struct MatchState {
     /// canonical bytes. Consumed by off-ball utilities via `zonal_slot`.
     #[serde(skip)]
     pub(crate) team_shape: [team_shape::TeamShape; 2],
+
+    // ---- S11 additions (ChangePressLevel touchline command) ----
+    //
+    // `press_level` is a NON-canonical sidecar set by the manager's touchline
+    // `ChangePressLevel` command (via `MatchState::set_press_level`). It shifts
+    // the defensive line height and controls coordinated-press role assignment
+    // in `compute_press_from_parts`. It is NOT in the canonical encoder so
+    // pinned hashes are byte-identical at the default `Standard` level. Serde
+    // requires `Default` when `#[serde(skip)]` is used on a non-unit field.
+    //
+    // The field lives on `MatchState` (not just on `LiveMatchSession`) so the
+    // sim's per-tick `compute` + `compute_press_from_parts` calls can read it
+    // without passing it as an extra argument through every tick.
+    /// Manager-instructed pressing intensity per team. Index 0 = home, 1 = away.
+    /// Defaults to `Standard` (= current behavior). Set by `set_press_level`.
+    /// `#[serde(skip)]` — adds no canonical bytes; pinned hashes unchanged.
+    #[serde(skip)]
+    pub(crate) press_level: [team_shape::SimPressLevel; 2],
 }
 
 // ---- T2-1d telemetry record types ----
@@ -681,6 +700,8 @@ impl MatchState {
             // FUN-TS2b: press_roles within TeamShape also initialized to HoldShape
             // via TeamShape::zero(). Filled by compute_press each tick.
             team_shape: [team_shape::TeamShape::zero(); 2],
+            // S11: press_level sidecar — default Standard so pinned hashes are unchanged.
+            press_level: [team_shape::SimPressLevel::Standard; 2],
         }
     }
 
@@ -955,6 +976,33 @@ impl MatchState {
     pub fn with_match_end_tick(mut self, t: Tick) -> Self {
         self.match_end_tick = t;
         self
+    }
+
+    /// Read-only access to the per-team press levels (S11).
+    ///
+    /// Index 0 = home team, 1 = away team. Used by integration tests that need
+    /// to pass `press_level` to `compute_press_from_parts` without widening
+    /// the field to `pub`. In production the field is read by the sim's per-tick
+    /// calls to `compute` + `compute_press_from_parts`.
+    pub fn press_level(&self) -> &[team_shape::SimPressLevel; 2] {
+        &self.press_level
+    }
+
+    /// Apply a manager's touchline press-level instruction (S11 — ChangePressLevel).
+    ///
+    /// `team_idx`: 0 = home team, 1 = away team. Panics in debug + release on
+    /// out-of-range index (Sim/RULES §11 — canonical invariants fail loud).
+    ///
+    /// This mutates the non-canonical `press_level` sidecar. The canonical
+    /// encoder does not cover this field, so pinned hashes are unaffected when
+    /// the level stays at `Standard`. The change takes effect on the NEXT tick's
+    /// `compute` + `compute_press_from_parts` calls, not retroactively.
+    pub fn set_press_level(&mut self, team_idx: usize, level: team_shape::SimPressLevel) {
+        assert!(
+            team_idx < 2,
+            "set_press_level: team_idx {team_idx} is out of range (must be 0 or 1)"
+        );
+        self.press_level[team_idx] = level;
     }
 
     /// The tick at which the match ends (T1-4a; real default wired at T4-sim-halt).

@@ -170,13 +170,17 @@ fn handle_lifecycle_after_finish_returns_error() {
 }
 
 // ---------------------------------------------------------------------------
-// apply_match_command — all 9 variants return LiveMatchCommandUnimplemented
+// apply_match_command — 8 unimplemented variants + 1 implemented (S11)
 // ---------------------------------------------------------------------------
 
-/// For each of the 9 `MatchCommand` variants, assert that `apply_match_command`
-/// returns `Err(IpcError::LiveMatchCommandUnimplemented { command_kind: <expected> })`.
+/// For each of the 8 still-unimplemented `MatchCommand` variants, assert that
+/// `apply_match_command` returns
+/// `Err(IpcError::LiveMatchCommandUnimplemented { command_kind: <expected> })`.
+///
+/// `ChangePressLevel` is EXCLUDED from this list because S11 implemented it.
+/// Its own round-trip test is `apply_change_press_level_succeeds_and_wires_sim`.
 #[test]
-fn apply_each_variant_returns_unimplemented() {
+fn apply_eight_unimplemented_variants_return_unimplemented() {
     let state = test_app_state();
     let handle = start_live_match_inner("0xfeedbabe00000001".to_string(), &state).expect("start");
 
@@ -194,12 +198,7 @@ fn apply_each_variant_returns_unimplemented() {
             },
             "changeFormation",
         ),
-        (
-            MatchCommand::ChangePressLevel {
-                level: PressLevel::High,
-            },
-            "changePressLevel",
-        ),
+        // ChangePressLevel is IMPLEMENTED (S11) — tested separately below.
         (
             MatchCommand::ChangeTempoBias {
                 bias: TempoBias::Fast,
@@ -238,7 +237,11 @@ fn apply_each_variant_returns_unimplemented() {
         ),
     ];
 
-    assert_eq!(samples.len(), 9, "must cover all 9 MatchCommand variants");
+    assert_eq!(
+        samples.len(),
+        8,
+        "8 unimplemented variants covered (ChangePressLevel excluded)"
+    );
     assert_eq!(
         KNOWN_MATCH_COMMAND_KINDS.len(),
         9,
@@ -246,8 +249,9 @@ fn apply_each_variant_returns_unimplemented() {
     );
 
     for (cmd, expected_kind) in samples {
-        let err = apply_match_command_inner(handle.clone(), cmd, &state)
-            .expect_err("apply_match_command must always return Err at T4-5a");
+        let err = apply_match_command_inner(handle.clone(), cmd, &state).expect_err(&format!(
+            "apply_match_command({expected_kind}) must return Err (still unimplemented)"
+        ));
         match err {
             IpcError::LiveMatchCommandUnimplemented { command_kind } => {
                 assert_eq!(
@@ -260,6 +264,49 @@ fn apply_each_variant_returns_unimplemented() {
             ),
         }
     }
+}
+
+/// S11 — `ChangePressLevel` is the first implemented `MatchCommand` variant.
+///
+/// This test verifies:
+///   1. The command returns `Ok(())` (no longer Unimplemented).
+///   2. The level is recorded in the session's `pending_commands` audit trail.
+///
+/// The behavioral effect (line_x shift + press-role assignment) is tested in
+/// `fw-match-sim/tests/press_level_test.rs` which covers the sim path directly.
+#[test]
+fn apply_change_press_level_succeeds_and_wires_sim() {
+    let state = test_app_state();
+    let handle = start_live_match_inner("0xfeedbabe00000002".to_string(), &state).expect("start");
+
+    // High press command must return Ok (not Unimplemented).
+    let result = apply_match_command_inner(
+        handle.clone(),
+        MatchCommand::ChangePressLevel {
+            level: PressLevel::High,
+        },
+        &state,
+    );
+    assert!(
+        result.is_ok(),
+        "ChangePressLevel must return Ok after S11 implementation; got {result:?}"
+    );
+
+    // The command must appear in the session's audit trail.
+    let live = state.live_matches().read().expect("read lock");
+    let session = live.get(&handle.id).expect("session must exist");
+    let recorded = session.pending_commands.iter().any(|c| {
+        matches!(
+            c,
+            MatchCommand::ChangePressLevel {
+                level: PressLevel::High
+            }
+        )
+    });
+    assert!(
+        recorded,
+        "ChangePressLevel(High) must be recorded in pending_commands audit trail"
+    );
 }
 
 // ---------------------------------------------------------------------------
