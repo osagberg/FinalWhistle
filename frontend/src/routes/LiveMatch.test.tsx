@@ -108,6 +108,7 @@ import {
   startLiveMatchForFixture,
   stepLiveMatch,
   finishLiveMatch,
+  applyMatchCommand,
 } from "~/lib/api/live_match";
 import { useLocation } from "@solidjs/router";
 
@@ -567,5 +568,264 @@ describe("LiveMatch route (S3b)", () => {
     expect(typeof calledSeed).toBe("string");
     expect(calledSeed).toMatch(/^0x[0-9a-f]+$/i);
     expect(vi.mocked(startLiveMatchForFixture)).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // S10 — Touchline panel tests
+  // ---------------------------------------------------------------------------
+
+  // S10-AC1: touchline panel buttons are visible during play.
+  it("S10: touchline panel is visible during play (S10-AC1)", async () => {
+    render(() => <LiveMatch />);
+    await waitFor(() =>
+      expect(vi.mocked(startLiveMatch)).toHaveBeenCalledTimes(1),
+    );
+
+    // The touchline section should be present during play.
+    await waitFor(() => {
+      expect(
+        screen.getByRole("region", { name: /touchline instructions/i }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  // S10-AC2: clicking a touchline button calls applyMatchCommand with the
+  // correct MatchCommand payload.
+  it("S10: pressing 'Press high' calls applyMatchCommand with changePressLevel high (S10-AC2)", async () => {
+    vi.mocked(applyMatchCommand).mockResolvedValue(undefined);
+
+    render(() => <LiveMatch />);
+    await waitFor(() =>
+      expect(vi.mocked(startLiveMatch)).toHaveBeenCalledTimes(1),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /instruct the team to press high/i }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /instruct the team to press high/i }),
+    );
+
+    await waitFor(() => {
+      expect(vi.mocked(applyMatchCommand)).toHaveBeenCalledTimes(1);
+    });
+    expect(vi.mocked(applyMatchCommand)).toHaveBeenCalledWith(
+      makeHandle(),
+      { kind: "changePressLevel", level: "high" },
+    );
+  });
+
+  // S10-AC3: liveMatchCommandUnimplemented response renders as a benign ack,
+  // not an error toast or red alert. The step loop must still be running.
+  it("S10: liveMatchCommandUnimplemented renders as a benign ack (not an error) (S10-AC3)", async () => {
+    vi.mocked(applyMatchCommand).mockRejectedValue({
+      kind: "liveMatchCommandUnimplemented",
+      commandKind: "changePressLevel",
+    });
+
+    render(() => <LiveMatch />);
+    await waitFor(() =>
+      expect(vi.mocked(startLiveMatch)).toHaveBeenCalledTimes(1),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /instruct the team to press high/i }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /instruct the team to press high/i }),
+    );
+
+    // The ack line should appear — football-native copy, NOT an error alert.
+    await waitFor(() => {
+      // The ack text uses "instruction noted".
+      expect(
+        screen.getByText(/instruction noted/i),
+      ).toBeInTheDocument();
+    });
+
+    // Must NOT have a role="alert" on screen (no red alert).
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  // S10-AC4: touchline panel is hidden after full-time.
+  it("S10: touchline panel disappears after full-time (S10-AC4)", async () => {
+    vi.mocked(stepLiveMatch).mockResolvedValue(
+      makeStep(5400, {
+        isFinished: true,
+        newEvents: [makeEvent("FullTime", 5400, 90, "Full time.")],
+        score: { home: 0, away: 0 },
+      }),
+    );
+    vi.mocked(finishLiveMatch).mockResolvedValue({
+      handle: makeHandle(),
+      finalScore: { home: 0, away: 0 },
+      tick: 5400,
+      totalEvents: 3,
+    });
+
+    render(() => <LiveMatch />);
+    await waitFor(() =>
+      expect(vi.mocked(startLiveMatch)).toHaveBeenCalledTimes(1),
+    );
+
+    await vi.advanceTimersByTimeAsync(200);
+
+    await waitFor(() => {
+      expect(vi.mocked(finishLiveMatch)).toHaveBeenCalledTimes(1);
+    });
+
+    // After full-time the touchline region should be gone.
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("region", { name: /touchline instructions/i }),
+      ).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // S12 — Half-time pause tests
+  // ---------------------------------------------------------------------------
+
+  // S12-AC1: step loop pauses once at the 45' threshold and shows the
+  // half-time interstitial dialog.
+  it("S12: pauses at tick 2700 and shows half-time interstitial (S12-AC1)", async () => {
+    // First step returns tick 2700 (45'), not finished.
+    vi.mocked(stepLiveMatch).mockResolvedValue(makeStep(2700));
+
+    render(() => <LiveMatch />);
+    await waitFor(() =>
+      expect(vi.mocked(startLiveMatch)).toHaveBeenCalledTimes(1),
+    );
+
+    await vi.advanceTimersByTimeAsync(150);
+
+    // Half-time interstitial should appear.
+    await waitFor(() => {
+      expect(
+        screen.getByRole("dialog", { name: /half-time/i }),
+      ).toBeInTheDocument();
+    });
+
+    // "Resume second half" button should be visible and keyboard-reachable.
+    expect(
+      screen.getByRole("button", { name: /resume second half/i }),
+    ).toBeInTheDocument();
+  });
+
+  // S12-AC2: clicking "Resume second half" dismisses the interstitial and
+  // restarts the step loop.
+  it("S12: Resume second half restarts the step loop (S12-AC2)", async () => {
+    vi.mocked(stepLiveMatch).mockResolvedValue(makeStep(2700));
+
+    render(() => <LiveMatch />);
+    await waitFor(() =>
+      expect(vi.mocked(startLiveMatch)).toHaveBeenCalledTimes(1),
+    );
+
+    await vi.advanceTimersByTimeAsync(150);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("dialog", { name: /half-time/i }),
+      ).toBeInTheDocument();
+    });
+
+    // Now configure stepLiveMatch to return a normal second-half step.
+    vi.mocked(stepLiveMatch).mockResolvedValue(makeStep(2760));
+
+    fireEvent.click(screen.getByRole("button", { name: /resume second half/i }));
+
+    // Interstitial should disappear.
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: /half-time/i }),
+      ).toBeNull();
+    });
+
+    // The loop should restart — another step should fire.
+    await vi.advanceTimersByTimeAsync(200);
+    await waitFor(() => {
+      // stepLiveMatch called again after resume.
+      const callsAfterResume = vi.mocked(stepLiveMatch).mock.calls.filter(
+        (call) => call[1] === 3, // ticks === 3 (auto mode)
+      );
+      expect(callsAfterResume.length).toBeGreaterThan(0);
+    });
+  });
+
+  // S12-AC3: the half-time pause fires at most once — a second crossing of
+  // tick 2700 in a subsequent step does not re-trigger the interstitial.
+  it("S12: half-time pause only fires once — no re-trigger on later steps (S12-AC3)", async () => {
+    // First step: below half-time.
+    vi.mocked(stepLiveMatch)
+      .mockResolvedValueOnce(makeStep(2700)) // triggers half-time
+      .mockResolvedValue(makeStep(2760));    // subsequent steps
+
+    render(() => <LiveMatch />);
+    await waitFor(() =>
+      expect(vi.mocked(startLiveMatch)).toHaveBeenCalledTimes(1),
+    );
+
+    await vi.advanceTimersByTimeAsync(150);
+
+    // Half-time fires on first 2700 crossing.
+    await waitFor(() => {
+      expect(
+        screen.getByRole("dialog", { name: /half-time/i }),
+      ).toBeInTheDocument();
+    });
+
+    // Resume.
+    fireEvent.click(screen.getByRole("button", { name: /resume second half/i }));
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: /half-time/i }),
+      ).toBeNull();
+    });
+
+    // Advance more — the subsequent step at 2760 must not re-trigger.
+    await vi.advanceTimersByTimeAsync(300);
+
+    await waitFor(() => {
+      // No dialog should be showing.
+      expect(
+        screen.queryByRole("dialog", { name: /half-time/i }),
+      ).toBeNull();
+    });
+  });
+
+  // S12-AC4: when skip mode is active, the half-time pause does NOT fire
+  // even though the tick crosses 2700.
+  it("S12: half-time does not pause when speed mode is 'skip' (S12-AC4)", async () => {
+    // Skip mode: step returns tick 3600 (60') in a single batch — already past
+    // half-time without the manager choosing to pause.
+    vi.mocked(stepLiveMatch).mockResolvedValue(makeStep(3600));
+
+    render(() => <LiveMatch />);
+    await waitFor(() =>
+      expect(vi.mocked(startLiveMatch)).toHaveBeenCalledTimes(1),
+    );
+
+    // Switch to skip speed before the first step fires.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /skip to end/i })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /skip to end/i }));
+
+    await vi.advanceTimersByTimeAsync(150);
+    await waitFor(() => {
+      expect(vi.mocked(stepLiveMatch)).toHaveBeenCalled();
+    });
+
+    // No half-time dialog — the skip mode skipped past it.
+    expect(
+      screen.queryByRole("dialog", { name: /half-time/i }),
+    ).toBeNull();
   });
 });
