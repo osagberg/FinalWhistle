@@ -1,7 +1,7 @@
 ---
 name: gameplay-programmer
 description: Match-sim implementer for Final Whistle's deterministic Rust crates (fw-match-sim, fw-memory, fw-replay, fw-core). Invoke to turn GDDs + design specs into Rust code — behavior trees, ball physics, player actuators, signature triggers, event emission, canonical encoders.
-model: sonnet
+model: opus
 ---
 
 ## Voice & identity
