@@ -143,7 +143,7 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:b190d2d78cec0a5b6a5336428747783c316274f3e46614c899b3d667c0a0efdf",
+    expected_hash: "blake3:c4da229ba47835f202c24b3fadf9c0d7b71ed1601dc2235b02401f365d70928f",
     metadata: (
         description: "Slice 0 non-linear attribute curve applied to the content-driven 600-tick run: per-class gamma curve g_class(a)=a^gamma at every attribute read site. Authorized 2026-06-06 (attribute-effect campaign, Slice 0).",
         generated_at: "2026-06-06",

@@ -81,184 +81,266 @@ fn set_attrs_above_threshold(state: &mut MatchState, slot: usize) {
     // first-time-diagonal-switch attributes
     attrs.mental.vision = Q32::ONE;
     attrs.technical.passing = Q32::ONE;
+    // poacher's-dart trigger attributes — set ABOVE the 0.45 threshold but NOT
+    // to 1.0. The mid_range_baseline() default of 0.5 already clears the gate;
+    // we leave off_the_ball / anticipation / acceleration / pace at baseline so
+    // they don't inflate the RunOffBall raw utility past 1.0 (the
+    // `apply_run_off_ball_bias` precondition is `raw <= 1`, and that product is
+    // off_the_ball × pace × acceleration × anticipation × secondary>1).
+    // finishing is `technical` (used by the shot/xG path, not run-off-ball), so
+    // it is safe to elevate for the box-shot recipe.
+    attrs.technical.finishing = Q32::ONE;
+}
+
+/// 2026-06-06 kickoff-spam fix: signatures now fire ONLY when the player
+/// genuinely EXECUTES the move during live play (a real shot / dribble / run /
+/// interception), past a 60-tick kick-off settle window — not the instant a
+/// static attribute precondition is first true. So a dispatch-level firing test
+/// must drive an actual in-play action.
+///
+/// This builds the proven "centre-forward shoots from inside the box" scenario
+/// (mirrors `ac4_via_dispatch_tick_path`): slot 9 (home CF, `in_team == 9`,
+/// the poacher's-dart role) InPossession ~4.5m from goal with the ball at his
+/// feet, elite finishing + a 50× shoot bias so the BT deterministically picks
+/// `AttemptShot`. `poacher's-dart` action-gates on `AttemptShot && in_box`, so
+/// this is a real signature execution. Tick is advanced PAST the settle window
+/// and `decision_slots[9]` aligned so slot 9 decides on the first dispatch.
+const POACHER_SLOT: usize = 9;
+const POACHER_ID: &str = "fwh.core:signature.poachers-dart";
+
+/// A separate shoot-driver signature, used ONLY to inject a 50× shoot bias via
+/// a NON-Attacking lane. `combine_active_biases` folds every active lane, so a
+/// SetPiece-lane bias still multiplies shoot_mul — while leaving the Attacking
+/// lane FREE so poacher's-dart (Attacking) stays eligible (an occupied same-
+/// category lane would make `evaluate_signatures` skip it). The no-op-stub id
+/// has a trigger binding (never fires on its own) so the def resolves cleanly.
+const SHOOT_DRIVER_ID: &str = "fwh.core:signature.no-op-stub";
+
+/// Re-establish the on-ball box-shot scenario for slot 9 each tick (a shot
+/// launches the ball loose + drops possession, so without re-arming the CF
+/// wouldn't shoot again). Also re-asserts the SetPiece-lane shoot driver.
+fn re_arm_box_shooter(state: MatchState) -> MatchState {
+    use fw_match_sim::{ForwardState, PlayerRoleState};
+    let driver_id = SignatureId::try_new(SHOOT_DRIVER_ID).unwrap();
+    let mut state = state
+        .with_last_touched_by(POACHER_SLOT as u8)
+        .with_possession(POACHER_SLOT as u8);
+    state.players[POACHER_SLOT].role_state = PlayerRoleState::Forward(ForwardState::InPossession);
+    state.players[POACHER_SLOT].pos_x = Q32::from_int(48);
+    state.players[POACHER_SLOT].pos_y = Q32::ZERO;
+    state.ball.pos_x = Q32::from_int(48);
+    state.ball.pos_y = Q32::ZERO;
+    // Re-assert the SetPiece-lane shoot driver (different category from the
+    // poacher's-dart Attacking lane, so eligibility stays unblocked).
+    let setpiece_idx = BiasCategory::SetPiece as usize;
+    state.signature_firing[POACHER_SLOT][setpiece_idx] =
+        Some(signature::SignatureFiring::new(driver_id, Tick::ZERO, 5400));
+    state
+}
+
+fn poacher_box_shot_state(seed: u64) -> (MatchState, BTreeMap<String, SignatureDefinition>) {
+    use fw_match_sim::{ForwardState, PlayerRoleState};
+
+    let id = SignatureId::try_new(POACHER_ID).unwrap();
+    let driver_id = SignatureId::try_new(SHOOT_DRIVER_ID).unwrap();
+    // 50× shoot tilt → deterministic AttemptShot on a single tick.
+    let strong_shoot_bias = SimBiasSnapshot {
+        shoot_mul: Q32::from_raw(214_748_364_800_i64), // 50.0
+        pass_mul: Q32::from_raw(214_748_365_i64),      // ≈0.05
+        dribble_mul: Q32::from_raw(214_748_365_i64),
+        press_mul: Q32::from_raw(214_748_365_i64),
+        cover_mul: Q32::from_raw(214_748_365_i64),
+    };
+
+    let mut state = MatchState::initial(Seed::from_u64(seed))
+        .with_last_touched_by(POACHER_SLOT as u8)
+        .with_possession(POACHER_SLOT as u8);
+    state.players[POACHER_SLOT].role_state = PlayerRoleState::Forward(ForwardState::InPossession);
+    // Home attacks +x; goal at GOAL_LINE_X = 52.5. Put the CF ~4.5m out, central
+    // (inside the penalty area for the in_box action gate).
+    state.players[POACHER_SLOT].pos_x = Q32::from_int(48);
+    state.players[POACHER_SLOT].pos_y = Q32::ZERO;
+    state.ball.pos_x = Q32::from_int(48);
+    state.ball.pos_y = Q32::ZERO;
+    {
+        // Elevate ONLY the shot-path attributes (finishing / technique /
+        // long_shots), leaving everything else at the mid_range_baseline (0.5,
+        // which already clears every signature's 0.45 trigger threshold). We do
+        // NOT use `set_attrs_above_threshold` here: maxing strength + composure +
+        // balance together pushes the hold-ball raw utility > 1.0 and trips the
+        // production `apply_hold_bias` precondition (`raw <= 1`) — a separate,
+        // pre-existing latent issue, out of scope for the signature fix. Keeping
+        // those at baseline avoids it while the elite finishing + the 50× shoot
+        // bias still resolve the box shot.
+        let attrs = state.players[POACHER_SLOT].attributes_mut();
+        attrs.technical.finishing = Q32::ONE;
+        attrs.technical.technique = Q32::ONE;
+        attrs.technical.long_shots = Q32::ONE;
+    }
+    *state.players[POACHER_SLOT].signature_candidates_mut() =
+        vec![SignatureCandidate::try_new(id, Q32::ONE).unwrap()];
+
+    // Drive the shoot decision via the SetPiece lane (different category from
+    // poacher's-dart's Attacking lane) so the 50× bias flows into shoot_mul
+    // WITHOUT occupying the Attacking lane that poacher's-dart needs free.
+    let setpiece_idx = BiasCategory::SetPiece as usize;
+    state.signature_firing[POACHER_SLOT][setpiece_idx] =
+        Some(signature::SignatureFiring::new(driver_id, Tick::ZERO, 5400));
+
+    // Decide on the first dispatch, PAST the 60-tick settle window.
+    state.decision_slots[POACHER_SLOT] = 1;
+    state.tick = Tick::from_raw(61);
+
+    let mut defs = BTreeMap::new();
+    // The poacher's-dart definition (the signature under test).
+    defs.insert(
+        POACHER_ID.to_string(),
+        make_def(POACHER_ID, BiasCategory::Attacking, no_op_bias()),
+    );
+    // The shoot-driver def in the SetPiece lane (50× shoot bias).
+    defs.insert(
+        SHOOT_DRIVER_ID.to_string(),
+        make_def(SHOOT_DRIVER_ID, BiasCategory::SetPiece, strong_shoot_bias),
+    );
+    (state, defs)
 }
 
 // ---------------------------------------------------------------------------
-// AC-1a: long-range-strike fires via dispatch_tick when predicate satisfied
+// AC-1a: a signature fires END-TO-END through dispatch_tick on a REAL in-play
+//        action moment (2026-06-06 kickoff-spam fix).
 // ---------------------------------------------------------------------------
 
-/// MEMORY criterion 1: `fwh.core:signature.long-range-strike` fires via
-/// `dispatch_tick` (not direct state mutation) when the trigger predicate
-/// is satisfied (composure >= 0.45, long_shots >= 0.45, slot is FWD or MID).
-///
-/// Slot 8 = home FWD (in_team = 8 % 11 = 8; is_attacker = 5..=10 ✓).
-/// Attributes set to Q32::ONE (>> 0.45 threshold).
-/// Runs up to 150 ticks to give the signature multiple decision opportunities.
+/// MEMORY criterion 1, re-cast for the in-play-moment contract: a signature
+/// (`poacher's-dart`) fires via `dispatch_tick` when the player ACTUALLY
+/// executes its move during live play — here, the centre-forward taking a shot
+/// from inside the box. Capability (the attribute predicate) is necessary but
+/// no longer sufficient: the player must perform the action.
 #[test]
-fn ac1a_long_range_strike_fires_via_dispatch_when_predicate_satisfied() {
-    let lrs_id = "fwh.core:signature.long-range-strike";
-    let id = SignatureId::try_new(lrs_id).unwrap();
+fn ac1a_poachers_dart_fires_via_dispatch_on_real_box_shot() {
+    let id = SignatureId::try_new(POACHER_ID).unwrap();
+    let (mut state, defs) = poacher_box_shot_state(42);
 
-    let mut state = MatchState::initial(Seed::from_u64(42));
-    // slot 8 = home FWD; set attrs above threshold.
-    set_attrs_above_threshold(&mut state, 8);
-    // Register the signature candidate.
-    state.players[8]
-        .signature_candidates_mut()
-        .push(SignatureCandidate::try_new(id.clone(), Q32::ONE).unwrap());
+    state = dispatch::dispatch_tick(state, &defs);
 
-    let mut defs = BTreeMap::new();
-    defs.insert(
-        lrs_id.to_string(),
-        make_def(lrs_id, BiasCategory::Attacking, amplify_shoot_bias()),
-    );
-
-    // long-range-strike is Attacking category (index 0 in signature_firing inner array)
-    let attacking_idx = BiasCategory::Attacking as usize;
-    let mut fired = false;
-    for _ in 0..150 {
-        state = dispatch::dispatch_tick(state, &defs);
-        if state.signature_firing[8][attacking_idx].is_some()
-            && state.signature_firing[8][attacking_idx]
-                .as_ref()
-                .unwrap()
-                .id()
-                == &id
-        {
-            fired = true;
-            break;
-        }
-        // Also check if first_fired_seen has it (may have fired and expired).
-        if state
-            .signature_first_fired_seen
-            .contains(&(8u8, id.clone()))
-        {
-            fired = true;
-            break;
-        }
-        state.tick = state.tick.successor();
-    }
-
+    // The CF took a real shot in the box → poacher's-dart fired.
     assert!(
-        fired,
-        "long-range-strike must fire via dispatch_tick when predicate fully satisfied at slot 8; \
-         ran 150 ticks with composure=ONE, long_shots=ONE, slot is FWD"
+        state.match_events().iter().any(|e| matches!(
+            e,
+            MatchEvent::Shot {
+                shooter_slot: 9,
+                ..
+            }
+        )),
+        "setup invariant: slot 9 must take a real shot (the action poacher's-dart \
+         gates on). Events: {:?}",
+        state.match_events()
+    );
+    assert!(
+        state
+            .signature_first_fired_seen
+            .contains(&(POACHER_SLOT as u8, id.clone())),
+        "poacher's-dart must fire via dispatch_tick when the CF executes a real \
+         box shot past the settle window. first_fired_seen: {:?}",
+        state.signature_first_fired_seen
     );
 }
 
 // ---------------------------------------------------------------------------
-// AC-1b: body-shield-pressure fires via dispatch_tick when predicate satisfied
+// AC-1b: the action gate is the load-bearing addition — a capable player whose
+//        chosen intent is UNRELATED to the move does NOT fire (was the bug).
 // ---------------------------------------------------------------------------
 
-/// MEMORY criterion 1: `fwh.core:signature.body-shield-pressure` fires via
-/// `dispatch_tick` when the trigger predicate is satisfied (marking >= 0.45,
-/// strength >= 0.45, aggression >= 0.45, slot is DEF or MID).
-///
-/// Slot 1 = home DEF (in_team = 1; is_defender_or_mid = 1..=7 ✓).
+/// 2026-06-06 kickoff-spam regression guard: a player who is fully capable of a
+/// signature (attribute predicate satisfied) but whose actual intent this tick
+/// does NOT execute the move must NOT fire. This is the precise inverse of the
+/// kickoff dump: pre-fix, capability alone fired the signature at kick-off.
 #[test]
-fn ac1b_body_shield_pressure_fires_via_dispatch_when_predicate_satisfied() {
-    let bsp_id = "fwh.core:signature.body-shield-pressure";
-    let id = SignatureId::try_new(bsp_id).unwrap();
+fn ac1b_capable_player_does_not_fire_without_the_action() {
+    use fw_match_sim::role_states::PlayerIntent;
+    use fw_match_sim::signature::signature_executes_now;
 
-    let mut state = MatchState::initial(Seed::from_u64(99));
-    set_attrs_above_threshold(&mut state, 1);
-    state.players[1]
-        .signature_candidates_mut()
-        .push(SignatureCandidate::try_new(id.clone(), Q32::ONE).unwrap());
+    let px = Q32::from_int(48);
+    let py = Q32::ZERO;
+    let player_pos = (px, py);
+    let ball_pos = (px, py);
+    let tick = Tick::from_raw(300); // well past the settle window
 
-    let mut defs = BTreeMap::new();
-    defs.insert(
-        bsp_id.to_string(),
-        make_def(bsp_id, BiasCategory::Defensive, no_op_bias()),
-    );
-
-    // body-shield-pressure is Defensive category (index 1)
-    let defensive_idx = BiasCategory::Defensive as usize;
-    let mut fired = false;
-    for _ in 0..150 {
-        state = dispatch::dispatch_tick(state, &defs);
-        if state.signature_firing[1][defensive_idx].is_some()
-            && state.signature_firing[1][defensive_idx]
-                .as_ref()
-                .unwrap()
-                .id()
-                == &id
-        {
-            fired = true;
-            break;
-        }
-        if state
-            .signature_first_fired_seen
-            .contains(&(1u8, id.clone()))
-        {
-            fired = true;
-            break;
-        }
-        state.tick = state.tick.successor();
-    }
-
+    // CF in the box, but merely holding position / passing back — not a dart.
     assert!(
-        fired,
-        "body-shield-pressure must fire via dispatch_tick when predicate satisfied at slot 1; \
-         ran 150 ticks with marking=ONE, strength=ONE, aggression=ONE, slot is DEF"
+        !signature_executes_now(
+            POACHER_ID,
+            &PlayerIntent::HoldBall {
+                target_x: px,
+                target_y: py
+            },
+            POACHER_SLOT as u8,
+            tick,
+            player_pos,
+            ball_pos,
+        ),
+        "poacher's-dart must NOT fire on a non-dart intent (HoldBall) even in the box"
+    );
+    // The real action (a shot in the box) DOES fire.
+    assert!(
+        signature_executes_now(
+            POACHER_ID,
+            &PlayerIntent::AttemptShot {
+                target_x: Q32::from_int(53),
+                target_y: py
+            },
+            POACHER_SLOT as u8,
+            tick,
+            player_pos,
+            ball_pos,
+        ),
+        "poacher's-dart must fire on a real box shot"
     );
 }
 
 // ---------------------------------------------------------------------------
-// AC-1c: first-time-diagonal-switch fires via dispatch_tick when predicate satisfied
+// AC-1c: the settle window blocks firing during kick-off settling.
 // ---------------------------------------------------------------------------
 
-/// MEMORY criterion 1: `fwh.core:signature.first-time-diagonal-switch` fires
-/// via `dispatch_tick` when the trigger predicate is satisfied (vision >= 0.45,
-/// passing >= 0.45, slot is MID).
-///
-/// Slot 5 = home MID (in_team = 5; is_midfielder = 5..=7 ✓).
+/// 2026-06-06 kickoff-spam regression guard: even with the right action +
+/// geometry, no signature fires inside the `SIGNATURE_SETTLE_TICKS` window.
 #[test]
-fn ac1c_first_time_diagonal_switch_fires_via_dispatch_when_predicate_satisfied() {
-    let diag_id = "fwh.core:signature.first-time-diagonal-switch";
-    let id = SignatureId::try_new(diag_id).unwrap();
+fn ac1c_no_signature_fires_during_settle_window() {
+    use fw_match_sim::role_states::PlayerIntent;
+    use fw_match_sim::signature::signature_executes_now;
 
-    let mut state = MatchState::initial(Seed::from_u64(777));
-    set_attrs_above_threshold(&mut state, 5);
-    state.players[5]
-        .signature_candidates_mut()
-        .push(SignatureCandidate::try_new(id.clone(), Q32::ONE).unwrap());
+    let px = Q32::from_int(48);
+    let py = Q32::ZERO;
+    let shot = PlayerIntent::AttemptShot {
+        target_x: Q32::from_int(53),
+        target_y: py,
+    };
 
-    let mut defs = BTreeMap::new();
-    defs.insert(
-        diag_id.to_string(),
-        make_def(diag_id, BiasCategory::BuildUp, no_op_bias()),
-    );
-
-    // first-time-diagonal-switch is BuildUp category (index 2)
-    let buildup_idx = BiasCategory::BuildUp as usize;
-    let mut fired = false;
-    for _ in 0..150 {
-        state = dispatch::dispatch_tick(state, &defs);
-        if state.signature_firing[5][buildup_idx].is_some()
-            && state.signature_firing[5][buildup_idx]
-                .as_ref()
-                .unwrap()
-                .id()
-                == &id
-        {
-            fired = true;
-            break;
-        }
-        if state
-            .signature_first_fired_seen
-            .contains(&(5u8, id.clone()))
-        {
-            fired = true;
-            break;
-        }
-        state.tick = state.tick.successor();
+    let pos = (px, py);
+    // Inside the settle window (ticks 0..60): a real box shot still must not fire.
+    for raw in [0_i64, 1, 30, 59] {
+        assert!(
+            !signature_executes_now(
+                POACHER_ID,
+                &shot,
+                POACHER_SLOT as u8,
+                Tick::from_raw(raw),
+                pos,
+                pos
+            ),
+            "no signature may fire at tick {raw} (inside the kick-off settle window)"
+        );
     }
-
+    // First tick past the window: the same action fires.
     assert!(
-        fired,
-        "first-time-diagonal-switch must fire via dispatch_tick when predicate satisfied at slot 5; \
-         ran 150 ticks with vision=ONE, passing=ONE, slot is MID"
+        signature_executes_now(
+            POACHER_ID,
+            &shot,
+            POACHER_SLOT as u8,
+            Tick::from_raw(60),
+            pos,
+            pos
+        ),
+        "the same box shot must fire on the first tick past the settle window"
     );
 }
 
@@ -288,40 +370,25 @@ fn ac1c_first_time_diagonal_switch_fires_via_dispatch_when_predicate_satisfied()
 
 #[test]
 fn ac2_cooldown_blocks_refiring_within_window() {
-    let lrs_id = "fwh.core:signature.long-range-strike";
-    let id = SignatureId::try_new(lrs_id).unwrap();
+    // 2026-06-06 kickoff-spam fix: a firing now requires a REAL action. Use the
+    // poacher's-dart box-shot recipe (a guaranteed AttemptShot in the box) so a
+    // real firing occurs, then assert cooldown blocks re-firing. Each tick we
+    // re-establish possession + ball-at-feet so the CF keeps shooting — only the
+    // cooldown should prevent a second firing.
+    let id = SignatureId::try_new(POACHER_ID).unwrap();
+    let (mut state, defs) = poacher_box_shot_state(42);
+    let key = (POACHER_SLOT as u8, id.clone());
 
-    let seed = Seed::from_u64(42);
-    let mut state = MatchState::initial(seed);
-    set_attrs_above_threshold(&mut state, 8);
-    state.players[8]
-        .signature_candidates_mut()
-        .push(SignatureCandidate::try_new(id.clone(), Q32::ONE).unwrap());
-
-    // GUARANTEE firing: align decision_slots[8] = 1, then advance to tick=1
-    // so should_decide(roster_slot=9, ...) returns true at the first
-    // dispatch tick. (roster_slot is 1-indexed, so slot_idx 8 = roster_slot 9.)
-    state.decision_slots[8] = 1;
-    state.tick = Tick::ZERO.successor();
-
-    let mut defs = BTreeMap::new();
-    defs.insert(
-        lrs_id.to_string(),
-        make_def(lrs_id, BiasCategory::Attacking, amplify_shoot_bias()),
-    );
-
-    // Phase 1: first dispatch MUST fire the signature.
+    // Phase 1: first dispatch MUST fire the signature on a real box shot.
     state = dispatch::dispatch_tick(state, &defs);
-    let key = (8u8, id.clone());
     assert!(
         state.signature_cooldowns.contains_key(&key),
-        "AC-2 setup invariant violated: long_range_strike did not fire on the \
-         guaranteed-firing tick. Attrs above threshold + decision_slots[8]=1 + \
-         tick=1 should fire on the first dispatch_tick. \
-         Check that ForwardState's role-state + the dispatch path are wired."
+        "AC-2 setup invariant violated: poacher's-dart did not fire on the \
+         guaranteed box-shot tick. The CF must shoot in the box past the settle \
+         window. first_fired_seen: {:?}",
+        state.signature_first_fired_seen
     );
     let fired_at = state.tick;
-    // EveryTicks(600) cooldown → cooldown_end = fired_at + 600.
     let cooldown_end_first = state.signature_cooldowns[&key];
     assert!(
         cooldown_end_first > fired_at,
@@ -330,56 +397,50 @@ fn ac2_cooldown_blocks_refiring_within_window() {
         fired_at.to_raw()
     );
 
-    // Capture the start_tick of the first firing. LRS is Attacking (cat_idx=0).
+    // poacher's-dart is Attacking (cat_idx = 0).
     let cat_idx = BiasCategory::Attacking as usize;
-    let first_firing = state.signature_firing[8][cat_idx]
+    let first_start_tick = state.signature_firing[POACHER_SLOT][cat_idx]
         .as_ref()
-        .expect("first fire must populate signature_firing[8][Attacking]");
-    let first_start_tick = first_firing.start_tick();
+        .expect("first fire must populate signature_firing[9][Attacking]")
+        .start_tick();
     assert_eq!(
         first_start_tick, fired_at,
         "first firing's start_tick must equal the tick it fired on"
     );
 
     // Phase 2: run 500 more ticks (well within the 600-tick cooldown window).
-    // Decision-cadence aligned re-fire opportunities land every 15 ticks
-    // (tick % 15 == 1): tick=16, 31, 46, ..., 496 — ~33 attempts. A bad
-    // implementation that ignores cooldown would re-fire at one of these.
-    // OBSERVABLES that catch the re-fire bug:
-    //   1. signature_cooldowns[&key] gets OVERWRITTEN to (re_fire_tick + 600).
-    //   2. signature_firing[8][Attacking], if Some, carries a LATER start_tick.
+    // Re-arm the shooting scenario each tick (shot launches the ball loose +
+    // drops possession; without re-arming the CF wouldn't shoot again). The
+    // cooldown — not a lack of action — must be what blocks the re-fire.
     state.tick = state.tick.successor();
     for _ in 0..500 {
+        state = re_arm_box_shooter(state);
+
         state = dispatch::dispatch_tick(state, &defs);
 
-        // Observable 1: cooldown_end MUST be unchanged. If the dispatcher
-        // re-fired the signature, this value would be (re_fire_tick + 600),
-        // strictly greater than the originally captured value.
+        // Observable 1: cooldown_end MUST be unchanged. A re-fire would overwrite
+        // it to (re_fire_tick + 600), strictly greater than the captured value.
         let current_cooldown_end = state.signature_cooldowns[&key];
         assert_eq!(
             current_cooldown_end,
             cooldown_end_first,
             "cooldown_end was overwritten at tick {:?} (cooldown_end {:?} -> {:?}); \
-             this means the signature re-fired inside its cooldown window. \
-             The dispatcher must skip candidates whose cooldown has not expired \
-             (signature/dispatcher.rs §'Cooldown check').",
+             the signature re-fired inside its cooldown window. The dispatcher \
+             must skip candidates whose cooldown has not expired.",
             state.tick.to_raw(),
             cooldown_end_first.to_raw(),
             current_cooldown_end.to_raw()
         );
 
         // Observable 2: if the firing slot is Some, its start_tick MUST equal
-        // first_start_tick. A re-fire would mint a NEW SignatureFiring with
-        // a later start_tick. After tick > first_start_tick + 60 the firing
-        // window auto-clears to None (dispatch.rs §"Advance firing windows"),
-        // and from then until cooldown_end it must stay None.
-        if let Some(firing) = state.signature_firing[8][cat_idx].as_ref() {
+        // first_start_tick. A re-fire would mint a NEW SignatureFiring.
+        if let Some(firing) = state.signature_firing[POACHER_SLOT][cat_idx].as_ref() {
             assert_eq!(
                 firing.start_tick(),
                 first_start_tick,
-                "signature_firing[8][Attacking] carries start_tick {:?} at tick {:?}, \
-                 but expected start_tick {:?} (the first firing). A different \
-                 start_tick proves a re-fire happened inside the cooldown window.",
+                "signature_firing[9][Attacking] carries start_tick {:?} at tick {:?}, \
+                 expected {:?} (the first firing). A different start_tick proves a \
+                 re-fire happened inside the cooldown window.",
                 firing.start_tick().to_raw(),
                 state.tick.to_raw(),
                 first_start_tick.to_raw()
@@ -389,11 +450,9 @@ fn ac2_cooldown_blocks_refiring_within_window() {
         state.tick = state.tick.successor();
     }
 
-    // Belt-and-suspenders: final state still shows the original cooldown end.
     assert_eq!(
         state.signature_cooldowns[&key], cooldown_end_first,
-        "after 500 cooldown-window ticks, cooldown_end must remain pinned \
-         at the originally-set value"
+        "after 500 cooldown-window ticks, cooldown_end must remain pinned"
     );
 }
 
@@ -412,15 +471,19 @@ fn ac2_cooldown_blocks_refiring_within_window() {
 
 #[test]
 fn ac3_same_category_stacking_allows_at_most_one_signature_per_slot() {
+    // 2026-06-06 kickoff-spam fix: the stacking exclusion lives in
+    // `evaluate_signatures` (eligibility resolution), keyed off the per-category
+    // active-firing lane — it is independent of the new in-play action gate. We
+    // exercise it directly: a same-category candidate is excluded when the lane
+    // is already occupied, and admitted when it is empty.
+    use fw_match_sim::signature::evaluate_signatures;
+
     let sig_a_id = "fwh.core:signature.long-range-strike";
     let sig_b_id = "fwh.core:signature.first-time-diagonal-switch";
-
     let id_a = SignatureId::try_new(sig_a_id).unwrap();
     let id_b = SignatureId::try_new(sig_b_id).unwrap();
 
-    // Both BuildUp category in THIS test fixture so they compete for the
-    // same stacking lane. (Production signature definitions may put them
-    // in different categories; we override here.)
+    // Both in the BuildUp lane so they compete for the same stacking lane.
     let mut defs = BTreeMap::new();
     defs.insert(
         sig_a_id.to_string(),
@@ -431,62 +494,54 @@ fn ac3_same_category_stacking_allows_at_most_one_signature_per_slot() {
         make_def(sig_b_id, BiasCategory::BuildUp, no_op_bias()),
     );
 
-    // Slot 5 = home MID: eligible for both lrs (is_attacker includes 5..=10)
-    // and first-time-diagonal-switch (is_midfielder = 5..=7).
+    // Slot 5 = home MID: eligible for both lrs (is_attacker 5..=10) and
+    // diagonal-switch (is_midfielder 5..=7).
     let mut state = MatchState::initial(Seed::from_u64(42));
     set_attrs_above_threshold(&mut state, 5);
-    *state.players[5].signature_candidates_mut() = vec![
+    let candidates = vec![
         SignatureCandidate::try_new(id_a.clone(), Q32::ONE).unwrap(),
         SignatureCandidate::try_new(id_b.clone(), Q32::ONE).unwrap(),
     ];
+    *state.players[5].signature_candidates_mut() = candidates.clone();
+    state.tick = Tick::from_raw(100);
 
-    // GUARANTEE firing on first tick: align decision_slots[5] = 1, advance to tick=1.
-    state.decision_slots[5] = 1;
-    state.tick = Tick::ZERO.successor();
-
-    // One dispatch tick. Both signatures are eligible (predicates satisfied,
-    // BuildUp lane empty, no cooldown). Stacking semantics: exactly one of
-    // them fires + writes to signature_firing[5][BuildUp]. The other's trigger
-    // either gets blocked at the dispatcher (preferred) or loses softmax to
-    // the first (also acceptable). Either way: AT MOST one entry in
-    // first_fired_seen for slot 5 after this single tick.
-    state = dispatch::dispatch_tick(state, &defs);
-
-    // Count first_fired_seen entries for slot 5 across BOTH candidate IDs.
-    let slot5_first_fired: Vec<_> = state
-        .signature_first_fired_seen
-        .iter()
-        .filter(|(slot, _)| *slot == 5u8)
-        .collect();
-
-    // **Load-bearing positive assertion**: at least one must have fired
-    // (proves the test isn't vacuous). The dispatch path must have selected
-    // one of the two via softmax + recorded it in first_fired_seen.
-    assert!(
-        !slot5_first_fired.is_empty(),
-        "AC-3 setup invariant violated: with both same-category sigs eligible \
-         + decision_slots[5]=1 + tick=1, dispatch must fire ONE of the two. \
-         Neither fired — check trigger predicates + softmax tie-breaking."
-    );
-
-    // **Stacking assertion**: EXACTLY one (count == 1, not ≤ 1).
-    assert_eq!(
-        slot5_first_fired.len(),
-        1,
-        "slot 5 BuildUp lane stacking violated: expected exactly 1 signature \
-         to fire on the same tick when both eligible; got {} (signatures: {:?})",
-        slot5_first_fired.len(),
-        slot5_first_fired
-            .iter()
-            .map(|(_, id)| id.as_str())
-            .collect::<Vec<_>>()
-    );
-
-    // Confirm the fired one is in the BuildUp lane of signature_firing.
+    let trigger_table = signature::build_trigger_table();
     let buildup_idx = BiasCategory::BuildUp as usize;
+
+    // Lane EMPTY → evaluate_signatures resolves exactly one eligible candidate.
+    let empty_lanes: [Option<signature::SignatureFiring>; 4] = [None, None, None, None];
+    let picked = evaluate_signatures(&state, 5, &candidates, &defs, &trigger_table, &empty_lanes);
     assert!(
-        state.signature_firing[5][buildup_idx].is_some(),
-        "signature_firing[5][BuildUp] must have a Some entry after firing"
+        picked.is_some(),
+        "with both BuildUp sigs eligible and the lane empty, evaluate_signatures \
+         must resolve exactly one candidate (proves the test isn't vacuous)"
+    );
+    let picked_id = picked.unwrap().0;
+    assert!(
+        picked_id == id_a || picked_id == id_b,
+        "resolved candidate must be one of the two registered sigs; got {picked_id:?}"
+    );
+
+    // Lane OCCUPIED by a BuildUp firing → BOTH BuildUp candidates are excluded
+    // by the stacking check; evaluate_signatures returns None.
+    let mut occupied_lanes: [Option<signature::SignatureFiring>; 4] = [None, None, None, None];
+    occupied_lanes[buildup_idx] = Some(signature::SignatureFiring::new(
+        id_a.clone(),
+        Tick::from_raw(100),
+        60,
+    ));
+    let blocked = evaluate_signatures(
+        &state,
+        5,
+        &candidates,
+        &defs,
+        &trigger_table,
+        &occupied_lanes,
+    );
+    assert!(
+        blocked.is_none(),
+        "stacking violated: with the BuildUp lane already occupied, no same-category \
+         candidate may be resolved; got {blocked:?}"
     );
 }
 
@@ -666,34 +721,29 @@ fn ac4_active_signature_bias_changes_selected_intent() {
 fn ac5_signature_first_fired_emitted_exactly_once_per_player_per_sig() {
     use fw_match_sim::MatchEvent;
 
-    let lrs_id = "fwh.core:signature.long-range-strike";
-    let id = SignatureId::try_new(lrs_id).unwrap();
+    // 2026-06-06 kickoff-spam fix: guarantee a REAL firing via the poacher's-dart
+    // box-shot recipe, then assert SignatureFirstFired is emitted exactly once
+    // even though the CF takes many shots (re-armed) across the window.
+    let id = SignatureId::try_new(POACHER_ID).unwrap();
+    let (mut state, defs) = poacher_box_shot_state(42);
 
-    let seed = Seed::from_u64(42);
-    let mut state = MatchState::initial(seed);
-    set_attrs_above_threshold(&mut state, 8);
-    state.players[8]
-        .signature_candidates_mut()
-        .push(SignatureCandidate::try_new(id.clone(), Q32::ONE).unwrap());
-
-    // GUARANTEE firing on first dispatch tick.
-    state.decision_slots[8] = 1;
-    state.tick = Tick::ZERO.successor();
-
-    let mut defs = BTreeMap::new();
-    defs.insert(
-        lrs_id.to_string(),
-        make_def(lrs_id, BiasCategory::Attacking, amplify_shoot_bias()),
-    );
-
-    // Run 150 ticks. T1-4a: SignatureFirstFired events now accumulate in
-    // state.match_events (persistent canonical stream, not drained per tick).
+    // Run 150 ticks, re-arming the box-shot scenario each tick so the CF keeps
+    // shooting; the exactly-once gate (signature_first_fired_seen) — not a lack
+    // of repeat actions — must be what caps the event count at 1.
+    let attacking_idx = BiasCategory::Attacking as usize;
     for _ in 0..150 {
+        state = re_arm_box_shooter(state);
+        // Clear BOTH the cooldown AND the Attacking firing lane each tick, so a
+        // SECOND firing would be fully allowed if the once-gate were broken —
+        // this makes the exactly-once assertion non-vacuous. The ONLY thing that
+        // may cap the event count at 1 is `signature_first_fired_seen`.
+        state.signature_cooldowns.clear();
+        state.signature_firing[POACHER_SLOT][attacking_idx] = None;
+
         state = dispatch::dispatch_tick(state, &defs);
         state.tick = state.tick.successor();
     }
 
-    // Count SignatureFirstFired events for slot 8 / LRS from match_events.
     let first_fired_count = state
         .match_events()
         .iter()
@@ -701,7 +751,7 @@ fn ac5_signature_first_fired_emitted_exactly_once_per_player_per_sig() {
             matches!(
                 e,
                 MatchEvent::SignatureFirstFired {
-                    player_slot: 8,
+                    player_slot: 9,
                     signature_id,
                     ..
                 } if signature_id == &id
@@ -709,22 +759,19 @@ fn ac5_signature_first_fired_emitted_exactly_once_per_player_per_sig() {
         })
         .count();
 
-    // **Load-bearing assertion**: EXACTLY 1, not ≤ 1. The prior "<=" was
-    // vacuous on count=0. With guaranteed-firing setup, count MUST be 1.
     assert_eq!(
         first_fired_count, 1,
-        "SignatureFirstFired for (slot=8, lrs) must be emitted exactly once \
-         across 150 guaranteed-firing ticks. Got {first_fired_count}. \
+        "SignatureFirstFired for (slot=9, poacher's-dart) must be emitted exactly \
+         once across 150 guaranteed-firing ticks. Got {first_fired_count}. \
          0 = setup-failed-to-fire (test is wrong). >1 = exactly-once-semantics \
          violated (production bug)."
     );
 
-    // Cross-check: seen-set MUST contain the entry (firing-emission invariant).
     assert!(
         state
             .signature_first_fired_seen
-            .contains(&(8u8, id.clone())),
-        "first_fired_seen must contain (8, lrs) since exactly 1 \
+            .contains(&(POACHER_SLOT as u8, id.clone())),
+        "first_fired_seen must contain (9, poacher's-dart) since exactly 1 \
          SignatureFirstFired was emitted"
     );
 }

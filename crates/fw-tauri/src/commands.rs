@@ -4182,8 +4182,8 @@ mod tests {
             )
         };
         assert!(
-            hash_600.starts_with("blake3:b190d2d7"),
-            "600-tick canonical hash must start with b190d2d7 (attribute-effect Slice 0 non-linear curve; keep in lockstep with fw-replay's PINNED_600_TICK); got {hash_600}"
+            hash_600.starts_with("blake3:c4da229b"),
+            "600-tick canonical hash must start with c4da229b (signature in-play-moment fix — signatures fire on a real action, not a kickoff precondition; keep in lockstep with fw-replay's PINNED_600_TICK); got {hash_600}"
         );
     }
 

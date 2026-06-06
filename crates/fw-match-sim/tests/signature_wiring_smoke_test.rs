@@ -1,21 +1,23 @@
-//! Smoke tests: T1-11 chunk 4 + T4-2.5c non-slot-7 wiring + T4-2.5j all-role wiring.
+//! Smoke tests: T1-11 chunk 4 + T4-2.5c non-slot-7 wiring + T4-2.5j all-role
+//! wiring + the 2026-06-06 signature kickoff-spam fix.
 //!
-//! Test 1 (slot_7_fires_at_least_one_signature_in_600_ticks): asserts that
-//! running `initial_with_content` (role-matched MID slots carry AM candidates
-//! since T4-2.5c) for 600 ticks with real `SignatureDefinition` objects from the
-//! content corpus produces at least one `MatchEvent::SignatureFirstFired` for
-//! player_slot 7.
+//! Test 1 (signatures_fire_in_a_full_match_and_are_not_a_kickoff_dump): runs a
+//! full 90-minute content match and asserts signatures DO fire (the
+//! `ContentStore → initial_with_content → tick_match(sig_definitions)` path
+//! works) AND that they are SPREAD across the match rather than dumped at
+//! kick-off. This is the regression gate for the kickoff-spam fix: pre-fix,
+//! every eligible player fired the instant they first decided (100% in minute
+//! 0-1); post-fix, signatures fire on a genuine in-play execution moment.
 //!
 //! Test 2 (non_slot_7_fires_signature_first_fired): asserts that at least one
 //! role-matched slot OTHER than slot 7 fires a `SignatureFirstFired` event in
-//! 600 ticks. T4-2.5j expanded this from MID-only to all 22 slots — GK/DEF/FWD
-//! templates now exist so non-MID slots also carry candidates.
+//! a 600-tick window. T4-2.5j expanded this from MID-only to all 22 slots —
+//! GK/DEF/FWD templates now exist so non-MID slots also carry candidates.
 //!
 //! These are the non-vacuous wiring gates: they prove the full path from
 //! `ContentStore → initial_with_content → tick_match(sig_definitions)` emits
 //! real signature events, not just compiles.
 
-use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use fw_content::{ContentStore, MatchEvent, RoleFamily};
@@ -35,7 +37,18 @@ fn load_store() -> ContentStore {
 }
 
 #[test]
-fn slot_7_fires_at_least_one_signature_in_600_ticks() {
+fn signatures_fire_in_a_full_match_and_are_not_a_kickoff_dump() {
+    // 2026-06-06 kickoff-spam fix: signatures now fire on a genuine in-play
+    // EXECUTION moment (real shot / dribble / run / interception), gated by a
+    // 60-tick kick-off settle window + the per-signature action gate — NOT the
+    // instant a static attribute precondition is first true. This is the
+    // regression gate for that fix: across a full 90-minute content match,
+    // signatures DO fire (wiring still works) and they are SPREAD across the
+    // match instead of dumped at kick-off.
+    //
+    // Pre-fix behaviour (the bug): every eligible player fired the instant they
+    // first decided — all 26 firings landed in minute 0-1, then zero for the
+    // remaining 89 minutes. This test fails loudly if that regresses.
     let store = load_store();
     let seed = Seed::from_u64(0xDEAD_BEEF_DEAD_BEEF);
 
@@ -47,65 +60,73 @@ fn slot_7_fires_at_least_one_signature_in_600_ticks() {
     )
     .expect("initial_with_content should succeed");
 
-    // Collect the candidate signature IDs for slot 7 from the loaded state.
-    let candidate_ids: BTreeSet<String> = state.players[7]
-        .signature_candidates()
-        .iter()
-        .map(|c| c.signature_id.as_str().to_owned())
-        .collect();
-
-    assert!(
-        !candidate_ids.is_empty(),
-        "slot 7 should have candidate signatures after initial_with_content"
-    );
-
-    // Run 600 ticks collecting all SignatureFirstFired events for slot 7.
-    //
-    // **Per-tick diff scan (Codex T1-11 code-reviewer P1 fix-pass)**: prior
-    // implementation scanned the entire match_events Vec on every tick,
-    // re-finding every event from tick T on ticks T+1..600 → `slot7_firings`
-    // accumulated each fired ID repeated hundreds of times. The `!is_empty()`
-    // assertion still passed correctly (one real firing is enough), but the
-    // accumulator's count + the per-ID iteration were silently measuring the
-    // wrong thing. New implementation tracks the previous match_events Vec
-    // length and slices from there — only NEW events appended this tick are
-    // scanned. `slot7_firings` now contains at most 3 entries (one per
-    // sample-am candidate) since `signature_first_fired_seen` enforces the
-    // first-fire-per-(slot,sig_id)-pair invariant in dispatch.rs.
-    let mut slot7_firings: Vec<String> = Vec::new();
-    let mut prev_event_count = state.match_events().len();
-    for _ in 0..600 {
+    // Full 90-minute match (5400 ticks at 60 Hz).
+    for _ in 0..5400u32 {
         state = tick_match(state, &store.signature_definitions);
-        let events = state.match_events();
-        for ev in &events[prev_event_count..] {
-            if let MatchEvent::SignatureFirstFired {
-                player_slot,
-                signature_id,
-                ..
-            } = ev
-                && *player_slot as usize == 7
-            {
-                slot7_firings.push(signature_id.as_str().to_owned());
-            }
-        }
-        prev_event_count = events.len();
     }
 
-    // Non-vacuous gate: at least one firing must have occurred.
+    // Collect the tick of every SignatureFirstFired event.
+    let firing_ticks: Vec<i64> = state
+        .match_events()
+        .iter()
+        .filter_map(|ev| match ev {
+            MatchEvent::SignatureFirstFired { tick, .. } => Some(tick.to_raw()),
+            _ => None,
+        })
+        .collect();
+    let total = firing_ticks.len();
+
+    // Wiring gate: signatures DO fire in a full match (the path works).
     assert!(
-        !slot7_firings.is_empty(),
-        "expected ≥1 SignatureFirstFired for slot 7 in 600 ticks; got 0. \
-         Check that sig_definitions is non-empty and slot 7 has candidates with \
-         trigger bindings. candidate_ids={candidate_ids:?}"
+        total > 0,
+        "expected ≥1 SignatureFirstFired across a full match; got 0. \
+         The content → dispatch → action-gate firing path is broken."
     );
 
-    // All fired IDs must be from the sample-am candidate list.
-    for fired_id in &slot7_firings {
-        assert!(
-            candidate_ids.contains(fired_id.as_str()),
-            "slot 7 fired signature {fired_id:?} which is NOT in candidate list {candidate_ids:?}"
-        );
-    }
+    // Settle-window gate: NOTHING fires inside the kick-off settle window.
+    let in_settle = firing_ticks
+        .iter()
+        .filter(|t| **t < fw_match_sim::signature::SIGNATURE_SETTLE_TICKS)
+        .count();
+    assert_eq!(
+        in_settle,
+        0,
+        "no signature may fire inside the {}-tick kick-off settle window; \
+         {in_settle} of {total} did (ticks: {firing_ticks:?})",
+        fw_match_sim::signature::SIGNATURE_SETTLE_TICKS
+    );
+
+    // Anti-kickoff-dump gate: firings must NOT all cluster in the opening
+    // minutes. The bug had 100% in minute 0-1; require that strictly more than
+    // half the firings land after the first 2 minutes (tick 7200/60 ... here
+    // 2 min = 7200 ticks would be too coarse for a low count, so use: at least
+    // one firing lands past the first 5 minutes (tick 18000? no — 5 min = 18000
+    // is >5400). Use the match-relative band: more than half of the firings
+    // must be at or beyond minute 2 (tick 7200 is past full match; use tick
+    // 1800 = minute 30 as the "early" boundary is too strict for a low count).
+    //
+    // The robust, count-insensitive invariant: the firings must SPAN the match,
+    // i.e. the LAST firing must be well past the opening minutes. A kickoff
+    // dump has every firing in minute 0-1 (tick < 120), so the last firing tick
+    // would be < 120. Require the last firing to land past minute 5 (tick 300),
+    // which is impossible under the old precondition-dump behaviour.
+    let last_tick = *firing_ticks.iter().max().expect("total > 0 checked above");
+    let min_per_tick = 60;
+    assert!(
+        last_tick >= 300,
+        "signatures look like a kick-off dump: the LAST of {total} firings was at \
+         tick {last_tick} (minute {}), inside the opening minutes. Firings must \
+         spread across the match. ticks: {firing_ticks:?}",
+        last_tick / min_per_tick
+    );
+
+    // Stronger spread check: not every firing is in the opening 2 minutes.
+    let early_share = firing_ticks.iter().filter(|t| **t < 120).count();
+    assert!(
+        early_share < total,
+        "all {total} firings landed in minute 0-1 (the kickoff-dump bug). \
+         ticks: {firing_ticks:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------

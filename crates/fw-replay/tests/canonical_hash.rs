@@ -965,8 +965,18 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   **re-baselined to `b190d2d7…efdf`** per ADR-0012 trigger #3. Same per-class gamma
 ///   curve as PINNED_60_TICK above, applied to the content-driven 600-tick run.
 ///   Canonical re-pin authorized by owner 2026-06-06 (attribute-effect campaign, Slice 0).
+/// - 2026-06-06 (signature kickoff-spam fix) — **re-baselined to `c4da229b…928f`**.
+///   Signatures now fire on a genuine in-play EXECUTION moment (real dribble /
+///   shot / run / interception, gated by `signature_executes_now` + a 60-tick
+///   settle floor) instead of the instant a static attribute precondition is
+///   first true. Firing timing moved from a pre-decision precondition to a
+///   post-intent action gate, which shifts the bias window / cooldown / event
+///   timing → canonical state diverges from tick 60 onward on the 600-tick run.
+///   The 60-tick smoke pin is UNCHANGED (no signature passes the action gate
+///   within the settle window on the bare-initial smoke seed). Canonical re-pin
+///   authorized by owner 2026-06-06 (signature in-play-moment fix).
 const PINNED_600_TICK: [u8; 32] =
-    hex!("b190d2d78cec0a5b6a5336428747783c316274f3e46614c899b3d667c0a0efdf");
+    hex!("c4da229ba47835f202c24b3fadf9c0d7b71ed1601dc2235b02401f365d70928f");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

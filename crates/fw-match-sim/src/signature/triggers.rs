@@ -440,6 +440,169 @@ pub fn poachers_dart_trigger(state: &MatchState, slot: PlayerSlot) -> Q32 {
 }
 
 // ---------------------------------------------------------------------------
+// In-play action gate (2026-06-06: kickoff-spam fix)
+// ---------------------------------------------------------------------------
+//
+// The attribute predicates above (`*_trigger`) answer "is this player CAPABLE
+// of the move + a good enough fit to bias toward it" — a quality/affinity
+// score. They are pure functions of static attributes, so they are satisfied
+// from kick-off and never change. Used alone to gate firing, every eligible
+// player fired their signature the instant they first decided (tick < 120),
+// then never again — a kickoff dump, not the rare-meaningful-moment vision of
+// Pillar 5 (DECISIONS 2026-06-06 attribute-effect philosophy).
+//
+// `signature_executes_now` is the second gate: it answers "is the player, THIS
+// tick, actually PERFORMING the move during live play?" — keyed off the chosen
+// `PlayerIntent` + real ball/position geometry. A signature only fires (bias
+// window + cooldown + `SignatureFirstFired`) when BOTH gates pass, so firings
+// spread across the match and correlate with real shots / dribbles / runs /
+// interceptions instead of clustering at kick-off.
+
+/// Settle window: no signature may fire in the first `SIGNATURE_SETTLE_TICKS`
+/// ticks (1 second at 60 Hz). Players are still organising off the kick-off;
+/// the action gate already excludes most kick-off artefacts, but this is a
+/// cheap belt-and-suspenders floor that needs no new canonical state.
+pub const SIGNATURE_SETTLE_TICKS: i64 = 60;
+
+/// Touchline band: a winger/full-back move counts as "on the touchline" when
+/// within `TOUCHLINE_BAND_M` of either sideline (`|pos_y| > SIDELINE_Y - band`).
+/// 10 m — the width of a typical wide channel.
+const TOUCHLINE_BAND_M: Q32 = Q32::from_raw(10_i64 << 32);
+
+/// Penalty-area depth from the goal line (real laws: 16.5 m).
+const PENALTY_AREA_DEPTH_M: Q32 = Q32::from_raw(16_i64 << 32 | (1_i64 << 31)); // 16.5 m
+
+/// Penalty-area half-width (real laws: 40.32 m wide → ±20.16 m).
+const PENALTY_AREA_HALF_WIDTH_M: Q32 = Q32::from_raw(20_i64 << 32); // ≈ 20 m
+
+/// Long-range-strike minimum distance from the target goal (≈ 22 m): a shot
+/// closer than this is a regular finish, not the signature long-range effort.
+const LONG_RANGE_MIN_DIST_M: Q32 = Q32::from_raw(22_i64 << 32);
+
+/// Body-shield / press contest radius: the defender's chosen press/mark only
+/// counts as the signature when the ball is within this radius (a real duel,
+/// not a distant shadow). 4 m.
+const PRESS_CONTEST_RADIUS_M: Q32 = Q32::from_raw(4_i64 << 32);
+
+/// Squared 2-D distance between two points (Q32, no sqrt — determinism-safe).
+#[inline]
+fn dist_sq(ax: Q32, ay: Q32, bx: Q32, by: Q32) -> Q32 {
+    let dx = ax - bx;
+    let dy = ay - by;
+    dx * dx + dy * dy
+}
+
+/// Magnitude of a Q32 as raw bits (avoids the `i64::MIN.abs()` UB path; matches
+/// the `unsigned_abs()` idiom used across the sim for geometry comparisons).
+#[inline]
+fn abs_bits(v: Q32) -> u64 {
+    v.to_bits().unsigned_abs()
+}
+
+/// The `+X`-pointing goal line a player's team attacks toward.
+///
+/// Home (slots 0..11) attacks `+GOAL_LINE_X`; away (slots 11..22) attacks
+/// `-GOAL_LINE_X` (locked convention — see `lib.rs::compute_opponent_shape_broken`).
+#[inline]
+fn attacking_goal_x(slot: PlayerSlot) -> Q32 {
+    if (slot as usize) < crate::PLAYERS_PER_TEAM {
+        fw_core::GOAL_LINE_X
+    } else {
+        -fw_core::GOAL_LINE_X
+    }
+}
+
+/// True when `(px, py)` is inside the opponent penalty area the player attacks.
+#[inline]
+fn in_attacking_box(slot: PlayerSlot, px: Q32, py: Q32) -> bool {
+    let goal_x = attacking_goal_x(slot);
+    // Depth: within PENALTY_AREA_DEPTH_M of the attacked goal line.
+    let depth_ok = abs_bits(goal_x - px) <= abs_bits(PENALTY_AREA_DEPTH_M);
+    let width_ok = abs_bits(py) <= abs_bits(PENALTY_AREA_HALF_WIDTH_M);
+    depth_ok && width_ok
+}
+
+/// Second firing gate: does the player's chosen `intent` THIS tick genuinely
+/// execute `sig_id` during live play?
+///
+/// Returns `false` when the intent is unrelated to the signature's move, when
+/// the geometry doesn't match (e.g. a "touchline" beat away from the touchline,
+/// a "long-range" strike taken from 6 yards), or during the kick-off settle
+/// window. Unknown signature ids return `false` (no firing) — the binding test
+/// guarantees every shipped signature has a gate arm.
+///
+/// `intent` is the move the player committed to this tick (post-utility-pick).
+/// `player_pos` is the player's current position; `ball_pos` the ball's.
+#[must_use]
+pub fn signature_executes_now(
+    sig_id: &str,
+    intent: &crate::role_states::PlayerIntent,
+    slot: PlayerSlot,
+    tick: fw_core::Tick,
+    player_pos: (Q32, Q32),
+    ball_pos: (Q32, Q32),
+) -> bool {
+    use crate::role_states::PlayerIntent as PI;
+
+    // Settle floor: nothing fires in the opening second.
+    if tick.to_raw() < SIGNATURE_SETTLE_TICKS {
+        return false;
+    }
+
+    let (px, py) = player_pos;
+    let (bx, by) = ball_pos;
+
+    let on_touchline = abs_bits(py) > abs_bits(fw_core::SIDELINE_Y - TOUCHLINE_BAND_M);
+    let in_box = in_attacking_box(slot, px, py);
+    let goal_x = attacking_goal_x(slot);
+    let far_from_goal = abs_bits(goal_x - px) >= abs_bits(LONG_RANGE_MIN_DIST_M);
+    let near_ball = dist_sq(px, py, bx, by) <= PRESS_CONTEST_RADIUS_M * PRESS_CONTEST_RADIUS_M;
+
+    match sig_id {
+        // A winger driving at the byline: a real dribble in a wide channel,
+        // in the attacking half (px ahead of the player's own half toward goal).
+        "fwh.core:signature.touchline-beat" => matches!(intent, PI::Dribble { .. }) && on_touchline,
+        // A poacher's run / finish inside the box.
+        "fwh.core:signature.poachers-dart" => {
+            matches!(intent, PI::AttemptShot { .. } | PI::RunOffBall { .. }) && in_box
+        }
+        // A genuine effort struck from distance.
+        "fwh.core:signature.long-range-strike" => {
+            matches!(intent, PI::AttemptShot { .. }) && far_from_goal
+        }
+        // A first-time switch of play — a long pass that changes the angle.
+        "fwh.core:signature.first-time-diagonal-switch" => {
+            matches!(intent, PI::AttemptPassLong { .. } | PI::Cross { .. })
+        }
+        // A full-back bombing on: a run/dribble/cross from a wide advanced spot.
+        "fwh.core:signature.overlapping-surge" => {
+            matches!(
+                intent,
+                PI::Dribble { .. } | PI::RunOffBall { .. } | PI::Cross { .. }
+            ) && on_touchline
+        }
+        // The screening pivot stepping in: a real press/mark with the ball
+        // within contesting distance (an actual challenge, not shadow-marking).
+        "fwh.core:signature.screening-interception" => {
+            matches!(intent, PI::Press { .. } | PI::MarkPlayer { .. }) && near_ball
+        }
+        // The keeper claiming a cross / sweeping out — an actual ball-collection.
+        "fwh.core:signature.commanding-claim" => {
+            matches!(intent, PI::GkCollectCross { .. } | PI::GkSweeperRush { .. })
+        }
+        // A defender clamping the carrier: a press/mark with the ball in a duel.
+        "fwh.core:signature.body-shield-pressure" => {
+            matches!(intent, PI::Press { .. } | PI::MarkPlayer { .. }) && near_ball
+        }
+        // No-op stub never executes.
+        "fwh.core:signature.no-op-stub" => false,
+        // Unknown id: no firing. The binding test asserts coverage so a new
+        // signature without a gate arm is caught before match time.
+        _ => false,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Trigger binding table
 // ---------------------------------------------------------------------------
 

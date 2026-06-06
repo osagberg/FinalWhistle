@@ -139,7 +139,9 @@ impl SignatureFiring {
 
 pub use bias_apply::{BiasConsideration, apply_signature_bias};
 pub use dispatcher::evaluate_signatures;
-pub use triggers::{TriggerFn, build_trigger_table};
+pub use triggers::{
+    SIGNATURE_SETTLE_TICKS, TriggerFn, build_trigger_table, signature_executes_now,
+};
 
 // ---------------------------------------------------------------------------
 // Tests

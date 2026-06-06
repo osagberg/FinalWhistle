@@ -85,9 +85,10 @@ use crate::role_states::{PlayerIntent, PlayerRoleState};
 use crate::signature;
 use crate::signature::{
     DEFAULT_FIRING_DURATION_TICKS, SignatureFiring, build_trigger_table, evaluate_signatures,
+    signature_executes_now,
 };
 use crate::subtree_library::select_outfield_intent;
-use fw_content::{MatchEvent, PassKind, is_shot_on_target};
+use fw_content::{MatchEvent, PassKind, SignatureId, is_shot_on_target};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -715,70 +716,44 @@ pub fn dispatch_tick(
             continue;
         }
 
-        // T1-2b-iv: evaluate signature triggers for this player.
-        // Runs before role dispatch so the picked signature (if any) is in
-        // `signature_firing[slot_idx]` when utility scoring reads the bias.
+        // T1-2b-iv: evaluate signature ELIGIBILITY for this player.
+        // 2026-06-06 kickoff-spam fix: this pass only RESOLVES which signature
+        // (if any) the player is capable of + a good fit for this tick — the
+        // attribute predicate (`*_trigger`) is a static quality/affinity score,
+        // satisfied from kick-off and never changing. It does NOT fire here.
+        // Firing (bias window + cooldown + `SignatureFirstFired`) is deferred to
+        // AFTER the player picks an intent and gated on `signature_executes_now`,
+        // so a signature lands only when the player ACTUALLY performs the move
+        // during live play (a real dribble / shot / run / interception), not the
+        // instant a static precondition is first true. Eligible candidate held
+        // in `eligible_signature` and applied below once `intent` is known.
         let slot = slot_idx as u8;
-        {
+        let eligible_signature: Option<(SignatureId, CooldownPolicy, usize)> = {
             // Clone candidates to avoid aliasing with &mut state below.
             let candidates = state.players[slot_idx].signature_candidates.clone();
             // active_firings: per-category snapshot for stacking check.
-            // Clone all 4 lanes so we can pass them to evaluate_signatures
-            // while state is borrowed mutably below.
             let active_firings: [Option<SignatureFiring>; 4] = [
                 state.signature_firing[slot_idx][0].clone(),
                 state.signature_firing[slot_idx][1].clone(),
                 state.signature_firing[slot_idx][2].clone(),
                 state.signature_firing[slot_idx][3].clone(),
             ];
-            if let Some((sig_id, sig_def)) = evaluate_signatures(
+            evaluate_signatures(
                 &state,
                 slot,
                 &candidates,
                 sig_definitions,
                 &trigger_table,
                 &active_firings,
-            ) {
-                // Determine cooldown end tick from the definition's CooldownPolicy.
-                // T1-23 (post-Codex Finding #1): `Tick::checked_add_ticks(u32)` replaces
-                // `Tick::from_raw(state.tick.to_raw() + n as i64)`. Same arithmetic at
-                // the realistic tick range; the helper funnels overflow through the
-                // §11 panic-on-overflow policy so a stuck-loop bug at i64::MAX
-                // surfaces loudly instead of silently wrapping.
-                let cooldown_end_tick = match sig_def.cooldown {
-                    CooldownPolicy::EveryTicks(n) => state.tick.checked_add_ticks(n),
-                    CooldownPolicy::PerMatchCount(_) => {
-                        // For PerMatchCount, use the 600-tick default as the
-                        // intra-match spacing; the count limit enforced at T2-4.
-                        state.tick.checked_add_ticks(600)
-                    }
-                };
-                // Set cooldown.
-                state
-                    .signature_cooldowns
-                    .insert((slot, sig_id.clone()), cooldown_end_tick);
-                // Determine the category of the firing signature from its definition.
-                let cat_idx = stacking_category_idx(&sig_def.stacking);
-                // Set firing window in the correct category lane.
-                state.signature_firing[slot_idx][cat_idx] = Some(SignatureFiring {
-                    id: sig_id.clone(),
-                    start_tick: state.tick,
-                    duration_ticks: DEFAULT_FIRING_DURATION_TICKS,
-                });
-                // Emit SignatureFirstFired if first time this match.
-                // T1-4a: push to match_events (persistent canonical stream),
-                // replacing the removed signature_memory_events scratch buffer.
-                let first_fired_key = (slot, sig_id.clone());
-                if !state.signature_first_fired_seen.contains(&first_fired_key) {
-                    state.signature_first_fired_seen.insert(first_fired_key);
-                    state.match_events.push(MatchEvent::SignatureFirstFired {
-                        player_slot: slot,
-                        signature_id: sig_id,
-                        tick: state.tick,
-                    });
-                }
-            }
-        }
+            )
+            .map(|(sig_id, sig_def)| {
+                (
+                    sig_id,
+                    sig_def.cooldown,
+                    stacking_category_idx(&sig_def.stacking),
+                )
+            })
+        };
 
         // Build ADR-0009 RNG for this decision.
         // site = (player_slot << 16) | local_decision_counter — truncated to u32.
@@ -917,6 +892,55 @@ pub fn dispatch_tick(
         } else {
             intent
         };
+
+        // 2026-06-06 kickoff-spam fix: FIRE the eligible signature only when the
+        // intent the player just committed to genuinely EXECUTES the move during
+        // live play (real dribble / shot / run / interception), past the
+        // kick-off settle window. This is the second gate — the first
+        // (`evaluate_signatures` above) confirmed capability + fit; this one
+        // confirms a real in-play moment. Firing sets the bias window (so the
+        // move's continuation + the next second are amplified), the cooldown
+        // (so real moments are spaced), and emits `SignatureFirstFired` once.
+        if let Some((sig_id, cooldown, cat_idx)) = eligible_signature {
+            let player = &state.players[slot_idx];
+            let player_pos = (player.pos_x, player.pos_y);
+            let ball_pos = (state.ball.pos_x, state.ball.pos_y);
+            if signature_executes_now(
+                sig_id.as_str(),
+                &intent,
+                slot,
+                state.tick,
+                player_pos,
+                ball_pos,
+            ) {
+                // Cooldown end tick from the definition's CooldownPolicy.
+                // `Tick::checked_add_ticks` funnels overflow through the §11
+                // panic-on-overflow policy (no silent wrap at i64::MAX).
+                let cooldown_end_tick = match cooldown {
+                    CooldownPolicy::EveryTicks(n) => state.tick.checked_add_ticks(n),
+                    CooldownPolicy::PerMatchCount(_) => state.tick.checked_add_ticks(600),
+                };
+                state
+                    .signature_cooldowns
+                    .insert((slot, sig_id.clone()), cooldown_end_tick);
+                // Bias window in the resolved category lane.
+                state.signature_firing[slot_idx][cat_idx] = Some(SignatureFiring {
+                    id: sig_id.clone(),
+                    start_tick: state.tick,
+                    duration_ticks: DEFAULT_FIRING_DURATION_TICKS,
+                });
+                // Emit SignatureFirstFired once per (slot, signature) this match.
+                let first_fired_key = (slot, sig_id.clone());
+                if !state.signature_first_fired_seen.contains(&first_fired_key) {
+                    state.signature_first_fired_seen.insert(first_fired_key);
+                    state.match_events.push(MatchEvent::SignatureFirstFired {
+                        player_slot: slot,
+                        signature_id: sig_id,
+                        tick: state.tick,
+                    });
+                }
+            }
+        }
 
         apply_intent(&mut state, slot_idx, intent);
         state.players[slot_idx].bump_decision_counter();
