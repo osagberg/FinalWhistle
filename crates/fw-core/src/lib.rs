@@ -21,6 +21,11 @@
 //!
 //! See `docs/specs/determinism-gate.md` for the full contract.
 
+pub mod attribute_curve;
+// Slice 0 attribute-effect mandate: committed-source curve LUT raw bits
+// consumed by attribute_curve.rs at compile time. Private — only
+// attribute_curve.rs reads it; not part of the public surface.
+pub(crate) mod attribute_curve_luts;
 pub mod attribute_family;
 pub mod ids;
 pub mod math;
@@ -39,6 +44,7 @@ pub mod tick;
 // Public re-exports — the canonical surface every other crate imports.
 // -------------------------------------------------------------------------
 
+pub use attribute_curve::{CurveClass, curve};
 pub use attribute_family::AttributeFamily;
 pub use ids::{ClubId, MatchId, PlayerId};
 pub use math::{exp_q32, sigmoid_q32};

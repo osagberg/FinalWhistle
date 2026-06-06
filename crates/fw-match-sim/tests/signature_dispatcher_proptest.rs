@@ -545,6 +545,27 @@ fn ac4_active_signature_bias_changes_selected_intent() {
     // state; the only difference is the SignatureDefinition's bias_snapshot.
     let mut state = MatchState::initial(Seed::from_u64(12345));
     state.players[8].role_state = PlayerRoleState::Forward(ForwardState::InPossession);
+    // Attribute-effect Slice 0 (2026-06-06): the non-linear curve compresses the
+    // shoot composite (shooter_quality + xG gate) for a default-attribute carrier
+    // in midfield, so the strong-shoot bias could no longer overtake the pass path
+    // and BOTH biases collapsed to AttemptPassShort (vacuous). Mirror the proven
+    // box-position recipe from the `..._resolves_to_shot` test: put slot 8 ~4.5m
+    // from goal with the ball at his feet and elite shooting attributes, so an
+    // elite finisher's curved shoot utility is genuinely available and the bias
+    // can flip the variant. This keeps the mechanism check (bias IS consumed)
+    // gated, not relaxed.
+    state.players[8].pos_x = Q32::from_int(48);
+    state.players[8].pos_y = Q32::ZERO;
+    state.ball.pos_x = Q32::from_int(48);
+    state.ball.pos_y = Q32::ZERO;
+    {
+        let attrs = state.players[8].attributes_mut();
+        attrs.technical.finishing = Q32::ONE;
+        attrs.technical.technique = Q32::ONE;
+        attrs.technical.long_shots = Q32::ONE;
+        attrs.mental.composure = Q32::ONE;
+        attrs.physical.balance = Q32::ONE;
+    }
     let attacking_idx = BiasCategory::Attacking as usize;
     state.signature_firing[8][attacking_idx] = Some(signature::SignatureFiring::new(
         id.clone(),

@@ -11,11 +11,20 @@ expression: state.match_events()
     },
     Pass {
         from_slot: 9,
-        to_slot: 8,
+        to_slot: 10,
         tick: Tick(
-            20,
+            5,
         ),
         kind: Short,
+        completed: true,
+    },
+    Pass {
+        from_slot: 10,
+        to_slot: 9,
+        tick: Tick(
+            56,
+        ),
+        kind: Cross,
         completed: true,
     },
     FullTime {

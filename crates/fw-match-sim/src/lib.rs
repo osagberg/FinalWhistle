@@ -49,6 +49,7 @@ pub mod utility;
 use fw_content::SignatureId;
 use fw_content::event::GOAL_HALF_WIDTH_M;
 use fw_core::Q32;
+use fw_core::{CurveClass, curve};
 use fw_core::{GOAL_LINE_X, SIDELINE_Y};
 use fw_core::{Seed, Tick};
 use serde::{Deserialize, Serialize};
@@ -1896,9 +1897,11 @@ fn resolve_tackles(mut state: MatchState) -> MatchState {
     let w_dribble = Q32::from_raw(2_147_483_648_i64); // ≈ 0.50
     let w_balance = Q32::from_raw(1_288_490_188_i64); // ≈ 0.30
     let w_composure = Q32::from_raw(858_993_459_i64); // ≈ 0.20
-    let carrier_quality = ca.technical.dribbling * w_dribble
-        + ca.physical.balance * w_balance
-        + ca.mental.composure * w_composure;
+    // Slice 0: curve each term (dribbling = skill, balance = contest,
+    // composure = mental) so an elite carrier resists the tackle disproportionately.
+    let carrier_quality = curve(CurveClass::Skill, ca.technical.dribbling) * w_dribble
+        + curve(CurveClass::Contest, ca.physical.balance) * w_balance
+        + curve(CurveClass::Mental, ca.mental.composure) * w_composure;
     let carrier_quality = if carrier_quality > Q32::ONE {
         Q32::ONE
     } else {
@@ -1948,9 +1951,11 @@ fn resolve_tackles(mut state: MatchState) -> MatchState {
         let w_tackling = Q32::from_raw(2_147_483_648_i64); // ≈ 0.50
         let w_aggression = Q32::from_raw(1_288_490_188_i64); // ≈ 0.30
         let w_positioning = Q32::from_raw(858_993_459_i64); // ≈ 0.20
-        let defender_quality = da.technical.tackling * w_tackling
-            + da.personality.aggression * w_aggression
-            + da.mental.positioning * w_positioning;
+        // Slice 0: tackling = contest/duel, aggression = personality tendency,
+        // positioning = mental. The contest curve makes an elite tackler reliably win.
+        let defender_quality = curve(CurveClass::Contest, da.technical.tackling) * w_tackling
+            + curve(CurveClass::Personality, da.personality.aggression) * w_aggression
+            + curve(CurveClass::Mental, da.mental.positioning) * w_positioning;
         let defender_quality = if defender_quality > Q32::ONE {
             Q32::ONE
         } else {
@@ -2427,10 +2432,15 @@ pub fn tick_match(
                 // GK quality composite:
                 // gk_quality = reflexes×0.45 + handling×0.30 + one_on_ones×0.15 + positioning×0.10
                 let gk_attrs = state.players[gk_slot_idx].attributes();
-                let gk_quality = gk_attrs.goalkeeper.reflexes * W_GK_REFLEXES
-                    + gk_attrs.goalkeeper.handling * W_GK_HANDLING
-                    + gk_attrs.goalkeeper.one_on_ones * W_GK_ONE_ON_ONES
-                    + gk_attrs.mental.positioning * W_GK_POSITIONING;
+                // Slice 0: GK shot-stopping is a duel — reflexes/handling/
+                // one_on_ones use the contest curve so an elite keeper saves
+                // reliably; positioning = mental.
+                let gk_quality = curve(CurveClass::Contest, gk_attrs.goalkeeper.reflexes)
+                    * W_GK_REFLEXES
+                    + curve(CurveClass::Contest, gk_attrs.goalkeeper.handling) * W_GK_HANDLING
+                    + curve(CurveClass::Contest, gk_attrs.goalkeeper.one_on_ones)
+                        * W_GK_ONE_ON_ONES
+                    + curve(CurveClass::Mental, gk_attrs.mental.positioning) * W_GK_POSITIONING;
                 let gk_quality = if gk_quality > Q32::ONE {
                     Q32::ONE
                 } else {

@@ -75,6 +75,7 @@ use rand_chacha::rand_core::SeedableRng;
 
 use fw_content::{CooldownPolicy, SignatureDefinition, SimBiasSnapshot, StackingPolicy};
 use fw_core::Q32;
+use fw_core::{CurveClass, curve};
 
 use crate::MatchState;
 use crate::bt::{BtContext, LeafKind, Node, Tree, tick_tree};
@@ -319,9 +320,14 @@ fn shot_quality_feature_q32(attrs: &fw_core::PlayerAttributes) -> Q32 {
     let w_finishing = Q32::from_raw(2_362_232_012_i64); // ≈ 0.55
     let w_composure = Q32::from_raw(1_073_741_824_i64); // ≈ 0.25
     let w_technique = Q32::from_raw(858_993_459_i64); // ≈ 0.20
-    attrs.technical.finishing * w_finishing
-        + attrs.mental.composure * w_composure
-        + attrs.technical.technique * w_technique
+    // Slice 0: curve each term (finishing/technique = skill, composure = mental)
+    // before the weighted sum. This composite feeds the xG gate + shot sigma, so
+    // an elite finisher's shot is disproportionately accurate (smaller sigma) and
+    // more likely to clear the xG threshold. Mirrors the on_ball.rs
+    // `shooter_quality` curve so the two stay consistent.
+    curve(CurveClass::Skill, attrs.technical.finishing) * w_finishing
+        + curve(CurveClass::Mental, attrs.mental.composure) * w_composure
+        + curve(CurveClass::Skill, attrs.technical.technique) * w_technique
 }
 
 /// SS2 — Compute the dispersed target_y for a shot attempt (FUN-0b).
@@ -469,8 +475,10 @@ pub(crate) fn compute_shot_dispersion_and_xg(
 ///
 /// Pure function — no RNG, no side effects. Q32 arithmetic only.
 pub(crate) fn compute_ball_speed_for_shot(shooter: &crate::player::PlayerState) -> Q32 {
-    let attr_product =
-        shooter.attributes.physical.strength * shooter.attributes.technical.finishing;
+    // Slice 0: strength = physical ceiling, finishing = skill. Curving both
+    // means an elite striker's shot is disproportionately quicker.
+    let attr_product = curve(CurveClass::Physical, shooter.attributes.physical.strength)
+        * curve(CurveClass::Skill, shooter.attributes.technical.finishing);
     SHOT_BASE_SPEED_MPS + SHOT_PEAK_BONUS_MPS * attr_product
 }
 
@@ -482,7 +490,10 @@ pub(crate) fn compute_ball_speed_for_shot(shooter: &crate::player::PlayerState) 
 ///
 /// Pure function — no RNG, no side effects. Q32 arithmetic only.
 pub(crate) fn compute_ball_speed_for_pass(passer: &crate::player::PlayerState) -> Q32 {
-    let attr_product = passer.attributes.technical.passing * passer.attributes.mental.vision;
+    // Slice 0: passing + vision are both skill expression; curving both makes an
+    // elite passer's ball measurably zippier.
+    let attr_product = curve(CurveClass::Skill, passer.attributes.technical.passing)
+        * curve(CurveClass::Skill, passer.attributes.mental.vision);
     PASS_BASE_SPEED_MPS + PASS_PEAK_BONUS_MPS * attr_product
 }
 

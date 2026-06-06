@@ -33,3 +33,4 @@ serde_json = { workspace = true }
 # rewriting Wave-2 code to chase API churn. The save crate (`fw-save`) pulls
 # bincode 2 via the workspace dep; the two versions coexist in dev-deps only.
 bincode    = "1"
+proptest   = { workspace = true }

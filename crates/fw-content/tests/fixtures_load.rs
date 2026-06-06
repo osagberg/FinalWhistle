@@ -298,10 +298,13 @@ fn signature_load_does_not_drift_canonical_hash() {
     // Ball-in-flight Slice 1: cabdb64e8614bc091561aa6e073ff49381224e5d43b0f747261d794375b3e443
     // Passes become in-flight ball events that travel and transfer possession on arrival;
     // canonical state gains a BallInFlight field. Authorized 2026-06-06 (match-fidelity campaign).
+    // Attribute-effect Slice 0: 3d049bea267660224875bdec6e86c2f39c2b0cdd7ac6b7636e3133fdcf9884fd
+    // Every attribute read site applies the per-class gamma curve g_class(a)=a^gamma so elite
+    // values skew disproportionately. Authorized 2026-06-06 (attribute-effect campaign, Slice 0).
     const EXPECTED: [u8; 32] = [
-        0xca, 0xbd, 0xb6, 0x4e, 0x86, 0x14, 0xbc, 0x09, 0x15, 0x61, 0xaa, 0x6e, 0x07, 0x3f, 0xf4,
-        0x93, 0x81, 0x22, 0x4e, 0x5d, 0x43, 0xb0, 0xf7, 0x47, 0x26, 0x1d, 0x79, 0x43, 0x75, 0xb3,
-        0xe4, 0x43,
+        0x3d, 0x04, 0x9b, 0xea, 0x26, 0x76, 0x60, 0x22, 0x48, 0x75, 0xbd, 0xec, 0x6e, 0x86, 0xc2,
+        0xf3, 0x9c, 0x2b, 0x0c, 0xdd, 0x7a, 0xc6, 0xb7, 0x63, 0x6e, 0x31, 0x33, 0xfd, 0xcf, 0x98,
+        0x84, 0xfd,
     ];
 
     // Load the content store (exercises the new signature loader).
@@ -324,8 +327,8 @@ fn signature_load_does_not_drift_canonical_hash() {
     assert_eq!(
         actual, EXPECTED,
         "\nCanonical-state hash drifted unexpectedly.\n\
-         Ball-in-flight Slice 1 rebaselined to cabdb64e8614bc091561aa6e073ff49381224e5d43b0f747261d794375b3e443\n\
-         (in-flight passes + possession transfer on arrival; ADR-0012 trigger #3; match-fidelity campaign).\n\
+         Attribute-effect Slice 0 rebaselined to 3d049bea267660224875bdec6e86c2f39c2b0cdd7ac6b7636e3133fdcf9884fd\n\
+         (per-class gamma curve at every attribute read site; ADR-0012 trigger #3; attribute-effect campaign, Slice 0).\n\
          If this drifts again, it must be an authorized rebaseline — ADR-0012 trigger #1 or #3.\n\
          Actual:   {:02x?}",
         actual

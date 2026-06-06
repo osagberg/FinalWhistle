@@ -30,7 +30,7 @@
 //!
 //! No floats. No clocks. No HashMap. No async. All Q32.
 
-use fw_core::Q32;
+use fw_core::{CurveClass, Q32, curve};
 
 use crate::bt::personality_bias::{
     IsProgressive, apply_cross_bias, apply_dribble_bias, apply_hold_bias, apply_lay_off_bias,
@@ -432,9 +432,11 @@ pub fn utility_shoot(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q3
     let pressure_q32 = eff_pressure.0;
 
     // Shooter quality: finishing × 0.55 + composure × 0.25 + technique × 0.20.
-    let shooter_quality: Q32 = a.technical.finishing * W_SQ_FINISHING
-        + a.mental.composure * W_SQ_COMPOSURE
-        + a.technical.technique * W_SQ_TECHNIQUE;
+    // Slice 0: each attribute is curved (g_class) before the weighted sum so the
+    // elite end of the dominant term (finishing) pulls hard.
+    let shooter_quality: Q32 = curve(CurveClass::Skill, a.technical.finishing) * W_SQ_FINISHING
+        + curve(CurveClass::Mental, a.mental.composure) * W_SQ_COMPOSURE
+        + curve(CurveClass::Skill, a.technical.technique) * W_SQ_TECHNIQUE;
     let shooter_quality = if shooter_quality > Q32::ONE {
         Q32::ONE
     } else {
@@ -494,9 +496,12 @@ pub fn utility_shoot(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q3
     let w_ls = Q32::from_raw(5_583_457_434_i64); // ≈ 1.3 (drama-sweep R14)
     let w_vision = Q32::from_raw(4_294_967_296_i64); // ≈ 1.0 (drama-sweep R14)
     let w_balance = Q32::from_raw(2_576_980_378_i64); // ≈ 0.6 (drama-sweep R14)
-    let secondary = (Q32::ONE + w_ls * a.technical.long_shots)
-        * (Q32::ONE + w_vision * a.mental.vision)
-        * (Q32::ONE + w_balance * a.physical.balance);
+    // Slice 0: curve each secondary attribute (long_shots/vision = skill,
+    // balance = contest) so an elite long-shooter's secondary boost is
+    // disproportionate vs a mid one.
+    let secondary = (Q32::ONE + w_ls * curve(CurveClass::Skill, a.technical.long_shots))
+        * (Q32::ONE + w_vision * curve(CurveClass::Skill, a.mental.vision))
+        * (Q32::ONE + w_balance * curve(CurveClass::Contest, a.physical.balance));
     // raw_shoot = xg_score × shooter_quality × secondary modifiers.
     let raw = xg_score * shooter_quality * secondary;
     let raw = if raw > Q32::ONE { Q32::ONE } else { raw };
@@ -536,15 +541,18 @@ pub fn utility_shoot(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q3
 pub fn utility_pass_short(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
-    // Primary product.
-    let raw =
-        a.technical.passing * a.technical.first_touch * a.technical.technique * a.mental.vision;
+    // Primary product. Slice 0: each skill factor is curved before the product,
+    // so a player elite in two of these gets a super-linear joint edge.
+    let raw = curve(CurveClass::Skill, a.technical.passing)
+        * curve(CurveClass::Skill, a.technical.first_touch)
+        * curve(CurveClass::Skill, a.technical.technique)
+        * curve(CurveClass::Skill, a.mental.vision);
 
-    // Secondary: composure under pressure, decisions as quality gate.
+    // Secondary: composure under pressure, decisions as quality gate (mental).
     let w_comp = Q32::from_raw(858_993_459_i64); // ≈ 0.20
     let w_dec = Q32::from_raw(429_496_729_i64); // ≈ 0.10
-    let secondary =
-        (Q32::ONE + w_comp * a.mental.composure) * (Q32::ONE + w_dec * a.mental.decisions);
+    let secondary = (Q32::ONE + w_comp * curve(CurveClass::Mental, a.mental.composure))
+        * (Q32::ONE + w_dec * curve(CurveClass::Mental, a.mental.decisions));
     let raw = raw * secondary;
 
     // FUN-TS3b: universal short boost (Attempt 2 final, 3.2×).
@@ -592,17 +600,20 @@ pub fn utility_pass_short(player: &PlayerState, roster_slot: u8) -> (PlayerInten
 pub fn utility_pass_long(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
-    // Primary product: passing + vision + decisions.
-    let raw = a.technical.passing * a.mental.vision * a.mental.decisions;
+    // Primary product: passing + vision + decisions. Slice 0: curved per class
+    // (passing/vision = skill, decisions = mental).
+    let raw = curve(CurveClass::Skill, a.technical.passing)
+        * curve(CurveClass::Skill, a.mental.vision)
+        * curve(CurveClass::Mental, a.mental.decisions);
 
     // long_shots as ball-power secondary (proxy for distance capability).
-    // anticipation + composure as secondary.
+    // anticipation + composure as secondary. Slice 0: curved per class.
     let w_ls = Q32::from_raw(858_993_459_i64); // ≈ 0.20
     let w_ant = Q32::from_raw(429_496_729_i64); // ≈ 0.10
     let w_comp = Q32::from_raw(429_496_729_i64); // ≈ 0.10
-    let secondary = (Q32::ONE + w_ls * a.technical.long_shots)
-        * (Q32::ONE + w_ant * a.mental.anticipation)
-        * (Q32::ONE + w_comp * a.mental.composure);
+    let secondary = (Q32::ONE + w_ls * curve(CurveClass::Skill, a.technical.long_shots))
+        * (Q32::ONE + w_ant * curve(CurveClass::Mental, a.mental.anticipation))
+        * (Q32::ONE + w_comp * curve(CurveClass::Mental, a.mental.composure));
     let raw = raw * secondary;
 
     // FUN-TS3b: zone-conditional suppressor (Attempt 2 final).
@@ -660,14 +671,16 @@ pub fn utility_pass_long(player: &PlayerState, roster_slot: u8) -> (PlayerIntent
 pub fn utility_cross(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
-    // Primary product.
-    let raw = a.technical.crossing * a.mental.vision * a.physical.pace;
+    // Primary product. Slice 0: crossing/vision = skill, pace = physical ceiling.
+    let raw = curve(CurveClass::Skill, a.technical.crossing)
+        * curve(CurveClass::Skill, a.mental.vision)
+        * curve(CurveClass::Physical, a.physical.pace);
 
     // Secondary: first_touch (control before cross) + anticipation (timing).
     let w_ft = Q32::from_raw(858_993_459_i64); // ≈ 0.20
     let w_ant = Q32::from_raw(429_496_729_i64); // ≈ 0.10
-    let secondary =
-        (Q32::ONE + w_ft * a.technical.first_touch) * (Q32::ONE + w_ant * a.mental.anticipation);
+    let secondary = (Q32::ONE + w_ft * curve(CurveClass::Skill, a.technical.first_touch))
+        * (Q32::ONE + w_ant * curve(CurveClass::Mental, a.mental.anticipation));
     let raw = raw * secondary;
 
     // FUN-TS3b: width-only cross gate (Attempt 2 final).
@@ -732,16 +745,20 @@ pub fn utility_cross(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q3
 pub fn utility_dribble(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
-    // Primary product.
-    let raw = a.technical.dribbling
-        * a.technical.technique
-        * a.physical.agility
-        * a.physical.acceleration;
+    // Primary product. Slice 0: dribbling/technique/agility = skill (close
+    // control), acceleration = physical ceiling. The 4-factor curved product is
+    // the strongest combinatorial-skew case in the sim (elite-end delta ≈ 23×
+    // the mid delta vs ≈ 5× for the old linear product).
+    let raw = curve(CurveClass::Skill, a.technical.dribbling)
+        * curve(CurveClass::Skill, a.technical.technique)
+        * curve(CurveClass::Skill, a.physical.agility)
+        * curve(CurveClass::Physical, a.physical.acceleration);
 
-    // Secondary: balance (stability in contact) + flair (creative dribbling).
+    // Secondary: balance (contest stability) + flair (personality tendency).
     let w_bal = Q32::from_raw(429_496_729_i64); // ≈ 0.10
     let w_flair = Q32::from_raw(429_496_729_i64); // ≈ 0.10
-    let secondary = (Q32::ONE + w_bal * a.physical.balance) * (Q32::ONE + w_flair * a.mental.flair);
+    let secondary = (Q32::ONE + w_bal * curve(CurveClass::Contest, a.physical.balance))
+        * (Q32::ONE + w_flair * curve(CurveClass::Personality, a.mental.flair));
     let raw = raw * secondary;
 
     let biased = apply_dribble_bias(raw, a);
@@ -770,12 +787,15 @@ pub fn utility_dribble(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, 
 pub fn utility_hold_ball(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
-    // Primary product.
-    let raw = a.physical.strength * a.mental.composure * a.physical.balance;
+    // Primary product. Slice 0: strength = physical, composure = mental,
+    // balance = contest (contact resistance).
+    let raw = curve(CurveClass::Physical, a.physical.strength)
+        * curve(CurveClass::Mental, a.mental.composure)
+        * curve(CurveClass::Contest, a.physical.balance);
 
     // Secondary: decisions as a quality gate.
     let w_dec = Q32::from_raw(429_496_729_i64); // ≈ 0.10
-    let secondary = Q32::ONE + w_dec * a.mental.decisions;
+    let secondary = Q32::ONE + w_dec * curve(CurveClass::Mental, a.mental.decisions);
     let raw = raw * secondary;
 
     let biased = apply_hold_bias(raw, a);
@@ -797,14 +817,16 @@ pub fn utility_hold_ball(player: &PlayerState, roster_slot: u8) -> (PlayerIntent
 pub fn utility_lay_off(player: &PlayerState, roster_slot: u8) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
-    // Primary product.
-    let raw = a.technical.first_touch * a.technical.passing * a.mental.vision;
+    // Primary product. Slice 0: first_touch/passing/vision = skill expression.
+    let raw = curve(CurveClass::Skill, a.technical.first_touch)
+        * curve(CurveClass::Skill, a.technical.passing)
+        * curve(CurveClass::Skill, a.mental.vision);
 
-    // Secondary: teamwork (cooperative action) + composure (calmness).
+    // Secondary: teamwork (cooperative action) + composure (calmness), mental.
     let w_tw = Q32::from_raw(858_993_459_i64); // ≈ 0.20
     let w_comp = Q32::from_raw(429_496_729_i64); // ≈ 0.10
-    let secondary =
-        (Q32::ONE + w_tw * a.mental.teamwork) * (Q32::ONE + w_comp * a.mental.composure);
+    let secondary = (Q32::ONE + w_tw * curve(CurveClass::Mental, a.mental.teamwork))
+        * (Q32::ONE + w_comp * curve(CurveClass::Mental, a.mental.composure));
     let raw = raw * secondary;
 
     // Lay-off bias: Selflessness ONLY per spec (P1-5 fix — was safe_pass proxy which also read risk_appetite).

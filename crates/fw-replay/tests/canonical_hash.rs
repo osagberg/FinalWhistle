@@ -378,8 +378,15 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   lane_cover_weight = anticipation×0.50 + tackling×0.30 + positioning×0.20.
 ///   Hash drift confirmed NON-NO-OP: defender positions change every tick when carrier is present.
 ///   Canonical re-pin authorized by owner 2026-06-06 (match-fidelity campaign, interceptions-matter).
+/// - 2026-06-06 (Slice 0: non-linear attribute curve — attribute-effect campaign) —
+///   **re-baselined to `3d049bea…84fd`** per ADR-0012 trigger #3. Every attribute read
+///   site in the BT utilities, tackle/GK composites, pass-completion composites, and the
+///   shot/pass physics coefficients now applies the per-class gamma curve `g_class(a)=a^γ`
+///   (skill 1.7 / physical 1.4 / contest 1.8 / mental 1.6 / personality 1.3) so elite
+///   attribute values skew results disproportionately. Effect magnitudes change → canonical
+///   state changes. Canonical re-pin authorized by owner 2026-06-06 (attribute-effect campaign, Slice 0).
 const PINNED_60_TICK: [u8; 32] =
-    hex!("cabdb64e8614bc091561aa6e073ff49381224e5d43b0f747261d794375b3e443");
+    hex!("3d049bea267660224875bdec6e86c2f39c2b0cdd7ac6b7636e3133fdcf9884fd");
 
 /// Read `env_var` as the number of fresh runs for an intra-process determinism
 /// test, falling back to `default` when the env var is absent or unparseable.
@@ -954,8 +961,12 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   less. Only 600-tick pin changes (60-tick smoke uses bare initial state, no content, no
 ///   defender on lane at tick 60). Canonical re-pin authorized by owner 2026-06-06
 ///   (match-fidelity campaign, interceptions-matter).
+/// - 2026-06-06 (Slice 0: non-linear attribute curve — attribute-effect campaign) —
+///   **re-baselined to `b190d2d7…efdf`** per ADR-0012 trigger #3. Same per-class gamma
+///   curve as PINNED_60_TICK above, applied to the content-driven 600-tick run.
+///   Canonical re-pin authorized by owner 2026-06-06 (attribute-effect campaign, Slice 0).
 const PINNED_600_TICK: [u8; 32] =
-    hex!("c827d1904036f59e4aa5a7ff28cc3ce37317efc93bf0dad62fe160d791777f46");
+    hex!("b190d2d78cec0a5b6a5336428747783c316274f3e46614c899b3d667c0a0efdf");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

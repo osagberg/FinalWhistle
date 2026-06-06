@@ -184,6 +184,14 @@ PER_RULE_EXEMPT: dict[Path, set[str]] = {
     # regeneration source on the current toolchain. f64 is intentional +
     # bake-time-only; `#[ignore]`-gated.
     Path("crates/fw-core/tests/print_luts_oneshot.rs"): {FLOAT_RULE_NAME},
+    # Attribute-effect Slice 0 (2026-06-06): the curve LUT drift-detection +
+    # printer tests re-bake the five per-class gamma power curves from the f64
+    # reference `a^γ` and assert/print the committed Q32 const bits — the exact
+    # same bake-time-only float pattern as lut_drift_detection.rs /
+    # print_luts_oneshot.rs above. f64 is intentional + bake-time-only; both
+    # tests are `#[ignore]`-gated so they never run on the default sweep.
+    Path("crates/fw-core/tests/attribute_curve_drift_detection.rs"): {FLOAT_RULE_NAME},
+    Path("crates/fw-core/tests/print_attribute_curve_luts.rs"): {FLOAT_RULE_NAME},
     # T3-1: perf_test.rs is the single documented exception to Sim/RULES.md §3
     # (no clocks). `Instant::now()` is the explicit purpose of the test —
     # measuring wall-clock elapsed for a 1000-event encode+decode round-trip.

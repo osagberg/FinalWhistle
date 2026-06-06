@@ -1473,6 +1473,7 @@ dependencies = [
  "blake3",
  "cordic",
  "fixed",
+ "proptest",
  "ron 0.8.1",
  "serde",
  "serde_json",

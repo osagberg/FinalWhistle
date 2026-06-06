@@ -143,9 +143,9 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:c827d1904036f59e4aa5a7ff28cc3ce37317efc93bf0dad62fe160d791777f46",
+    expected_hash: "blake3:b190d2d78cec0a5b6a5336428747783c316274f3e46614c899b3d667c0a0efdf",
     metadata: (
-        description: "Layer 3 interception attribute in pass completion: nearest lane defender's iq modulates lane_gate. Authorized 2026-06-06 (interceptions-matter campaign).",
+        description: "Slice 0 non-linear attribute curve applied to the content-driven 600-tick run: per-class gamma curve g_class(a)=a^gamma at every attribute read site. Authorized 2026-06-06 (attribute-effect campaign, Slice 0).",
         generated_at: "2026-06-06",
         notes: "Hash advances from Layer 2 6a48…3a943. Only 600-tick pin changes; 60-tick smoke unchanged.",
     ),

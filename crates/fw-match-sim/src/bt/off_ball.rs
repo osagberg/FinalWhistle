@@ -27,7 +27,7 @@
 //!
 //! No floats. No clocks. No HashMap. No async. All Q32.
 
-use fw_core::Q32;
+use fw_core::{CurveClass, Q32, curve};
 
 use crate::bt::personality_bias::{
     apply_cover_bias, apply_hold_formation_bias, apply_mark_bias, apply_press_bias,
@@ -165,14 +165,18 @@ pub fn utility_track_back(
 ) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
-    // Primary product.
-    let raw = a.mental.positioning * a.mental.anticipation * a.physical.pace * a.physical.stamina;
+    // Primary product. Slice 0: positioning/anticipation = mental,
+    // pace/stamina = physical ceiling.
+    let raw = curve(CurveClass::Mental, a.mental.positioning)
+        * curve(CurveClass::Mental, a.mental.anticipation)
+        * curve(CurveClass::Physical, a.physical.pace)
+        * curve(CurveClass::Physical, a.physical.stamina);
 
-    // Secondary: concentration (sustained defensive effort) + teamwork (shape awareness).
+    // Secondary: concentration (sustained defensive effort) + teamwork (mental).
     let w_conc = Q32::from_raw(429_496_729_i64); // ≈ 0.10
     let w_tw = Q32::from_raw(429_496_729_i64); // ≈ 0.10
-    let secondary =
-        (Q32::ONE + w_conc * a.mental.concentration) * (Q32::ONE + w_tw * a.mental.teamwork);
+    let secondary = (Q32::ONE + w_conc * curve(CurveClass::Mental, a.mental.concentration))
+        * (Q32::ONE + w_tw * curve(CurveClass::Mental, a.mental.teamwork));
     let raw = raw * secondary;
 
     let biased = apply_cover_bias(raw, a);
@@ -197,14 +201,17 @@ pub fn utility_press(
 ) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
-    // Primary product.
-    let raw = a.mental.anticipation * a.physical.acceleration * a.physical.stamina;
+    // Primary product. Slice 0: anticipation = mental, acceleration/stamina =
+    // physical ceiling.
+    let raw = curve(CurveClass::Mental, a.mental.anticipation)
+        * curve(CurveClass::Physical, a.physical.acceleration)
+        * curve(CurveClass::Physical, a.physical.stamina);
 
     // Secondary: positioning (spatial press trigger) + pace (chase capability).
     let w_pos = Q32::from_raw(429_496_729_i64); // ≈ 0.10
     let w_pace = Q32::from_raw(429_496_729_i64); // ≈ 0.10
-    let secondary =
-        (Q32::ONE + w_pos * a.mental.positioning) * (Q32::ONE + w_pace * a.physical.pace);
+    let secondary = (Q32::ONE + w_pos * curve(CurveClass::Mental, a.mental.positioning))
+        * (Q32::ONE + w_pace * curve(CurveClass::Physical, a.physical.pace));
     let raw = raw * secondary;
 
     let biased = apply_press_bias(raw, a);
@@ -237,15 +244,18 @@ pub fn utility_mark_player(
 ) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
-    // Primary product.
-    let raw =
-        a.technical.marking * a.mental.anticipation * a.physical.pace * a.mental.concentration;
+    // Primary product. Slice 0: marking = contest/duel, anticipation/
+    // concentration = mental, pace = physical ceiling.
+    let raw = curve(CurveClass::Contest, a.technical.marking)
+        * curve(CurveClass::Mental, a.mental.anticipation)
+        * curve(CurveClass::Physical, a.physical.pace)
+        * curve(CurveClass::Mental, a.mental.concentration);
 
-    // Secondary: strength (physicality) + balance (stability in duels).
+    // Secondary: strength (physical) + balance (contest stability in duels).
     let w_str = Q32::from_raw(429_496_729_i64); // ≈ 0.10
     let w_bal = Q32::from_raw(429_496_729_i64); // ≈ 0.10
-    let secondary =
-        (Q32::ONE + w_str * a.physical.strength) * (Q32::ONE + w_bal * a.physical.balance);
+    let secondary = (Q32::ONE + w_str * curve(CurveClass::Physical, a.physical.strength))
+        * (Q32::ONE + w_bal * curve(CurveClass::Contest, a.physical.balance));
     let raw = raw * secondary;
 
     // Mark bias: Determination ONLY per spec (P1-5 fix — was cover_bias which also read work_rate).
@@ -277,15 +287,18 @@ pub fn utility_run_off_ball(
 ) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
-    // Primary product.
-    let raw =
-        a.mental.off_the_ball * a.physical.pace * a.physical.acceleration * a.mental.anticipation;
+    // Primary product. Slice 0: off_the_ball/anticipation = mental,
+    // pace/acceleration = physical ceiling.
+    let raw = curve(CurveClass::Mental, a.mental.off_the_ball)
+        * curve(CurveClass::Physical, a.physical.pace)
+        * curve(CurveClass::Physical, a.physical.acceleration)
+        * curve(CurveClass::Mental, a.mental.anticipation);
 
-    // Secondary: flair (creative run selection) + stamina (sustained sprint).
+    // Secondary: flair (personality tendency) + stamina (physical, sustained sprint).
     let w_flair = Q32::from_raw(429_496_729_i64); // ≈ 0.10
     let w_stam = Q32::from_raw(429_496_729_i64); // ≈ 0.10
-    let secondary =
-        (Q32::ONE + w_flair * a.mental.flair) * (Q32::ONE + w_stam * a.physical.stamina);
+    let secondary = (Q32::ONE + w_flair * curve(CurveClass::Personality, a.mental.flair))
+        * (Q32::ONE + w_stam * curve(CurveClass::Physical, a.physical.stamina));
     let raw = raw * secondary;
 
     // RunOffBall bias: WorkRate + RiskAppetite per spec (P1-5 fix — was press_bias which used aggression).
@@ -343,9 +356,11 @@ pub fn lane_cover_offset_x(
     team_idx: usize,
 ) -> Q32 {
     let a = &player.attributes;
-    let lane_cover_weight = a.mental.anticipation * LANE_W_ANTICIPATION
-        + a.technical.tackling * LANE_W_TACKLING
-        + a.mental.positioning * LANE_W_POSITIONING;
+    // Slice 0: curve each term (anticipation/positioning = mental, tackling =
+    // contest) so an elite reader steps into the lane disproportionately.
+    let lane_cover_weight = curve(CurveClass::Mental, a.mental.anticipation) * LANE_W_ANTICIPATION
+        + curve(CurveClass::Contest, a.technical.tackling) * LANE_W_TACKLING
+        + curve(CurveClass::Mental, a.mental.positioning) * LANE_W_POSITIONING;
 
     // Raw offset magnitude (toward carrier): lane_cover_weight × LANE_COVER_MAX_DEF.
     let raw_offset = lane_cover_weight * LANE_COVER_MAX_DEF;
@@ -418,12 +433,14 @@ pub fn utility_hold_formation(
 ) -> (PlayerIntent, Q32) {
     let a = &player.attributes;
 
-    // Primary product: positioning + teamwork + concentration (spec §"Hold formation slot").
-    let raw = a.mental.positioning * a.mental.teamwork * a.mental.concentration;
+    // Primary product: positioning + teamwork + concentration (mental). Slice 0.
+    let raw = curve(CurveClass::Mental, a.mental.positioning)
+        * curve(CurveClass::Mental, a.mental.teamwork)
+        * curve(CurveClass::Mental, a.mental.concentration);
 
     // Secondary: decisions as quality gate.
     let w_dec = Q32::from_raw(429_496_729_i64); // ≈ 0.10
-    let secondary = Q32::ONE + w_dec * a.mental.decisions;
+    let secondary = Q32::ONE + w_dec * curve(CurveClass::Mental, a.mental.decisions);
     let raw = raw * secondary;
 
     // HoldFormation bias: Professionalism + Determination per spec (P1-5 fix — was cover_bias with work_rate).
