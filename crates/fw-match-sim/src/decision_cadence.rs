@@ -113,18 +113,34 @@ pub fn should_decide(
     interrupt_cooldown_until: &[Tick; 22],
     tick: Tick,
 ) -> bool {
+    // debug_assert OK here because: `roster_slot` is always produced by the
+    // dispatch loop as `(slot_idx + 1) as u8` with `slot_idx in 0..22`, so it
+    // is guaranteed to be in `1..=22` by the caller. A violating value would
+    // immediately trigger an index-out-of-bounds panic at the array accesses
+    // below (`interrupt_cooldown_until[idx]`, `decision_slots[idx]`) in both
+    // debug and release builds — the real safety net is those bounds checks,
+    // not this assert. This guard exists only to surface a cleaner diagnostic
+    // during development. Per Sim/RULES.md §11 "Allowed" clause.
     debug_assert!(
         (1..=22).contains(&roster_slot),
         "roster_slot {roster_slot} out of range 1..=22"
     );
-    // Codex P1 from self-review: `(tick.to_raw() % 15) as u8` would silently
-    // wrap for negative ticks (Rust's `%` returns a value in `(-15, 0]`,
-    // `as u8` wraps to a large u8 that never matches a slot in `0..=14`).
-    // The result: `should_decide` would return false for ALL slots at ALL
-    // negative ticks with no diagnostic — exactly the kind of silent failure
-    // T1-2b-iii's BT runner would step on. Use `rem_euclid` for non-negative
-    // modulo semantics, gated by a debug-assert that surfaces the upstream
-    // bug (ADR-0009 says tick is monotonic non-negative).
+    // `rem_euclid(15)` is used instead of `% 15` so that the modulo is always
+    // non-negative: Rust's `%` on a negative dividend returns a value in
+    // `(-15, 0]`, which `as u8` wraps to a large value that never matches a
+    // slot in `0..=14`, silently returning false for every slot (T1-2b-iii
+    // footgun). `rem_euclid` gives the correct `[0, 14]` result for all i64
+    // values. The negative-tick guard below is a development-time diagnostic.
+    //
+    // debug_assert OK here: a negative tick at this call site means upstream
+    // canonical state is already corrupted. The normal sim path cannot produce
+    // one — `MatchState::initial` starts at `Tick::ZERO` and `Tick::successor`
+    // panics in both debug and release on overflow (no backward wrapping). A
+    // negative tick via `Tick::from_raw` can only appear in malformed test
+    // fixtures or bad deserialization; deserialization is not guarded here
+    // anyway. This assert surfaces the upstream bug earlier in development
+    // without being a load-bearing canonical/gameplay invariant — the upstream
+    // `successor()` panic is the real enforcement. Per Sim/RULES.md §11 "Allowed".
     debug_assert!(
         tick.to_raw() >= 0,
         "should_decide called with negative tick {}; \
