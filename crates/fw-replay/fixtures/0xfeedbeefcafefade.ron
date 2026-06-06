@@ -143,10 +143,10 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:a5dd8dfa2469390b2e533ec6a2222e5c5bb610e41c7585f8fd5e275daafd0d68",
+    expected_hash: "blake3:f11942b17612606daf71aeb415e7260dd532b5904db2e037c375ac3bd8587f8a",
     metadata: (
-        description: "FUN-TS3b Attempt 2: pass-kind utility reweighting — ZONE_SHORT_BOOST 3.2, LONG_BASE_SUPPRESS 0.45, LONG_NO_SUPPRESS_ZONE 15, CROSS_GATE_COEFF 2.5 (width-only gate). 40-seed gate: Short=77.0% Long=10.4% Cross=7.8% LayOff=4.7%. Pre-commit fixes (Fix A/B/C) are all no-ops at baseline attrs — hash UNCHANGED.",
-        generated_at: "2026-06-05",
-        notes: "Fix A (cross clamp) no-op at baseline attrs. Fix B (PITCH_ZONE_WIDTH_Q32 precision) does not move any player into a different zone in seeds exercised. Fix C = comment-only. Prior 95ee…6964 was FUN-CB1 integrity fix.",
+        description: "Layer 1a dynamic positioning: phase_tx sidecar on TeamShape, compute() + zonal_slot() wired. Conservative MidBlock ±7/5m, HighPress ±11/7m, CounterAttack ±9/5m, LowBlock ±4/3m. M1=2.75 on 8-seed sweep (in [2.0,3.2]). Authorized 2026-06-06 match-fidelity campaign.",
+        generated_at: "2026-06-06",
+        notes: "Hash drift confirmed non-no-op: phase_tx changes movement targets every tick over the content-driven 600-tick run. Prior a5dd…0d68 was FUN-TS3b/lane-openness integrity fix.",
     ),
 )

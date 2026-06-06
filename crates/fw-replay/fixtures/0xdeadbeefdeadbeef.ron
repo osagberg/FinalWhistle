@@ -218,10 +218,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:110158b9bab7aae225726afdae338435d62c783634ef2b3fd847e8ce90eeb5d7",
+    expected_hash: "blake3:89dca182a86d6da45bbd913dfa16f88647f296668128c95f336b4a33cc84ebd4",
     metadata: (
-        description: "FUN-TS3b Attempt 2: pass-kind utility reweighting — ZONE_SHORT_BOOST 2.8→3.2, LONG_BASE_SUPPRESS 0.58→0.45, LONG_LANE_COEFF 0.37→0.35, LONG_NO_SUPPRESS_ZONE 14→15, CROSS_GATE_COEFF 0.72→2.5 (width-only gate). 40-seed gate: Short=77.0% Long=10.4% Cross=7.8% LayOff=4.7% — all floored. Pre-commit fixes (Fix A/B/C) are all no-ops at baseline attrs — hash UNCHANGED.",
-        generated_at: "2026-06-05",
-        notes: "Fix A (cross clamp) no-op at mid-attrs. Fix B (PITCH_ZONE_WIDTH_Q32 28_180_722_893→28_185_722_880) does not move any player into a different zone for seeds exercised. Fix C = comment-only.",
+        description: "Layer 1a dynamic positioning: TeamShape gained phase_tx (sidecar), compute() derives it from ball_x+possession+tactic_state, zonal_slot() applies effective_line_x = line_x ± phase_tx. Conservative values MidBlock ±7/5m, HighPress ±11/7m. M1=2.75 on 8-seed sweep (in [2.0,3.2]). Authorized 2026-06-06 match-fidelity campaign.",
+        generated_at: "2026-06-06",
+        notes: "Hash drift confirmed non-no-op: phase_tx changes player movement targets every tick. 60-tick smoke uses bare init (no content), both teams start with possession=None (is_defending=true both teams), ball at centre — phase_tx fires with conservative defending retreats.",
     ),
 )

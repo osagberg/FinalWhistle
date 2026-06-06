@@ -363,6 +363,7 @@ mod tests {
             is_defending: true,
             press_roles: [crate::team_shape::PressRole::HoldShape; 11],
             is_high_press: false,
+            phase_tx: Q32::ZERO,
         }
     }
 

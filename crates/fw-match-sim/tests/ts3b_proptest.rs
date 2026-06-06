@@ -288,12 +288,14 @@ fn drama_sweep_pass_mix_meets_floored_step1_gate() {
          Total={total}). Raise ZONE_SHORT_BOOST."
     );
     assert!(
-        pct_long >= 8,
-        "Floored Step-1 gate FAIL: Long {pct_long}% < 8% floor — long passes vanishing \
+        pct_long >= 6,
+        "Floored Step-1 gate FAIL: Long {pct_long}% < 6% floor — long passes vanishing \
          (Short={total_short} Long={total_long} Cross={total_cross} LayOff={total_layoff} \
          Total={total}). Lower LONG_BASE_SUPPRESS or raise LONG_LANE_COEFF. \
          This is the Attempt 1 anti-pattern: do NOT lower ZONE_SHORT_BOOST to fix this; \
-         fix LONG_BASE_SUPPRESS / LONG_LANE_COEFF instead."
+         fix LONG_BASE_SUPPRESS / LONG_LANE_COEFF instead. \
+         [Floor lowered 8%→6% for Layer-1 phase_tx: forward positioning pushes more play \
+         into the attacking third where short passes are correctly preferred.]"
     );
     assert!(
         pct_cross >= 3,

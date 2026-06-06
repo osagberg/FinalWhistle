@@ -337,8 +337,22 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   are unchanged (verified: ~1mm boundary delta doesn't cross any zone
 ///   boundary in practice). Fix C: stale comments reconciled (no code change).
 ///   Net canonical-state effect: zero. All three fixes are no-ops at baseline.
+/// - 2026-06-06 (Layer 1a: phase translation — dynamic positioning model) —
+///   **re-baselined to `89dca182…ebd4`** per ADR-0012 trigger #3 (sim behavior
+///   change with documented intent). `TeamShape` gained `phase_tx: Q32` (sidecar,
+///   `#[serde(skip)]`). `compute()` now derives `phase_tx` from ball_x +
+///   possession + tactic_state each tick. `zonal_slot()` applies
+///   `effective_line_x = line_x ± phase_tx` before the x-transform so the entire
+///   block translates up/down the pitch with possession phase. Conservative
+///   first-deployment values: LowBlock ±4/3m, MidBlock ±7/5m, HighPress ±11/7m,
+///   CounterAttack ±9/5m, SetPiece 0/0m. ts3b_proptest long-pass floor lowered
+///   8%→6% (expected consequence: forward positioning pushes more play into
+///   attacking third where short passes are correct). 8-seed goal measurement:
+///   M1=2.75 (in [2.0, 3.2] band). Canonical hash drift confirmed NON-NO-OP:
+///   phase_tx affects player movement targets every tick. Authorized by owner
+///   2026-06-06 (match-fidelity campaign, dynamic-positioning Layer 1).
 const PINNED_60_TICK: [u8; 32] =
-    hex!("110158b9bab7aae225726afdae338435d62c783634ef2b3fd847e8ce90eeb5d7");
+    hex!("89dca182a86d6da45bbd913dfa16f88647f296668128c95f336b4a33cc84ebd4");
 
 /// Read `env_var` as the number of fresh runs for an intra-process determinism
 /// test, falling back to `default` when the env var is absent or unparseable.
@@ -886,8 +900,14 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   identically in 60 ticks). Envelope-verified BEFORE re-pin (main-thread
 ///   independent 100-seed × 2 bases: M1 2.47/2.56 in band 2.3-3.2, std
 ///   1.55/1.46 in band, shots 12.1/12.8, on-target 44.9/41.5% — all PASS).
+/// - 2026-06-06 (Layer 1a: phase translation — dynamic positioning model) —
+///   **re-baselined to `f11942b1…87f8a`** per ADR-0012 trigger #3 (sim behavior
+///   change). Same TeamShape phase_tx change as PINNED_60_TICK above. Over this
+///   content-driven 600-tick run, player movement targets change each tick as
+///   phase_tx shifts the block → canonical bytes change. Authorized by owner
+///   2026-06-06 (match-fidelity campaign, dynamic-positioning Layer 1a).
 const PINNED_600_TICK: [u8; 32] =
-    hex!("a5dd8dfa2469390b2e533ec6a2222e5c5bb610e41c7585f8fd5e275daafd0d68");
+    hex!("f11942b17612606daf71aeb415e7260dd532b5904db2e037c375ac3bd8587f8a");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

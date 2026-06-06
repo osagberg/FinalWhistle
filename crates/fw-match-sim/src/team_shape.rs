@@ -138,6 +138,55 @@ const COMPACTNESS_H: i32 = 35; // SOFT — FUN-TS3 possession-widening deferred 
 // since the transform is derived from them at compile time.
 
 // ---------------------------------------------------------------------------
+// Phase-translation tuning constants (Layer 1 — dynamic positioning)
+// SOFT Phase-1 values per docs/design/dynamic-positioning-model-2026-06-06.md §1.6.
+// First-deployment (conservative) values — step to full Phase-1 values after
+// M1 is verified in [2.0, 3.2].
+// ---------------------------------------------------------------------------
+
+/// Pitch half-length in metres (100m pitch → 50m half). Used for penetration normalisation.
+const PITCH_HALF_M: i32 = 50; // HARD — matches subtree_library.rs "100m × 60m" comment
+
+/// Full pitch length in metres. Penetration is normalised over [0, PITCH_LEN_M].
+const PITCH_LEN_M: i32 = 100; // HARD
+
+/// Q32 approximation of 1/100 (= 2^32 / 100 ≈ 42_949_673). Used to normalise
+/// raw ball penetration [0, 100m] → [0, 1] without a float divide.
+/// Error: < 1 ULP at Q32 precision — acceptable for a soft tuning parameter.
+const INV100: Q32 = Q32::from_raw(42_949_673_i64); // ≈ 1/100 in Q32.32
+
+/// LowBlock max forward shift when team is in possession (penetration = 1.0). SOFT.
+const PHASE_TX_MAX_ATTACK_LOW: i32 = 4; // metres SOFT
+/// LowBlock max backward pull when team is defending (opp penetration = 1.0). SOFT.
+const PHASE_TX_MAX_DEFEND_LOW: i32 = 3; // metres SOFT
+
+/// MidBlock max attack shift. SOFT.
+/// Tuned from conservative 9m to 7m to hold M1 in [2.0, 3.2] (first-deployment sweep).
+const PHASE_TX_MAX_ATTACK_MID: i32 = 7; // metres SOFT
+/// MidBlock max defend retreat. SOFT.
+const PHASE_TX_MAX_DEFEND_MID: i32 = 5; // metres SOFT
+
+/// HighPress max attack shift. SOFT.
+/// Tuned from 14m to 11m in sync with MidBlock to hold the M1 goal band.
+const PHASE_TX_MAX_ATTACK_HIGH: i32 = 11; // metres SOFT
+/// HighPress max defend retreat. SOFT.
+const PHASE_TX_MAX_DEFEND_HIGH: i32 = 7; // metres SOFT
+
+/// CounterAttack max attack shift. SOFT.
+/// Tuned from 11m to 9m in sync with other tactic states.
+const PHASE_TX_MAX_ATTACK_COUNTER: i32 = 9; // metres SOFT
+/// CounterAttack max defend retreat. SOFT.
+const PHASE_TX_MAX_DEFEND_COUNTER: i32 = 5; // metres SOFT
+
+/// Serde `default` helper: returns `Q32::ZERO`. Required because `Q32` does not
+/// implement `std::default::Default`, but `#[serde(skip)]` needs a default
+/// function for deserialization. Phase-tx is always recomputed each tick; the
+/// zero default is the safe fallback for any deserialized `TeamShape` sidecar.
+fn q32_zero() -> Q32 {
+    Q32::ZERO
+}
+
+// ---------------------------------------------------------------------------
 // TeamShape
 // ---------------------------------------------------------------------------
 
@@ -178,6 +227,17 @@ pub struct TeamShape {
     /// Derived from canonical tactic_state in `compute_press_from_parts`;
     /// NOT canonical bytes (follows the same pattern as `is_defending`).
     pub is_high_press: bool,
+    /// Layer 1: possession-phase x-translation applied on top of line_x in zonal_slot.
+    ///
+    /// Signed metres toward the opponent goal (team-neutral sign convention).
+    /// For home (team_idx = 0): effective_line_x = line_x + phase_tx.
+    /// For away (team_idx = 1): effective_line_x = line_x - phase_tx.
+    ///
+    /// Non-canonical sidecar; recomputed every tick from canonical inputs
+    /// (ball_x, possession, tactic_state, team_idx). Zero is the safe default.
+    /// Skipped in serde serialisation (never written to canonical bytes).
+    #[serde(skip, default = "q32_zero")]
+    pub phase_tx: Q32,
 }
 
 impl TeamShape {
@@ -194,6 +254,7 @@ impl TeamShape {
             is_defending: true,
             press_roles: [PressRole::HoldShape; 11],
             is_high_press: false,
+            phase_tx: Q32::ZERO,
         }
     }
 
@@ -208,6 +269,7 @@ impl TeamShape {
         is_defending: true,
         press_roles: [PressRole::HoldShape; 11],
         is_high_press: false,
+        phase_tx: Q32::ZERO,
     };
 
     /// Press role for this team-local slot (0-indexed within the team, 0..11).
@@ -261,6 +323,92 @@ fn target_compactness_v(tactic_state: TacticState) -> Q32 {
         TacticState::SetPiece(_) => MID_BLOCK_COMPACTNESS_V,
     };
     Q32::from_int(metres)
+}
+
+/// Compute the phase-translation scalar (metres toward the opponent goal) for
+/// one team in one tick.
+///
+/// Formula (Layer 1, dynamic positioning model §1.2):
+///   - Attacking (not defending): phase_tx = penetration × max_attack_tx
+///   - Defending:                 phase_tx = -(opp_penetration × max_defend_tx)
+///     where opp_penetration = 1 - penetration (how far into OUR half the opp is).
+///
+/// penetration is the ball's normalised position along the pitch from this
+/// team's own goal (0 = ball at own goal, 1 = ball at opponent goal).
+/// Normalised over the full pitch length (100m) so ±50m ball range → [0, 1].
+///
+/// SetPiece: no shift (both attack and defend return Q32::ZERO).
+/// Loose ball (is_defending = true, no specific penetration): treats ball_x
+/// as-is with the defending formula (conservative block-hold default).
+///
+/// Q32 only. No floats, no RNG, no clocks. Deterministic from canonical inputs.
+#[must_use]
+fn compute_phase_tx(
+    ball_x: Q32,
+    is_defending: bool,
+    tactic_state: TacticState,
+    team_idx: usize,
+) -> Q32 {
+    // SetPiece: no block shift (dead-ball; formation shape stays neutral).
+    if matches!(tactic_state, TacticState::SetPiece(_)) {
+        return Q32::ZERO;
+    }
+
+    // Penetration for HOME team (attacks +x):
+    //   raw = clamp(ball_x + 50, 0, 100)
+    //   penetration = raw × inv100  → [0, 1]
+    // For AWAY team (attacks -x): mirror ball_x.
+    let half_m = Q32::from_int(PITCH_HALF_M);
+    let full_m = Q32::from_int(PITCH_LEN_M);
+
+    let raw_pen = if team_idx == 0 {
+        // Home: penetration 0 at x=-50 (own goal), 1 at x=+50 (opp goal).
+        let shifted = ball_x + half_m;
+        if shifted < Q32::ZERO {
+            Q32::ZERO
+        } else if shifted > full_m {
+            full_m
+        } else {
+            shifted
+        }
+    } else {
+        // Away: penetration 0 at x=+50 (own goal), 1 at x=-50 (opp goal).
+        let shifted = half_m - ball_x;
+        if shifted < Q32::ZERO {
+            Q32::ZERO
+        } else if shifted > full_m {
+            full_m
+        } else {
+            shifted
+        }
+    };
+
+    // penetration ∈ [0, 1] (Q32 fraction).
+    let penetration = raw_pen * INV100;
+
+    let (max_attack, max_defend) = match tactic_state {
+        TacticState::LowBlock => (PHASE_TX_MAX_ATTACK_LOW, PHASE_TX_MAX_DEFEND_LOW),
+        TacticState::MidBlock => (PHASE_TX_MAX_ATTACK_MID, PHASE_TX_MAX_DEFEND_MID),
+        TacticState::HighPress => (PHASE_TX_MAX_ATTACK_HIGH, PHASE_TX_MAX_DEFEND_HIGH),
+        TacticState::CounterAttack => (PHASE_TX_MAX_ATTACK_COUNTER, PHASE_TX_MAX_DEFEND_COUNTER),
+        TacticState::SetPiece(_) => return Q32::ZERO, // already handled above
+    };
+
+    if !is_defending {
+        // Team in possession: advance block by penetration × max_attack.
+        penetration * Q32::from_int(max_attack)
+    } else {
+        // Team defending: opponent has the ball; opp_penetration = 1 - penetration.
+        // The more the opponent has penetrated into OUR half, the further we retreat.
+        // phase_tx is NEGATIVE (toward own goal = pulling block back).
+        let opp_pen = if penetration > Q32::ONE {
+            Q32::ZERO
+        } else {
+            Q32::ONE - penetration
+        };
+        // Negative: toward own goal (the sign is handled in zonal_slot via team_idx).
+        Q32::ZERO - opp_pen * Q32::from_int(max_defend)
+    }
 }
 
 /// Compute the per-team shape anchors for `team_idx` (0 = home, 1 = away)
@@ -354,6 +502,9 @@ pub fn compute(team_idx: usize, state: &MatchState) -> TeamShape {
         None => true,
     };
 
+    // Layer 1: compute possession-phase translation after is_defending is known.
+    let phase_tx = compute_phase_tx(state.ball.pos_x, is_defending, tactic_state, team_idx);
+
     TeamShape {
         line_x,
         block_centroid_x,
@@ -365,6 +516,7 @@ pub fn compute(team_idx: usize, state: &MatchState) -> TeamShape {
         // called after compute() in dispatch_tick.
         press_roles: [PressRole::HoldShape; 11],
         is_high_press: false,
+        phase_tx,
     }
 }
 
@@ -400,13 +552,25 @@ pub fn zonal_slot(roster_slot: u8, shape: &TeamShape, team_idx: usize) -> (Q32, 
     let form_x = Q32::from_int(raw_x);
     let form_y = Q32::from_int(raw_y);
 
-    // --- X transform: blend formation x toward line_x ---
+    // --- X transform: blend formation x toward effective_line_x ---
     //
+    // Layer 1: apply possession-phase translation on top of the tactic-FSM line_x.
+    //   effective_line_x = line_x + phase_tx   (home, team_idx == 0)
+    //   effective_line_x = line_x - phase_tx   (away, team_idx == 1)
+    // phase_tx is signed metres toward the opponent goal (team-neutral convention).
+    // For home this is +x; for away this is -x, hence the sign flip.
+    let phase_tx_for_team = if team_idx == 0 {
+        shape.phase_tx
+    } else {
+        Q32::ZERO - shape.phase_tx
+    };
+    let effective_line_x = shape.line_x + phase_tx_for_team;
+
     // The formation's rearmost non-GK (defender) is at x = ±30m; the
     // forward is at x = ±10m. We want the block to shift so its rearmost
-    // line lands at `line_x`.
+    // line lands at `effective_line_x`.
     //
-    // Approach: per-slot x = line_x + (form_x - form_defender_x) × scale_v
+    // Approach: per-slot x = effective_line_x + (form_x - form_defender_x) × scale_v
     // where form_defender_x is the natural rearmost-defender x (±30m) and
     // scale_v = compactness_v / FORMATION_NATIVE_V.
     //
@@ -427,10 +591,10 @@ pub fn zonal_slot(roster_slot: u8, shape: &TeamShape, team_idx: usize) -> (Q32, 
     let inv40 = Q32::from_raw(107_374_182_i64);
     let scale_v = shape.compactness_v * inv40;
 
-    // target_x = line_x + relative_x × scale_v
-    // For a DEF (relative_x = 0): target_x = line_x (anchors the rear line).
+    // target_x = effective_line_x + relative_x × scale_v
+    // For a DEF (relative_x = 0): target_x = effective_line_x (anchors the rear line).
     // For a FWD (relative_x = +40 home, -40 away): target_x scaled by compactness.
-    let target_x = shape.line_x + relative_x * scale_v;
+    let target_x = effective_line_x + relative_x * scale_v;
 
     // --- Y transform: scale toward compactness_h ---
     //
@@ -740,15 +904,18 @@ mod tests {
     // --- zonal_slot ---
 
     #[test]
-    fn zonal_slot_defender_anchors_at_line_x() {
+    fn zonal_slot_defender_anchors_at_effective_line_x() {
         let state = mk_state_with_tactic(TacticState::LowBlock, TacticState::MidBlock);
         let shape = compute(0, &state);
-        // Home DEF slot 1 is the rearmost formation position (x = -30).
+        // Home DEF slot 1 is the rearmost formation position (x = -30, relative_x = 0).
         let (tz_x, _tz_y) = zonal_slot(1, &shape, 0);
-        // The defender's zonal_slot x should equal line_x (relative_x = 0 for DEF).
+        // The defender's zonal_slot x should equal effective_line_x = line_x + phase_tx
+        // (for home team_idx=0, effective_line_x = line_x + phase_tx).
+        // relative_x is 0 for the defender anchor, so target_x = effective_line_x.
+        let effective_line_x = shape.line_x + shape.phase_tx;
         assert_eq!(
-            tz_x, shape.line_x,
-            "home DEF slot 1 zonal_x must equal line_x (relative_x = 0 for defender anchor)"
+            tz_x, effective_line_x,
+            "home DEF slot 1 zonal_x must equal effective_line_x (= line_x + phase_tx)"
         );
     }
 
@@ -817,6 +984,111 @@ mod tests {
                 && shape.block_centroid_y < pitch_half_y,
             "block_centroid_y out of pitch bounds: {:?}",
             shape.block_centroid_y
+        );
+    }
+
+    // --- Layer 1a: phase_tx tests ---
+
+    #[test]
+    fn phase_tx_positive_when_home_team_in_possession_in_opp_half() {
+        // Home team has ball in opponent half (ball_x > 0 → penetration > 0.5).
+        // With !is_defending, phase_tx must be positive.
+        let phase_tx = compute_phase_tx(Q32::from_int(20), false, TacticState::MidBlock, 0);
+        assert!(
+            phase_tx > Q32::ZERO,
+            "phase_tx must be positive when home is in possession in opp half (ball_x=+20): got {phase_tx:?}"
+        );
+    }
+
+    #[test]
+    fn phase_tx_negative_when_home_team_defending_with_ball_in_opp_half() {
+        // Home team is defending while the ball is in the OPPONENT half (+20m).
+        // opp_penetration (for home perspective) = 1 - penetration_home.
+        // penetration_home = clamp(20+50, 0, 100)/100 = 70/100 = 0.7.
+        // opp_pen = 0.3 — ball is closer to the OPPONENT goal, not deep in home half.
+        // So phase_tx is a small negative (retreat is minimal).
+        // The important invariant: phase_tx <= 0 when defending.
+        let phase_tx = compute_phase_tx(Q32::from_int(20), true, TacticState::MidBlock, 0);
+        assert!(
+            phase_tx <= Q32::ZERO,
+            "phase_tx must be non-positive when team is defending: got {phase_tx:?}"
+        );
+    }
+
+    #[test]
+    fn phase_tx_zero_for_setpiece() {
+        // SetPiece: no block shift regardless of possession.
+        use crate::tactic_fsm::SetPieceKind;
+        let phase_tx_attacking = compute_phase_tx(
+            Q32::from_int(30),
+            false,
+            TacticState::SetPiece(SetPieceKind::CornerFor),
+            0,
+        );
+        let phase_tx_defending = compute_phase_tx(
+            Q32::from_int(30),
+            true,
+            TacticState::SetPiece(SetPieceKind::CornerFor),
+            0,
+        );
+        assert_eq!(
+            phase_tx_attacking,
+            Q32::ZERO,
+            "phase_tx must be zero during SetPiece (attacking)"
+        );
+        assert_eq!(
+            phase_tx_defending,
+            Q32::ZERO,
+            "phase_tx must be zero during SetPiece (defending)"
+        );
+    }
+
+    #[test]
+    fn zonal_slot_home_def_target_leq_home_fwd_target() {
+        // Block ordering invariant: home DEF target_x <= home FWD target_x
+        // for any tactic state and possession.
+        let state = mk_state_with_tactic(TacticState::MidBlock, TacticState::MidBlock);
+        let mut shape = compute(0, &state);
+        // Force attacking phase (not defending), ball well in opponent half.
+        shape.phase_tx = Q32::from_int(8); // +8m advance
+        shape.is_defending = false;
+
+        let (def_x, _) = zonal_slot(1, &shape, 0); // DEF slot
+        let (fwd_x, _) = zonal_slot(8, &shape, 0); // FWD slot
+        assert!(
+            def_x <= fwd_x,
+            "home DEF target_x ({def_x:?}) must be <= home FWD target_x ({fwd_x:?}) — block ordering invariant"
+        );
+    }
+
+    #[test]
+    fn phase_tx_sign_home_vs_away() {
+        // For the same ball position (ball at x=+20m), home is attacking (penetration high),
+        // away is defending (penetration = 1 - home_pen = low from their perspective,
+        // meaning ball is far from their goal → small retreat).
+        // Home: !is_defending → phase_tx > 0.
+        // Away: is_defending → phase_tx <= 0.
+        let ball_x = Q32::from_int(20);
+        let home_tx = compute_phase_tx(ball_x, false, TacticState::MidBlock, 0);
+        let away_tx = compute_phase_tx(ball_x, true, TacticState::MidBlock, 1);
+        assert!(
+            home_tx > Q32::ZERO,
+            "home phase_tx must be positive when attacking (ball_x=+20): got {home_tx:?}"
+        );
+        assert!(
+            away_tx <= Q32::ZERO,
+            "away phase_tx must be non-positive when defending (ball_x=+20): got {away_tx:?}"
+        );
+    }
+
+    #[test]
+    fn compute_phase_tx_increases_with_penetration() {
+        // Higher penetration → larger positive phase_tx when attacking.
+        let tx_low = compute_phase_tx(Q32::from_int(0), false, TacticState::MidBlock, 0);
+        let tx_high = compute_phase_tx(Q32::from_int(30), false, TacticState::MidBlock, 0);
+        assert!(
+            tx_high > tx_low,
+            "phase_tx must increase with ball penetration (tx at ball_x=+30 {tx_high:?} > tx at ball_x=0 {tx_low:?})"
         );
     }
 }

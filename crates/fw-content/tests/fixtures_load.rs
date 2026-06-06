@@ -290,10 +290,13 @@ fn signature_load_does_not_drift_canonical_hash() {
     // Prior hash (FUN-TS2): d1170bfc6075ce825130f815b1dd7540bfb29e8cad7194010399681883170880
     // FUN-TS3b Attempt 2 (pass-kind utility reweighting): 110158b9bab7aae225726afdae338435d62c783634ef2b3fd847e8ce90eeb5d7
     // FUN-TS3b pre-commit fixes (Fix A/B/C): HASH UNCHANGED — all three fixes are no-ops at baseline mid-attrs.
+    // Layer 1a dynamic positioning (phase_tx sidecar): 89dca182a86d6da45bbd913dfa16f88647f296668128c95f336b4a33cc84ebd4
+    // TeamShape::phase_tx shifts zonal_slot targets each tick; positions diverge from tick 1 onward.
+    // Authorized 2026-06-06 (match-fidelity campaign, dynamic-positioning Layer 1).
     const EXPECTED: [u8; 32] = [
-        0x11, 0x01, 0x58, 0xb9, 0xba, 0xb7, 0xaa, 0xe2, 0x25, 0x72, 0x6a, 0xfd, 0xae, 0x33, 0x84,
-        0x35, 0xd6, 0x2c, 0x78, 0x36, 0x34, 0xef, 0x2b, 0x3f, 0xd8, 0x47, 0xe8, 0xce, 0x90, 0xee,
-        0xb5, 0xd7,
+        0x89, 0xdc, 0xa1, 0x82, 0xa8, 0x6d, 0x6d, 0xa4, 0x5b, 0xbd, 0x91, 0x3d, 0xfa, 0x16, 0xf8,
+        0x86, 0x47, 0xf2, 0x96, 0x66, 0x81, 0x28, 0xc9, 0x5f, 0x33, 0x6b, 0x4a, 0x33, 0xcc, 0x84,
+        0xeb, 0xd4,
     ];
 
     // Load the content store (exercises the new signature loader).
@@ -316,10 +319,8 @@ fn signature_load_does_not_drift_canonical_hash() {
     assert_eq!(
         actual, EXPECTED,
         "\nCanonical-state hash drifted unexpectedly.\n\
-         T4-sim-halt rebaselined to 85f45bf8ae8821182a45a82969ec36bc5b2d70ba2518b8271de24782fd8064fa\n\
-         (match_end_tick default 60 -> 5400 + tick_match self-halts at FullTime; \
-         on this 60-tick pin gameplay is byte-identical and only match_events loses \
-         the single FullTime the old 60-tick default emitted; ADR-0012 trigger #3).\n\
+         Layer-1a rebaselined to 89dca182a86d6da45bbd913dfa16f88647f296668128c95f336b4a33cc84ebd4\n\
+         (TeamShape::phase_tx sidecar; zonal_slot targets shift each tick; ADR-0012 trigger #3).\n\
          If this drifts again, it must be an authorized rebaseline — ADR-0012 trigger #1 or #3.\n\
          Actual:   {:02x?}",
         actual

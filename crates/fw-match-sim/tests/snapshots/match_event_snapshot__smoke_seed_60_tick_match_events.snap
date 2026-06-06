@@ -29,7 +29,7 @@ expression: state.match_events()
     },
     Pass {
         from_slot: 9,
-        to_slot: 10,
+        to_slot: 8,
         tick: Tick(
             35,
         ),
@@ -37,27 +37,19 @@ expression: state.match_events()
         completed: true,
     },
     Pass {
-        from_slot: 10,
+        from_slot: 8,
         to_slot: 9,
         tick: Tick(
-            41,
+            49,
         ),
-        kind: Cross,
-        completed: false,
-    },
-    PassIncomplete {
-        from_slot: 10,
-        to_slot: 9,
-        tick: Tick(
-            41,
-        ),
-        kind: Cross,
+        kind: Short,
+        completed: true,
     },
     Pass {
-        from_slot: 10,
-        to_slot: 9,
+        from_slot: 17,
+        to_slot: 20,
         tick: Tick(
-            56,
+            60,
         ),
         kind: Short,
         completed: true,
