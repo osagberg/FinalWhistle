@@ -92,26 +92,43 @@ use fw_content::{MatchEvent, PassKind, is_shot_on_target};
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Maximum player speed in m/s (skeleton tier). Direct vel-set; no
-/// acceleration model. -iii-b introduces an acceleration ramp.
-///
-/// 8 m/s ≈ a brisk run / moderate sprint. Raised from 5 m/s at T1-15
-/// so outfield players can close a ~10m gap toward a loose ball within
-/// ~10 ticks (~0.17s) rather than never converging at the old 5 m/s jog.
-/// In Q32.32 format: 8 × 2^32 = 8 << 32.
-///
-/// FUN-0: `apply_vel_toward_target` enforces this as a 2D magnitude cap
-/// (not per-component). Per-component clamping to ±8 allowed diagonal
-/// movement at sqrt(2)×8 ≈ 11.31 m/s → 0.189m/tick, tripping the
-/// ImpossiblePlayerVelocity detector (0.15m threshold) on every tick
-/// for any diagonally-moving player. The 2D normalisation keeps all
-/// movements within 8/60 ≈ 0.133m/tick regardless of direction.
-const MAX_PLAYER_SPEED: Q32 = Q32::from_raw(8_i64 << 32); // 8.0 in Q32.32
+// Layer 1b replaced the flat MAX_PLAYER_SPEED = 8 m/s constant with per-player
+// speed caps. Outfield players now use player_v_max(pace) = V_PACE_BASE + pace ×
+// V_PACE_RANGE (range [6.5, 9.0] m/s). GKs use V_GK_SPEED = 7.2 m/s.
+// The old flat-8 constant is removed; V_PACE_BASE + V_PACE_RANGE = 9.0 m/s is
+// the new ceiling for outfield players (pace = 1.0).
 
-/// `MAX_PLAYER_SPEED²` in (m/s)². Pre-computed for the 2D magnitude check
-/// in `apply_vel_toward_target` — avoids a redundant Q32 multiply in the
-/// hot path for every player every tick.
-const MAX_PLAYER_SPEED_SQ: Q32 = Q32::from_raw((8_i64 * 8_i64) << 32); // 64.0 in Q32.32
+// ---------------------------------------------------------------------------
+// Layer 1b: pace-scaled player speed (dynamic-positioning campaign 2026-06-06)
+// ---------------------------------------------------------------------------
+// Outfield players' movement cap scales linearly with their `pace` attribute
+// (a Q32 value in [0, 1], where 0 = slowest, 1 = fastest in the game):
+//
+//   v_max(pace) = V_PACE_BASE + pace × V_PACE_RANGE
+//              = 6.5 + pace × 2.5  m/s
+//
+// At pace=0.0: 6.5 m/s (slow jog). At pace=0.5: 7.75 m/s (baseline player).
+// At pace=1.0: 9.0 m/s (elite sprinter).
+//
+// The existing flat 8 m/s cap becomes the mid-range (pace≈0.6) value, so
+// mid-range players are unchanged to within 0.1 m/s; only the extremes move.
+//
+// GKs (slots 0 and 11) use a fixed cap V_GK_SPEED = 7.2 m/s (more mobile
+// than a slow outfield player but not competing with elite sprinters).
+//
+// All values: Q32.32 raw = value × 2^32.
+
+/// Base speed for outfield players (pace = 0): 6.5 m/s.
+/// Raw = round(6.5 × 2^32) = 27_917_287_424.
+const V_PACE_BASE: Q32 = Q32::from_raw(27_917_287_424_i64);
+
+/// Speed range for outfield players: 9.0 - 6.5 = 2.5 m/s.
+/// Raw = round(2.5 × 2^32) = 10_737_418_240.
+const V_PACE_RANGE: Q32 = Q32::from_raw(10_737_418_240_i64);
+
+/// GK movement cap: 7.2 m/s (fixed; pace attribute ignored for GKs).
+/// Raw = round(7.2 × 2^32) = 30_923_764_531.
+const V_GK_SPEED: Q32 = Q32::from_raw(30_923_764_531_i64);
 
 // ---------------------------------------------------------------------------
 // Ball-speed constants (T1-3.5)
@@ -1325,8 +1342,9 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
         // All variants with a target use the same velocity-toward-target model.
         // The target semantics differ per variant (aim point / run endpoint /
         // recipient position) but the locomotion physics are identical in this
-        // tier: 2D normalisation to MAX_PLAYER_SPEED (FUN-0 fix — replaces the
-        // prior per-component clamp that allowed sqrt(2)×MAX diagonal movement).
+        // tier: 2D normalisation to per-player v_max (Layer 1b: pace-scaled;
+        // FUN-0 fix — replaces the prior per-component clamp that allowed
+        // sqrt(2)×MAX diagonal movement).
         PlayerIntent::MoveToPosition { target_x, target_y }
         | PlayerIntent::AttemptShot { target_x, target_y }
         | PlayerIntent::AttemptPassShort { target_x, target_y }
@@ -1347,7 +1365,13 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
         | PlayerIntent::GkDistributeLong { target_x, target_y } => {
             let dx = target_x - p.pos_x;
             let dy = target_y - p.pos_y;
-            let (vx, vy) = apply_vel_toward_target(dx, dy);
+            // Layer 1b: GKs get a fixed cap; outfield players scale with pace.
+            let v_max = if slot_idx == 0 || slot_idx == 11 {
+                V_GK_SPEED
+            } else {
+                player_v_max(p.attributes.physical.pace)
+            };
+            let (vx, vy) = apply_vel_toward_target(dx, dy, v_max);
             p.vel_x = vx;
             p.vel_y = vy;
         }
@@ -1733,7 +1757,17 @@ fn apply_offside(state: &mut MatchState, passer_slot_idx: usize, receiver_slot: 
     );
 }
 
-/// Compute 2D velocity components toward a target, capped to `MAX_PLAYER_SPEED`
+/// Compute per-player v_max from `pace` attribute (outfield players only).
+///
+/// `v_max = V_PACE_BASE + pace × V_PACE_RANGE = 6.5 + pace × 2.5 m/s`.
+/// At pace=0 → 6.5 m/s; pace=0.5 → 7.75 m/s; pace=1.0 → 9.0 m/s.
+///
+/// GKs (slots 0 and 11) use `V_GK_SPEED` directly; their pace attr is ignored.
+fn player_v_max(pace: Q32) -> Q32 {
+    V_PACE_BASE + pace * V_PACE_RANGE
+}
+
+/// Compute 2D velocity components toward a target, capped to `v_max`
 /// as a **vector magnitude** (not per-component).
 ///
 /// ## Why vector-magnitude cap (FUN-0)
@@ -1745,9 +1779,8 @@ fn apply_offside(state: &mut MatchState, passer_slot_idx: usize, receiver_slot: 
 /// detector (threshold 0.15m) on every tick for any diagonally-moving player —
 /// causing 32,000+ violations per 5400-tick match.
 ///
-/// The new rule: if `dist_sq = dx² + dy² > MAX_PLAYER_SPEED²`, scale the
-/// vector to have magnitude exactly `MAX_PLAYER_SPEED`. This bounds all
-/// per-tick displacement to `MAX_PLAYER_SPEED × dt = 8/60 ≈ 0.133m`.
+/// Layer 1b: `v_max` is now per-player (pace-scaled for outfield; GK-fixed for
+/// GKs) rather than the flat `MAX_PLAYER_SPEED = 8 m/s` constant.
 ///
 /// ## Zero-delta fallback
 ///
@@ -1758,24 +1791,25 @@ fn apply_offside(state: &mut MatchState, passer_slot_idx: usize, receiver_slot: 
 ///
 /// Uses `Q32::sqrt()` (cordic-backed), same path as `separation.rs` and
 /// `ball_unit_vel`. No floats, no clocks, no RNG.
-fn apply_vel_toward_target(dx: Q32, dy: Q32) -> (Q32, Q32) {
+fn apply_vel_toward_target(dx: Q32, dy: Q32, v_max: Q32) -> (Q32, Q32) {
     let dist_sq = dx * dx + dy * dy;
+    let v_max_sq = v_max * v_max;
 
     if dist_sq == Q32::ZERO {
         // Already at target — zero velocity.
         return (Q32::ZERO, Q32::ZERO);
     }
 
-    if dist_sq <= MAX_PLAYER_SPEED_SQ {
+    if dist_sq <= v_max_sq {
         // Within cap — use raw delta as velocity (no normalisation needed).
         return (dx, dy);
     }
 
-    // Over cap: normalise to MAX_PLAYER_SPEED magnitude.
-    // dist = sqrt(dx² + dy²); vel = (dx/dist) × MAX_PLAYER_SPEED.
+    // Over cap: normalise to v_max magnitude.
+    // dist = sqrt(dx² + dy²); vel = (dx/dist) × v_max.
     let dist = dist_sq.sqrt();
-    let vel_x = dx / dist * MAX_PLAYER_SPEED;
-    let vel_y = dy / dist * MAX_PLAYER_SPEED;
+    let vel_x = dx / dist * v_max;
+    let vel_y = dy / dist * v_max;
     (vel_x, vel_y)
 }
 
@@ -1934,7 +1968,8 @@ mod tests {
         let p0_x = state.players[0].pos_x;
         let p0_y = state.players[0].pos_y;
 
-        // Target 100 m away — delta well beyond MAX_PLAYER_SPEED.
+        // Target 100 m away — delta well beyond any player speed cap.
+        // Slot 0 is the home GK, so the cap is V_GK_SPEED (7.2 m/s).
         apply_intent(
             &mut state,
             0,
@@ -1943,7 +1978,7 @@ mod tests {
                 target_y: p0_y,
             },
         );
-        assert_eq!(state.players[0].vel_x, MAX_PLAYER_SPEED);
+        assert_eq!(state.players[0].vel_x, V_GK_SPEED);
     }
 
     // --- dispatch_tick wired into tick_match ---
@@ -2495,21 +2530,20 @@ mod tests {
         assert_eq!(state.players[0].vel_y, Q32::ZERO);
     }
 
-    /// Diagonal movement with both components at MAX_PLAYER_SPEED must be
-    /// normalised so the vector magnitude equals MAX_PLAYER_SPEED, not
-    /// sqrt(2) * MAX_PLAYER_SPEED.
+    /// Diagonal movement with both components beyond the GK speed cap must be
+    /// normalised so the vector magnitude equals V_GK_SPEED, not
+    /// sqrt(2) * V_GK_SPEED. Slot 0 is the home GK.
     ///
-    /// Old behaviour: vel_x = MAX_PLAYER_SPEED, vel_y = MAX_PLAYER_SPEED →
+    /// Old behaviour: vel_x = vel_y = MAX_PLAYER_SPEED = 8 →
     ///   magnitude = sqrt(2) * 8 ≈ 11.31 m/s.
-    /// New behaviour: the vector (8, 8) is scaled so its magnitude = 8 →
-    ///   each component ≈ 8/sqrt(2) ≈ 5.66 m/s.
+    /// New behaviour: the vector (100, 100) is scaled so its magnitude = V_GK_SPEED →
+    ///   each component ≈ V_GK_SPEED/sqrt(2) ≈ 5.09 m/s.
     #[test]
     fn apply_intent_diagonal_at_max_speed_normalised_to_cap() {
         let mut state = MatchState::initial(Seed::from_u64(1));
         let p0_x = state.players[0].pos_x;
         let p0_y = state.players[0].pos_y;
-        // Target 100m away diagonally — both components clamped to MAX_PLAYER_SPEED
-        // under the old per-component logic, producing an over-cap magnitude.
+        // Target 100m away diagonally — both components beyond the speed cap.
         apply_intent(
             &mut state,
             0,
@@ -2520,13 +2554,12 @@ mod tests {
         );
         let vx = state.players[0].vel_x;
         let vy = state.players[0].vel_y;
-        // Magnitude = sqrt(vx^2 + vy^2) must not exceed MAX_PLAYER_SPEED.
-        // Compute in Q32 (cordic sqrt).
+        // Magnitude = sqrt(vx^2 + vy^2) must not exceed V_GK_SPEED (slot 0 = home GK).
         let mag_sq = vx * vx + vy * vy;
         let mag = mag_sq.sqrt();
         assert!(
-            mag <= MAX_PLAYER_SPEED,
-            "diagonal velocity magnitude {mag:?} exceeds MAX_PLAYER_SPEED={MAX_PLAYER_SPEED:?} \
+            mag <= V_GK_SPEED,
+            "diagonal velocity magnitude {mag:?} exceeds V_GK_SPEED={V_GK_SPEED:?} \
              after 2D normalisation (old per-component clamp would give sqrt(2)*MAX)"
         );
         // Both components must be equal (symmetric diagonal) and positive.
@@ -2603,35 +2636,38 @@ mod tests {
         let pos_after_x = pos_before_x + state.players[0].vel_x * dt;
         let pos_after_y = pos_before_y + state.players[0].vel_y * dt;
 
-        // Euclidean displacement.
+        // Euclidean displacement squared (avoid sqrt rounding by comparing squared values).
         let ddx = pos_after_x - pos_before_x;
         let ddy = pos_after_y - pos_before_y;
         let disp_sq = ddx * ddx + ddy * ddy;
-        let disp = disp_sq.sqrt();
 
-        // Must not exceed MAX_PLAYER_SPEED × dt.  The old per-component clamp
-        // would produce ≈ 0.189m here (sqrt(2) × 0.133m), failing this assert.
-        let max_allowed = MAX_PLAYER_SPEED * dt;
+        // Must not exceed (V_GK_SPEED × dt)² (slot 0 = home GK).
+        // The old per-component clamp would produce ≈ 0.0357m² here
+        // ((sqrt(2)×0.133)²), failing this assert.
+        let max_allowed_sq = (V_GK_SPEED * dt) * (V_GK_SPEED * dt);
+        // Add 1 ULP tolerance for cordic sqrt rounding accumulated across two multiplications.
+        let tolerance = Q32::from_raw(1_i64);
         assert!(
-            disp <= max_allowed,
-            "diagonal per-tick displacement {disp:?} exceeds MAX_PLAYER_SPEED×dt \
-             {max_allowed:?}; old per-component clamp would give ~0.189m here"
+            disp_sq <= max_allowed_sq + tolerance,
+            "diagonal per-tick displacement² {disp_sq:?} exceeds (V_GK_SPEED×dt)² \
+             {max_allowed_sq:?}; old per-component clamp would give ~0.0357m² here"
         );
     }
 
-    /// `MAX_PLAYER_SPEED_SQ` must equal `MAX_PLAYER_SPEED * MAX_PLAYER_SPEED`.
+    /// V_PACE_BASE + V_PACE_RANGE must equal 9.0 m/s (the maximum outfield speed).
     ///
-    /// Both constants are hand-written (8<<32 and (8*8)<<32). A future speed
-    /// retune that updates `MAX_PLAYER_SPEED` without updating `MAX_PLAYER_SPEED_SQ`
-    /// would silently produce a wrong cap threshold in `apply_vel_toward_target`.
-    /// This test makes that desync a compile-time assertion failure.
+    /// Both constants are hand-written raw Q32 values. This test catches a
+    /// future retune that updates one without the other, which would silently
+    /// change the effective peak-pace speed cap.
     #[test]
-    fn max_player_speed_sq_matches_speed_squared() {
+    fn v_pace_base_plus_range_equals_nine_ms() {
+        // 9.0 m/s in Q32.32 = 9 << 32
+        let nine_ms = Q32::from_raw(9_i64 << 32);
         assert_eq!(
-            MAX_PLAYER_SPEED_SQ,
-            MAX_PLAYER_SPEED * MAX_PLAYER_SPEED,
-            "MAX_PLAYER_SPEED_SQ must equal MAX_PLAYER_SPEED * MAX_PLAYER_SPEED; \
-             if MAX_PLAYER_SPEED is retuned, update MAX_PLAYER_SPEED_SQ to match"
+            V_PACE_BASE + V_PACE_RANGE,
+            nine_ms,
+            "V_PACE_BASE + V_PACE_RANGE should equal 9.0 m/s (9<<32); \
+             if either constant is retuned, update both to keep base+range=9.0"
         );
     }
 
@@ -2868,6 +2904,99 @@ mod tests {
             goals_scored >= 12,
             "SS3: high-xG shots (≈0.80) should mostly score; got {goals_scored}/20 goals \
              (expected ≥ 12; if this fails the save probability may be miscalibrated)"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Layer 1b: pace-scaled player speed tests
+    // -----------------------------------------------------------------------
+
+    /// At pace=0 the outfield cap equals V_PACE_BASE (6.5 m/s).
+    #[test]
+    fn player_v_max_at_zero_pace_equals_base() {
+        let v = player_v_max(Q32::ZERO);
+        assert_eq!(
+            v, V_PACE_BASE,
+            "player_v_max(0) should equal V_PACE_BASE=6.5 m/s; got {v:?}"
+        );
+    }
+
+    /// At pace=1 the outfield cap equals V_PACE_BASE + V_PACE_RANGE (9.0 m/s).
+    #[test]
+    fn player_v_max_at_full_pace_equals_base_plus_range() {
+        let v = player_v_max(Q32::ONE);
+        // V_PACE_BASE + V_PACE_RANGE = 6.5 + 2.5 = 9.0 m/s
+        let expected = V_PACE_BASE + V_PACE_RANGE;
+        assert_eq!(
+            v, expected,
+            "player_v_max(1) should equal 9.0 m/s; got {v:?}"
+        );
+    }
+
+    /// player_v_max is monotonically non-decreasing with pace.
+    #[test]
+    fn player_v_max_monotone_with_pace() {
+        let v0 = player_v_max(Q32::ZERO);
+        let v_half = player_v_max(Q32::from_raw(1_i64 << 31)); // 0.5 in Q32.32
+        let v1 = player_v_max(Q32::ONE);
+        assert!(
+            v0 <= v_half,
+            "v_max should be non-decreasing: v(0)={v0:?} > v(0.5)={v_half:?}"
+        );
+        assert!(
+            v_half <= v1,
+            "v_max should be non-decreasing: v(0.5)={v_half:?} > v(1)={v1:?}"
+        );
+    }
+
+    /// GK (slot 0) uses V_GK_SPEED; outfield slot with pace=0 uses V_PACE_BASE.
+    /// Verifies apply_intent branches correctly on GK vs outfield.
+    #[test]
+    fn apply_intent_gk_uses_gk_speed_outfield_uses_pace_speed() {
+        let mut state = MatchState::initial(Seed::from_u64(1));
+
+        // GK slot 0: drive 100m in +X, should cap at V_GK_SPEED.
+        let gk_x = state.players[0].pos_x;
+        let gk_y = state.players[0].pos_y;
+        apply_intent(
+            &mut state,
+            0,
+            PlayerIntent::MoveToPosition {
+                target_x: gk_x + Q32::from_int(100),
+                target_y: gk_y,
+            },
+        );
+        assert_eq!(
+            state.players[0].vel_x, V_GK_SPEED,
+            "GK (slot 0) capped velocity should equal V_GK_SPEED={V_GK_SPEED:?}; \
+             got {:?}",
+            state.players[0].vel_x
+        );
+
+        // Outfield slot 1: pace = mid-range baseline (0.5 in Q32), so
+        // v_max = 6.5 + 0.5 × 2.5 = 7.75 m/s. Drive 100m in +X.
+        // Initial state has mid_range_baseline pace ≈ 0.5.
+        let p1_x = state.players[1].pos_x;
+        let p1_y = state.players[1].pos_y;
+        let expected_v = player_v_max(state.players[1].attributes.physical.pace);
+        apply_intent(
+            &mut state,
+            1,
+            PlayerIntent::MoveToPosition {
+                target_x: p1_x + Q32::from_int(100),
+                target_y: p1_y,
+            },
+        );
+        assert_eq!(
+            state.players[1].vel_x, expected_v,
+            "outfield slot 1 capped velocity should equal player_v_max(pace)={expected_v:?}; \
+             got {:?}",
+            state.players[1].vel_x
+        );
+        // Outfield v_max must differ from GK cap.
+        assert_ne!(
+            expected_v, V_GK_SPEED,
+            "outfield pace-scaled cap should differ from GK fixed cap"
         );
     }
 }

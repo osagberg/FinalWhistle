@@ -292,11 +292,13 @@ fn signature_load_does_not_drift_canonical_hash() {
     // FUN-TS3b pre-commit fixes (Fix A/B/C): HASH UNCHANGED — all three fixes are no-ops at baseline mid-attrs.
     // Layer 1a dynamic positioning (phase_tx sidecar): 89dca182a86d6da45bbd913dfa16f88647f296668128c95f336b4a33cc84ebd4
     // TeamShape::phase_tx shifts zonal_slot targets each tick; positions diverge from tick 1 onward.
+    // Layer 1b pace-scaled speed: 590e4f5fb7bf3cc09d1e07b6aebfeba290f60cf37cc0e13273b434f8f00982c8
+    // GK slots use V_GK_SPEED=7.2 m/s, outfield player_v_max(pace)=6.5+pace*2.5 m/s.
     // Authorized 2026-06-06 (match-fidelity campaign, dynamic-positioning Layer 1).
     const EXPECTED: [u8; 32] = [
-        0x89, 0xdc, 0xa1, 0x82, 0xa8, 0x6d, 0x6d, 0xa4, 0x5b, 0xbd, 0x91, 0x3d, 0xfa, 0x16, 0xf8,
-        0x86, 0x47, 0xf2, 0x96, 0x66, 0x81, 0x28, 0xc9, 0x5f, 0x33, 0x6b, 0x4a, 0x33, 0xcc, 0x84,
-        0xeb, 0xd4,
+        0x59, 0x0e, 0x4f, 0x5f, 0xb7, 0xbf, 0x3c, 0xc0, 0x9d, 0x1e, 0x07, 0xb6, 0xae, 0xbf, 0xeb,
+        0xa2, 0x90, 0xf6, 0x0c, 0xf3, 0x7c, 0xc0, 0xe1, 0x32, 0x73, 0xb4, 0x34, 0xf8, 0xf0, 0x09,
+        0x82, 0xc8,
     ];
 
     // Load the content store (exercises the new signature loader).
@@ -319,8 +321,8 @@ fn signature_load_does_not_drift_canonical_hash() {
     assert_eq!(
         actual, EXPECTED,
         "\nCanonical-state hash drifted unexpectedly.\n\
-         Layer-1a rebaselined to 89dca182a86d6da45bbd913dfa16f88647f296668128c95f336b4a33cc84ebd4\n\
-         (TeamShape::phase_tx sidecar; zonal_slot targets shift each tick; ADR-0012 trigger #3).\n\
+         Layer-1b rebaselined to 590e4f5fb7bf3cc09d1e07b6aebfeba290f60cf37cc0e13273b434f8f00982c8\n\
+         (pace-scaled player speed: GK V_GK_SPEED=7.2m/s, outfield player_v_max(pace); ADR-0012 trigger #3).\n\
          If this drifts again, it must be an authorized rebaseline — ADR-0012 trigger #1 or #3.\n\
          Actual:   {:02x?}",
         actual

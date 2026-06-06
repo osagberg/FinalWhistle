@@ -351,8 +351,17 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   M1=2.75 (in [2.0, 3.2] band). Canonical hash drift confirmed NON-NO-OP:
 ///   phase_tx affects player movement targets every tick. Authorized by owner
 ///   2026-06-06 (match-fidelity campaign, dynamic-positioning Layer 1).
+/// - 2026-06-06 (Layer 1b: pace-scaled player speed) —
+///   **re-baselined to `590e4f5f…82c8`** per ADR-0012 trigger #3 (sim behavior
+///   change with documented intent). `apply_intent` velocity block now routes
+///   GK slots (0/11) through `V_GK_SPEED` = 7.2 m/s (fixed) and outfield slots
+///   through `player_v_max(pace) = 6.5 + pace × 2.5 m/s`. `apply_vel_toward_target`
+///   signature changed to accept `v_max: Q32` so the per-player cap propagates.
+///   Mid-range baseline pace (0.5) → outfield v_max = 7.75 m/s (very close to
+///   the prior flat 8 m/s; expected minimal gameplay change). Authorized by owner
+///   2026-06-06 (match-fidelity campaign, dynamic-positioning Layer 1b).
 const PINNED_60_TICK: [u8; 32] =
-    hex!("89dca182a86d6da45bbd913dfa16f88647f296668128c95f336b4a33cc84ebd4");
+    hex!("590e4f5fb7bf3cc09d1e07b6aebfeba290f60cf37cc0e13273b434f8f00982c8");
 
 /// Read `env_var` as the number of fresh runs for an intra-process determinism
 /// test, falling back to `default` when the env var is absent or unparseable.
@@ -906,8 +915,15 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   content-driven 600-tick run, player movement targets change each tick as
 ///   phase_tx shifts the block → canonical bytes change. Authorized by owner
 ///   2026-06-06 (match-fidelity campaign, dynamic-positioning Layer 1a).
+/// - 2026-06-06 (Layer 1b: pace-scaled player speed) —
+///   **re-baselined to `ae56a0b4…c086`** per ADR-0012 trigger #3 (sim behavior
+///   change). Same pace-scaled speed change as PINNED_60_TICK above. Content-driven
+///   600-tick run has players with real pace attributes (content baseline ≈ 0.5),
+///   so v_max = 7.75 m/s vs prior flat 8 m/s → slightly tighter per-tick
+///   displacement → canonical bytes change across all 22 players every tick.
+///   Authorized by owner 2026-06-06 (match-fidelity campaign, dynamic-positioning Layer 1b).
 const PINNED_600_TICK: [u8; 32] =
-    hex!("f11942b17612606daf71aeb415e7260dd532b5904db2e037c375ac3bd8587f8a");
+    hex!("ae56a0b4ca2f326d6ae7b5a53e48be9a8ec10d34de620e907ae55a8ee53ac086");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

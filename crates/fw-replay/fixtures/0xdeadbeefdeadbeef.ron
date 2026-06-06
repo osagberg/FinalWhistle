@@ -218,10 +218,10 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:89dca182a86d6da45bbd913dfa16f88647f296668128c95f336b4a33cc84ebd4",
+    expected_hash: "blake3:590e4f5fb7bf3cc09d1e07b6aebfeba290f60cf37cc0e13273b434f8f00982c8",
     metadata: (
-        description: "Layer 1a dynamic positioning: TeamShape gained phase_tx (sidecar), compute() derives it from ball_x+possession+tactic_state, zonal_slot() applies effective_line_x = line_x ± phase_tx. Conservative values MidBlock ±7/5m, HighPress ±11/7m. M1=2.75 on 8-seed sweep (in [2.0,3.2]). Authorized 2026-06-06 match-fidelity campaign.",
+        description: "Layer 1b pace-scaled speed: GK slots use V_GK_SPEED=7.2 m/s, outfield use player_v_max(pace)=6.5+pace*2.5 m/s. apply_vel_toward_target now accepts per-player v_max. At mid-range pace 0.5: outfield cap=7.75 m/s (vs prior flat 8). Authorized 2026-06-06 match-fidelity campaign.",
         generated_at: "2026-06-06",
-        notes: "Hash drift confirmed non-no-op: phase_tx changes player movement targets every tick. 60-tick smoke uses bare init (no content), both teams start with possession=None (is_defending=true both teams), ball at centre — phase_tx fires with conservative defending retreats.",
+        notes: "Hash drift confirmed non-no-op: per-player v_max changes displacement on every tick. Prior 89dc…ebd4 was Layer 1a phase_tx. Prior a5dd…0d68 was FUN-TS3b/lane-openness integrity fix.",
     ),
 )

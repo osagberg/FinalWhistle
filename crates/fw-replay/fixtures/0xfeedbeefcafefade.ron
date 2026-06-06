@@ -143,10 +143,10 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:f11942b17612606daf71aeb415e7260dd532b5904db2e037c375ac3bd8587f8a",
+    expected_hash: "blake3:ae56a0b4ca2f326d6ae7b5a53e48be9a8ec10d34de620e907ae55a8ee53ac086",
     metadata: (
-        description: "Layer 1a dynamic positioning: phase_tx sidecar on TeamShape, compute() + zonal_slot() wired. Conservative MidBlock ±7/5m, HighPress ±11/7m, CounterAttack ±9/5m, LowBlock ±4/3m. M1=2.75 on 8-seed sweep (in [2.0,3.2]). Authorized 2026-06-06 match-fidelity campaign.",
+        description: "Layer 1b pace-scaled speed: GK slots V_GK_SPEED=7.2 m/s, outfield player_v_max(pace)=6.5+pace*2.5 m/s. Content-driven 600-tick run with real pace attrs (baseline ~0.5) → outfield cap=7.75 m/s. Authorized 2026-06-06 match-fidelity campaign.",
         generated_at: "2026-06-06",
-        notes: "Hash drift confirmed non-no-op: phase_tx changes movement targets every tick over the content-driven 600-tick run. Prior a5dd…0d68 was FUN-TS3b/lane-openness integrity fix.",
+        notes: "Hash drift confirmed non-no-op: per-player v_max changes every tick across all 22 players. Prior f119…87f8 was Layer 1a phase_tx. Prior a5dd…0d68 was FUN-TS3b/lane-openness integrity fix.",
     ),
 )
