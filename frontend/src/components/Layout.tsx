@@ -27,7 +27,10 @@ const NAV: readonly NavItem[] = [
   { to: "/league", label: "League" },
   { to: "/career", label: "Career" },
   { to: "/stats", label: "Stats" },
-  { to: "/match", label: "Match" },
+  // "Match" opens the clean paced live viewer. /match (the old debug viewer
+  // with seed/ticks inputs) stays registered in App.tsx as a dev-only page but
+  // is intentionally absent from the primary nav.
+  { to: "/live-match", label: "Match" },
   { to: "/settings", label: "Settings" },
 ] as const;
 

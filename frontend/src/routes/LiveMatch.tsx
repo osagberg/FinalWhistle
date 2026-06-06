@@ -11,13 +11,20 @@
  * next incident.
  *
  * Architecture:
- *   - On mount: two paths:
+ *   - On mount: three paths, in priority order:
  *       1. FIXTURE path (M2b): location.state has { homeClubId, awayClubId }
  *          (numbers) → calls startLiveMatchForFixture({ homeClubId, awayClubId }).
  *          This produces the same deterministic MatchState as the AI-sim path in
- *          advance_week, so the watched result == the AI-sim result.
- *       2. SEED/DEV path (fallback): no fixture in state → calls
- *          startLiveMatch(seedHex) with state.seedHex or a random hex.
+ *          advance_week, so the watched result == the AI-sim result. Supplied by
+ *          Home's "Watch this match" button.
+ *       2. CAREER-NEXT path: no fixture in state but a career is active (the
+ *          sidebar "Match" link lands here) → fetch the managed club's fixtures,
+ *          derive the next unplayed (home, away) pair via the same helper Home
+ *          uses, and call startLiveMatchForFixture for it. The sidebar always
+ *          opens the next real fixture, not a throwaway demo.
+ *       3. SEED/DEV path (fallback): no fixture in state AND no active career /
+ *          no unplayed fixture → calls startLiveMatch(seedHex) with state.seedHex
+ *          or a random hex. This is the dev direct-entry demo.
  *   - Step loop (setInterval): calls stepLiveMatch(handle, ticksPerCall)
  *     at the configured pace. Each step result appends to the filtered event
  *     feed and pushes result.frame onto the growing frames array.
@@ -101,6 +108,9 @@ import {
   finishLiveMatch,
   applyMatchCommand,
 } from "~/lib/api/live_match";
+import { getFixtures } from "~/lib/api/season";
+import { deriveNextFixtureClubIds } from "~/lib/fixtures";
+import { isCareerActive, selectedClubId } from "~/lib/state";
 import { isKeyMomentKind } from "~/lib/match-events";
 import type {
   FinalMatchResult,
@@ -694,10 +704,13 @@ function TouchlinePanel(props: TouchlinePanelProps): JSX.Element {
  * Location state shapes accepted by this route.
  *
  * FIXTURE path (M2b): { homeClubId: number; awayClubId: number } — navigating
- *   from the Home hub or Fixtures screen. Calls startLiveMatchForFixture().
+ *   from the Home hub's "Watch this match" button. Calls
+ *   startLiveMatchForFixture().
  *
- * SEED/DEV path (fallback): { seedHex: string } or no state — dev direct-entry
- *   or the old Match route. Calls startLiveMatch(seedHex).
+ * CAREER-NEXT / SEED-DEV path: { seedHex: string } or no state — the sidebar
+ *   "Match" link, dev direct-entry, or the old Match route. When a career is
+ *   active we resolve the managed club's next fixture; otherwise we fall back to
+ *   startLiveMatch(seedHex).
  */
 type LiveMatchState =
   | { homeClubId: number; awayClubId: number }
@@ -916,6 +929,28 @@ export default function LiveMatch(): JSX.Element {
   // Mount: start the session + kick off the loop
   // ---------------------------------------------------------------------------
 
+  /**
+   * Resolve the managed club's next unplayed fixture as a (home, away) pair.
+   *
+   * Used by the CAREER-NEXT entry path (sidebar "Match" link with no router
+   * state). Reuses the same `getFixtures` + `deriveNextFixtureClubIds` logic the
+   * Home hub uses, so the sidebar opens exactly the fixture Home would watch.
+   * Returns null when there is no active career, no managed club, or no unplayed
+   * fixture remaining — the caller then falls back to the SEED/DEV demo.
+   */
+  async function resolveCareerNextFixture(): Promise<{
+    homeClubId: number;
+    awayClubId: number;
+  } | null> {
+    if (!isCareerActive()) return null;
+    const id = selectedClubId();
+    if (id === null) return null;
+    const numericId = parseInt(id, 10);
+    if (isNaN(numericId)) return null;
+    const fixtures = await getFixtures(numericId);
+    return deriveNextFixtureClubIds(fixtures, id);
+  }
+
   onMount(() => {
     void (async () => {
       try {
@@ -932,8 +967,16 @@ export default function LiveMatch(): JSX.Element {
             awayClubId: locationState.awayClubId,
           });
         } else {
-          // SEED/DEV path (fallback): start from a seed — dev direct-entry.
-          h = await startLiveMatch(initialSeed);
+          // CAREER-NEXT path: the sidebar "Match" link lands here with no
+          // router state. When a career is active, play the managed club's next
+          // unplayed fixture; otherwise drop to the SEED/DEV demo below.
+          const careerFixture = await resolveCareerNextFixture();
+          if (careerFixture) {
+            h = await startLiveMatchForFixture(careerFixture);
+          } else {
+            // SEED/DEV path (fallback): start from a seed — dev direct-entry.
+            h = await startLiveMatch(initialSeed);
+          }
         }
         setHandle(h);
         setLoading(false);

@@ -19,29 +19,17 @@ import {
   selectedClubId,
   seasonNumber,
 } from "~/lib/state";
+import {
+  deriveNextFixtureClubIds,
+  findNextUnplayedFixture,
+  type FixtureClubIds,
+} from "~/lib/fixtures";
 import type {
   StandingsRow,
   FixtureWithResult,
   PressItemDto,
   PressTopicDto,
 } from "~/lib/types";
-
-// ---------------------------------------------------------------------------
-// Fixture → (homeClubId, awayClubId) derivation (M2b)
-//
-// getFixtures() returns fixtures RELATIVE to the managed club. For an unplayed
-// fixture, we need to derive the absolute (home, away) club ids so that
-// startLiveMatchForFixture can construct the correct MatchState.
-//
-// Rule:
-//   isHome === true  → managed club is at home: home = managedClubId, away = opponentClubId
-//   isHome === false → managed club is away:    home = opponentClubId, away = managedClubId
-// ---------------------------------------------------------------------------
-
-interface FixtureClubIds {
-  homeClubId: number;
-  awayClubId: number;
-}
 
 /**
  * Home route — two modes:
@@ -330,34 +318,20 @@ function ActiveCareerHub(): JSX.Element {
   });
 
   /** Next unplayed fixture for the managed club. */
-  const nextFixture = createMemo<FixtureWithResult | null>(() => {
-    const all = fixtures();
-    if (!all) return null;
-    return all.find((f) => !f.played) ?? null;
-  });
+  const nextFixture = createMemo<FixtureWithResult | null>(() =>
+    findNextUnplayedFixture(fixtures()),
+  );
 
   /**
-   * Derives the absolute (homeClubId, awayClubId) pair for the next unplayed
-   * fixture so we can pass it directly to startLiveMatchForFixture.
-   *
-   * getFixtures() returns fixtures relative to the managed club:
-   *   isHome === true  → home = managedClubId, away = opponentClubId
-   *   isHome === false → home = opponentClubId, away = managedClubId
-   *
-   * Returns null when there is no unplayed fixture or the managed club id
-   * cannot be parsed.
+   * Absolute (homeClubId, awayClubId) pair for the next unplayed fixture,
+   * ready to pass directly to startLiveMatchForFixture. Derived via the shared
+   * `deriveNextFixtureClubIds` helper so the LiveMatch sidebar auto-start
+   * resolves the exact same fixture. Returns null when there is no unplayed
+   * fixture or the managed club id cannot be parsed.
    */
-  const watchFixtureIds = createMemo<FixtureClubIds | null>(() => {
-    const nf = nextFixture();
-    const id = clubId();
-    if (!nf || id === null) return null;
-    const managedClubId = parseInt(id, 10);
-    if (isNaN(managedClubId)) return null;
-    if (nf.isHome) {
-      return { homeClubId: managedClubId, awayClubId: nf.opponentClubId };
-    }
-    return { homeClubId: nf.opponentClubId, awayClubId: managedClubId };
-  });
+  const watchFixtureIds = createMemo<FixtureClubIds | null>(() =>
+    deriveNextFixtureClubIds(fixtures(), clubId()),
+  );
 
   function handleWatchMatch(): void {
     const ids = watchFixtureIds();
