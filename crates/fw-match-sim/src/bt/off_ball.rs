@@ -498,6 +498,34 @@ mod tests {
         assert!(u <= Q32::ONE);
     }
 
+    /// Regression (bias raw<=1 over-strict assert): a maxed-attribute player's
+    /// off-ball utilities legitimately produce a pre-bias `raw > 1.0`
+    /// (`utility_hold_formation` → 1.1; `utility_run_off_ball` → 1.21). Before
+    /// the fix the `apply_*_bias` helpers asserted `raw <= 1` and PANICKED the
+    /// match step in release for these high-attribute (procgen career) players.
+    /// The biased utility must (a) be produced without panic and (b) exceed
+    /// `Q32::ONE`, proving the elite-skew survives the bias stage.
+    #[test]
+    fn maxed_player_off_ball_utility_exceeds_one_without_panic() {
+        let mut p = mid_player(6);
+        p.attributes = fw_core::PlayerAttributes::max_baseline();
+        let s = test_shape();
+
+        // hold_formation: maxed raw = 1.1 → would panic on the old assert.
+        let (_, hf) = utility_hold_formation(&p, 6, &s, 0);
+        assert!(
+            hf > Q32::ONE,
+            "maxed hold_formation utility should exceed 1.0 (elite skew); got {hf:?}"
+        );
+
+        // run_off_ball: maxed raw = 1.21 → would panic on the old assert.
+        let (_, ro) = utility_run_off_ball(&p, 6, &s, 0);
+        assert!(
+            ro > Q32::ONE,
+            "maxed run_off_ball utility should exceed 1.0 (elite skew); got {ro:?}"
+        );
+    }
+
     #[test]
     fn press_utility_in_unit_range() {
         let p = mid_player(6);
