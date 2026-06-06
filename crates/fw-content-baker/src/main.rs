@@ -17,7 +17,6 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 mod prompts;
-mod schemas;
 
 // Re-use the library surface (exposed via lib.rs) so the bin and integration
 // tests share the same module tree.

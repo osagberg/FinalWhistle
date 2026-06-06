@@ -81,26 +81,6 @@ pub use signature::{
 };
 pub use team::TeamTemplate;
 
-use thiserror::Error;
-
-/// Errors the content loader can raise. Surfaced via `fw-tauri` to the
-/// frontend as structured user-facing strings.
-#[derive(Debug, Error)]
-pub enum ContentError {
-    #[error("RON parse failure in {path}: {source}")]
-    Parse {
-        path: String,
-        #[source]
-        source: ron::error::SpannedError,
-    },
-
-    #[error("schema version {found} not supported; expected ≤ {max}")]
-    UnsupportedSchema { found: u32, max: u32 },
-
-    #[error("content-pack-qualified ID {0:?} malformed; expected `<pack>:<kind>_<index>`")]
-    MalformedId(String),
-}
-
 // -------------------------------------------------------------------------
 // Smoke
 // -------------------------------------------------------------------------
