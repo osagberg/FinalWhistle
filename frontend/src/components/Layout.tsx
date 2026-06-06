@@ -27,10 +27,13 @@ const NAV: readonly NavItem[] = [
   { to: "/league", label: "League" },
   { to: "/career", label: "Career" },
   { to: "/stats", label: "Stats" },
-  // "Match" opens the clean paced live viewer. /match (the old debug viewer
-  // with seed/ticks inputs) stays registered in App.tsx as a dev-only page but
-  // is intentionally absent from the primary nav.
-  { to: "/live-match", label: "Match" },
+  // "Match" routes to /match (the stable viewer). REVERTED 2026-06-06 from
+  // /live-match: the clean paced viewer froze the bundled app on entry — a
+  // production-only hang not reproducible in the dev harness (which renders only
+  // the board component, not the full route against the live Tauri backend) and
+  // not inspectable while the screenshot/console tools are down. Re-route to
+  // /live-match once the freeze is diagnosed with real observability.
+  { to: "/match", label: "Match" },
   { to: "/settings", label: "Settings" },
 ] as const;
 
