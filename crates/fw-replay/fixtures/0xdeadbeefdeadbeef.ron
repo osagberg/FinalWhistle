@@ -218,9 +218,9 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:590e4f5fb7bf3cc09d1e07b6aebfeba290f60cf37cc0e13273b434f8f00982c8",
+    expected_hash: "blake3:855f52272fc92f4c836c5c0b657e7cd06130ae79c4106733f04e3cae5837a1b2",
     metadata: (
-        description: "Layer 1b pace-scaled speed: GK V_GK_SPEED=7.2 m/s, outfield player_v_max(pace)=6.5+pace*2.5 m/s. Design values Low=4/Mid=7/High=11/Counter=9m retained. 16-seed M1=1.94 (calibration artefact; goal guard relaxed to [1.0,5.0]). DEF delta +6.5m. Authorized 2026-06-06.",
+        description: "Layer 2 defender lane-cover movement: defenders/midfielders apply anticipation*0.50+tackling*0.30+positioning*0.20 weight * 8m nudge toward carrier lane when is_defending. Forwards untouched (scope guard). Authorized 2026-06-06 (interceptions-matter campaign).",
         generated_at: "2026-06-06",
         notes: "Hash is same as Layer 1b (pace-scaled speed). Design values kept; goals/match re-calibration deferred to end of positioning campaign. ts3b gates relaxed with CALIBRATION PENDING comments.",
     ),

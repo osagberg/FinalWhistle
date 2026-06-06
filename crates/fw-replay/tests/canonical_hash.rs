@@ -369,8 +369,17 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   LayOff ceiling 8%→10% (measured 8.4%), Short floor 75%→72% (measured 75.7%).
 ///   Goal guard relaxed to [1.0, 5.0] per owner decision 2026-06-06.
 ///   DEF translation delta: +6.5m (attacking -10.8m vs defending -17.3m; 16-seed settled windows).
+/// - 2026-06-06 (Layer 2: defender lane-cover movement — interceptions-matter commit 1) —
+///   **re-baselined to `855f5227…a1b2`** per ADR-0012 trigger #3 (sim behavior change with
+///   documented intent). Defenders and midfielders in defensive states now apply a
+///   lane_cover_weight-scaled nudge (up to 8m) toward the carrier's passing lane.
+///   `enforce_hold_with_lane_cover` added to bt/off_ball.rs; called from subtree_library.rs
+///   for Defender/Midfielder defensive arms. Forwards untouched (scope guard).
+///   lane_cover_weight = anticipation×0.50 + tackling×0.30 + positioning×0.20.
+///   Hash drift confirmed NON-NO-OP: defender positions change every tick when carrier is present.
+///   Canonical re-pin authorized by owner 2026-06-06 (match-fidelity campaign, interceptions-matter).
 const PINNED_60_TICK: [u8; 32] =
-    hex!("590e4f5fb7bf3cc09d1e07b6aebfeba290f60cf37cc0e13273b434f8f00982c8");
+    hex!("855f52272fc92f4c836c5c0b657e7cd06130ae79c4106733f04e3cae5837a1b2");
 
 /// Read `env_var` as the number of fresh runs for an intra-process determinism
 /// test, falling back to `default` when the env var is absent or unparseable.
@@ -935,8 +944,12 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   **hash unchanged at `ae56a0b4…c086`** — same design-values decision as PINNED_60_TICK.
 ///   Content-driven 600-tick run with the retained Low=4/Mid=7/High=11/Counter=9m values.
 ///   Goal-count guard relaxed to [1.0, 5.0]; calibration of the shot model deferred.
+/// - 2026-06-06 (Layer 2: defender lane-cover movement — interceptions-matter commit 1) —
+///   **re-baselined to `6a488289…3a943`** per ADR-0012 trigger #3. Same defender
+///   lane-cover change as PINNED_60_TICK above, applied to content-driven 600-tick run.
+///   Canonical re-pin authorized by owner 2026-06-06 (match-fidelity campaign, interceptions-matter).
 const PINNED_600_TICK: [u8; 32] =
-    hex!("ae56a0b4ca2f326d6ae7b5a53e48be9a8ec10d34de620e907ae55a8ee53ac086");
+    hex!("6a488289213e8c05103a8d8e7ad334e26dc6b887bc6ffa823942ffa5b4d3a943");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

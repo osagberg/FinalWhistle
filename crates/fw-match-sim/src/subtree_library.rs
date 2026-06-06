@@ -60,8 +60,8 @@ use fw_core::Q32;
 use rand_chacha::ChaCha8Rng;
 
 use crate::bt::off_ball::{
-    enforce_hold_zonal, utility_hold_formation, utility_mark_player, utility_press,
-    utility_run_off_ball, utility_track_back,
+    enforce_hold_with_lane_cover, enforce_hold_zonal, utility_hold_formation, utility_mark_player,
+    utility_press, utility_run_off_ball, utility_track_back,
 };
 use crate::bt::on_ball::{
     utility_cross, utility_dribble, utility_hold_ball, utility_lay_off, utility_pass_long,
@@ -256,8 +256,24 @@ pub fn select_outfield_intent(
                         // Hold zonal position — maintain the defensive block line,
                         // cut passing lanes by staying in position rather than
                         // chasing the carrier alongside the Primary presser.
+                        // Layer 2: apply lane-cover offset for defenders/midfielders.
+                        // Forwards in this arm are left at plain zonal (scope guard).
+                        let hold_intent = if matches!(
+                            role_state,
+                            PlayerRoleState::Defender(_) | PlayerRoleState::Midfielder(_)
+                        ) {
+                            enforce_hold_with_lane_cover(
+                                player,
+                                roster_slot,
+                                shape,
+                                team_idx,
+                                carrier_pos,
+                            )
+                        } else {
+                            enforce_hold_zonal(roster_slot, shape, team_idx)
+                        };
                         vec![
-                            enforce_hold_zonal(roster_slot, shape, team_idx),
+                            hold_intent,
                             utility_track_back(player, roster_slot, shape, team_idx),
                         ]
                     }
@@ -283,10 +299,15 @@ pub fn select_outfield_intent(
                 // while attribute-rich pressers can contest the ball. The dominant
                 // enforce_hold_zonal (score Q32::ONE) out-competes press (≤0.15 typical)
                 // in softmax at DEFAULT_TEMPERATURE, so holding is the common outcome.
-                vec![
-                    enforce_hold_zonal(roster_slot, shape, team_idx),
-                    utility_press(player, roster_slot, carrier_pos),
-                ]
+                //
+                // Layer 2: midfielders apply lane-cover offset. Forwards left at plain
+                // zonal (scope guard: forward positioning unchanged in this task).
+                let hold_intent = if matches!(role_state, PlayerRoleState::Midfielder(_)) {
+                    enforce_hold_with_lane_cover(player, roster_slot, shape, team_idx, carrier_pos)
+                } else {
+                    enforce_hold_zonal(roster_slot, shape, team_idx)
+                };
+                vec![hold_intent, utility_press(player, roster_slot, carrier_pos)]
             } else {
                 // In possession: full off-ball competition.
                 vec![
@@ -300,24 +321,50 @@ pub fn select_outfield_intent(
         // Defensive / recovery / set-piece holding states.
         //
         // FUN-TS1 enforcement: when this team is DEFENDING (shape.is_defending),
-        // use enforce_hold_zonal as the SOLE candidate — score = Q32::ONE so the
-        // single-candidate softmax = deterministic argmax.
+        // use enforce_hold_zonal (or its lane-cover variant) as the SOLE candidate
+        // — score = Q32::ONE so the single-candidate softmax = deterministic argmax.
         // When this team has POSSESSION, fall back to the pre-FUN-TS1 multi-utility
         // softmax so players with the ball and their teammates can use normal
         // track_back / hold_formation / mark_player competing utilities (builds up play).
         // This avoids the "both teams rigidly hold their defensive zone while one of
         // them has possession" failure mode that produced 18+ goal matches.
+        //
+        // Layer 2 (dynamic-positioning §2.1): defenders and midfielders apply a
+        // lane-cover offset toward the carrier's passing lane when is_defending.
+        // Forwards in recovery use the plain enforce_hold_zonal (scope guard: do not
+        // touch forward positioning).
         PlayerRoleState::Defender(DefenderState::Defending)
         | PlayerRoleState::Defender(DefenderState::Recovering)
         | PlayerRoleState::Defender(DefenderState::Tracking)
         | PlayerRoleState::Defender(DefenderState::SetPieceWaiting)
         | PlayerRoleState::Midfielder(MidfielderState::Defending)
         | PlayerRoleState::Midfielder(MidfielderState::Recovering)
-        | PlayerRoleState::Midfielder(MidfielderState::SetPieceWaiting)
-        | PlayerRoleState::Forward(ForwardState::Recovering)
+        | PlayerRoleState::Midfielder(MidfielderState::SetPieceWaiting) => {
+            if shape.is_defending {
+                // Layer 2: defenders and midfielders step toward the carrier's lane.
+                vec![enforce_hold_with_lane_cover(
+                    player,
+                    roster_slot,
+                    shape,
+                    team_idx,
+                    carrier_pos,
+                )]
+            } else {
+                // In possession: normal multi-utility softmax (support the attack).
+                vec![
+                    utility_track_back(player, roster_slot, shape, team_idx),
+                    utility_hold_formation(player, roster_slot, shape, team_idx),
+                    utility_mark_player(player, roster_slot, carrier_pos),
+                ]
+            }
+        }
+
+        // Forwards in recovery / set-piece waiting: use plain zonal hold (scope guard:
+        // forward positioning is NOT changed in this task).
+        PlayerRoleState::Forward(ForwardState::Recovering)
         | PlayerRoleState::Forward(ForwardState::SetPieceWaiting) => {
             if shape.is_defending {
-                // Out of possession: enforce zonal block hold.
+                // Out of possession: enforce zonal block hold (no lane-cover for forwards).
                 vec![enforce_hold_zonal(roster_slot, shape, team_idx)]
             } else {
                 // In possession: normal multi-utility softmax (support the attack).
@@ -329,10 +376,28 @@ pub fn select_outfield_intent(
             }
         }
 
-        // Supporting / HoldingUp — same possession-aware enforcement.
+        // Supporting / HoldingUp — lane-cover for defenders/midfielders, plain for forwards.
         PlayerRoleState::Defender(DefenderState::Supporting)
-        | PlayerRoleState::Midfielder(MidfielderState::Supporting)
-        | PlayerRoleState::Forward(ForwardState::HoldingUp) => {
+        | PlayerRoleState::Midfielder(MidfielderState::Supporting) => {
+            if shape.is_defending {
+                vec![enforce_hold_with_lane_cover(
+                    player,
+                    roster_slot,
+                    shape,
+                    team_idx,
+                    carrier_pos,
+                )]
+            } else {
+                vec![
+                    utility_hold_formation(player, roster_slot, shape, team_idx),
+                    utility_run_off_ball(player, roster_slot, shape, team_idx),
+                    utility_mark_player(player, roster_slot, carrier_pos),
+                ]
+            }
+        }
+
+        // Forward HoldingUp — scope guard: no lane-cover for forwards.
+        PlayerRoleState::Forward(ForwardState::HoldingUp) => {
             if shape.is_defending {
                 vec![enforce_hold_zonal(roster_slot, shape, team_idx)]
             } else {

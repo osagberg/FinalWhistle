@@ -39,6 +39,28 @@ use crate::subtree_library::formation_position;
 use crate::team_shape::{TeamShape, zonal_slot};
 
 // ---------------------------------------------------------------------------
+// Layer 2 — defender lane-cover constants
+// SOFT Phase-2 tuning values per docs/design/dynamic-positioning-model-2026-06-06.md §2.1.
+// ---------------------------------------------------------------------------
+
+/// Maximum defender step-up toward the carrier's forward passing lane. SOFT.
+/// A high-reading defender (weight≈0.9) steps up ~7.2m; a low one (~0.3) ~2.4m.
+/// Q32 raw = round(8.0 × 2^32) = 34_359_738_368.
+const LANE_COVER_MAX_DEF: Q32 = Q32::from_raw(34_359_738_368_i64); // 8.0m SOFT
+
+/// Attribute weights for the lane-cover weight formula (sum = 1.0):
+///   lane_cover_weight = anticipation × 0.50 + tackling × 0.30 + positioning × 0.20
+/// (`technical.tackling` is used as the proxy for the design doc's `technical.interception`
+/// since that field does not exist in the current attribute schema.)
+///
+/// Weight on anticipation (0.50). Q32 raw = round(0.50 × 2^32) = 2_147_483_648.
+const LANE_W_ANTICIPATION: Q32 = Q32::from_raw(2_147_483_648_i64); // 0.50
+/// Weight on tackling (interception proxy, 0.30). Q32 raw = round(0.30 × 2^32) = 1_288_490_189.
+const LANE_W_TACKLING: Q32 = Q32::from_raw(1_288_490_189_i64); // 0.30
+/// Weight on positioning (0.20). Q32 raw = round(0.20 × 2^32) = 858_993_459.
+const LANE_W_POSITIONING: Q32 = Q32::from_raw(858_993_459_i64); // 0.20
+
+// ---------------------------------------------------------------------------
 // Site attribute lists
 // ---------------------------------------------------------------------------
 
@@ -297,6 +319,87 @@ pub fn enforce_hold_zonal(
     team_idx: usize,
 ) -> (PlayerIntent, Q32) {
     let (target_x, target_y) = zonal_slot(roster_slot, shape, team_idx);
+    (PlayerIntent::HoldFormation { target_x, target_y }, Q32::ONE)
+}
+
+/// Compute the x-axis lane-cover offset for a defending player (Layer 2, §2.1).
+///
+/// The offset nudges the defender's zonal target toward the carrier's position
+/// by up to `LANE_COVER_MAX_DEF = 8m`, scaled by:
+///   `lane_cover_weight = anticipation × 0.50 + tackling × 0.30 + positioning × 0.20`
+///
+/// The offset is clamped so it never moves the defender PAST the carrier's x (no
+/// overrun). For team_idx=0 (home, attacks +x), "toward carrier" means +x when
+/// the carrier is ahead. For team_idx=1 (away, attacks -x), "toward carrier" means -x.
+///
+/// Returns a signed Q32 x-offset in metres. Positive = toward +x end.
+///
+/// Determinism: Q32 only, no RNG, pure function of canonical inputs.
+#[must_use]
+pub fn lane_cover_offset_x(
+    player: &PlayerState,
+    base_target_x: Q32,
+    carrier_pos: (Q32, Q32),
+    team_idx: usize,
+) -> Q32 {
+    let a = &player.attributes;
+    let lane_cover_weight = a.mental.anticipation * LANE_W_ANTICIPATION
+        + a.technical.tackling * LANE_W_TACKLING
+        + a.mental.positioning * LANE_W_POSITIONING;
+
+    // Raw offset magnitude (toward carrier): lane_cover_weight × LANE_COVER_MAX_DEF.
+    let raw_offset = lane_cover_weight * LANE_COVER_MAX_DEF;
+
+    // Direction: does the carrier lie ahead (in the attacking direction) of our base target?
+    // For home (team_idx=0, attacks +x): "ahead" = carrier_x > base_target_x.
+    // For away (team_idx=1, attacks -x): "ahead" = carrier_x < base_target_x.
+    // If not ahead (carrier behind the defender's line), no step-up is useful.
+    let (carrier_x, _carrier_y) = carrier_pos;
+    if team_idx == 0 {
+        if carrier_x <= base_target_x {
+            return Q32::ZERO;
+        }
+        // Clamp: must not overshoot past carrier_x.
+        let room = carrier_x - base_target_x;
+        if raw_offset > room { room } else { raw_offset }
+    } else {
+        if carrier_x >= base_target_x {
+            return Q32::ZERO;
+        }
+        // Away moves in -x direction. Return a NEGATIVE offset.
+        let room = base_target_x - carrier_x; // always positive
+        let clamped = if raw_offset > room { room } else { raw_offset };
+        Q32::ZERO - clamped
+    }
+}
+
+/// **Defender lane-cover enforcement (Layer 2, §2.1).**
+///
+/// Like `enforce_hold_zonal` but applies a lane-cover offset toward the carrier's
+/// passing lane, scaled by `lane_cover_weight = anticipation×0.50 + tackling×0.30 +
+/// positioning×0.20`. The score remains `Q32::ONE` so this intent dominates the
+/// single-candidate softmax exactly as `enforce_hold_zonal` does.
+///
+/// The offset is at most `LANE_COVER_MAX_DEF = 8m` and is clamped so the defender
+/// never runs past the carrier.
+///
+/// When `carrier_pos` is `None`, falls back to `enforce_hold_zonal` (no offset).
+///
+/// `technical.tackling` is used as the proxy for the design doc's `technical.interception`
+/// since that attribute field does not currently exist in the schema.
+pub fn enforce_hold_with_lane_cover(
+    player: &PlayerState,
+    roster_slot: u8,
+    shape: &TeamShape,
+    team_idx: usize,
+    carrier_pos: Option<(Q32, Q32)>,
+) -> (PlayerIntent, Q32) {
+    let (base_x, target_y) = zonal_slot(roster_slot, shape, team_idx);
+    let target_x = if let Some(cpos) = carrier_pos {
+        base_x + lane_cover_offset_x(player, base_x, cpos, team_idx)
+    } else {
+        base_x
+    };
     (PlayerIntent::HoldFormation { target_x, target_y }, Q32::ONE)
 }
 
@@ -778,6 +881,141 @@ mod tests {
                 target_y: expected_y
             },
             "hold_formation must target zonal_slot (FUN-TS1)"
+        );
+    }
+
+    // --- Layer 2: lane-cover tests ---
+
+    /// High-anticipation/tackling defender steps CLOSER to the carrier
+    /// than a low-reading one in the same game state.
+    #[test]
+    fn high_reading_defender_steps_closer_to_carrier_than_low() {
+        let s = test_shape(); // line_x=-18, defending=true, compactness_v=32
+
+        // Carrier is ahead (carrier_x > base_slot_x for home team 0).
+        // Slot 2 (home DEF) at x=(-30) after zonal transform relative to line_x.
+        // Let's use slot 2 with shape line_x=-18.
+        let (base_x, _) = zonal_slot(2, &s, 0); // defender's base position
+        let carrier_x = Q32::from_int(10); // carrier is well ahead of defender
+        let carrier_y = Q32::from_int(0);
+        let carrier = (carrier_x, carrier_y);
+
+        // High-reading defender.
+        let mut hi_def = mid_player(2);
+        hi_def.attributes.mental.anticipation = Q32::ONE;
+        hi_def.attributes.technical.tackling = Q32::ONE;
+        hi_def.attributes.mental.positioning = Q32::ONE;
+
+        // Low-reading defender.
+        let mut lo_def = mid_player(2);
+        lo_def.attributes.mental.anticipation = Q32::ZERO;
+        lo_def.attributes.technical.tackling = Q32::ZERO;
+        lo_def.attributes.mental.positioning = Q32::ZERO;
+
+        let (hi_intent, _) = enforce_hold_with_lane_cover(&hi_def, 2, &s, 0, Some(carrier));
+        let (lo_intent, _) = enforce_hold_with_lane_cover(&lo_def, 2, &s, 0, Some(carrier));
+
+        let hi_x = match hi_intent {
+            PlayerIntent::HoldFormation { target_x, .. } => target_x,
+            _ => panic!("expected HoldFormation"),
+        };
+        let lo_x = match lo_intent {
+            PlayerIntent::HoldFormation { target_x, .. } => target_x,
+            _ => panic!("expected HoldFormation"),
+        };
+
+        // Both targets must be >= base (stepped toward carrier, not backwards).
+        assert!(
+            hi_x >= base_x,
+            "high-reading defender must step at least to base_x, got hi={hi_x:?} base={base_x:?}"
+        );
+        // High-reading defender must be closer to carrier (larger x for home team).
+        assert!(
+            hi_x > lo_x,
+            "high-reading defender (hi={hi_x:?}) must be closer to carrier than low (lo={lo_x:?})"
+        );
+    }
+
+    /// Lane-cover offset must not move the defender past the carrier.
+    #[test]
+    fn lane_cover_never_overshoots_carrier() {
+        let s = test_shape();
+
+        // Put carrier just slightly ahead of the defender's base slot.
+        let (base_x, _) = zonal_slot(2, &s, 0);
+        // Carrier only 1m ahead.
+        let carrier_x = base_x + Q32::from_raw(1_i64 << 32); // +1m
+        let carrier = (carrier_x, Q32::ZERO);
+
+        let mut hi_def = mid_player(2);
+        hi_def.attributes.mental.anticipation = Q32::ONE;
+        hi_def.attributes.technical.tackling = Q32::ONE;
+        hi_def.attributes.mental.positioning = Q32::ONE;
+
+        let (intent, _) = enforce_hold_with_lane_cover(&hi_def, 2, &s, 0, Some(carrier));
+        let target_x = match intent {
+            PlayerIntent::HoldFormation { target_x, .. } => target_x,
+            _ => panic!("expected HoldFormation"),
+        };
+        // Must not overshoot the carrier.
+        assert!(
+            target_x <= carrier_x,
+            "lane-cover must not overshoot carrier: target={target_x:?} carrier={carrier_x:?}"
+        );
+    }
+
+    /// When carrier is BEHIND the defender (carrier_x < base_x for home),
+    /// no step-up should occur.
+    #[test]
+    fn lane_cover_no_offset_when_carrier_behind() {
+        let s = test_shape();
+        let (base_x, _) = zonal_slot(2, &s, 0);
+        // Put carrier behind the defender (further from opp goal).
+        let carrier_x = base_x - Q32::from_raw(5_i64 << 32); // 5m behind
+        let carrier = (carrier_x, Q32::ZERO);
+
+        let mut hi_def = mid_player(2);
+        hi_def.attributes.mental.anticipation = Q32::ONE;
+        hi_def.attributes.technical.tackling = Q32::ONE;
+        hi_def.attributes.mental.positioning = Q32::ONE;
+
+        let (intent, _) = enforce_hold_with_lane_cover(&hi_def, 2, &s, 0, Some(carrier));
+        let target_x = match intent {
+            PlayerIntent::HoldFormation { target_x, .. } => target_x,
+            _ => panic!("expected HoldFormation"),
+        };
+        // Target must equal base_x — no step-up when carrier is behind.
+        assert_eq!(
+            target_x, base_x,
+            "no lane-cover offset when carrier is behind: target={target_x:?} base={base_x:?}"
+        );
+    }
+
+    /// enforce_hold_with_lane_cover with carrier=None must equal enforce_hold_zonal.
+    #[test]
+    fn lane_cover_no_carrier_equals_plain_hold_zonal() {
+        let s = test_shape();
+        let p = mid_player(2);
+        let (with_none, _) = enforce_hold_with_lane_cover(&p, 2, &s, 0, None);
+        let (plain, _) = enforce_hold_zonal(2, &s, 0);
+        assert_eq!(
+            with_none, plain,
+            "lane_cover with None carrier must equal enforce_hold_zonal"
+        );
+    }
+
+    /// Score remains Q32::ONE after lane-cover (enforcement invariant).
+    #[test]
+    fn lane_cover_score_is_one() {
+        let s = test_shape();
+        let (base_x, _) = zonal_slot(2, &s, 0);
+        let carrier = (base_x + Q32::from_raw(5_i64 << 32), Q32::ZERO);
+        let p = mid_player(2);
+        let (_, score) = enforce_hold_with_lane_cover(&p, 2, &s, 0, Some(carrier));
+        assert_eq!(
+            score,
+            Q32::ONE,
+            "enforce_hold_with_lane_cover score must be Q32::ONE"
         );
     }
 }

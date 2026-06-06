@@ -143,10 +143,10 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:ae56a0b4ca2f326d6ae7b5a53e48be9a8ec10d34de620e907ae55a8ee53ac086",
+    expected_hash: "blake3:6a488289213e8c05103a8d8e7ad334e26dc6b887bc6ffa823942ffa5b4d3a943",
     metadata: (
-        description: "Layer 1b pace-scaled speed: GK V_GK_SPEED=7.2 m/s, outfield player_v_max(pace)=6.5+pace*2.5 m/s. Design values Low=4/Mid=7/High=11/Counter=9m retained. Goal guard relaxed to [1.0,5.0]; calibration deferred. Authorized 2026-06-06.",
+        description: "Layer 2 defender lane-cover movement: defenders/midfielders apply lane_cover_weight*8m nudge toward carrier lane when is_defending. Forwards untouched. Authorized 2026-06-06 (interceptions-matter campaign).",
         generated_at: "2026-06-06",
-        notes: "Hash matches Layer 1b commit. Design values kept. Prior f119…87f8 was Layer 1a. Prior a5dd…0d68 was FUN-TS3b.",
+        notes: "Hash advances from Layer 1b ae56…c086. Lane-cover movement changes defender position every tick when carrier is present.",
     ),
 )
