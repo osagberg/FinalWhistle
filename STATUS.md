@@ -2,7 +2,7 @@
 
 **Last updated**: 2026-06-06 (overnight)
 
-## Current state (2026-06-05, overnight) — playable career loop + watchable match shipped; frontend redesign underway
+## Current state (2026-06-06, overnight) — playable loop + watchable match FEATURE-COMPLETE; redesign foundation shipped
 
 The owner played the prototype and steered to **game-feel over more engine
 depth**. Resolved fork: **A (engine) + B (playable loop) run concurrently**;
@@ -11,22 +11,36 @@ is on (research done). Plan-of-record: `docs/design/prototype-roadmap-2026-06-05
 (179-item backlog). Redesign direction: `docs/design/frontend-redesign-direction-2026-06-05.md`
 ("the broadsheet and the technical area").
 
-**Shipped this session (on `main`, CI green):**
+**Shipped this overnight session (on `main`; full CI matrix green @ 8f25c384):**
 - **Playable career loop (B1–B6)**: NEW CAREER → pick club → squad → manage a
-  season (advance weeks, AI-sim, standings/fixtures/press) → save/load. Pushed;
-  builds a runnable macOS `.app`.
-- **Watchable match (S3a/S3b + v0 + polish)**: a paced `/live-match` route —
-  live-sim step loop, speed modes (auto-sim-to-event + x1/x3/fast/skip), the 2D
-  board following the live play, a key-moments commentary feed (honest TYPE
-  filter, not salience), muted floodlit board palette + full pitch furniture +
-  possession ring/tether + ball-height/shadow. Blank-board + every-pass-spam +
-  duplicate-club-name bugs fixed.
+  season (advance weeks, AI-sim, standings/fixtures/press) → save/load. Builds a
+  runnable macOS `.app` (`scripts/fw bundle`; the DMG step is env-flaky, the
+  `.app` itself builds fine).
+- **Watchable match — FEATURE-COMPLETE**: a paced `/live-match` route running the
+  user's REAL fixture (M2 — determinism-equal to the AI-sim, byte-identical
+  canonical, proven by an equivalence test): live-sim step loop, speed modes
+  (auto-sim-to-event + x1/x3/fast/skip), the 2D board following live play, a
+  key-moments commentary feed (honest event-TYPE filter, not salience), floodlit
+  board palette + pitch furniture + possession ring/tether + ball-height/shadow,
+  a touchline decision callout (S10), half-time pause (S12), and ChangePressLevel
+  that actually shifts the press (S11 — canonical, NO rebaseline: serde-skip
+  default = byte-identical pins, bite-proof test traces press-level → pressing
+  roles). Blank-board + every-pass-spam + duplicate-club-name bugs fixed.
+- **Frontend redesign foundation** (per the direction doc): persistent vertical-
+  sidebar nav (the FM26 fix) + slim top strip + career-context card + dev-diag
+  removed; DataTable text/numeric typography + your-club row highlight; inbox-
+  heartbeat Home hub.
+- **Backlog / robustness**: fw-tauri (corrupted-save → IpcError, atomic writes,
+  settings TOCTOU); baker stubs return Err not silent Ok (BK-E-3); the harness P0
+  no-masking gates codified into `/next` (Step 6.1, BK-H-1..5).
+- **Docs/decisions**: prototype-roadmap + frontend-redesign-direction saved;
+  live-sim match-model decision logged.
 
-**Next (the loop is working it):** in-match decisions (S10 callout, S11
-ChangePressLevel = canonical, S12 half-time), wire `/live-match` to the user's
-REAL fixture (M2), then the frontend redesign foundation (vertical-sidebar nav,
-table text/numeric split, custom titlebar, inbox-heartbeat home), then the
-backlog (safe non-canonical findings → harness P0 gates → engine Lane A).
+**Next (lower urgency — the headline watchable-match + redesign-foundation work is
+done):** custom Tauri titlebar (higher-risk shell — careful or defer for owner
+review); screen-by-screen identity polish (Squad / Player / Press / CareerOverview);
+BK-E-1 missing EventClass emitters + dead-code / doc backlog; engine Lane A (one
+canonical task in flight, authorized rebaselines only).
 
 **Process:** pre-commit hook runs just-lint + cargo test but NOT vitest/banned-terms
 — run `pnpm -C frontend test` + `scripts/fw banned-terms` before frontend/doc
