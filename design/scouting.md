@@ -1,6 +1,6 @@
 ---
 description: Scout uncertainty model — biased observers, hidden gene truth, reports rendered as text bands not numbers. Path B (single-scout uncertainty) is the FW v2 MVP; Path A (3-archetype disagreement) is a conditional T4+ expansion.
-last_verified: 2026-05-21
+last_verified: 2026-06-06
 status: Ported + consolidated from two Unity-era archive sources — `design/scout-disagreement.md` (207 LoC) + `design/adr/adr-0007-scout-archetype-schema.md` (389 LoC), both locked 2026-04-24. C#/Unity references reconciled to Rust + `fw-scouting`; locked decisions preserved; phase/Month numbering aligned to MASTER_PLAN T-N. T3-5 unblocked by this port. See `docs/DECISIONS.md` 2026-05-21 T3-5 entry.
 ---
 
@@ -160,7 +160,7 @@ LabelEstimate { label: PhenotypeLabelId, confidence: Q32 }
 ```
 ScoutReport {
     scout_archetype_id: String,
-    player_id: String,
+    player_id: PlayerId,                      // roster PlayerId (fw_core newtype, not bio String id)
     confidence: Q32,                          // [0,1] — overall confidence in this report
     label_estimates: Vec<LabelEstimate>,      // BTreeSet-order of the player's true labels
     category_estimates: Vec<GeneCategoryEstimate>,  // exactly 3 — Physical, Mental, Technical
@@ -196,8 +196,11 @@ capitalised mystical state-nouns, no numbers.
 where `scout.kind == BasicScoutUncertainty`. Deterministic + pure.
 
 1. **Seed.** One `ChaCha8Rng` per call, seeded from
-   `seed_fn(career_seed, observation_id, SeedLayer::ScoutObservation, 0)`. All draws
-   for the report are pulled sequentially from this single stream (fixed draw order →
+   `seed_fn(career_seed, observation_id, SeedLayer::ScoutObservation, subject.raw())`,
+   where `subject` is the roster `PlayerId` of the player being observed (F2 fix —
+   prior to this the site was hardcoded `0`, making byte-identical reports for
+   different players sharing a bio and the same `observation_id`). All draws for the
+   report are pulled sequentially from this single stream (fixed draw order →
    deterministic).
 2. **Category estimates** — for each `GeneCategory` C in declared order
    (Physical, Mental, Technical):

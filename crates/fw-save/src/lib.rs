@@ -202,7 +202,7 @@ pub struct SaveV2 {
 /// - `breakthrough_states` — the per-player `BreakthroughState` map (empty
 ///   until the career system is wired in T4+; the schema carries the slot now).
 ///
-/// V3 is the CURRENT production schema. All new saves are V3.
+/// V3 is PRESERVED FOREVER — superseded by V4 at T4-2.5g. All new saves are V4.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SaveV3 {
     /// The career's deterministic seed.

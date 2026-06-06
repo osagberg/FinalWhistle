@@ -112,7 +112,7 @@ fn all_events() -> Vec<MatchEvent> {
 }
 
 // ---------------------------------------------------------------------------
-// Test 1: ContentStore loads all 6 event-class grammars from disk
+// Test 1: ContentStore loads all 8 event-class grammars from disk
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -120,7 +120,7 @@ fn load_sources_loads_all_commentary_grammars() {
     let store = ContentStore::load_sources(&content_root())
         .expect("load_sources should succeed against committed fixtures");
 
-    // Verify all 6 discriminants are present in the bank.
+    // Verify all 8 discriminants are present in the bank.
     for disc in MatchEventDiscriminant::all() {
         // Access via render_event — if the bank is missing a discriminant
         // it will panic (CommentaryGrammarBank invariant violated at construction,
@@ -128,7 +128,7 @@ fn load_sources_loads_all_commentary_grammars() {
         // try_from_map returning Err at load time).
         //
         // The simplest observable behavior: render_event on a placeholder event
-        // must not return empty string or panic for any of the 6 classes.
+        // must not return empty string or panic for any of the 8 classes.
         let ev = disc_to_event(disc);
         let result = render_event(
             &ev,

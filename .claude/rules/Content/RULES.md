@@ -85,9 +85,9 @@ auto_load: when_editing_matching_path
 ## §8. FW-VAL checks
 
 - Validation contract in `docs/specs/content-pack-validation-contract.md`.
-- Run: `cargo run --bin fw-content-baker -- validate-structural` (renamed from `validate` at T1-20 per Codex workflow improvement #4 honesty-naming; `validate-semantic` + `validate-content-pack` land at T2-3 alongside the bake-time semantic validators).
+- Run: `cargo run --bin fw-content-baker -- validate-structural` (renamed from `validate` at T1-20 per Codex workflow improvement #4 honesty-naming; `validate-semantic` + `validate-content-pack` land at T4.5-D/QA-2 alongside the bake-time semantic validators).
 - Checks today (structural): role-affinity weight sums, player-template attribute Q32 ranges, ability-ceiling bounds, manager → tactical_archetype cross-refs, player_template → signature_definition cross-refs.
-- Checks deferred to T2-3 (semantic + content-pack): banned-terms shell-out, licensed-data corpus collisions, cliché detection, schema conformance vs JSON schema, length bounds.
+- Checks deferred to T4.5-D/QA-2 (semantic + content-pack): banned-terms shell-out, licensed-data corpus collisions, cliché detection, schema conformance vs JSON schema, length bounds.
 
 ## §9. Authorship voice
 

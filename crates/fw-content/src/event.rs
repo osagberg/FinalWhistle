@@ -1,8 +1,8 @@
 //! In-match event stream — T1-4a.
 //!
-//! `MatchEvent` is the Phase-1 in-match event stream enum. It carries the
-//! six event classes emitted during a match: `KickOff`, `FullTime`, `Goal`,
-//! `Shot`, `Pass`, and `SignatureFirstFired`.
+//! `MatchEvent` is the in-match event stream enum. It carries eight event
+//! classes: `KickOff`, `FullTime`, `Goal`, `Shot`, `Pass`,
+//! `SignatureFirstFired`, `Offside`, and `PassIncomplete`.
 //!
 //! ## Design choices
 //!
@@ -258,7 +258,7 @@ impl MatchEvent {
     /// `MatchEventDiscriminant::from_event` (in `fw-content::commentary`) AND
     /// `encode_match_event` (in `fw-match-sim::canonical`) MUST agree with
     /// these values. The cross-crate test in
-    /// `crates/fw-content/tests/event_discriminant_test.rs` pins all 6 values
+    /// `crates/fw-content/tests/event_discriminant_test.rs` pins all 8 values
     /// against a hardcoded table, catching any reordering regression.
     ///
     /// ## Discriminant table (stable; do NOT reorder `MatchEvent` variants)
@@ -271,6 +271,8 @@ impl MatchEvent {
     /// | 3    | `Shot`               |
     /// | 4    | `Pass`               |
     /// | 5    | `SignatureFirstFired` |
+    /// | 6    | `Offside`            |
+    /// | 7    | `PassIncomplete`     |
     ///
     /// Changing these values is a canonical-hash-invalidating event that
     /// requires an authorized ADR-0012 rebaseline.

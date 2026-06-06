@@ -174,7 +174,7 @@ fn load_commentary_grammars(
         raw.insert(disc, rules);
     }
 
-    // Fail-loud: verify all 6 discriminants loaded.
+    // Fail-loud: verify all 8 discriminants loaded.
     for disc in MatchEventDiscriminant::all() {
         if !raw.contains_key(&disc) {
             return Err(ContentLoadError::MissingCommentaryGrammar { event_class: disc });
@@ -568,7 +568,7 @@ impl Default for ContentStore {
             );
             map.insert(disc, rules);
         }
-        // try_from_map is infallible here — all 6 discriminants present with
+        // try_from_map is infallible here — all 8 discriminants present with
         // non-empty origin variants, satisfying the tightened invariant.
         let commentary_grammars = CommentaryGrammarBank::try_from_map(map)
             .expect("default ContentStore: all discriminants present with non-empty origin");

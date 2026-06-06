@@ -728,7 +728,7 @@ mod tests {
         }
     }
 
-    // ---- RED test 1: render_event returns non-empty for all 6 variants ----
+    // ---- RED test 1: render_event returns non-empty for all 8 variants ----
 
     #[test]
     fn render_event_kickoff_is_non_empty() {
