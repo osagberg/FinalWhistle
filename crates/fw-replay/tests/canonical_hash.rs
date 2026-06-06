@@ -948,8 +948,14 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   **re-baselined to `6a488289…3a943`** per ADR-0012 trigger #3. Same defender
 ///   lane-cover change as PINNED_60_TICK above, applied to content-driven 600-tick run.
 ///   Canonical re-pin authorized by owner 2026-06-06 (match-fidelity campaign, interceptions-matter).
+/// - 2026-06-06 (Layer 3: interception attribute in pass completion — interceptions-matter commit 2) —
+///   **re-baselined to `25eb3f18…af41`** per ADR-0012 trigger #3. Nearest lane defender's
+///   interception_quality modulates lane_gate: elite interceptors block more, poor interceptors
+///   less. Only 600-tick pin changes (60-tick smoke uses bare initial state, no content, no
+///   defender on lane at tick 60). Canonical re-pin authorized by owner 2026-06-06
+///   (match-fidelity campaign, interceptions-matter).
 const PINNED_600_TICK: [u8; 32] =
-    hex!("6a488289213e8c05103a8d8e7ad334e26dc6b887bc6ffa823942ffa5b4d3a943");
+    hex!("25eb3f182cdd738a890cc28b36ab284ce779d3aa913b8f64822ba44af6a0af41");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

@@ -4182,8 +4182,8 @@ mod tests {
             )
         };
         assert!(
-            hash_600.starts_with("blake3:6a488289"),
-            "600-tick canonical hash must start with 6a488289 (Layer 2 defender lane-cover; keep in lockstep with fw-replay's PINNED_600_TICK); got {hash_600}"
+            hash_600.starts_with("blake3:25eb3f18"),
+            "600-tick canonical hash must start with 25eb3f18 (Layer 3 interception in pass completion; keep in lockstep with fw-replay's PINNED_600_TICK); got {hash_600}"
         );
     }
 

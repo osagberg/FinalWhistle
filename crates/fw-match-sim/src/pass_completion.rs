@@ -89,6 +89,29 @@ pub(crate) const P_FLOOR_LAYOFF: Q32 = Q32::from_raw(3_006_477_107_i64); // ≈ 
 /// w=0.15 → pressure_term=0.925 → short: 0.90 × 0.925 = 0.833 (mid-band target).
 pub(crate) const RECV_PRESSURE_WEIGHT: Q32 = Q32::from_raw(644_245_094_i64); // ≈ 0.15
 
+// -------------------------------------------------------------------------
+// Layer 3 — interception quality constants (SOFT — §3 of dynamic-positioning-model)
+// -------------------------------------------------------------------------
+
+/// Attribute weights for the nearest lane defender's interception quality.
+/// interception_quality = tackling×W_IQ_TAC + anticipation×W_IQ_ANT + pace×W_IQ_PAC
+/// Weights sum to 1.00: 0.60 + 0.25 + 0.15.
+/// `technical.interception` does not yet exist in the attribute schema (T4.5-E1);
+/// `technical.tackling` is the proxy, consistent with triggers.rs §screening_interception_trigger.
+pub(crate) const W_IQ_TAC: Q32 = Q32::from_raw(2_576_980_378_i64); // ≈ 0.60
+pub(crate) const W_IQ_ANT: Q32 = Q32::from_raw(1_073_741_824_i64); // ≈ 0.25
+pub(crate) const W_IQ_PAC: Q32 = Q32::from_raw(644_245_094_i64); // ≈ 0.15
+
+/// Low end of the intercept scale lerp: a quality-0 defender multiplies
+/// the raw intercept factor (1 - lane_openness) by this — 0.40 means even
+/// a poor defender blocks 40% of what the pitch-control model says, not 100%.
+pub(crate) const INTERCEPT_SCALE_LOW: Q32 = Q32::from_raw(1_717_986_918_i64); // ≈ 0.40
+
+/// High end of the intercept scale lerp: a quality-1 defender multiplies
+/// the raw intercept factor by 1.20 — elite interceptors are 20% more effective
+/// than the pitch-control model alone. Clamped to 1.0 so lane_gate >= LANE_FLOOR.
+pub(crate) const INTERCEPT_SCALE_HIGH: Q32 = Q32::from_raw(5_154_889_677_i64); // ≈ 1.20
+
 /// Low-quality modifier: a passer with quality = 0.0 multiplies P_BASE by this.
 /// quality_mod = LOW_MOD + quality × (HIGH_MOD - LOW_MOD), so mid-quality (0.5)
 /// → 1.0 (P_BASE unchanged). See `compute_passer_quality`.
@@ -127,6 +150,109 @@ const V_MAX: Q32 = Q32::from_raw(8_i64 << 32); // 8.0 m/s
 
 /// A team's player-snapshot slice for pitch_control queries.
 type TeamSnapshots = Vec<(PlayerId, PlayerSnapshot)>;
+
+// -------------------------------------------------------------------------
+// Layer 3 helpers
+// -------------------------------------------------------------------------
+
+/// Return the index into `state.players` of the nearest defending player to
+/// `(mid_x, mid_y)`, using Q32 squared-distance and slot order for tiebreak.
+///
+/// "Defending" = opposite team to `passer_team` (0 or 1).
+/// Excludes the goalkeeper (slot 0 for home, slot 11 for away) to avoid the
+/// goalkeeper dominating the lane-control attribution when the GK is the nearest
+/// fielded player (which happens on goal-kicks near the keeper).
+///
+/// Returns `None` only when the defending roster slice has no outfield players
+/// (impossible in a valid 11v11 state, but kept for type-safety).
+pub(crate) fn nearest_defender_slot(
+    state: &MatchState,
+    passer_team: usize,
+    mid_x: Q32,
+    mid_y: Q32,
+) -> Option<usize> {
+    let defender_start = if passer_team == 0 {
+        PLAYERS_PER_TEAM
+    } else {
+        0
+    };
+    let defender_end = defender_start + PLAYERS_PER_TEAM;
+    // GK is slot 0 of their team within the players array.
+    let gk_slot = defender_start;
+
+    let mut best_slot: Option<usize> = None;
+    let mut best_dist_sq = Q32::MAX;
+
+    for i in defender_start..defender_end {
+        if i == gk_slot {
+            continue; // exclude goalkeeper
+        }
+        let p = &state.players[i];
+        let dx = p.pos_x - mid_x;
+        let dy = p.pos_y - mid_y;
+        // Q32 × Q32: safe for |dx| ≤ 104m (pitch ≤ 104m wide), 104² = 10816 << MAX.
+        let dist_sq = dx * dx + dy * dy;
+        // Slot order tiebreak: strictly less than means earlier slot wins on equal distance.
+        if best_slot.is_none() || dist_sq < best_dist_sq {
+            best_dist_sq = dist_sq;
+            best_slot = Some(i);
+        }
+    }
+
+    best_slot
+}
+
+/// Compute the interception quality for the nearest lane defender and return
+/// the adjusted lane_gate factor (replaces the raw `lane_gate` in resolve_pass_completion).
+///
+/// Formula (Layer 3 §3, dynamic-positioning-model-2026-06-06.md):
+///   interception_quality = tackling×0.60 + anticipation×0.25 + pace×0.15
+///   intercept_factor_raw = (1 - lane_openness) × lerp(0.40, 1.20, iq)
+///   intercept_factor = clamp(intercept_factor_raw, 0, 1)  -- preserves gate >= LANE_FLOOR
+///   lane_openness_adjusted = 1 - intercept_factor
+///   lane_gate = LANE_FLOOR + (1 - LANE_FLOOR) × lane_openness_adjusted
+///
+/// When no nearest-defender slot is found (should not happen in 11v11), falls
+/// back to the pre-Layer-3 formula using raw lane_openness.
+pub(crate) fn lane_gate_with_interception(
+    state: &MatchState,
+    passer_team: usize,
+    mid_x: Q32,
+    mid_y: Q32,
+    lane_openness: Q32,
+) -> Q32 {
+    let slot = match nearest_defender_slot(state, passer_team, mid_x, mid_y) {
+        Some(s) => s,
+        None => {
+            // Fallback: plain lane_gate formula.
+            return LANE_FLOOR + (Q32::ONE - LANE_FLOOR) * lane_openness;
+        }
+    };
+    let p = &state.players[slot];
+    let a = &p.attributes;
+    // interception_quality in [0, 1]: weighted sum of normalised attributes.
+    let iq = a.technical.tackling * W_IQ_TAC
+        + a.mental.anticipation * W_IQ_ANT
+        + a.physical.pace * W_IQ_PAC;
+
+    // lerp(INTERCEPT_SCALE_LOW, INTERCEPT_SCALE_HIGH, iq)
+    // = LOW + iq × (HIGH - LOW)
+    let scale = INTERCEPT_SCALE_LOW + iq * (INTERCEPT_SCALE_HIGH - INTERCEPT_SCALE_LOW);
+
+    // raw intercept factor: how much of the lane the nearest defender actually blocks.
+    let defender_control = Q32::ONE - lane_openness;
+    let intercept_factor_raw = defender_control * scale;
+
+    // Clamp to [0, 1] so lane_gate stays >= LANE_FLOOR.
+    let intercept_factor = if intercept_factor_raw > Q32::ONE {
+        Q32::ONE
+    } else {
+        intercept_factor_raw
+    };
+
+    let lane_openness_adjusted = Q32::ONE - intercept_factor;
+    LANE_FLOOR + (Q32::ONE - LANE_FLOOR) * lane_openness_adjusted
+}
 
 /// Q32 constant 2.0 — used for the midpoint calculation.
 const TWO: Q32 = Q32::from_raw(2_i64 << 32); // 2.0
@@ -249,15 +375,18 @@ pub(crate) fn resolve_pass_completion(
     // recv_pressure ∈ [0, 1], RECV_PRESSURE_WEIGHT ≤ 1, so product ≤ 1 — safe.
     let pressure_term = Q32::ONE - RECV_PRESSURE_WEIGHT * recv_pressure;
 
-    // Lane gate: lerp(LANE_FLOOR, 1.0, lane_openness) = LANE_FLOOR + (1 − LANE_FLOOR) × x.
-    //   open lane    (x→0.83 observed max) → ≈0.95  (near no penalty)
-    //   typical lane (x≈0.47 observed mean)→ ≈0.84
-    //   contested    (x→0.17 observed min) → ≈0.75  (penalised, never zero)
-    // A fully-blocked lane (x=0.0) still leaves LANE_FLOOR = 0.70 — a contested
-    // pass can complete (keeper error, scramble, receiver reading the ball).
-    // FUN-TS3b shipped the short-dominated pass mix, so the FUN-CB1 deferral of
-    // this factor is retired: lane_openness now genuinely moves the output.
-    let lane_gate = LANE_FLOOR + (Q32::ONE - LANE_FLOOR) * lane_openness;
+    // Lane gate — Layer 3: interception quality of the nearest lane defender
+    // modulates the blocking factor before the LANE_FLOOR lerp.
+    //   low-iq defender (iq=0.0): scale=0.40 — less blocking than pitch control alone.
+    //   mid-iq defender (iq=0.5): scale=0.80 — 80% of pitch-control blocking.
+    //   elite defender  (iq=1.0): scale=1.20 — 20% MORE blocking (clamped to preserve LANE_FLOOR).
+    // Preserves LANE_FLOOR invariant: gate never drops below 0.70.
+    let passer_team = if from_slot_idx < PLAYERS_PER_TEAM {
+        0
+    } else {
+        1
+    };
+    let lane_gate = lane_gate_with_interception(state, passer_team, mid_x, mid_y, lane_openness);
 
     // Full probability: base × quality_mod × pressure_term × lane_gate.
     // P_BASE was recalibrated up (× ~1.12, see consts) so the held-mean
@@ -348,6 +477,7 @@ fn compute_passer_quality(player: &PlayerState, kind: PassKind) -> Q32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TOTAL_PLAYERS;
 
     #[test]
     fn kind_params_layoff_base_greater_than_short_greater_than_long_greater_than_cross() {
@@ -555,5 +685,186 @@ mod tests {
             );
             let _ = mid; // suppress unused warning
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Layer 3 tests — interception quality modulates the lane gate
+    // -------------------------------------------------------------------------
+
+    /// HIGH-interception defender makes the lane tighter than a LOW-interception
+    /// defender, holding the passing geometry identical. Demonstrates the
+    /// attribute differential that is the success signal for Layer 3.
+    ///
+    /// Geometry: passer at (-20, 0), receiver at (20, 0), nearest away defender
+    /// at (0, 0) = lane midpoint. Only the defender's tackling/anticipation/pace
+    /// attributes differ between the two arms.
+    #[test]
+    fn high_interception_defender_reduces_lane_gate_vs_low() {
+        use fw_core::Seed;
+
+        fn make_state(tackling_raw: i64, anticipation_raw: i64, pace_raw: i64) -> MatchState {
+            let mut state = MatchState::initial(Seed::from_u64(0xB33F_0000_0000_0001u64));
+            let m = |v: i64| Q32::from_raw(v << 32);
+            // Passer = home slot 5, receiver = home slot 9.
+            state.players[5].pos_x = m(-20);
+            state.players[5].pos_y = m(0);
+            state.players[9].pos_x = m(20);
+            state.players[9].pos_y = m(0);
+            // Park all other home players far away.
+            for slot in 0..PLAYERS_PER_TEAM {
+                if slot != 5 && slot != 9 {
+                    state.players[slot].pos_x = m(-50);
+                    state.players[slot].pos_y = m(30);
+                }
+            }
+            // Nearest away outfield player (slot 12) sits ON the lane midpoint.
+            // GK (slot 11) is excluded by nearest_defender_slot.
+            state.players[11].pos_x = m(50); // GK parked far
+            state.players[11].pos_y = m(-30);
+            state.players[12].pos_x = m(0);
+            state.players[12].pos_y = m(0);
+            // Park remaining away players far away.
+            for slot in 13..TOTAL_PLAYERS {
+                state.players[slot].pos_x = m(50);
+                state.players[slot].pos_y = m(30);
+            }
+            // Zero velocities.
+            for p in state.players.iter_mut() {
+                p.vel_x = Q32::ZERO;
+                p.vel_y = Q32::ZERO;
+            }
+            // Set interceptor attributes on away slot 12 (passer_team=0, defenders are away).
+            state.players[12].attributes.technical.tackling = Q32::from_raw(tackling_raw);
+            state.players[12].attributes.mental.anticipation = Q32::from_raw(anticipation_raw);
+            state.players[12].attributes.physical.pace = Q32::from_raw(pace_raw);
+            state
+        }
+
+        // High-interception defender: tackling=0.90, anticipation=0.90, pace=0.90.
+        // 0.90 × 2^32 = 3_865_470_566.
+        let high_state = make_state(3_865_470_566_i64, 3_865_470_566_i64, 3_865_470_566_i64);
+
+        // Low-interception defender: tackling=0.10, anticipation=0.10, pace=0.10.
+        // 0.10 × 2^32 = 429_496_730.
+        let low_state = make_state(429_496_730_i64, 429_496_730_i64, 429_496_730_i64);
+
+        let m = |v: i64| Q32::from_raw(v << 32);
+        let mid_x = m(0);
+        let mid_y = m(0);
+
+        // lane_openness is the same for both states (same positions; attributes don't
+        // affect pitch_control, only the lane_gate_with_interception step).
+        let (attackers_h, defenders_h) = build_team_snapshots(&high_state, 5);
+        let lane_openness_h =
+            Q32::ONE - pitch_control((mid_x, mid_y), &attackers_h, &defenders_h).defender_control;
+        let (attackers_l, defenders_l) = build_team_snapshots(&low_state, 5);
+        let lane_openness_l =
+            Q32::ONE - pitch_control((mid_x, mid_y), &attackers_l, &defenders_l).defender_control;
+
+        // Position-identical → same lane_openness.
+        assert_eq!(
+            lane_openness_h, lane_openness_l,
+            "lane_openness must be position-determined and equal between arms; \
+             attributes must not influence pitch_control"
+        );
+
+        let gate_high = lane_gate_with_interception(&high_state, 0, mid_x, mid_y, lane_openness_h);
+        let gate_low = lane_gate_with_interception(&low_state, 0, mid_x, mid_y, lane_openness_l);
+
+        // High-interception defender should produce a LOWER lane gate (harder to pass through).
+        assert!(
+            gate_high < gate_low,
+            "high-iq defender must produce lower lane_gate than low-iq defender; \
+             gate_high={gate_high:?}, gate_low={gate_low:?}"
+        );
+    }
+
+    /// A fully-contested lane with an elite defender (iq=1.0, scale=1.20) must
+    /// not drop below LANE_FLOOR — the clamp preserves the floor invariant.
+    #[test]
+    fn interception_quality_clamps_at_q32_one() {
+        use fw_core::Seed;
+
+        let mut state = MatchState::initial(Seed::from_u64(0xC1A4_0000_0000_0002u64));
+        let m = |v: i64| Q32::from_raw(v << 32);
+        // Put passer and receiver close together so midpoint is near defenders.
+        state.players[5].pos_x = m(-1);
+        state.players[5].pos_y = m(0);
+        state.players[9].pos_x = m(1);
+        state.players[9].pos_y = m(0);
+        // GK parked far.
+        state.players[11].pos_x = m(50);
+        state.players[11].pos_y = m(-30);
+        // Nearest defender at the midpoint with elite interception.
+        state.players[12].pos_x = m(0);
+        state.players[12].pos_y = m(0);
+        // All others far.
+        for slot in (0..PLAYERS_PER_TEAM).filter(|&s| s != 5 && s != 9) {
+            state.players[slot].pos_x = m(-50);
+            state.players[slot].pos_y = m(30);
+        }
+        for slot in 13..TOTAL_PLAYERS {
+            state.players[slot].pos_x = m(50);
+            state.players[slot].pos_y = m(30);
+        }
+        for p in state.players.iter_mut() {
+            p.vel_x = Q32::ZERO;
+            p.vel_y = Q32::ZERO;
+        }
+        // Elite interceptor.
+        state.players[12].attributes.technical.tackling = Q32::ONE;
+        state.players[12].attributes.mental.anticipation = Q32::ONE;
+        state.players[12].attributes.physical.pace = Q32::ONE;
+
+        // With a fully-covered lane (lane_openness = 0), intercept_factor_raw = 1.20
+        // which is clamped to 1.0. lane_gate must equal exactly LANE_FLOOR.
+        let gate = lane_gate_with_interception(&state, 0, m(0), m(0), Q32::ZERO);
+        assert_eq!(
+            gate, LANE_FLOOR,
+            "elite defender with fully-contested lane (openness=0) must yield gate = LANE_FLOOR; \
+             got {gate:?}"
+        );
+    }
+
+    /// The `nearest_defender_slot` helper must return a slot in the correct
+    /// team's range and must exclude the goalkeeper.
+    #[test]
+    fn nearest_defender_slot_excludes_goalkeeper_and_returns_correct_team() {
+        use fw_core::Seed;
+
+        let mut state = MatchState::initial(Seed::from_u64(0xD3F1_0000_0000_0003u64));
+        let m = |v: i64| Q32::from_raw(v << 32);
+        // Park all players far.
+        for p in state.players.iter_mut() {
+            p.pos_x = m(50);
+            p.pos_y = m(30);
+            p.vel_x = Q32::ZERO;
+            p.vel_y = Q32::ZERO;
+        }
+        // GK for away team (slot 11 in players array for passer_team=0) right at midpoint.
+        state.players[11].pos_x = m(0);
+        state.players[11].pos_y = m(0);
+        // Slot 12 (first away outfield player) slightly further.
+        state.players[12].pos_x = m(1);
+        state.players[12].pos_y = m(0);
+
+        let slot = nearest_defender_slot(&state, 0, m(0), m(0));
+        assert!(
+            slot.is_some(),
+            "nearest_defender_slot must return Some in 11v11"
+        );
+        let s = slot.unwrap();
+        // Must be in the away range (11..22).
+        assert!(
+            (PLAYERS_PER_TEAM..TOTAL_PLAYERS).contains(&s),
+            "nearest_defender_slot returned a home-team slot {s}"
+        );
+        // Must NOT be the GK (slot 11).
+        assert_ne!(
+            s, 11,
+            "nearest_defender_slot must exclude the goalkeeper (slot 11)"
+        );
+        // Must be slot 12 (nearest outfield defender).
+        assert_eq!(s, 12, "nearest outfield defender is slot 12, got {s}");
     }
 }

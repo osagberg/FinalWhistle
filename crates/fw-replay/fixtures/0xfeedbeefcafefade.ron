@@ -143,10 +143,10 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:6a488289213e8c05103a8d8e7ad334e26dc6b887bc6ffa823942ffa5b4d3a943",
+    expected_hash: "blake3:25eb3f182cdd738a890cc28b36ab284ce779d3aa913b8f64822ba44af6a0af41",
     metadata: (
-        description: "Layer 2 defender lane-cover movement: defenders/midfielders apply lane_cover_weight*8m nudge toward carrier lane when is_defending. Forwards untouched. Authorized 2026-06-06 (interceptions-matter campaign).",
+        description: "Layer 3 interception attribute in pass completion: nearest lane defender's iq modulates lane_gate. Authorized 2026-06-06 (interceptions-matter campaign).",
         generated_at: "2026-06-06",
-        notes: "Hash advances from Layer 1b ae56…c086. Lane-cover movement changes defender position every tick when carrier is present.",
+        notes: "Hash advances from Layer 2 6a48…3a943. Only 600-tick pin changes; 60-tick smoke unchanged.",
     ),
 )
