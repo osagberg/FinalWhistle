@@ -103,6 +103,11 @@
 //! [ last_touched_by ]                              (T1-3.5: Option<PlayerSlot>)
 //!   [ present u8 ]                                 (0 = None, 1 = Some)
 //!   [ slot u8 ]                                    (only if present == 1)
+//! [ ball_in_flight ]                               (SLICE-1: Option<BallInFlight>)
+//!   [ present u8 ]                                 (0 = None, 1 = Some)
+//!   [ intended_receiver u8 ]                       (only if present == 1)
+//!   [ outcome_is_success u8 ]                      (only if present == 1; 0=false, 1=true)
+//!   [ launch_tick i64 LE ]                         (only if present == 1; Tick::to_raw())
 //! ```
 //!
 //! **Field order rationale (T1-2b-iii-a):** the new per-player fields
@@ -240,7 +245,17 @@ const MAGIC: &[u8; 4] = b"FWMS";
 //       and expected — multi-pin per the FUN-CB1 task spec.
 //       Wire-format addition: PassIncomplete (7) in match_events section:
 //         [ from_slot u8 ] [ to_slot u8 ] [ tick i64 LE ] [ kind u8 ]
-const VERSION: u16 = 12;
+//  13 — SLICE-1 (ball-in-flight-model): MatchState gained ball_in_flight:
+//       Option<BallInFlight> (canonical; drives possession-on-arrival + team-shape
+//       invariance during pass flights). Behavioral change: possession transfers
+//       on physical arrival instead of at launch — visual teleport fix.
+//       Wire-format addition: appended AFTER tackle_cooldown_until:
+//         [ present u8 ]                  (0 = None, 1 = Some)
+//         [ intended_receiver u8 ]        (only if present == 1)
+//         [ outcome_is_success u8 ]       (only if present == 1; 0 = false, 1 = true)
+//         [ launch_tick i64 LE ]          (only if present == 1; Tick::to_raw())
+//       Canonical hash REBASELINED authorized per ball-in-flight-model-2026-06-06.md.
+const VERSION: u16 = 13;
 
 /// Streaming canonical encoder. Append bytes as values are emitted; call
 /// `finish()` to get the buffer for hashing.
@@ -424,6 +439,23 @@ impl CanonicalEncoder {
         // Wire: 22 consecutive i64 LE values, slot 0 first, slot 21 last.
         for cooldown in &state.tackle_cooldown_until {
             self.write_i64(cooldown.to_raw());
+        }
+
+        // SLICE-1 (ball-in-flight-model): ball_in_flight — Option<BallInFlight>.
+        // Appended AFTER tackle_cooldown_until per the append discipline (VERSION 12 → 13).
+        // Canonical because trap_check_in_flight and the pickup guard branch on it.
+        // Wire: [ present u8 ] (0 = None, 1 = Some)
+        //       if Some: [ intended_receiver u8 ] [ outcome_is_success u8 ] [ launch_tick i64 LE ]
+        match &state.ball_in_flight {
+            None => {
+                self.write_u8(0);
+            }
+            Some(bif) => {
+                self.write_u8(1);
+                self.write_u8(bif.intended_receiver);
+                self.write_u8(if bif.outcome_is_success { 1 } else { 0 });
+                self.write_i64(bif.launch_tick.to_raw());
+            }
         }
     }
 
@@ -866,15 +898,15 @@ mod tests {
         let s = MatchState::initial(Seed::from_u64(1));
         let bytes = s.encode_canonical();
         assert_eq!(&bytes[0..4], MAGIC);
-        assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 12);
+        assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 13);
     }
 
     #[test]
-    fn version_is_12_after_fun_cb1_schema_bump() {
+    fn version_is_13_after_slice1_schema_bump() {
         assert_eq!(
-            VERSION, 12,
-            "VERSION should be 12 after FUN-CB1 schema bump \
-             (new MatchEvent::PassIncomplete discriminant 7 + stochastic pass completion)"
+            VERSION, 13,
+            "VERSION should be 13 after SLICE-1 schema bump \
+             (ball_in_flight canonical field: Option<BallInFlight> appended after tackle_cooldown_until)"
         );
     }
 

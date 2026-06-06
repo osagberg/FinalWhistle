@@ -379,7 +379,7 @@ const SMOKE_TICK_COUNT: u32 = 60;
 ///   Hash drift confirmed NON-NO-OP: defender positions change every tick when carrier is present.
 ///   Canonical re-pin authorized by owner 2026-06-06 (match-fidelity campaign, interceptions-matter).
 const PINNED_60_TICK: [u8; 32] =
-    hex!("855f52272fc92f4c836c5c0b657e7cd06130ae79c4106733f04e3cae5837a1b2");
+    hex!("cabdb64e8614bc091561aa6e073ff49381224e5d43b0f747261d794375b3e443");
 
 /// Read `env_var` as the number of fresh runs for an intra-process determinism
 /// test, falling back to `default` when the env var is absent or unparseable.
@@ -955,7 +955,7 @@ const EXTENDED_FIXTURE_NAME: &str = "0xfeedbeefcafefade.ron";
 ///   defender on lane at tick 60). Canonical re-pin authorized by owner 2026-06-06
 ///   (match-fidelity campaign, interceptions-matter).
 const PINNED_600_TICK: [u8; 32] =
-    hex!("25eb3f182cdd738a890cc28b36ab284ce779d3aa913b8f64822ba44af6a0af41");
+    hex!("c827d1904036f59e4aa5a7ff28cc3ce37317efc93bf0dad62fe160d791777f46");
 
 #[test]
 fn extended_seed_600_tick_canonical_hash_pinned() {

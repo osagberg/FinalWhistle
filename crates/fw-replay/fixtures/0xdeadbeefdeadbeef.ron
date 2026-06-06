@@ -218,7 +218,7 @@
     schema_version: 1,
     seed: "0xdeadbeefdeadbeef",
     tick_count: 60,
-    expected_hash: "blake3:855f52272fc92f4c836c5c0b657e7cd06130ae79c4106733f04e3cae5837a1b2",
+    expected_hash: "blake3:cabdb64e8614bc091561aa6e073ff49381224e5d43b0f747261d794375b3e443",
     metadata: (
         description: "Layer 2 defender lane-cover movement: defenders/midfielders apply anticipation*0.50+tackling*0.30+positioning*0.20 weight * 8m nudge toward carrier lane when is_defending. Forwards untouched (scope guard). Authorized 2026-06-06 (interceptions-matter campaign).",
         generated_at: "2026-06-06",

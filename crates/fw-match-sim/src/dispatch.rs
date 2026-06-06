@@ -646,9 +646,16 @@ pub fn dispatch_tick(
             }
             arr
         };
+        // SLICE-1: pass effective_possession so a successful in-flight pass
+        // keeps the coordinated press active on the passing team rather than
+        // dropping to HoldShape because possession == None during the flight.
+        // Compute before the mutable borrow of state.team_shape to avoid the
+        // split-borrow conflict (effective_possession borrows state immutably;
+        // compute_press_from_parts takes &mut state.team_shape).
+        let eff_poss = state.effective_possession();
         crate::team_shape::compute_press_from_parts(
             &mut state.team_shape,
-            state.possession,
+            eff_poss,
             &pos_snap,
             &state.team_tactic_states,
             &state.press_level,
@@ -666,6 +673,27 @@ pub fn dispatch_tick(
             &state.interrupt_cooldown_until,
             state.tick,
         ) {
+            continue;
+        }
+
+        // SLICE-1: suppress the intended receiver's decision while a
+        // successful pass is in flight to them. The receiver waits to trap;
+        // no new intent (shot/pass/dribble) fires until the ball arrives.
+        // This prevents the receiver from running away from the arrival point
+        // and causing the flight timeout / a missed trap. Measured: removing
+        // this freeze drops goals 2.88 → 2.06 (receivers drift off the lane and
+        // miss traps), so the freeze is net-positive and retained.
+        if let Some(bif) = state.ball_in_flight
+            && bif.outcome_is_success
+            && state.players[slot_idx].slot == bif.intended_receiver
+        {
+            // Receiver is waiting to trap — no ball-launching intent this
+            // tick. Still bump the decision counter: the receiver DID make a
+            // decision (to wait for the incoming ball), so the cadence
+            // accounting stays consistent (a frozen receiver must not appear
+            // to have stopped deciding — see decision_counter monotonicity +
+            // the 3-decisions-per-60-ticks floor invariant).
+            state.players[slot_idx].bump_decision_counter();
             continue;
         }
 
@@ -860,11 +888,72 @@ pub fn dispatch_tick(
             }
         };
 
+        // SLICE-1: while a successful pass is in flight, NOBODY holds the ball
+        // (possession == None). Any intent that would launch/claim the ball
+        // (a pass, cross, lay-off, shot, dribble-snap, or — critically — a GK
+        // distribution) must be suppressed: only `trap_check_in_flight` may
+        // grant possession during a flight. The GK FSM is the dangerous case —
+        // it enters DistributingFromHand on ball-proximity alone (no possession
+        // check), so an in-flight ball passing near a goal line would otherwise
+        // make the GK "distribute" a ball it does not hold, re-launching the
+        // flight every decision tick and resetting the timeout into a perpetual
+        // flight-lock (seed 0x3c54cda26: 272-tick null run, 24.7m ball-carrier).
+        // We rewrite the ball-launching intent into a positioning move toward
+        // the same target so the player still repositions but does not seize
+        // the flying ball.
+        let intent = if state.ball_in_flight.is_some() {
+            suppress_ball_launch_during_flight(intent)
+        } else {
+            intent
+        };
+
         apply_intent(&mut state, slot_idx, intent);
         state.players[slot_idx].bump_decision_counter();
     }
 
     state
+}
+
+/// SLICE-1: rewrite a ball-launching intent into an equivalent positioning
+/// move while a pass is in flight.
+///
+/// During a flight `possession == None`, so no player legitimately holds the
+/// ball; only `trap_check_in_flight` may grant possession on arrival. Any
+/// intent that would seize/launch the ball (pass / cross / lay-off / shot /
+/// dribble-snap / GK distribution) is converted to a `MoveToPosition` toward
+/// the same target so the player keeps repositioning without hijacking the
+/// flying ball. Pure off-ball intents (movement, press, mark, hold-formation)
+/// pass through unchanged.
+///
+/// This is the single fix that closes the flight-lock side-effect: the GK FSM
+/// transitions to `DistributingFromHand` on ball-proximity alone (no possession
+/// check), so without this guard an in-flight ball travelling near a goal line
+/// makes the GK re-launch the pass every decision tick, resetting the timeout.
+fn suppress_ball_launch_during_flight(intent: PlayerIntent) -> PlayerIntent {
+    match intent {
+        PlayerIntent::AttemptShot { target_x, target_y }
+        | PlayerIntent::AttemptPassShort { target_x, target_y }
+        | PlayerIntent::AttemptPassLong { target_x, target_y }
+        | PlayerIntent::Cross { target_x, target_y }
+        | PlayerIntent::Dribble { target_x, target_y }
+        | PlayerIntent::HoldBall { target_x, target_y }
+        | PlayerIntent::LayOff { target_x, target_y }
+        | PlayerIntent::GkDistributeShort { target_x, target_y }
+        | PlayerIntent::GkDistributeLong { target_x, target_y } => {
+            PlayerIntent::MoveToPosition { target_x, target_y }
+        }
+        // Off-ball / positioning intents do not touch the ball — pass through.
+        PlayerIntent::MoveToPosition { .. }
+        | PlayerIntent::Idle
+        | PlayerIntent::TrackBack { .. }
+        | PlayerIntent::Press { .. }
+        | PlayerIntent::MarkPlayer { .. }
+        | PlayerIntent::RunOffBall { .. }
+        | PlayerIntent::HoldFormation { .. }
+        | PlayerIntent::GkShotStop { .. }
+        | PlayerIntent::GkCollectCross { .. }
+        | PlayerIntent::GkSweeperRush { .. } => intent,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1032,7 +1121,7 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 state.ball.pos_x = from_x;
                 state.ball.pos_y = from_y;
                 if pass_ok {
-                    // Success: ball travels to receiver, possession transferred.
+                    // SLICE-1: ball travels; possession transfers on arrival, not now.
                     let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
                     let to_x = state.players[to_slot as usize].pos_x;
                     let to_y = state.players[to_slot as usize].pos_y;
@@ -1040,7 +1129,16 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                     state.ball.vel_x = bvx;
                     state.ball.vel_y = bvy;
                     state.ball.vel_z = Q32::ZERO;
-                    state.possession = Some(to_slot);
+                    assert!(
+                        (to_slot as usize) < crate::TOTAL_PLAYERS,
+                        "short-pass to_slot {to_slot} out of range"
+                    );
+                    state.ball_in_flight = Some(crate::BallInFlight {
+                        intended_receiver: to_slot,
+                        outcome_is_success: true,
+                        launch_tick: state.tick,
+                    });
+                    state.possession = None;
                     state.last_touched_by = Some(from_slot);
                 } else {
                     // Failure: emit PassIncomplete, drop loose ball, clear possession.
@@ -1088,6 +1186,7 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 state.ball.pos_x = from_x;
                 state.ball.pos_y = from_y;
                 if pass_ok {
+                    // SLICE-1: ball travels; possession transfers on arrival.
                     let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
                     let to_x = state.players[to_slot as usize].pos_x;
                     let to_y = state.players[to_slot as usize].pos_y;
@@ -1095,7 +1194,16 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                     state.ball.vel_x = bvx;
                     state.ball.vel_y = bvy;
                     state.ball.vel_z = Q32::ZERO;
-                    state.possession = Some(to_slot);
+                    assert!(
+                        (to_slot as usize) < crate::TOTAL_PLAYERS,
+                        "long-pass to_slot {to_slot} out of range"
+                    );
+                    state.ball_in_flight = Some(crate::BallInFlight {
+                        intended_receiver: to_slot,
+                        outcome_is_success: true,
+                        launch_tick: state.tick,
+                    });
+                    state.possession = None;
                     state.last_touched_by = Some(from_slot);
                 } else {
                     let to_x = state.players[to_slot as usize].pos_x;
@@ -1142,6 +1250,7 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 state.ball.pos_x = from_x;
                 state.ball.pos_y = from_y;
                 if pass_ok {
+                    // SLICE-1: ball travels; possession transfers on arrival.
                     let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
                     let to_x = state.players[to_slot as usize].pos_x;
                     let to_y = state.players[to_slot as usize].pos_y;
@@ -1149,7 +1258,16 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                     state.ball.vel_x = bvx;
                     state.ball.vel_y = bvy;
                     state.ball.vel_z = Q32::ZERO;
-                    state.possession = Some(to_slot);
+                    assert!(
+                        (to_slot as usize) < crate::TOTAL_PLAYERS,
+                        "cross to_slot {to_slot} out of range"
+                    );
+                    state.ball_in_flight = Some(crate::BallInFlight {
+                        intended_receiver: to_slot,
+                        outcome_is_success: true,
+                        launch_tick: state.tick,
+                    });
+                    state.possession = None;
                     state.last_touched_by = Some(from_slot);
                 } else {
                     let to_x = state.players[to_slot as usize].pos_x;
@@ -1196,6 +1314,7 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                 state.ball.pos_x = from_x;
                 state.ball.pos_y = from_y;
                 if pass_ok {
+                    // SLICE-1: ball travels; possession transfers on arrival.
                     let speed = compute_ball_speed_for_pass(&state.players[slot_idx]);
                     let to_x = state.players[to_slot as usize].pos_x;
                     let to_y = state.players[to_slot as usize].pos_y;
@@ -1203,7 +1322,16 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
                     state.ball.vel_x = bvx;
                     state.ball.vel_y = bvy;
                     state.ball.vel_z = Q32::ZERO;
-                    state.possession = Some(to_slot);
+                    assert!(
+                        (to_slot as usize) < crate::TOTAL_PLAYERS,
+                        "layoff to_slot {to_slot} out of range"
+                    );
+                    state.ball_in_flight = Some(crate::BallInFlight {
+                        intended_receiver: to_slot,
+                        outcome_is_success: true,
+                        launch_tick: state.tick,
+                    });
+                    state.possession = None;
                     state.last_touched_by = Some(from_slot);
                 } else {
                     let to_x = state.players[to_slot as usize].pos_x;
@@ -1265,7 +1393,17 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
             state.ball.vel_x = bvx;
             state.ball.vel_y = bvy;
             state.ball.vel_z = Q32::ZERO;
-            state.possession = Some(to_slot);
+            // SLICE-1: ball travels; possession transfers on arrival.
+            assert!(
+                (to_slot as usize) < crate::TOTAL_PLAYERS,
+                "gk-distribute-short to_slot {to_slot} out of range"
+            );
+            state.ball_in_flight = Some(crate::BallInFlight {
+                intended_receiver: to_slot,
+                outcome_is_success: true,
+                launch_tick: state.tick,
+            });
+            state.possession = None;
             state.last_touched_by = Some(from_slot);
         }
         PlayerIntent::GkDistributeLong { target_x, target_y } => {
@@ -1285,7 +1423,17 @@ pub fn apply_intent(state: &mut MatchState, slot_idx: usize, intent: PlayerInten
             state.ball.vel_x = bvx;
             state.ball.vel_y = bvy;
             state.ball.vel_z = Q32::ZERO;
-            state.possession = Some(to_slot);
+            // SLICE-1: ball travels; possession transfers on arrival.
+            assert!(
+                (to_slot as usize) < crate::TOTAL_PLAYERS,
+                "gk-distribute-long to_slot {to_slot} out of range"
+            );
+            state.ball_in_flight = Some(crate::BallInFlight {
+                intended_receiver: to_slot,
+                outcome_is_success: true,
+                launch_tick: state.tick,
+            });
+            state.possession = None;
             state.last_touched_by = Some(from_slot);
         }
         // Non-emitting / non-ball-touching variants — enumerated explicitly so
@@ -1840,6 +1988,13 @@ fn preempt_check(state: &MatchState, slot_idx: usize) -> Option<PlayerIntent> {
     if state.possession.is_some() {
         return None;
     }
+    // SLICE-1: do NOT fire loose-ball chase during an in-flight pass. The
+    // ball is already on its way to the intended receiver; chasing it disrupts
+    // team shape. Only trigger preempt when the ball is genuinely loose
+    // (shot out of play, failed-pass deflection, contested loose ball).
+    if state.ball_in_flight.is_some() {
+        return None;
+    }
 
     // GK slots: only chase when ball is near their own goal line.
     // Home GK (slot 0): own goal at x = -52.5m.
@@ -2063,6 +2218,17 @@ mod tests {
         state.players[0].pos_x = Q32::ZERO;
         state.players[0].pos_y = Q32::ZERO;
         let initial_pos_x = state.players[0].pos_x;
+
+        // SLICE-1: ensure NO pass fires to the GK during the run. The default
+        // initial state has possession = Some(9) (home CF); within a few ticks
+        // the CF passes — and in this jammed-at-centre fixture the nearest
+        // teammate to the pass target is the displaced GK itself, so the GK
+        // would become the in-flight pass receiver and be frozen by the
+        // receiver-suppression guard (correct behaviour: a receiver waits to
+        // trap). That defeats this test's intent (verify GK FSM positioning),
+        // so we clear possession to a loose ball — no pass launches, the GK
+        // FSM runs InBoxPositioning and moves toward its goal line.
+        state.possession = None;
 
         // Run until GK decides at least once (find the first decision tick).
         for _ in 0..15 {

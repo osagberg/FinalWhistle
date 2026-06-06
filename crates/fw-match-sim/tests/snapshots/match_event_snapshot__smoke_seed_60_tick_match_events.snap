@@ -18,42 +18,6 @@ expression: state.match_events()
         kind: Short,
         completed: true,
     },
-    Pass {
-        from_slot: 8,
-        to_slot: 9,
-        tick: Tick(
-            34,
-        ),
-        kind: Short,
-        completed: true,
-    },
-    Pass {
-        from_slot: 9,
-        to_slot: 8,
-        tick: Tick(
-            35,
-        ),
-        kind: Short,
-        completed: true,
-    },
-    Pass {
-        from_slot: 8,
-        to_slot: 9,
-        tick: Tick(
-            49,
-        ),
-        kind: Short,
-        completed: true,
-    },
-    Pass {
-        from_slot: 17,
-        to_slot: 20,
-        tick: Tick(
-            60,
-        ),
-        kind: Short,
-        completed: true,
-    },
     FullTime {
         tick: Tick(
             60,

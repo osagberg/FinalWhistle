@@ -196,6 +196,36 @@ pub(crate) fn preferred_role_to_formation_role(preferred_role: &fw_content::Role
 }
 
 // -------------------------------------------------------------------------
+// BallInFlight — canonical state for a pass in physical transit
+// -------------------------------------------------------------------------
+
+/// Records that a pass has been launched and the ball is physically travelling
+/// to the intended receiver.
+///
+/// Set at pass-launch (success arm of ShortPass / LongPass / Cross / LayOff /
+/// GkDistribute) in place of the old `possession = Some(to_slot)`. Cleared by
+/// `trap_check_in_flight` in `tick_match` on arrival or timeout.
+///
+/// All fields are integer types. No floats. No BTreeMap. Derives Copy.
+///
+/// Invariant: `intended_receiver` is always a valid slot (0..22). Enforced
+/// by `assert!` at the construction site in `dispatch.rs`.
+///
+/// Canonical state — encoded by `CanonicalEncoder` (VERSION 12 → 13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BallInFlight {
+    /// The slot of the intended receiver.
+    pub intended_receiver: PlayerSlot,
+    /// True = pass outcome determined as success at launch; the receiver will
+    /// gain possession on arrival. False = pass failed at launch; ball will
+    /// drop loose near the receiver's position on arrival.
+    pub outcome_is_success: bool,
+    /// Tick at which the pass was launched. Used for the FLIGHT_TIMEOUT_TICKS
+    /// guard: if the ball hasn't arrived after 120 ticks, force-clear.
+    pub launch_tick: Tick,
+}
+
+// -------------------------------------------------------------------------
 // MatchState — the canonical-state struct
 // -------------------------------------------------------------------------
 
@@ -506,6 +536,29 @@ pub struct MatchState {
     /// cleared implicitly as tick advances past the value.
     pub(crate) tackle_cooldown_until: [Tick; 22],
 
+    // ---- SLICE-1 ball-in-flight (ball-in-flight-model-2026-06-06.md) ----
+    //
+    // `ball_in_flight` tracks a pass that has been launched but whose
+    // possession has not yet transferred to the receiver. Set at pass-launch
+    // (replacing the immediate `possession = Some(to_slot)`) and cleared by
+    // `trap_check_in_flight` when the ball arrives within TRAP_RADIUS_M of
+    // the intended receiver, or after FLIGHT_TIMEOUT_TICKS.
+    //
+    // CANONICAL state — encoder VERSION bumped 12 → 13. Must be in canonical
+    // state because `trap_check_in_flight` and the loose-ball pickup guard
+    // branch on it; without canonical encoding, replay reconstruction from
+    // canonical state alone would diverge. Wire: 1 presence byte + (if Some)
+    // 1 + 1 + 1 + 8 bytes = 11 bytes max. Appended AFTER tackle_cooldown_until.
+    //
+    // Initialized to None at match init. Cleared within the same tick that the
+    // ball arrives (trap) or times out.
+    /// Ball-in-flight state for the current pass. `None` = no pass in flight.
+    /// `Some(bif)` = a pass was launched; the ball is physically travelling;
+    /// possession has been cleared to `None` pending arrival.
+    ///
+    /// Invariant: `ball_in_flight.is_some()` implies `possession.is_none()`.
+    pub(crate) ball_in_flight: Option<BallInFlight>,
+
     // ---- FUN-TS1 sidecar (non-canonical; #[serde(skip)]) ----
     //
     // `team_shape` is a pure function of canonical inputs recomputed every
@@ -696,6 +749,8 @@ impl MatchState {
             last_shot_xg: [Q32::ZERO; 22],
             // FUN-0b+c: tackle_cooldown_until — all Tick::ZERO at match init (no cooldowns).
             tackle_cooldown_until: [Tick::ZERO; 22],
+            // SLICE-1: ball_in_flight — None at match init (no pass in flight at kick-off).
+            ball_in_flight: None,
             // FUN-TS1: team_shape sidecar — initialized to zero() defaults.
             // FUN-TS2b: press_roles within TeamShape also initialized to HoldShape
             // via TeamShape::zero(). Filled by compute_press each tick.
@@ -871,6 +926,32 @@ impl MatchState {
     /// `Some(slot)` = designated ball-carrier this tick.
     pub fn possession(&self) -> Option<PlayerSlot> {
         self.possession
+    }
+
+    /// "Effective possession" for team-shape derivation (SLICE-1).
+    ///
+    /// When a pass is in flight to a teammate, the passing team should NOT drop
+    /// into defensive shape — the ball is still theirs. Returns:
+    ///
+    /// - `Some(slot)` if `state.possession` is `Some(slot)` (unchanged).
+    /// - `Some(intended_receiver)` if `state.ball_in_flight` is `Some(bif)`
+    ///   with `outcome_is_success = true` — the team that owns the receiver
+    ///   is treated as still being in possession.
+    /// - `None` if `state.possession` is `None` AND either there is no flight
+    ///   or the flight is a failed pass (outcome_is_success = false).
+    ///
+    /// Used exclusively in `team_shape::compute` and `compute_press_from_parts`
+    /// to derive `is_defending`. No other code should need to call this.
+    pub(crate) fn effective_possession(&self) -> Option<PlayerSlot> {
+        if let Some(slot) = self.possession {
+            return Some(slot);
+        }
+        if let Some(bif) = self.ball_in_flight
+            && bif.outcome_is_success
+        {
+            return Some(bif.intended_receiver);
+        }
+        None
     }
 
     /// The most recent player slot to touch the ball (T1-3.5).
@@ -1231,6 +1312,11 @@ fn resolve_goalmouth_defending(mut state: MatchState) -> MatchState {
                     state.ball.vel_x = CLEARANCE_SPEED;
                     state.ball.vel_y = Q32::ZERO;
                     state.possession = None;
+                    // SLICE-1: a defender clearance interrupts any pass-in-flight
+                    // — the ball is now a genuine loose ball heading upfield, not
+                    // a directed pass. Clear the flight so the receiver un-freezes
+                    // and the ball becomes claimable by the normal pickup path.
+                    state.ball_in_flight = None;
                     let p_slot = state.players[slot_idx].slot;
                     state.last_touched_by = Some(p_slot);
                 }
@@ -1278,6 +1364,9 @@ fn resolve_goalmouth_defending(mut state: MatchState) -> MatchState {
                     state.ball.vel_x = -CLEARANCE_SPEED;
                     state.ball.vel_y = Q32::ZERO;
                     state.possession = None;
+                    // SLICE-1: see home-branch note — clear the flight on a
+                    // defender clearance so the cleared ball is genuinely loose.
+                    state.ball_in_flight = None;
                     let p_slot = state.players[slot_idx].slot;
                     state.last_touched_by = Some(p_slot);
                 }
@@ -1495,7 +1584,14 @@ fn emit_possession_transition_events(
     state: &mut MatchState,
     possession_before: Option<PlayerSlot>,
 ) {
-    let possession_after = state.possession;
+    // SLICE-1: use effective_possession for the "after" side so a successful
+    // in-flight pass is NOT treated as a PossessionLost event. The ball is
+    // still the passing team's — only the timing of the transfer is delayed.
+    // Using `state.possession` here (which is None during a flight) would
+    // falsely emit PossessionLost on every successful pass launch, causing the
+    // tactic FSM to drop both teams into defensive CounterAttack mode during
+    // every pass, collapsing build-up and killing goal rate.
+    let possession_after = state.effective_possession();
     match (possession_before, possession_after) {
         (Some(a), None) => {
             // Release without pickup this tick: PossessionLost only.
@@ -1633,6 +1729,120 @@ const TACKLE_COOLDOWN_TICKS: u32 = 18;
 /// site (0x5A7E) or SS2 dispersion sites (0x0001..0x0003).
 /// Mnemonic: 0x7AC1 ≈ "TACL".
 const TACKLE_ROLL_SITE: u32 = 0x7AC1;
+
+// ---------------------------------------------------------------------------
+// SLICE-1: trap_check_in_flight
+// ---------------------------------------------------------------------------
+
+/// Trap radius for a directed pass (deliberate first-touch).
+///
+/// 4.0 metres — generous enough to handle receiver drift during the ball's
+/// flight, but tighter than the 5m loose-ball pickup radius so the in-flight
+/// guard still distinguishes a trap from a random pickup.
+///
+/// Design note: the ball is aimed at the receiver's LAUNCH-TICK position.
+/// During flight (20-50 ticks) the receiver moves at up to ~7.5 m/s
+/// (0.125 m/tick), drifting ~2-6m from the target point. A 4m trap radius
+/// catches receivers who stay broadly in position without freezing them.
+///
+/// Tuning value — can be tightened in Slice 2 once player movement-to-meet
+/// the ball is implemented.
+const TRAP_RADIUS_M: Q32 = Q32::from_raw(17_179_869_184_i64); // 4.0 × 2^32
+
+/// After this many ticks without the ball reaching the intended receiver,
+/// force-clear the flight state. 120 ticks = 2 seconds at 60 Hz, covering
+/// even a 30 m pass at 17.5 m/s (≈ 103 ticks) with margin.
+///
+/// Tuning value from docs/design/ball-in-flight-model-2026-06-06.md §Tuning.
+const FLIGHT_TIMEOUT_TICKS: i64 = 120;
+
+/// Check whether an in-flight pass has arrived (ball within `TRAP_RADIUS_M`
+/// of the intended receiver) or timed out, and resolve possession accordingly.
+///
+/// ## Call site
+///
+/// Called once per tick in `tick_match` AFTER `ball_step` and BEFORE
+/// `dispatch_tick`. Skipped on goal ticks.
+///
+/// ## Arrival (success)
+///
+/// When `dist(ball, receiver) ≤ TRAP_RADIUS_M` and `outcome_is_success`:
+/// - Grant `possession = Some(receiver_slot)`.
+/// - Snap ball to receiver's feet; zero velocity.
+/// - Clear `ball_in_flight = None`.
+///
+/// ## Arrival (failure)
+///
+/// When `outcome_is_success = false` on arrival: drop the ball loose at the
+/// current ball position (no snap to receiver). Possession stays `None`.
+/// Clear `ball_in_flight = None`.
+///
+/// ## Timeout
+///
+/// After `FLIGHT_TIMEOUT_TICKS` ticks: if `outcome_is_success`, GRANT
+/// possession to the receiver even though they are out of range (successful
+/// pass — the receiver gets the ball regardless). If `!outcome_is_success`,
+/// the ball is already heading loose; drop it at its current position.
+/// Clear `ball_in_flight = None` either way.
+///
+/// ## Determinism
+///
+/// Pure function of canonical `state` fields (Q32 positions, integers). No
+/// RNG draw. `assert!` (not `debug_assert!`) for invariants per Sim/RULES.md §11.
+fn trap_check_in_flight(mut state: MatchState) -> MatchState {
+    let bif = match state.ball_in_flight {
+        Some(b) => b,
+        None => return state,
+    };
+
+    assert!(
+        (bif.intended_receiver as usize) < TOTAL_PLAYERS,
+        "ball_in_flight.intended_receiver {} is out of range (must be < {TOTAL_PLAYERS})",
+        bif.intended_receiver
+    );
+    assert!(
+        bif.launch_tick.to_raw() <= state.tick.to_raw(),
+        "ball_in_flight.launch_tick {:?} is in the future (current tick {:?})",
+        bif.launch_tick,
+        state.tick
+    );
+
+    let ticks_in_flight = state.tick.to_raw() - bif.launch_tick.to_raw();
+    let recv_idx = bif.intended_receiver as usize;
+
+    let bx = state.ball.pos_x;
+    let by = state.ball.pos_y;
+    let px = state.players[recv_idx].pos_x;
+    let py = state.players[recv_idx].pos_y;
+    let dx = px - bx;
+    let dy = py - by;
+    let dist_sq = dx * dx + dy * dy;
+    let trap_sq = TRAP_RADIUS_M * TRAP_RADIUS_M;
+
+    let arrived = dist_sq <= trap_sq;
+    let timed_out = ticks_in_flight > FLIGHT_TIMEOUT_TICKS;
+
+    if arrived || timed_out {
+        if bif.outcome_is_success {
+            // Grant possession: snap ball to receiver's current position.
+            state.possession = Some(bif.intended_receiver);
+            state.last_touched_by = Some(bif.intended_receiver);
+            state.ball.pos_x = state.players[recv_idx].pos_x;
+            state.ball.pos_y = state.players[recv_idx].pos_y;
+            state.ball.vel_x = Q32::ZERO;
+            state.ball.vel_y = Q32::ZERO;
+            state.ball.vel_z = Q32::ZERO;
+        }
+        // Failed pass on arrival: possession stays None; ball drops loose at
+        // current position (existing ball_step physics already carries it
+        // toward the target area; no additional deflection in Slice 1 —
+        // Slice 2 adds the seeded deflection at the arrival point).
+        // Clear flight state either way.
+        state.ball_in_flight = None;
+    }
+
+    state
+}
 
 /// Resolve tackle attempts for all defending players who are within
 /// `TACKLE_RADIUS_SQ` of the current ball carrier.
@@ -2312,6 +2522,10 @@ pub fn tick_match(
                         let gk_slot_id = state.players[gk_slot_idx].slot;
                         state.possession = Some(gk_slot_id);
                         state.last_touched_by = Some(gk_slot_id);
+                        // SLICE-1: the GK claimed the ball at the goal line —
+                        // any pass-in-flight is moot. Clear it to preserve the
+                        // ball_in_flight ⇒ possession.is_none() invariant.
+                        state.ball_in_flight = None;
                         // goal_fired_this_tick stays false — step 3 OOB skipped.
                         // Ball is at GK body position (≤ 45m) so step 3's bx_abs
                         // check passes naturally; no further action needed.
@@ -2344,6 +2558,10 @@ pub fn tick_match(
                         let gk_slot_id = state.players[gk_slot_idx].slot;
                         state.possession = Some(gk_slot_id);
                         state.last_touched_by = Some(gk_slot_id);
+                        // SLICE-1: GK save claims the ball — clear any pending
+                        // flight to preserve the ball_in_flight ⇒
+                        // possession.is_none() invariant.
+                        state.ball_in_flight = None;
                         // `goal_fired_this_tick` stays false — the ball is near the
                         // goal line but the GK holds it. Step 3 (OOB clamp) will
                         // see ball at GK position (just inside the line) and
@@ -2390,6 +2608,11 @@ pub fn tick_match(
                             score_away_after,
                         });
                         state.ball = BallState::centre_spot();
+                        // SLICE-1: a goal fires the canonical possession reset;
+                        // clear any pending flight so the invariant
+                        // (ball_in_flight.is_some() ⇒ possession.is_none()) holds
+                        // and a stale trap can't re-grant possession next tick.
+                        state.ball_in_flight = None;
                         // Codex 2026-05-16 audit code-reviewer Critical #1: the
                         // conceding team kicks off after a goal (football rule).
                         let kick_off_taker: PlayerSlot = if home_scored {
@@ -2515,6 +2738,17 @@ pub fn tick_match(
                     tactic_fsm::TacticEvent::BallOutOfPlay { kind: away_kind },
                     state.tick,
                 );
+
+                // SLICE-1: a pass in flight that crosses the sideline / a
+                // non-goal goal-line did NOT reach the receiver in bounds — the
+                // ball is now dead at the boundary (a set-piece). Clear the
+                // flight here. Without this, ball_in_flight lingers until the
+                // 120-tick timeout, which then teleports possession to the
+                // (frozen, receiver-suppressed) receiver far from the dead ball
+                // — a long possession-None dead period that suppresses goals.
+                // Clearing here also preserves the `ball_in_flight.is_some() ⇒
+                // possession.is_none()` invariant against the timeout grant.
+                state.ball_in_flight = None;
             }
         }
 
@@ -2532,10 +2766,26 @@ pub fn tick_match(
         // would conflict with the Goal-reset intent). The Goal arm is the
         // single source of truth for goal-driven tactic-FSM transitions; the
         // snapshot starts AFTER it to skip the kickoff-possession change.
-        let possession_before_dispatch = state.possession;
+        // SLICE-1: snapshot effective_possession (not raw possession) BEFORE
+        // dispatch. Using effective_possession means an in-flight successful
+        // pass counts as the passing team's possession throughout the flight,
+        // so emit_possession_transition_events sees a same-team transfer
+        // (passer→receiver) rather than a PossessionLost+BallRecovered cycle
+        // on every pass tick.
+        let eff_possession_before_dispatch = state.effective_possession();
 
         // Step 4 (was step 2): advance ball physics AFTER goal detection + OOB clamp.
         state.ball = ball_physics::ball_step(&state.ball, &ball_physics::phase1_seeds());
+
+        // Step 4b (SLICE-1): trap check for in-flight passes. Runs AFTER ball
+        // physics (so the ball has moved this tick before we check proximity)
+        // and BEFORE dispatch (so the receiver-suppression guard in dispatch_tick
+        // sees the cleared ball_in_flight when the ball has already arrived).
+        // Skipped on goal ticks: goal handling clears possession/ball state
+        // authoritatively; a concurrent trap would conflict.
+        if !goal_fired_this_tick {
+            state = trap_check_in_flight(state);
+        }
 
         // Step 5 (T1-2b-ii): 2 Hz tactic-FSM heartbeat (every 30 ticks per team).
         // Home team heartbeat: tick % 30 == 0.
@@ -2652,7 +2902,14 @@ pub fn tick_match(
         let ball_speed_sq =
             state.ball.vel_x * state.ball.vel_x + state.ball.vel_y * state.ball.vel_y;
         let pickup_speed_sq = PICKUP_MAX_SPEED_MPS * PICKUP_MAX_SPEED_MPS;
-        if !goal_fired_this_tick && state.possession.is_none() && ball_speed_sq < pickup_speed_sq {
+        // SLICE-1: also gate on ball_in_flight.is_none() — an in-flight pass
+        // must not be stolen by the generic pickup; only trap_check_in_flight
+        // may grant possession during a pass flight.
+        if !goal_fired_this_tick
+            && state.possession.is_none()
+            && state.ball_in_flight.is_none()
+            && ball_speed_sq < pickup_speed_sq
+        {
             let bx = state.ball.pos_x;
             let by = state.ball.pos_y;
             let mut best_slot: Option<u8> = None;
@@ -2710,7 +2967,7 @@ pub fn tick_match(
         // mutating steps (dispatch_tick fires shot/pass intents that mutate
         // possession; the pickup block above converts None → Some when a player
         // claims a settled loose ball). Compares `state.possession` against
-        // `possession_before_dispatch` captured above (just after the Goal block).
+        // `eff_possession_before_dispatch` captured above (just after the Goal block).
         // See `emit_possession_transition_events` for the transition taxonomy.
         //
         // **Codex Tier-2 audit 2026-05-17 P1**: also skipped on goal_fired_
@@ -2721,7 +2978,10 @@ pub fn tick_match(
         // PossessionLost / BallRecovered, overriding the post-goal MidBlock
         // reset).
         if !goal_fired_this_tick {
-            emit_possession_transition_events(&mut state, possession_before_dispatch);
+            // SLICE-1: pass eff_possession_before_dispatch (not possession_before_dispatch)
+            // so that tactic FSM events use effective possession, which treats an
+            // in-flight successful pass as the passing team still owning the ball.
+            emit_possession_transition_events(&mut state, eff_possession_before_dispatch);
         }
 
         // Step 8 (T1-2b-iii-d): player-separation positional correction.

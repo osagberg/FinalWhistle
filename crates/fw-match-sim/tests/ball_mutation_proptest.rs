@@ -208,10 +208,16 @@ proptest! {
                 state.ball.vel_x,
                 state.ball.vel_y,
             );
-            // Possession transferred to receiver.
+            // SLICE-1 (ball-in-flight-model): possession no longer transfers at
+            // LAUNCH. A completed pass sets possession = None and records a
+            // BallInFlight; possession transfers to the receiver on ARRIVAL
+            // (handled by trap_check_in_flight). The pass is "in flight" here,
+            // so possession must be None and the ball must be travelling. The
+            // outcome is unchanged — only the timing of the transfer is delayed.
             prop_assert!(
-                state.possession().is_some(),
-                "completed pass must set possession to the receiver"
+                state.possession().is_none(),
+                "SLICE-1: a completed pass sets possession None at launch \
+                 (ball in flight); transfer happens on arrival"
             );
         } else {
             // On failure: possession cleared; ball stopped dead near passer.

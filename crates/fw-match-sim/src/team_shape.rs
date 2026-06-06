@@ -490,10 +490,18 @@ pub fn compute(team_idx: usize, state: &MatchState) -> TeamShape {
     let block_centroid_x = sum_x * inv10;
     let block_centroid_y = sum_y * inv10;
 
-    // is_defending: true when the opposing team has possession OR ball is loose.
+    // is_defending: true when the opposing team has effective possession OR ball is loose.
+    //
+    // SLICE-1: use `effective_possession()` instead of `state.possession` so
+    // that a successful pass in flight counts as the passing team still being
+    // in possession. Without this fix, every pass flight sets possession=None
+    // and both teams drop into defensive shape, collapsing build-up play and
+    // goal rate.
+    //
     // Home team slots: 0..11 (u8 0-10); away team slots: 11..22 (u8 11-21).
-    // When possession is Some(slot): if slot < 11 → home has ball → home is NOT defending.
-    let is_defending = match state.possession {
+    // When effective possession is Some(slot): if slot < 11 → home has ball →
+    // home is NOT defending.
+    let is_defending = match state.effective_possession() {
         Some(carrier_slot) => {
             let carrier_is_home = (carrier_slot as usize) < crate::PLAYERS_PER_TEAM;
             // Defending ⟺ the carrier is on the OPPOSING team.
@@ -503,7 +511,8 @@ pub fn compute(team_idx: usize, state: &MatchState) -> TeamShape {
                 carrier_is_home
             }
         }
-        // Loose ball: treat both teams as defending (block-hold = safe default).
+        // Loose ball (or failed pass in flight): treat both teams as defending
+        // (block-hold = safe default).
         None => true,
     };
 

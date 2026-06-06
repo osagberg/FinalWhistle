@@ -143,7 +143,7 @@
     schema_version: 1,
     seed: "0xfeedbeefcafefade",
     tick_count: 600,
-    expected_hash: "blake3:25eb3f182cdd738a890cc28b36ab284ce779d3aa913b8f64822ba44af6a0af41",
+    expected_hash: "blake3:c827d1904036f59e4aa5a7ff28cc3ce37317efc93bf0dad62fe160d791777f46",
     metadata: (
         description: "Layer 3 interception attribute in pass completion: nearest lane defender's iq modulates lane_gate. Authorized 2026-06-06 (interceptions-matter campaign).",
         generated_at: "2026-06-06",
