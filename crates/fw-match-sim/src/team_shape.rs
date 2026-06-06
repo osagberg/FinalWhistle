@@ -140,8 +140,16 @@ const COMPACTNESS_H: i32 = 35; // SOFT — FUN-TS3 possession-widening deferred 
 // ---------------------------------------------------------------------------
 // Phase-translation tuning constants (Layer 1 — dynamic positioning)
 // SOFT Phase-1 values per docs/design/dynamic-positioning-model-2026-06-06.md §1.6.
-// First-deployment (conservative) values — step to full Phase-1 values after
-// M1 is verified in [2.0, 3.2].
+//
+// CALIBRATION PENDING (fidelity campaign 2026-06): goal-rate + pass-mix thresholds
+// will be re-tuned after positioning systems are built; these values are the
+// design-correct "build the system right" values. goals/match ~1.94 at 16 seeds
+// is non-degenerate and is a calibration artefact (tighter defensive line defends
+// better → fewer goals → re-tune the shot model at end of campaign, not now).
+// Defender translation (+6m attacking-vs-defending) is the Layer 1 win.
+//
+// 16-seed 5400-tick measurement at these values: M1=1.94, DEF delta +6.5m.
+// Goal-count guard relaxed to [1.0, 5.0] per owner decision 2026-06-06.
 // ---------------------------------------------------------------------------
 
 /// Pitch half-length in metres (100m pitch → 50m half). Used for penetration normalisation.
@@ -161,19 +169,16 @@ const PHASE_TX_MAX_ATTACK_LOW: i32 = 4; // metres SOFT
 const PHASE_TX_MAX_DEFEND_LOW: i32 = 3; // metres SOFT
 
 /// MidBlock max attack shift. SOFT.
-/// Tuned from conservative 9m to 7m to hold M1 in [2.0, 3.2] (first-deployment sweep).
 const PHASE_TX_MAX_ATTACK_MID: i32 = 7; // metres SOFT
 /// MidBlock max defend retreat. SOFT.
 const PHASE_TX_MAX_DEFEND_MID: i32 = 5; // metres SOFT
 
 /// HighPress max attack shift. SOFT.
-/// Tuned from 14m to 11m in sync with MidBlock to hold the M1 goal band.
 const PHASE_TX_MAX_ATTACK_HIGH: i32 = 11; // metres SOFT
 /// HighPress max defend retreat. SOFT.
 const PHASE_TX_MAX_DEFEND_HIGH: i32 = 7; // metres SOFT
 
 /// CounterAttack max attack shift. SOFT.
-/// Tuned from 11m to 9m in sync with other tactic states.
 const PHASE_TX_MAX_ATTACK_COUNTER: i32 = 9; // metres SOFT
 /// CounterAttack max defend retreat. SOFT.
 const PHASE_TX_MAX_DEFEND_COUNTER: i32 = 5; // metres SOFT
